@@ -273,6 +273,9 @@ private:
     bool repeatableFrames{ false };
     // the last time that a tool set, in double. simulationTime is its float while no frame has run the sea since
     double commandedTime{ 0.0 };
+    // true in a frame whose time a tool set (frame.time, or a frame.step frame): the foam drift is then placed at
+    // velocity x commandedTime, so it depends on the time alone and not on the steps that reached it
+    bool foamDriftPinned{ false };
     // a tool step: the paused sea advances stepSeconds per frame for stepFramesLeft frames. The time is computed as
     // stepBaseTime + stepIndex x stepSeconds in double, so it does not collect rounding error from frame to frame
     int32_t stepFramesLeft{ 0 };

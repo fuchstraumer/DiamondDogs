@@ -250,11 +250,19 @@ OceanSurfaceGBufferOutput OceanSurfaceGBufferFS(OceanSurfaceVaryings input)
 
     if (needFoamSampling)
     {
-        material = SampleFoamMaterial(input.SurfaceXZ);
-        if (persistent && maxResidualArea > 0.0f)
+        // the whole wave samples, so that the implicit derivatives stay valid, but only a pixel with foam keeps the
+        // result. Otherwise a pixel's output would depend on which pixels share its wave, which changes per frame
+        const FoamMaterial sampled = SampleFoamMaterial(input.SurfaceXZ);
+
+        if (candidateFoam > 1.0e-4f)
         {
-            const float residual = EvaluateResidualFoam(input.SurfaceXZ, ddxXz, ddyXz, storedFoam, material.Mask);
-            whitecaps = max(breaking, residual);
+            material = sampled;
+
+            if (persistent && maxResidualArea > 0.0f)
+            {
+                const float residual = EvaluateResidualFoam(input.SurfaceXZ, ddxXz, ddyXz, storedFoam, material.Mask);
+                whitecaps = max(breaking, residual);
+            }
         }
     }
 

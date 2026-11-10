@@ -83,6 +83,9 @@ namespace ocean
          *  Call it once per frame, with the step that the simulation time advanced by (0 when paused). RecordStep
          *  uses the result */
         void Advance(double delta_seconds, std::array<float, 2> camera_xz, float wind_direction_radians, float wind_speed) noexcept;
+        /** @brief Advance with the drift placed at `drift` instead of moved from where it was. For a time that a tool
+         *  set: the drift is then a function of that time, so a jump and steps to one time give the same foam */
+        void AdvanceTo(const std::array<double, 2>& drift, double delta_seconds, std::array<float, 2> camera_xz) noexcept;
         /** @brief Writes the foam fields of the view parameters (PersistentFoamParameters, FoamDrift and
          *  FoamResidualParameters in OceanRenderCommon.slang). Call it after Advance */
         void FillView(std::array<float, 4>& persistent_foam_parameters, std::array<float, 4>& foam_drift, std::array<float, 4>& foam_residual) const noexcept;

@@ -2967,6 +2967,7 @@ void OceanScene::update()
         commandedTime = stepBaseTime + static_cast<double>(stepIndex) * stepSeconds;
         simulationTime = static_cast<float>(commandedTime);
         foamStep = stepSeconds;
+        foamDriftPinned = true;
     }
     else if (!paused)
     {
@@ -3001,7 +3002,21 @@ void OceanScene::advanceFoam(double delta_seconds)
     // centered on the orbit target, not the eye: zoom and orbit then leave the window where it is, so a paused
     // camera move does not scroll it and replay the foam
     const math::Float3 target = camera.Current.Target;
-    foam->Advance(delta_seconds, { target[0], target[2] }, spectrum.LocalWindDirection, spectrum.WindSpeed);
+    const std::array<float, 2> center{ target[0], target[2] };
+
+    // a time that a tool set places the drift by that time alone. Accumulated, a jump to T and steps to T would sample
+    // the foam texture at different offsets
+    if (foamDriftPinned)
+    {
+        const std::array<double, 2> velocity = foam->DriftVelocity(spectrum.LocalWindDirection, spectrum.WindSpeed);
+
+        foam->AdvanceTo({ velocity[0] * commandedTime, velocity[1] * commandedTime }, delta_seconds, center);
+        foamDriftPinned = false;
+    }
+    else
+    {
+        foam->Advance(delta_seconds, center, spectrum.LocalWindDirection, spectrum.WindSpeed);
+    }
 
     FoamReplayInputs inputs{};
     inputs.Foam = foam->Settings();

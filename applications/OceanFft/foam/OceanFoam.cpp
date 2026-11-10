@@ -297,8 +297,15 @@ namespace ocean
     void OceanFoam::Advance(double delta_seconds, std::array<float, 2> camera_xz, float wind_direction_radians, float wind_speed) noexcept
     {
         const std::array<double, 2> velocity = DriftVelocity(wind_direction_radians, wind_speed);
-        impl->Drift[0] += velocity[0] * delta_seconds;
-        impl->Drift[1] += velocity[1] * delta_seconds;
+        const std::array<double, 2> moved{ impl->Drift[0] + velocity[0] * delta_seconds,
+                                           impl->Drift[1] + velocity[1] * delta_seconds };
+
+        AdvanceTo(moved, delta_seconds, camera_xz);
+    }
+
+    void OceanFoam::AdvanceTo(const std::array<double, 2>& drift, double delta_seconds, std::array<float, 2> camera_xz) noexcept
+    {
+        impl->Drift = drift;
         impl->DeltaSeconds = delta_seconds;
         impl->Center = camera_xz;
 

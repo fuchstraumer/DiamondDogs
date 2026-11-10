@@ -2096,6 +2096,7 @@ void OceanScene::ToolSurface::FrameTimeCommand::Run(const Params& params, agent:
     Scene.stepFramesLeft = 0;
     Scene.commandedTime = params.Time;
     Scene.simulationTime = static_cast<float>(params.Time);
+    Scene.foamDriftPinned = true;
     // the foam is history: a replay rebuilds it for the new time, as if the sea had run up to it
     Scene.foamReplayPending = true;
 
