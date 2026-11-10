@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "LoomDiagnostic.hpp"
-#include "JsonWriter.hpp"
+#include "content/JsonWriter.hpp"
 #include <cstdint>
 #include <format>
 #include <source_location>
@@ -137,28 +137,28 @@ TEST(LoomDiagnosticJson, SinkWritesOneLinePerRecord)
 
 TEST(LoomJsonWriter, EscapesControlCharactersWithTwoHexDigits)
 {
-    loom::detail::JsonWriter writer{ loom::detail::JsonStyle::Compact };
+    foundation::content::JsonWriter writer{ foundation::content::JsonStyle::Compact };
     writer.String(std::string_view{ "a\x01" "b\x1f" "c\\d\"e", 9 });
 
-    const loom::detail::JsonResult<std::string> document = writer.Finish();
+    const foundation::content::JsonResult<std::string> document = writer.Finish();
     ASSERT_TRUE(document.has_value());
     EXPECT_EQ(*document, R"("a\u0001b\u001fc\\d\"e")");
 }
 
 TEST(LoomJsonWriter, UnclosedContainerFails)
 {
-    loom::detail::JsonWriter writer{ loom::detail::JsonStyle::Compact };
+    foundation::content::JsonWriter writer{ foundation::content::JsonStyle::Compact };
     writer.BeginObject();
     writer.KeyInt("a", 1);
 
-    const loom::detail::JsonResult<std::string> document = writer.Finish();
+    const foundation::content::JsonResult<std::string> document = writer.Finish();
     ASSERT_FALSE(document.has_value());
-    EXPECT_EQ(document.error(), loom::detail::JsonWriterError::UnbalancedContainers);
+    EXPECT_EQ(document.error(), foundation::content::JsonWriterError::UnbalancedContainers);
 }
 
 TEST(LoomJsonWriter, PrettyStyleIndents)
 {
-    loom::detail::JsonWriter writer{ loom::detail::JsonStyle::Pretty };
+    foundation::content::JsonWriter writer{ foundation::content::JsonStyle::Pretty };
     writer.BeginObject();
     writer.KeyInt("a", 1);
     writer.Key("b");
@@ -167,7 +167,7 @@ TEST(LoomJsonWriter, PrettyStyleIndents)
     writer.EndArray();
     writer.EndObject();
 
-    const loom::detail::JsonResult<std::string> document = writer.Finish();
+    const foundation::content::JsonResult<std::string> document = writer.Finish();
     ASSERT_TRUE(document.has_value());
     EXPECT_EQ(*document, "{\n    \"a\": 1,\n    \"b\": [\n        true\n    ]\n}");
 }

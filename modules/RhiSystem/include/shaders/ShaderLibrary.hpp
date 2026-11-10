@@ -20,6 +20,7 @@ namespace lodestone
 
 namespace rhi
 {
+    class ShaderBundle;
     class ShaderProgram;
     struct ManifestProgramImpl;
     struct ShaderLibraryImpl;
@@ -109,6 +110,8 @@ namespace rhi
         /** @brief Returns the query surface of one module, used to pick a variant by its axis values.
          *  The returned index lives as long as this library. */
         [[nodiscard]] ShaderLibraryResult<const lodestone::ManifestIndex*> ModuleIndex(std::string_view module_name) const;
+        /** @brief The device-free half of this library, for a compile-time reader such as Loom's Resolve stage. */
+        [[nodiscard]] const ShaderBundle& Bundle() const noexcept;
 
         /** @brief Builds a program from the named entry points of one variant. The layouts are merged across the
          *  entry points, so a resource that two stages read appears once with both stage bits. */

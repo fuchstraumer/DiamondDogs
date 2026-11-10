@@ -33,6 +33,11 @@ void ResourceContextTest::TearDown()
 
 void ResourceContextTest::RecreateContext(int32_t max_futures)
 {
+    RecreateContextWithRing(max_futures, k_DefaultStagingRingSize);
+}
+
+void ResourceContextTest::RecreateContextWithRing(int32_t max_futures, uint64_t staging_ring_size)
+{
     context.reset();
     context = std::make_unique<ResourceContext>();
     const ResourceContextCreateInfo createInfo
@@ -42,7 +47,8 @@ void ResourceContextTest::RecreateContext(int32_t max_futures)
         rhiSystem->GetVulkanApiVersion(),
         true,
         false,
-        max_futures
+        max_futures,
+        staging_ring_size
     };
     ASSERT_EQ(context->Initialize(createInfo), ResourceContextError::Success);
 }

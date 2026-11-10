@@ -29,26 +29,24 @@ function(add_module NAME)
     diamond_dogs_add_pch(${NAME} LIBRARY)
 endfunction()
 
-
-#add_subdirectory(ecs_module)
-#add_subdirectory(rendergraph_module)
-#add_subdirectory(TaskGraph)  # Shelved - coroutine-based task system for later
 add_subdirectory(RhiSystem)
 add_subdirectory(PlatformSystem)
 add_subdirectory(RhiResources)
-add_subdirectory(Loom)
+add_subdirectory(RenderGraph)
 # copies rendered images out to PNG files
 add_subdirectory(FrameCapture)
 # fills mip chains with compute shaders (NvproPyramid)
 add_subdirectory(GpuPyramid)
 # color math for the HDR pipe: gamut matrices, luminance, transfer functions and Kelvin, in double
 add_subdirectory(ColorPipe)
+# the noise field library (Slang) and its cook; the C++ side comes with the content compiler kinds
+add_subdirectory(NoiseGraph)
 # This module provides imgui as a basic debugging UI
 # that sits just BARELY over the resource and rendering contexts
 add_subdirectory(ImGuiModule)
 # input control space, frame assembly, and record and replay; no platform source yet
 add_subdirectory(InputSystem)
-#add_subdirectory(material_module)
-#add_subdirectory(content_compiler)
-#add_subdirectory(terrain_module)
-#add_subdirectory(vtf_module)
+# recipes, kinds and ingestion of the content compiler; depends on foundation only
+add_subdirectory(ContentCompiler)
+# the self-describing tool surface for agents; depends on foundation only
+add_subdirectory(AgentTools)

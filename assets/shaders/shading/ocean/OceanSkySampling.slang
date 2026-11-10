@@ -5,13 +5,12 @@ implementing OceanRender;
 internal static const float k_SkyInvPi = 0.31830988618379067154f;
 internal static const float k_SkyInv2Pi = 0.15915494309189533576f;
 
-[ForceInline]
 internal float FastAcos(float x)
 {
     return acos(clamp(x, -1.0f, 1.0f));
 }
 
-[ForceInline]
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
 internal float3 SampleEquirectangularSkyGrad(Texture2D<float4> skyTex, SamplerState skySampler, float3 dir, float2 ddxUv, float2 ddyUv, float roughnessBias)
 {
     const float phi = atan2(dir.z, dir.x);

@@ -86,6 +86,32 @@ TEST_F(ResourceContextTest, InitialDataRegionsAreWrittenBackToBack)
     EXPECT_EQ(ReadBackWords(buffer, totalBytes), expected);
 }
 
+TEST_F(ResourceContextTest, ManyInitialDataRegionsAreWrittenBackToBack)
+{
+    // more than two regions, because the start of each region depends on all the regions before it
+    const std::array<std::vector<uint32_t>, 4> regions
+    {
+        MakeWordPattern(100u, 1u),
+        MakeWordPattern(28u, 2u),
+        MakeWordPattern(64u, 3u),
+        MakeWordPattern(12u, 4u),
+    };
+
+    std::array<RhiBufferResourceData, 4> data{};
+    std::vector<uint32_t> expected;
+
+    for (size_t index = 0u; index < regions.size(); ++index)
+    {
+        data[index] = RhiBufferResourceData{ std::as_bytes(std::span{ regions[index] }), 0u };
+        expected.insert(expected.end(), regions[index].begin(), regions[index].end());
+    }
+
+    const size_t totalBytes = expected.size() * sizeof(uint32_t);
+    const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(totalBytes), data);
+
+    EXPECT_EQ(ReadBackWords(buffer, totalBytes), expected);
+}
+
 TEST_F(ResourceContextTest, SetBufferDataReplacesContents)
 {
     const std::vector<uint32_t> words = MakeWordPattern(256u, 7u);

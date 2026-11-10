@@ -5,12 +5,25 @@ set(FOUNDATION_TEST_SOURCES
     test_main.cpp
 
     # Async tests
+    async/test_frame_heap.cpp
+    async/test_post_and_yield.cpp
     async/test_task_scheduler.cpp
 
     # Content key tests
+    content/test_bytes_sink.cpp
     content/test_encode.cpp
+    content/test_encode_erased.cpp
+    content/test_json_sink.cpp
     content/test_keys.cpp
     content/test_text_sink.cpp
+
+    # Socket tests, over real loopback connections
+    net/test_socket.cpp
+
+    # Reflection tests
+    reflect/test_describe.cpp
+    reflect/test_type_info.cpp
+    reflect/test_value_access.cpp
 
     # Threading tests
     threading/test_atomic128.cpp
@@ -21,12 +34,17 @@ set(FOUNDATION_TEST_SOURCES
     threading/test_precision_timer.cpp
     
     # Container tests
+    containers/LifetimeTracked.cpp
     containers/test_circular_buffer.cpp
+    containers/test_lru_cache.cpp
     containers/test_mwsr_queue.cpp
+    containers/test_ring_allocator.cpp
+    containers/test_small_vector.cpp
     
     # Utility tests
     utility/test_delegate.cpp
     utility/test_multicast_delegate.cpp
+    utility/test_mimalloc_override.cpp
     utility/test_murmur_hash.cpp
     utility/test_tagged_bool.cpp
     utility/test_xxhash.cpp

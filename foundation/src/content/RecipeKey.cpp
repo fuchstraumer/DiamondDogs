@@ -1,6 +1,8 @@
 #include "content/RecipeKey.hpp"
+#include "content/CanonicalSink.hpp"
 #include "content/HashSink.hpp"
 #include "content/Key.hpp"
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -16,7 +18,7 @@ namespace foundation::content
 {
     namespace detail
     {
-        void BeginRecipeKey(HashSink& sink, std::string_view kind, uint32_t kind_version)
+        void BeginRecipeKey(CanonicalSink& sink, std::string_view kind, uint32_t kind_version)
         {
             sink.WriteString(k_RecipeDomain);
             sink.WriteInt(k_EncodingVersion, 4, false);
@@ -24,7 +26,7 @@ namespace foundation::content
             sink.WriteInt(kind_version, 4, false);
         }
 
-        void AppendRecipeInputs(HashSink& sink, std::span<const RecipeInput> inputs)
+        void AppendRecipeInputs(CanonicalSink& sink, std::span<const RecipeInput> inputs)
         {
             sink.BeginArray(inputs.size());
 
@@ -35,9 +37,15 @@ namespace foundation::content
 
                 if (const RecipeKey* recipeKey = std::get_if<RecipeKey>(&input.Source))
                 {
+                    assert(!input.Output.empty() && "a recipe input needs the name of the output that it reads");
+
                     sink.WriteKeyBytes(recipeKey->Low, recipeKey->High);
+                    // the name and not the index, so that reordering the outputs of a kind keeps old keys
+                    sink.WriteString(input.Output);
                     continue;
                 }
+
+                assert(input.Output.empty() && "a blob input has no output");
 
                 const BlobKey& blobKey = std::get<BlobKey>(input.Source);
                 sink.WriteKeyBytes(blobKey.Low, blobKey.High);

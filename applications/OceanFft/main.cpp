@@ -5,6 +5,7 @@
 #include "PlatformSystem.hpp"
 #include "RhiSystem.hpp"
 #include "SceneCommands.hpp"
+#include "ToolServer.hpp"
 #define WIN32_LEAN_AND_MEAN
 // Windows.h first: libloaderapi.h and minwindef.h need the target architecture macros it sets
 #include <Windows.h>
@@ -34,7 +35,7 @@
 //   --validation=off  run without the validation layer even when it is installed, for the GPU timings panel
 //   --msaa=N         highest MSAA sample count: 1, 2, 4 or 8 (default 4). The scene uses the highest count up to N that
 //                    the device supports. 1 turns MSAA off
-//   --aniso=N        anisotropic filtering of the surface: 1, 2, 4, 8 or 16 (default 4). 1 turns it off
+//   --aniso=N        anisotropic filtering of the surface: 1, 2, 4, 8 or 16 (default 8). 1 turns it off
 //   --grid-resolution=N   quads per edge of the center tile (default 384). Each ring halves the one inside it, down to 6,
 //                    so N must be 6 times a power of two (192, 384, ...)
 // Capture and scripted control (see SceneCommands.hpp for the command language):
@@ -45,10 +46,16 @@
 //   --camera=YAW,PITCH,DISTANCE[,TX,TY,TZ]   initial camera, degrees and meters
 //   --script=FILE        run the commands in FILE between frames
 //   --stdin              also read commands from standard input
+//   --tool-port=N        serve agent tools on 127.0.0.1:N. 0 lets the system choose, and the demo prints the port
+// Window:
+//   --window=WxH         the size of the window (default 1920x1080)
+//   --borderless         a borderless window that covers the primary display, at the display's size
 namespace
 {
     constexpr std::array<uint32_t, 4> k_MsaaChoices{ 1u, 2u, 4u, 8u };
     constexpr std::array<uint32_t, 5> k_AnisotropyChoices{ 1u, 2u, 4u, 8u, 16u };
+    // ToolServer::Start refuses this, so a --tool-port that does not parse stops the demo
+    constexpr int32_t k_RefusedToolPort = -1;
 
     struct CommandLine
     {
@@ -56,6 +63,7 @@ namespace
         bool Unfused{ false };
         bool Stdin{ false };
         std::optional<std::string> Script;
+        std::optional<int32_t> ToolPort;
     };
 
     // The validation layer comes with the Vulkan SDK, not with the GPU driver. On a machine without the SDK the demo
@@ -174,6 +182,47 @@ namespace
         return result.ec == std::errc{} && result.ptr == text.data() + text.size();
     }
 
+    struct WindowArguments
+    {
+        uint32_t Width{ 1920u };
+        uint32_t Height{ 1080u };
+        bool Borderless{ false };
+        bool Valid{ true };
+    };
+
+    // the window exists before the other arguments are parsed, so these are looked for first
+    WindowArguments ParseWindowArguments(int argc, char* argv[])
+    {
+        WindowArguments window{};
+
+        for (int index = 1; index < argc; ++index)
+        {
+            const std::string_view argument{ argv[index] };
+
+            if (argument == "--borderless")
+            {
+                window.Borderless = true;
+                continue;
+            }
+
+            if (!argument.starts_with("--window="))
+            {
+                continue;
+            }
+
+            const std::string_view size = argument.substr(9);
+            const size_t separator = size.find('x');
+            const bool parsed = separator != std::string_view::npos &&
+                                ParseNumber(size.substr(0, separator), window.Width) &&
+                                ParseNumber(size.substr(separator + 1), window.Height);
+
+            window.Valid = parsed && window.Width >= 64u && window.Height >= 64u && window.Width <= 16384u &&
+                           window.Height <= 16384u;
+        }
+
+        return window;
+    }
+
     // true when the text is a number from choices, which is what each flag takes
     template<size_t N>
     bool ParseChoice(std::string_view text, const std::array<uint32_t, N>& choices, uint32_t& value)
@@ -214,6 +263,12 @@ namespace
             else if (argument.starts_with("--script=") || argument.starts_with("--commands="))
             {
                 command_line.Script = std::string{ argument.starts_with("--script=") ? argument.substr(9) : argument.substr(11) };
+            }
+            else if (argument.starts_with("--tool-port="))
+            {
+                int32_t port = 0;
+
+                command_line.ToolPort = ParseNumber(argument.substr(12), port) ? port : k_RefusedToolPort;
             }
             else if (argument.starts_with("--capture="))
             {
@@ -331,13 +386,21 @@ int main(int argc, char* argv[])
     };
     std::unique_ptr<rhi::RhiSystem> rhiSystem = std::make_unique<rhi::RhiSystem>(rhiCreateInfo);
 
+    const WindowArguments window = ParseWindowArguments(argc, argv);
+
+    if (!window.Valid)
+    {
+        std::cerr << "--window takes WIDTHxHEIGHT, each from 64 to 16384, for example --window=3440x1440\n";
+        return 1;
+    }
+
     const PlatformWindowCreateInfo platformCreateInfo
     {
         "DiamondDogs - OceanFft",
         nullptr, // use primary display
-        PlatformWindowMode::Windowed,
-        1920,
-        1080,
+        window.Borderless ? PlatformWindowMode::FullScreenWindowed : PlatformWindowMode::Windowed,
+        window.Width,
+        window.Height,
         100,
         100,
         60.0f,
@@ -363,9 +426,11 @@ int main(int argc, char* argv[])
     SceneCommands commands;
     if (commandLine.Script.has_value())
     {
-        if (const std::expected<void, std::string> loaded = commands.LoadScript(*commandLine.Script); !loaded.has_value())
+        const ScriptResult loaded = commands.LoadScript(*commandLine.Script);
+
+        if (loaded != ScriptResult::Success)
         {
-            std::cerr << "--script: " << loaded.error() << "\n";
+            std::cerr << "--script: " << ToString(loaded) << ": " << *commandLine.Script << "\n";
             return 1;
         }
     }
@@ -378,6 +443,22 @@ int main(int argc, char* argv[])
     if (commandLine.Script.has_value() || commandLine.Stdin)
     {
         settings.Commands = &commands;
+    }
+
+    agent::ToolServer toolServer;
+
+    if (commandLine.ToolPort.has_value())
+    {
+        const agent::ToolServerResult started = toolServer.Start(*commandLine.ToolPort);
+
+        if (started != agent::ToolServerResult::Success)
+        {
+            std::cerr << "--tool-port: " << agent::ToString(started) << ": " << *commandLine.ToolPort << "\n";
+            return 1;
+        }
+
+        std::cout << "tool server listening on 127.0.0.1:" << toolServer.Port() << std::endl;
+        settings.Tools = &toolServer;
     }
 
     int exitCode = 0;

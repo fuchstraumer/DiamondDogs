@@ -2,12 +2,11 @@
 #ifndef DIAMOND_DOGS_FOUNDATION_CONTENT_HASH_SINK_HPP
 #define DIAMOND_DOGS_FOUNDATION_CONTENT_HASH_SINK_HPP
 
-#include "content/CanonicalSink.hpp"
+#include "content/ByteStreamSink.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include <string_view>
 
 namespace foundation::content
 {
@@ -17,32 +16,21 @@ namespace foundation::content
         uint64_t High{ 0 };
     };
 
-    // Feeds XXH3-128 in streaming mode, so no buffer holds the encoded bytes.
-    class HashSink final : public CanonicalSink
+    // Feeds XXH3-128 in streaming mode, so no buffer holds the encoded bytes. The layout of the bytes is written
+    // by ByteStreamSink.
+    class HashSink final : public ByteStreamSink
     {
     public:
         HashSink() noexcept;
         ~HashSink() override;
 
-        void BeginStruct(std::string_view type_name) override;
-        void EndStruct() override;
-        void BeginField(std::string_view field_name) override;
-        void WriteBool(bool value) override;
-        void WriteInt(int64_t value, int32_t width_bytes, bool is_signed) override;
-        void WriteFloat32(float value) override;
-        void WriteFloat64(double value) override;
-        void WriteString(std::string_view value) override;
-        void WriteEnum(std::string_view type_name, std::string_view case_name) override;
-        void BeginArray(uint64_t count) override;
-        void EndArray() override;
-        void WriteOptional(bool present) override;
-        void WriteVariant(std::string_view alternative_name) override;
-        void WriteKeyBytes(uint64_t low, uint64_t high) override;
-
         // bytes of a blob, with no tag and no length. The caller writes the length first.
         void WriteRawBytes(std::span<const std::byte> bytes) noexcept;
 
         [[nodiscard]] Hash128 Finish() const noexcept;
+
+    protected:
+        void Append(const std::byte* data, size_t length) noexcept override;
 
     private:
         // The state is a fixed-size aligned buffer, so that xxhash.h stays out of this header and a key costs no

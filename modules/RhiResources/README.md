@@ -8,7 +8,7 @@ it. The context does the work on its own threads and returns a future at once.
 - A call on `ResourceContext` becomes a message. The message goes onto an MWSR queue, and the call returns its future.
 - The **worker thread** owns the EnTT registry and a VMA allocator. It validates each message, creates the objects,
   and writes host-visible data directly.
-- The **transfer thread** owns its own allocator, staging buffers, command pools and timeline semaphore. It records
+- The **transfer thread** owns its own allocator, the staging ring, command pools and timeline semaphore. It records
   and submits the uploads, fills and copies that device-local resources need, on the transfer queue. It sends a
   progress message back to the worker each time its completed ticket advances. That push never blocks.
 - Every resource uses concurrent sharing across the queue families, so no ownership transfer exists.
@@ -108,7 +108,7 @@ per-frame data for each frame in flight, and write only the copy that no submitt
 ## Failures
 
 - `Initialize` returns a `ResourceContextError`. On failure it starts no thread, and the context stays uninitialized.
-- A transfer that cannot get its staging buffer fails with `StagingFailed`. One that cannot get its command pool or
+- A transfer that cannot get its staging range or buffer fails with `StagingFailed`. An upload of 0 bytes also fails with it. One that cannot get its command pool or
   command buffer fails with `RecordingFailed`. Neither asserts.
 - A failed submit fails every future in that batch with `SubmitFailed`. The transfer thread then waits for the transfer
   queue to go idle and signals the timeline from the host, so that later tickets and waiters do not stall.
@@ -142,6 +142,39 @@ A consumer on another queue uses `Completion()`, which returns an `rhi::GpuWait`
 
 `Wait` on the CPU waits for the state to leave `Pending`, then for the ticket on the timeline, then for the final
 state. Only the transfer thread writes the final state of a transfer. A future makes no Vulkan object of its own.
+
+## The staging ring
+
+An upload to a device-local resource copies its bytes into host-visible memory first. The transfer thread owns one
+buffer for this, the staging ring. It is mapped for the life of the context, so an upload makes no buffer.
+
+- **Size.** `ResourceContextCreateInfo::StagingRingSize` sets the size in bytes. The default is
+  `k_DefaultStagingRingSize`, 64 MiB. A size below `k_MinStagingRingSize`, 1 MiB, makes `Initialize` return
+  `InvalidCreateInfo`.
+- **Ranges.** `RingAllocator<uint64_t>` (`foundation/include/containers/RingAllocator.hpp`) hands out byte ranges in
+  FIFO order. It touches no memory and uses no lock, because only the transfer thread calls it. Each range has the
+  ticket of its transfer as a tag. A range never wraps: when it does not fit at the end of the ring, the allocator skips
+  the end and starts at offset 0. A ring with no live range restarts at offset 0.
+- **One range for each transfer.** The transfer thread sums the staged size of all pieces of the transfer, and takes one
+  range for them. A buffer upload packs its pieces, because the destination takes them one after another, and its range
+  starts on a multiple of 16. An image upload starts each piece on a multiple of the least common multiple of the
+  texel block size and 4. That value is not always a power of two. RGB32F has a 12-byte texel, so the allocator aligns
+  with a modulo and not with a mask.
+- **Release.** `pollCompletion` calls `ReleaseThrough` with the completed ticket. This frees every range whose tag is at
+  or below it. The transfer thread signals a ticket that failed too, so the range of a failed transfer comes back.
+  A transfer that waits on a timeline keeps its range until its ticket completes. The uploads behind it fill the ring
+  and wait. If that wait is never signaled, a full ring blocks the transfer thread for good: the inbound wait rule
+  (the caller submits the signal) prevents it, as it does for held batches.
+- **A full ring stalls the transfer thread.** When a range does not fit, the thread polls the timeline once. If that
+  frees nothing, it counts one stall (`StagingRingStalls`). Then it submits the recording batch, because the oldest
+  ranges can belong to transfers that are recorded and not submitted. It waits for the oldest batch in flight, polls,
+  and tries again. Each retry waits for one more batch, so the loop ends when the ring is empty. An empty ring always
+  fits a range of at most `StagingRingSize` bytes.
+- **An upload that is larger than the ring** cannot fit, so it gets a staging buffer of its own. The buffer is freed
+  when the batch of the transfer retires. This counts in `StagingDedicatedUploads`. Chunking is not built.
+- **Flush.** The thread calls `vmaFlushAllocation` for the range after it writes it. This does nothing on coherent
+  memory.
+- **Shutdown.** The ring buffer is freed after the last batch retires, with the allocator.
 
 ## Image usage handoff and inbound waits
 
@@ -332,9 +365,23 @@ The context does not read a consumer timeline on its own. Without `Tick`, retire
 `Counters()` returns `ResourceContextCounters`. Each value is a relaxed atomic, so together they are not one snapshot.
 They count messages, recorded and failed transfers, submitted batches, timeline counter reads (transfer and
 consumer), staged bytes, retired and pending retirements, pushes that blocked on a full queue, live futures, and
-calls that found the future table full. The tests use them to prove that completion costs one counter read per loop,
+calls that found the future table full. Three counters are for the staging ring: `StagingRingStalls`,
+`StagingDedicatedUploads`, and `StagingRingBytesInUse` (the bytes between the oldest live range and the end of the
+newest, as of the last poll of the timeline). The tests use them to prove that completion costs one counter read per loop,
 not one per future, and that every future slot comes back.
 
 The context queue holds 64 messages. A push to a full queue blocks until the worker takes one. The 64 comes from the
 queue's 128-bit exit CAS, which has a 64-bit mask of completed writes. `ContextPushesBlocked` shows how often a call
 blocked.
+
+## Memory budget
+
+`MemoryBudgets()` returns the heap budgets that the last `Tick` published. The worker publishes them once for each
+`Tick`. Only the worker thread can query the allocator, because the allocator is externally synchronized. The caller
+reads the values from atomics, so the call takes no lock and does not block. The values of the heaps are read one
+after another, so they do not form one snapshot. `HeapCount` is 0 before the first `Tick`.
+
+RhiSystem requests `VK_EXT_memory_budget` as an optional device extension, so a device without it still creates. The
+worker asks the driver for the budget only when the device has the extension. With the extension, `UsageBytes` is the
+usage of the whole process: both allocators and all other memory use. Without the extension, VMA estimates the usage
+from its own allocations, and `FromExtension` is false.

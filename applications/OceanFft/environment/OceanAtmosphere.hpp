@@ -6,9 +6,11 @@
 #include "math/Math.hpp"
 #include <vulkan/vulkan_core.h>
 
+#include <array>
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <string>
 
 class ResourceContext;
@@ -60,6 +62,15 @@ namespace ocean
         uint32_t ScatteringOrders{ 4u };
     };
 
+    /** @brief The light of the atmosphere on the water at sea level, as AtmosphereLightingCS computes it */
+    struct OceanAtmosphereLighting
+    {
+        /** @brief SH coefficients of the sky radiance in AP1, in the basis of the HDRI path, without the sun disk */
+        std::array<std::array<float, 4>, 9> SkyShCoeffs{};
+        /** @brief Sun irradiance in AP1 after transmittance. Zero when the sun is below the horizon */
+        std::array<float, 3> SunIrradianceAp1{};
+    };
+
     struct OceanAtmosphereImpl;
 
     /**
@@ -93,6 +104,17 @@ namespace ocean
          * Profiled under ScopedGpuTimer "Ocean_AtmoPrecompute".
          */
         void RecordPrecompute(rhi::CommandBuffer& cmd, rhi::GpuTimerBlock* timer_block = nullptr);
+
+        /** @brief Creates one readback buffer and descriptor set per frame slot, for RecordLighting and ReadLighting */
+        [[nodiscard]] bool CreateLightingSlots(uint32_t slot_count);
+
+        /** @brief Records AtmosphereLightingCS for the sun direction. The result goes to the readback buffer of the slot.
+         *  Records nothing until the LUTs are precomputed */
+        void RecordLighting(rhi::CommandBuffer& cmd, uint32_t slot, const math::Float3& sun_direction);
+
+        /** @brief Returns what the last RecordLighting of the slot wrote. Call it after the fence wait of the slot.
+         *  Empty until RecordLighting has recorded the slot once */
+        [[nodiscard]] std::optional<OceanAtmosphereLighting> ReadLighting(uint32_t slot) const;
 
         /** @brief Transmittance LUT (256x64 RGBA16F). */
         [[nodiscard]] GraphicsResource TransmittanceLut() const noexcept;

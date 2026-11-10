@@ -24,6 +24,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <span>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -39,6 +40,22 @@ namespace rhi
     class ManifestProgram;
     class ShaderLibrary;
 }
+
+namespace agent
+{
+    class ToolServer;
+}
+
+/** @brief The exposure of the final image. The tools expose it as ocean.exposure */
+struct ExposureSettings
+{
+    // on: a GPU pass meters the scene each frame, and Ev adds to that. Off: Ev is the exposure
+    bool Auto{ true };
+    // stops
+    float Ev{ 0.0f };
+    // how fast the auto exposure follows the scene, in 1/s
+    float Speed{ 1.0f };
+};
 
 struct OceanSceneSettings
 {
@@ -68,7 +85,7 @@ struct OceanSceneSettings
      *  and depth attachments both support. 1 turns MSAA off */
     uint32_t MaxMsaaSamples{ 4u };
     /** @brief The anisotropic filtering of the surface sampler: 1, 2, 4, 8 or 16. 1 turns it off. The device limit caps it */
-    float MaxAnisotropy{ 4.0f };
+    float MaxAnisotropy{ 8.0f };
     std::optional<ArcballCamera::State> InitialCamera;
     /** @brief Captures go here, from the schedule and from capture commands */
     std::filesystem::path CaptureDirectory{ "captures" };
@@ -77,6 +94,8 @@ struct OceanSceneSettings
     float FixedTimeStep{ 0.0f };
     /** @brief Commands from a script or stdin, run between frames. May be null */
     SceneCommands* Commands{ nullptr };
+    /** @brief The server for agent tools, pumped once per frame. It must outlive the scene. May be null */
+    agent::ToolServer* Tools{ nullptr };
 };
 
 /** @brief Returns the quads per edge of one ring. Each ring halves the one inside it, down to min_resolution */
@@ -126,6 +145,11 @@ private:
     void runCommand(const SceneCommand& command);
     void recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image);
     void drawPanel();
+    /** @brief Draws a combo that picks a shader debug mode by name. The index of the name is the mode number */
+    void drawDebugModeCombo(const char* label, std::span<const std::string_view> mode_names, int32_t& selected_mode);
+    /** @brief Returns the direction to the sun. Bruneton and Preetham take it from the sun sliders, the HDRI presets
+     *  from the brightest pixel of the HDRI */
+    [[nodiscard]] std::array<float, 3> sunDirection() const noexcept;
     void drawTimingsPanel();
     /** @brief The frame's coalesce step for the GPU timers: collects finished frames into the rolling averages */
     void collectGpuTimings();
@@ -135,6 +159,33 @@ private:
     void seaStateEdited();
     void setSeaStatePreset(std::string_view _name);
     void setSeaStateField(std::string_view _name, float _value);
+    void createToolSurface();
+    /** @brief Counts down the tool requests that wait for frames, and runs new requests. Runs once per frame, on
+     *  the frame thread */
+    void tickToolSurface();
+    void runToolLine(std::string_view line);
+    /** @brief True when a tool capture waits, and when the next one hides the panel */
+    [[nodiscard]] bool toolCaptureWaiting() const noexcept;
+    [[nodiscard]] bool toolCaptureHidesUi() const noexcept;
+    /** @brief Records the oldest tool capture into this frame. Returns false when it recorded nothing, and the image
+     *  still needs its move to PresentSource */
+    [[nodiscard]] bool recordToolCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image);
+
+    enum class TimerQueue : uint8_t
+    {
+        Graphics,
+        AsyncCompute,
+    };
+
+    /** @brief Gives the waiting frame.timings requests the blocks that one queue's GPU timers just collected */
+    void feedToolTimings(std::span<const rhi::GpuTimingBlock> blocks, TimerQueue queue);
+    /** @brief Replies to each frame.timings request that has all its frames. Runs after both queues are fed */
+    void finishToolTimings();
+    /** @brief True when a script, burst or scheduled capture takes this frame */
+    [[nodiscard]] bool scriptCaptureDue() const noexcept;
+    /** @brief Returns the swapchain image as a whole-screen capture source, or nothing when its format cannot be
+     *  captured */
+    [[nodiscard]] std::optional<capture::CaptureSource> swapchainCaptureSource(rhi::ImageHandle image) const;
     void setCascade(uint32_t _cascade, bool _enabled);
     void setFoamWeight(uint32_t _cascade, float _weight);
     /** @brief Sets one persistent foam field by the name that the foam command uses */
@@ -147,9 +198,6 @@ private:
     /** @brief Prints the camera, the time, the sea state and the enabled cascades, for the print command */
     void printState() const;
     void writeViewParameters();
-    /** @brief Binds program and draws instance_count tiles of one ring (see OceanGridParameters in OceanRenderCommon.slang) */
-    void recordDraw(rhi::CommandBuffer& command_buffer, const DrawProgram& program, const std::array<float, 2>& origin, float tile_size,
-                    uint32_t resolution, uint32_t ring, uint32_t outer_resolution, uint32_t instance_count, bool alpha_blend) const;
     void updateSurfaceDescriptors();
     void updateCdlodSettings() noexcept;
     [[nodiscard]] uint32_t ringResolution(uint32_t ring) const noexcept;
@@ -166,13 +214,8 @@ private:
     std::vector<std::unique_ptr<rhi::CommandPool>> commandPools;
 
     VkDescriptorPool descriptorPool{ VK_NULL_HANDLE };
-    DrawProgram surface;
     DrawProgram seabed;
     GraphicsResource sampler;
-    GraphicsResource depthImage;
-    // the scene renders at msaaSamples into msaaColorImage and depthImage, and resolves into the swapchain image
-    GraphicsResource msaaColorImage;
-    VkSampleCountFlagBits msaaSamples{ VK_SAMPLE_COUNT_1_BIT };
     // the anisotropy the surface sampler uses, 1 when filtering is off
     float anisotropy{ 1.0f };
     std::vector<GraphicsResource> viewBuffers;
@@ -225,13 +268,43 @@ private:
     ocean::HeaderFontMode headerFontMode{ ocean::HeaderFontMode::Blinker };
     ocean::TelemetryTab currentTab{ ocean::TelemetryTab::SeaState };
     bool paused{ false };
+    // repeatable frames, for tools: no TAA jitter or resolve, and auto exposure goes to its target at once. A paused
+    // frame then depends only on the scene and the time, once SSR (which reads the previous frame) has settled
+    bool repeatableFrames{ false };
+    // the last time that a tool set, in double. simulationTime is its float while no frame has run the sea since
+    double commandedTime{ 0.0 };
+    // a tool step: the paused sea advances stepSeconds per frame for stepFramesLeft frames. The time is computed as
+    // stepBaseTime + stepIndex x stepSeconds in double, so it does not collect rounding error from frame to frame
+    int32_t stepFramesLeft{ 0 };
+    int32_t stepIndex{ 0 };
+    double stepSeconds{ 0.0 };
+    double stepBaseTime{ 0.0 };
     bool showUi{ true };
     bool spectrumChanged{ false };
     bool needsInitialize{ true };
     bool setup{ false };
     bool quitRequested{ false };
     uint64_t frameNumber{ 0u };
+    struct ToolSurface;
+    struct ToolSurfaceDeleter
+    {
+        void operator()(ToolSurface* surface) const noexcept;
+    };
+    // what agent tools can see of this scene. OceanSceneTools.cpp defines it, so that this header stays free of it
+    std::unique_ptr<ToolSurface, ToolSurfaceDeleter> toolSurface;
     std::optional<std::string> captureRequest;
+    // update() decides this, so that the panel can hide on the frame that a tool capture records
+    bool toolCaptureThisFrame{ false };
+    // a capture_burst command: the frames left to capture, the index of the next one, and the name prefix
+    int32_t captureBurstRemaining{ 0 };
+    int32_t captureBurstIndex{ 0 };
+    std::string captureBurstName;
+    // the index of the atmosphere debug mode in the shader's table. 0 is off
+    int32_t atmosphereDebugMode{ 0 };
+    // the index of the SSR debug mode in the shader's table. 0 is off
+    int32_t ssrDebugMode{ 0 };
+    // the index of the surface debug mode in the shader's table. 0 is off
+    int32_t surfaceDebugMode{ 0 };
     std::unique_ptr<capture::FrameCapture> frameCapture;
 
     // GPU timer scopes on the graphics queue, one block per frame command buffer (inactive in Release). Averages are
@@ -271,13 +344,15 @@ private:
 
     // Shading & BRDF controls
     float sssStrength{ 0.5f };
+    // scales the open-ocean water-leaving reflectance of the body scatter. 1 is clear open ocean
+    float bodyReflectanceScale{ 1.0f };
     float leadrSlopeVarianceScale{ 1.0f };
     float foamRoughnessScale{ 1.0f };
     float seabedRoughnessScale{ 1.0f };
 
     // ColorPipe controls
     color::TonemapperKind tonemapper{ color::TonemapperKind::AgX };
-    float exposureEv{ 0.0f };
+    ExposureSettings exposure{};
     color::BloomSettings bloomSettings{ .Enabled = true, .Intensity = 0.04f, .Scatter = 0.7f };
 
     // Bruneton Atmosphere (Phase 4B)
@@ -286,14 +361,11 @@ private:
     bool atmosphereSettingsChanged{ false };
 
     // Deferred & Temporal Path (Phases 4C & 4D)
-    bool useDeferredPath{ false };
     bool useSpecularAa{ true };
     float specularAaStrength{ 1.0f };
     bool useTaa{ true };
     float taaBlendAlpha{ 0.1f };
     float ssrIntensity{ 1.0f };
-    bool useAutoExposure{ true };
-    float autoExposureSpeed{ 1.0f };
     uint32_t historyPingPong{ 0u };
     bool taaHistoryInitialized{ false };
 
@@ -316,6 +388,10 @@ private:
     std::vector<std::array<VkDescriptorSet, 2>> deferredLightingSets;
     std::vector<std::array<VkDescriptorSet, 2>> taaResolveSets;
     VkDescriptorSet autoExposureSet{ VK_NULL_HANDLE };
+    // false until the first auto exposure pass clears the state buffer
+    bool exposureStateCleared{ false };
+    // the wall-clock time of this frame, which the auto exposure adapts over
+    float exposureDeltaSeconds{ 0.0f };
 
     // Deferred Render Targets & Resources
     GraphicsResource gbufferNormalSigma;

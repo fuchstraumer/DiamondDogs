@@ -4,6 +4,7 @@
 
 #include "content/CanonicalSink.hpp"
 #include "reflect/Describe.hpp"
+#include "reflect/ValueTraits.hpp"
 
 #include <array>
 #include <cassert>
@@ -34,53 +35,6 @@ namespace foundation::content
     namespace detail
     {
         template<typename T>
-        inline constexpr bool k_AlwaysFalse = false;
-
-        template<typename T>
-        struct IsVector : std::false_type {};
-
-        template<typename U, typename A>
-        struct IsVector<std::vector<U, A>> : std::true_type {};
-
-        template<typename T>
-        struct IsStdArray : std::false_type {};
-
-        template<typename U, size_t N>
-        struct IsStdArray<std::array<U, N>> : std::true_type {};
-
-        template<typename T>
-        struct IsSpan : std::false_type {};
-
-        template<typename U, size_t N>
-        struct IsSpan<std::span<U, N>> : std::true_type {};
-
-        template<typename T>
-        struct IsOptional : std::false_type {};
-
-        template<typename U>
-        struct IsOptional<std::optional<U>> : std::true_type {};
-
-        template<typename T>
-        struct IsVariant : std::false_type {};
-
-        template<typename... Alternatives>
-        struct IsVariant<std::variant<Alternatives...>> : std::true_type {};
-
-        template<typename T>
-        concept FixedInt = std::same_as<T, int8_t> || std::same_as<T, int16_t> || std::same_as<T, int32_t> ||
-            std::same_as<T, int64_t> || std::same_as<T, uint8_t> || std::same_as<T, uint16_t> ||
-            std::same_as<T, uint32_t> || std::same_as<T, uint64_t>;
-
-        template<typename T>
-        concept Sequence = IsVector<T>::value || IsStdArray<T>::value || IsSpan<T>::value;
-
-        template<typename T>
-        concept StringLike = std::same_as<T, std::string> || std::same_as<T, std::string_view>;
-
-        template<typename T>
-        concept FloatingPoint = std::same_as<T, float> || std::same_as<T, double>;
-
-        template<typename T>
         std::string_view DescribedName()
         {
             static_assert(reflect::DescribedStruct<T> || reflect::DescribedEnum<T>,
@@ -89,7 +43,7 @@ namespace foundation::content
             return reflect::Describe<T>::Name;
         }
 
-        template<FixedInt T>
+        template<reflect::FixedInt T>
         void EncodeInt(const T& value, CanonicalSink& sink)
         {
             // signed values sign-extend and unsigned values zero-extend, and the sink writes the low bytes
@@ -102,6 +56,8 @@ namespace foundation::content
         template<reflect::DescribedEnum E>
         void EncodeEnum(const E& value, CanonicalSink& sink)
         {
+            reflect::CheckEnumDescriptor<E>();
+
             // by case name, so a case inserted before this one does not change this one's key
             for (const reflect::EnumCase<E>& enum_case : reflect::Describe<E>::Cases)
             {
@@ -132,6 +88,8 @@ namespace foundation::content
         template<reflect::DescribedStruct T>
         void EncodeStruct(const T& value, CanonicalSink& sink)
         {
+            reflect::CheckStructDescriptor<T>();
+
             constexpr size_t fieldCount = std::tuple_size_v<std::remove_cvref_t<decltype(reflect::Describe<T>::Fields)>>;
 
             sink.BeginStruct(reflect::Describe<T>::Name);
@@ -218,7 +176,7 @@ namespace foundation::content
         template<typename T>
         bool FindNaNInto(const T& value, std::string& path)
         {
-            if constexpr (FloatingPoint<T>)
+            if constexpr (reflect::FloatingPoint<T>)
             {
                 return std::isnan(value);
             }
@@ -229,15 +187,15 @@ namespace foundation::content
 
                 return FindNaNInFields(value, path, std::make_index_sequence<k_FieldCount>{});
             }
-            else if constexpr (Sequence<T>)
+            else if constexpr (reflect::Sequence<T>)
             {
                 return FindNaNInElements(value, path);
             }
-            else if constexpr (IsOptional<T>::value)
+            else if constexpr (reflect::IsOptional<T>::value)
             {
                 return value.has_value() && FindNaNInto(*value, path);
             }
-            else if constexpr (IsVariant<T>::value)
+            else if constexpr (reflect::IsVariant<T>::value)
             {
                 return std::visit(FindNaNVariantVisitor{ path }, value);
             }
@@ -256,7 +214,7 @@ namespace foundation::content
         {
             sink.WriteBool(value);
         }
-        else if constexpr (detail::FixedInt<T>)
+        else if constexpr (reflect::FixedInt<T>)
         {
             detail::EncodeInt(value, sink);
         }
@@ -268,7 +226,7 @@ namespace foundation::content
         {
             sink.WriteFloat64(value);
         }
-        else if constexpr (detail::StringLike<T>)
+        else if constexpr (reflect::StringLike<T>)
         {
             sink.WriteString(value);
         }
@@ -280,7 +238,7 @@ namespace foundation::content
         {
             detail::EncodeStruct(value, sink);
         }
-        else if constexpr (detail::Sequence<T>)
+        else if constexpr (reflect::Sequence<T>)
         {
             sink.BeginArray(value.size());
 
@@ -291,7 +249,7 @@ namespace foundation::content
 
             sink.EndArray();
         }
-        else if constexpr (detail::IsOptional<T>::value)
+        else if constexpr (reflect::IsOptional<T>::value)
         {
             sink.WriteOptional(value.has_value());
 
@@ -300,13 +258,13 @@ namespace foundation::content
                 Encode(*value, sink);
             }
         }
-        else if constexpr (detail::IsVariant<T>::value)
+        else if constexpr (reflect::IsVariant<T>::value)
         {
             std::visit(detail::EncodeVariantVisitor{ sink }, value);
         }
         else
         {
-            static_assert(detail::k_AlwaysFalse<T>,
+            static_assert(reflect::k_AlwaysFalse<T>,
                           "Encode: no encoding for this type. Use bool, a fixed-width integer, float, double, a "
                           "string, a type with a Describe<T> specialization, or a vector, array, span, optional "
                           "or variant of those.");

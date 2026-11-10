@@ -32,7 +32,8 @@ namespace rhi
          * signal the values in the order that this function returns them. */
         [[nodiscard]] uint64_t NextSignalValue() noexcept;
         /** @brief Reads the semaphore counter, and advances the mirror when the counter advanced. Called by the
-         * Scheduler on its owner thread. */
+         * Scheduler on its owner thread. When the read fails, which a lost device causes, it prints one line and calls
+         * Fail on the mirror, so that every waiter resumes with TimelineWait::Failed. It does nothing after that. */
         void Poll() override;
 
     private:

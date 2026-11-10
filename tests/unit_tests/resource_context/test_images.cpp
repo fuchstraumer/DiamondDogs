@@ -91,6 +91,60 @@ TEST_F(ResourceContextTest, MipLevelsAndLayersUploadPerRegion)
     EXPECT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
 }
 
+TEST_F(ResourceContextTest, EachLayerUploadsFromItsOwnRegion)
+{
+    // one region per layer, because a readback can see mip 0 of every layer and no other mip
+    constexpr uint32_t k_Size = 8u;
+    constexpr uint32_t k_LayerCount = 4u;
+
+    ImageCreateInfo info = SampledTexture(k_Size, k_Size);
+    info.Usage |= ImageUsageBits::TransferSource;
+    info.ArrayLayers = k_LayerCount;
+
+    std::array<std::vector<uint32_t>, k_LayerCount> layers;
+    std::array<RhiImageResourceData, k_LayerCount> data{};
+    std::vector<uint32_t> expected;
+
+    for (uint32_t layer = 0u; layer < k_LayerCount; ++layer)
+    {
+        layers[layer] = MakeWordPattern(k_Size * k_Size, layer + 1u);
+        data[layer] = RhiImageResourceData{ std::as_bytes(std::span{ layers[layer] }), k_Size, k_Size, layer, 1u, 0u, 1u };
+        expected.insert(expected.end(), layers[layer].begin(), layers[layer].end());
+    }
+
+    rhi::ResourceFuture<GraphicsResource> reply = context->CreateImage(info, data, ImageUsageBits::SampledImage);
+    ASSERT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
+
+    const rhi::ImageUsageTransition sampledToSampled{ ImageUsageBits::SampledImage, ImageUsageBits::SampledImage };
+    const std::vector<uint32_t> words = ReadBackImageWords(reply.Get(), sampledToSampled, expected.size() * sizeof(uint32_t));
+
+    EXPECT_EQ(words, expected);
+}
+
+TEST_F(ResourceContextTest, FullMipChainUploads)
+{
+    constexpr uint32_t k_Size = 16u;
+    constexpr uint32_t k_MipCount = 5u;
+
+    ImageCreateInfo info = SampledTexture(k_Size, k_Size);
+    info.MipLevels = k_MipCount;
+
+    std::array<std::vector<uint32_t>, k_MipCount> mips;
+    std::array<RhiImageResourceData, k_MipCount> data{};
+
+    for (uint32_t mip = 0u; mip < k_MipCount; ++mip)
+    {
+        const uint32_t size = k_Size >> mip;
+
+        mips[mip] = MakeWordPattern(size * size, mip + 1u);
+        data[mip] = RhiImageResourceData{ std::as_bytes(std::span{ mips[mip] }), size, size, 0u, 1u, mip, 1u };
+    }
+
+    rhi::ResourceFuture<GraphicsResource> reply = context->CreateImage(info, data, ImageUsageBits::SampledImage);
+
+    EXPECT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
+}
+
 TEST_F(ResourceContextTest, DepthImageWithoutData)
 {
     ImageCreateInfo info{};

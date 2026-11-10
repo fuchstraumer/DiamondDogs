@@ -45,7 +45,7 @@ float EvaluateWhitecapCoverage(float2 surface_xz, float2 grad_x, float2 grad_y, 
             const float jacobianDeviation = Displacement.SampleGrad(OceanSampler, uvw, uvGradX, uvGradY).w - 1.0f;
             const float kMean = jacobianDeviation + rest;
             // x: k_i^2, y: dDx/dz
-            const float2 moments = Whitecaps.SampleGrad(OceanSampler, uvw, uvGradX, uvGradY);
+            const float2 moments = Whitecaps.SampleGrad(OceanSampler, uvw, uvGradX, uvGradY).xy;
             const float2 stretch = Derivatives.SampleGrad(OceanSampler, uvw, uvGradX, uvGradY).zw;
             const float foamWeight = ViewFoamWeight(cascade);
             muA += rest + foamWeight * jacobianDeviation;

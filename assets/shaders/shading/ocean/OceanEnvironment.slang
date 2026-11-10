@@ -246,13 +246,12 @@ OceanSkyVaryings OceanSkyVS(uint vertexId : SV_VertexID, uniform SkyPushConstant
 Texture2D<float4> SkyDomeTexture;
 SamplerState SkyDomeSampler;
 
-[ForceInline]
 internal float FastAcos(float x)
 {
     return acos(clamp(x, -1.0f, 1.0f));
 }
 
-[ForceInline]
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
 internal float3 SampleEquirectangularSky(
     Texture2D<float4> skyTex,
     SamplerState skySampler,
@@ -264,7 +263,7 @@ internal float3 SampleEquirectangularSky(
     return skyTex.Sample(skySampler, uv).rgb;
 }
 
-[ForceInline]
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
 internal float3 SampleEquirectangularSkyLevel(
     Texture2D<float4> skyTex,
     SamplerState skySampler,
@@ -277,7 +276,7 @@ internal float3 SampleEquirectangularSkyLevel(
     return skyTex.SampleLevel(skySampler, uv, lod).rgb;
 }
 
-[ForceInline]
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
 internal float3 SampleEquirectangularSkyGrad(
     Texture2D<float4> skyTex,
     SamplerState skySampler,

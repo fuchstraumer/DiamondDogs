@@ -347,15 +347,15 @@ TEST(ContentKeysTest, KnownAnswerNoiseParams)
 {
     const keytest::NoiseParams params{ keytest::WaveKind::Square, 1.5f, 42 };
 
-    // The expected text comes from an independent Python encoder (xxhash module), not from this code.
-    EXPECT_EQ(keytest::Hex(keytest::KeyOf("noise", 1, params)), "9a843c0a08b33a636e7a925cfef7a7de");
+    // The expected text comes from known_answer_keys.py, an independent encoder (xxhash module), not from this code.
+    EXPECT_EQ(keytest::Hex(keytest::KeyOf("noise", 1, params)), "7ba4e24170aa9638c3960df276b86f8c");
 }
 
 TEST(ContentKeysTest, KnownAnswerVectorAndOptional)
 {
     const keytest::TileParams params{ { 0.25f, 2.0f }, 7, "grass" };
 
-    EXPECT_EQ(keytest::Hex(keytest::KeyOf("tile", 3, params)), "3babc3b1f65eaf20f2f08da72fa44e7a");
+    EXPECT_EQ(keytest::Hex(keytest::KeyOf("tile", 3, params)), "707ed9479c755ec6b61963abc2e5829b");
 }
 
 TEST(ContentKeysTest, KnownAnswerNestedWithInputs)
@@ -370,14 +370,30 @@ TEST(ContentKeysTest, KnownAnswerNestedWithInputs)
 
     const std::array<RecipeInput, 2> inputs
     {
-        RecipeInput{ "heights", RecipeKey{ 1, 2 } },
-        RecipeInput{ "mask", BlobKey{ 3, 4 } },
+        RecipeInput{ "heights", RecipeKey{ 1, 2 }, "Value" },
+        RecipeInput{ "mask", BlobKey{ 3, 4 }, "" },
     };
 
     const std::expected<RecipeKey, KeyError> result = MakeRecipeKey("planet", 2, params, inputs);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(keytest::Hex(*result), "f22ec2af40f874f2c7f72f3c067c90d8");
+    EXPECT_EQ(keytest::Hex(*result), "888ebf680a4890b877c43aaaa94b26d6");
+}
+
+TEST(ContentKeysTest, KnownAnswerInputsWithOutputs)
+{
+    const keytest::NoiseParams params{ keytest::WaveKind::Square, 1.5f, 42 };
+
+    const std::array<RecipeInput, 2> inputs
+    {
+        RecipeInput{ "source", RecipeKey{ 5, 6 }, "Height" },
+        RecipeInput{ "blob", BlobKey{ 7, 8 }, "" },
+    };
+
+    const std::expected<RecipeKey, KeyError> result = MakeRecipeKey("noise", 1, params, inputs);
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(keytest::Hex(*result), "16bd189e4e267807cbeda75a37708191");
 }
 
 TEST(ContentKeysTest, SameValuesGiveSameKey)
@@ -550,15 +566,17 @@ TEST(ContentKeysTest, InputChangesChangeTheKey)
 {
     const keytest::NoiseParams params{ keytest::WaveKind::Sine, 2.0f, 9 };
 
-    const std::array<RecipeInput, 1> first_inputs{ RecipeInput{ "source", RecipeKey{ 1, 2 } } };
-    const std::array<RecipeInput, 1> other_key{ RecipeInput{ "source", RecipeKey{ 1, 3 } } };
-    const std::array<RecipeInput, 1> other_slot{ RecipeInput{ "other", RecipeKey{ 1, 2 } } };
-    const std::array<RecipeInput, 1> as_blob{ RecipeInput{ "source", BlobKey{ 1, 2 } } };
+    const std::array<RecipeInput, 1> first_inputs{ RecipeInput{ "source", RecipeKey{ 1, 2 }, "Height" } };
+    const std::array<RecipeInput, 1> other_key{ RecipeInput{ "source", RecipeKey{ 1, 3 }, "Height" } };
+    const std::array<RecipeInput, 1> other_slot{ RecipeInput{ "other", RecipeKey{ 1, 2 }, "Height" } };
+    const std::array<RecipeInput, 1> other_output{ RecipeInput{ "source", RecipeKey{ 1, 2 }, "Normal" } };
+    const std::array<RecipeInput, 1> as_blob{ RecipeInput{ "source", BlobKey{ 1, 2 }, "" } };
 
     const RecipeKey base = *MakeRecipeKey("noise", 1, params, first_inputs);
 
     EXPECT_NE(base, *MakeRecipeKey("noise", 1, params, other_key));
     EXPECT_NE(base, *MakeRecipeKey("noise", 1, params, other_slot));
+    EXPECT_NE(base, *MakeRecipeKey("noise", 1, params, other_output));
     EXPECT_NE(base, *MakeRecipeKey("noise", 1, params, as_blob));
     EXPECT_NE(base, *MakeRecipeKey("noise", 1, params, {}));
 }

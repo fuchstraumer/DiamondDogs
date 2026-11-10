@@ -32,11 +32,30 @@ namespace rhi
 // The persistent foam is not part of this chain: it lives in applications/OceanFft/foam.
 namespace ocean
 {
+    enum class OmnidirectionalSpectrum : uint8_t
+    {
+        Invalid = 0,
+        Jonswap = 1,
+        Elfouhaily = 2,
+        Bringer = 3,
+    };
+
+    enum class DirectionalSpreadingModel : uint8_t
+    {
+        Invalid = 0,
+        Mitsuyasu = 1,
+        Hasselmann = 2,
+        DonelanBanner = 3,
+        Elfouhaily = 4,
+        Hybrid = 5,
+        Ewans = 6,
+    };
+
     /** @brief SpectrumParameters in OceanFftCommon.slang, std140. Create() checks it against the manifest. */
     struct SpectrumParameters
     {
         uint32_t NoiseSeed{ 1u };
-        uint32_t DirectionalSpreadingMode{ 0u }; // 0 Mitsuyasu, 1 Hasselman, 2 Donelan-Banner
+        uint32_t DirectionalSpreadingMode{ 0u }; // 0 Mitsuyasu, 1 Hasselman, 2 Donelan-Banner, 3 Elfouhaily, 4 Hybrid, 5 Ewans
         float WindSpeed{ 10.0f };                // m/s
         float Fetch{ 100.0f };                   // km
         float Depth{ 50.0f };                    // m
@@ -57,6 +76,7 @@ namespace ocean
         float SwellPeakingFactor{ 7.0f };        // a swell is narrow-banded
         float SwellSpread{ 2.0f };               // narrows the swell's spreading lobe, like SwellAmount for the wind sea
         float SwellFadeLength{ 1.0f };           // m: a swell has no short waves
+        uint32_t EnergySpectrumModel{ 0u };      // 0 JONSWAP, 1 Elfouhaily, 2 Bringer
     };
 
     /** @brief CascadeParameters in OceanFftCommon.slang, std140. Each per-cascade array is float4[2] in the shader, so
@@ -70,7 +90,7 @@ namespace ocean
         std::array<float, 2> Pad0{};
     };
     static_assert(sizeof(CascadeParameters) == 112u);
-    static_assert(sizeof(SpectrumParameters) == 72u);
+    static_assert(sizeof(SpectrumParameters) == 76u);
 
     constexpr uint32_t k_CascadeCount = 5u;
     static_assert(k_CascadeCount <= 8u);
@@ -83,7 +103,7 @@ namespace ocean
          *  the subgroup size the IFFT shaders are created with (full subgroups required). See PickWaveSize. */
         uint32_t WaveSize{ 0u };
         /** @brief The patch size of each cascade, in meters, largest first */
-        std::array<float, k_CascadeCount> LengthScales{ 1024.0f, 238.0f, 55.4f, 12.9f, 3.0f };
+        std::array<float, k_CascadeCount> LengthScales{ 1050.0f, 716.02619f, 78.0563899f, 8.62988965f, 0.964005353f };
         SpectrumParameters Spectrum{};
         float Choppiness{ 1.0f };
         /** @brief true records the two fused kernels (tick + IFFT rows, IFFT columns + resolve) instead of the tick, the
@@ -95,8 +115,8 @@ namespace ocean
      *  value, required-size control for compute, and subgroup shuffles), and 0 otherwise. 32 on NVIDIA. */
     [[nodiscard]] uint32_t PickWaveSize(const rhi::Device& device) noexcept;
 
-    /** @brief Non-overlapping bands: each cascade covers the wave numbers that the next, smaller one samples too coarsely */
-    [[nodiscard]] CascadeParameters MakeCascadeParameters(uint32_t size, const std::array<float, k_CascadeCount>& length_scales) noexcept;
+    /** @brief Returns the generated log-band cascade parameters for `size` from OceanFftCascades.hpp. */
+    [[nodiscard]] CascadeParameters MakeCascadeParameters(uint32_t size) noexcept;
 
     struct OceanSimulationImpl;
 

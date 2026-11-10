@@ -3,6 +3,7 @@
 #define FOUNDATION_ASYNC_TASK_HPP
 #include "async/Promise.hpp"
 #include "Unit.hpp"
+#include <cassert>
 #include <coroutine>
 #include <exception>
 #include <optional>
@@ -24,6 +25,9 @@ concept SchedulerBound = requires(std::remove_reference_t<Awaiter>& awaiter, Sch
 
 namespace detail
 {
+    // defined in Scheduler.cpp, so that this header needs only the forward declaration of Scheduler
+    [[nodiscard]] bool SchedulerHoldsFrame(const Scheduler& scheduler, std::coroutine_handle<> frame) noexcept;
+
     template<typename T>
     using StoredType = std::conditional_t<std::is_void_v<T>, Unit, T>;
 
@@ -105,6 +109,9 @@ public:
     Awaiter operator co_await() && noexcept;
 private:
     friend class Scheduler;
+
+    void destroyFrame() noexcept;
+
     std::coroutine_handle<promise_type> handle;
 };
 
@@ -174,23 +181,36 @@ Task<T>& Task<T>::operator=(Task&& other) noexcept
     {
         if (handle)
         {
-            handle.destroy();
+            destroyFrame();
         }
+
         handle = std::exchange(other.handle, {});
     }
+
     return *this;
 }
 
 template<typename T>
 Task<T>::~Task()
 {
-    // we will handle cancellation later
     if (handle)
     {
-        handle.promise().Owner = nullptr;
-        handle.promise().Awaiting = nullptr;
-        handle.destroy();
+        destroyFrame();
     }
+}
+
+template<typename T>
+void Task<T>::destroyFrame() noexcept
+{
+    promise_type& promise = handle.promise();
+
+    // Cancellation is cooperative. A frame that the scheduler still holds would be resumed after it is freed
+    assert((promise.Owner == nullptr || !detail::SchedulerHoldsFrame(*promise.Owner, handle)) &&
+           "a Task is destroyed while its Scheduler still holds its frame");
+
+    promise.Owner = nullptr;
+    promise.Awaiting = nullptr;
+    handle.destroy();
 }
 
 template<typename T>

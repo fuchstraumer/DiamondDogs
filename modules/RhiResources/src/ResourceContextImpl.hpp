@@ -28,6 +28,7 @@
 
 struct ResourceContextCreateInfo;
 struct ResourceContextCounters;
+struct MemoryBudgetSnapshot;
 enum class ResourceContextError : uint8_t;
 
 namespace rhi
@@ -50,6 +51,8 @@ public:
     /** @brief Returns the future table. ResourceContext allocates a future from it for every call. */
     [[nodiscard]] rhi::FutureTable& Futures() noexcept;
     [[nodiscard]] ResourceContextCounters Counters() const noexcept;
+    /** @brief Returns the budget that the last Tick published. Reads only atomics. */
+    [[nodiscard]] MemoryBudgetSnapshot MemoryBudgets() const noexcept;
 
     /** @brief Returns the logical device. Valid from Construct on. */
     [[nodiscard]] VkDevice VulkanDevice() const noexcept;
@@ -119,6 +122,10 @@ private:
 
     void processMessages();
     void dispatchMessage(ResourceMessagePayloadType&& message);
+
+    /** @brief Reads the heap budgets from the allocator and stores them in the atomics for MemoryBudgets(). Worker
+     *  thread only, because the allocator is externally synchronized. */
+    void publishMemoryBudgets();
 
     // one overload per alternative of ResourceMessagePayloadType, so that a message type without a handler fails to
     // compile instead of being dropped
@@ -219,12 +226,22 @@ private:
     std::array<ConsumerTimelineSlot, k_MaxConsumerTimelines> consumerTimelines{};
     std::vector<RetiringResource> retiring;
     uint64_t lastIssuedTicket{ 0u };
+    bool memoryBudgetExtensionEnabled{ false };
 
     // written by the worker with relaxed stores, read by Counters()
     std::atomic<int64_t> messagesProcessed{ 0 };
     std::atomic<int64_t> consumerTimelineReads{ 0 };
     std::atomic<int64_t> resourcesRetired{ 0 };
     std::atomic<int64_t> retirementsPending{ 0 };
+
+    // written by publishMemoryBudgets, read by MemoryBudgets(). the sequence is stored last with release and read first
+    // with acquire, so a reader that sees a new sequence reads values that are at least as new. the rest are relaxed
+    std::array<std::atomic<uint64_t>, VK_MAX_MEMORY_HEAPS> heapBudgets{};
+    std::array<std::atomic<uint64_t>, VK_MAX_MEMORY_HEAPS> heapUsages{};
+    std::array<std::atomic<bool>, VK_MAX_MEMORY_HEAPS> heapsAreDeviceLocal{};
+    std::atomic<int32_t> memoryHeapCount{ 0 };
+    std::atomic<bool> memoryBudgetFromExtension{ false };
+    std::atomic<int64_t> memoryBudgetSequence{ 0 };
 
     VmaAllocator allocatorHandle{ VK_NULL_HANDLE };
 

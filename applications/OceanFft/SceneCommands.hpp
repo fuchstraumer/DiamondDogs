@@ -12,7 +12,16 @@
 #include <string>
 #include <string_view>
 #include <vector>
-#include "SeaState.hpp"
+
+namespace foundation::reflect
+{
+    struct FieldInfo;
+}
+
+namespace ocean
+{
+    struct SeaStatePreset;
+}
 
 /** One line of the demo's command language. Angles are degrees, lengths meters. One command per line, '#' starts a
  *  comment. The same commands come from --script=file and, with --stdin, from standard input between frames.
@@ -43,9 +52,12 @@
  *                                          albedo (0 to 4, the brightness gain of the foam texture), normal (0 to 2, its normal strength)
  *    foamreset                             rebuild the persistent foam by replaying its history
  *    rotate on|off                         rotate and offset each cascade's lattice when sampled (tiling A/B)
+ *    spectrum jonswap|elfouhaily|bringer   set energy spectrum model (JONSWAP, Elfouhaily, or Bringer)
+ *    spreading model                       set directional spreading model (mitsuyasu, hasselmann, donelan, elfouhaily, hybrid, ewans)
  *    sky preset                            set the sky preset (preetham, aurora, day, night, overcast, twilight)
  *    sky_res 8k|16k                        set sky texture resolution (8k downsampled or 16k full)
  *    sky_intensity value                   set sky radiance multiplier
+ *    sun elevation azimuth                 set the sun of the Bruneton and Preetham skies, in degrees
  *    tonemap name                          set tonemapper (agx, neutral, passthrough, falsecolor)
  *    exposure ev                           set exposure in EV stops
  *    bloom on|off                          enable or disable bloom
@@ -55,13 +67,23 @@
  *    cdlod_morph value                     set CDLOD morph start ratio (0.1 to 0.95)
  *    cdlod_max_level value                 set CDLOD maximum subdivision level (1 to 14, 0 for auto)
  *    wireframe on|off                      enable or disable wireframe polygon mode
- *    brdf field value                      set BRDF parameter: sss, leadr, foam_roughness, seabed_roughness
+ *    brdf field value                      set BRDF parameter: sss, body, leadr, foam_roughness, seabed_roughness
  *    async_compute on|off                  enable or disable async compute execution
  *    capture [name]                        write this frame to <capture dir>/<name>.png. The commands after it
  *                                          run on the next frame, so the capture sees only the ones before it
+ *    capture_burst count name              write this frame and the next count-1 frames to <capture dir>/<name>_000.png,
+ *                                          <name>_001.png, and so on. The commands after it run after the last frame
+ *    atmosdebug mode                       replace the deferred lighting output with a scalar from the Bruneton aerial
+ *                                          perspective (off, heighterror, muerror, museam, inscatter, transmittance,
+ *                                          constant, lutformula, luttotal, museamcam)
+ *    ssrdebug mode                         replace the deferred lighting output with a scalar from the SSR march
+ *                                          (off, hit, weight, step, thickness, distance)
+ *    surfdebug mode                        replace surface output with a diagnostic layer (off, normal, slope, stretch, jacobian, leansigma, miplevel, cascades, reflectdir, foamterms, specsplit)
  *    sync [token]                          flush device idle, flush captures, and print READY <token> frame=<frame>
  *    wait frames                           render this many frames before the next command
  *    print                                 print the camera, sky, tonemap, exposure, bloom, CDLOD, sea state, and cascades
+ *    tool request                          run a request on the agent tool registry and print tool <id> ok|error <json>:
+ *                                          describe [path], get path, set path value, call name [argument=value ...]
  *    quit
  */
 struct SceneCommand
@@ -88,9 +110,12 @@ struct SceneCommand
         Shading,
         FoamReset,
         Rotate,
+        Spectrum,
+        Spreading,
         Sky,
         SkyRes,
         SkyIntensity,
+        Sun,
         Tonemap,
         Exposure,
         Bloom,
@@ -108,9 +133,14 @@ struct SceneCommand
         Ssr,
         AutoExposure,
         Capture,
+        CaptureBurst,
+        AtmosDebug,
+        SsrDebug,
+        SurfDebug,
         Sync,
         Wait,
         Print,
+        Tool,
         Resize,
         Quit,
     };
@@ -123,27 +153,40 @@ struct SceneCommand
     [[nodiscard]] static std::expected<SceneCommand, std::string> Parse(std::string_view line);
 };
 
-/** One float field of the sea state. Name is the C++ member name, which the sea command accepts in any case */
-struct SeaStateField
-{
-    std::string_view Name;
-    float ocean::SeaState::* Member;
-};
-
-/** @brief Returns the field whose name matches, ignoring case, or null when no field matches */
-[[nodiscard]] const SeaStateField* FindSeaStateField(std::string_view name);
+/** @brief Returns the sea state field whose name matches, ignoring case, or null when no field matches. The
+ *  sea command accepts a C++ member name in any case */
+[[nodiscard]] const foundation::reflect::FieldInfo* FindSeaStateField(std::string_view name);
 /** @brief Returns the preset whose name matches, ignoring case, or null when no preset matches */
 [[nodiscard]] const ocean::SeaStatePreset* FindSeaStatePreset(std::string_view name);
-/** @brief Returns every float field of the sea state, in declaration order */
-[[nodiscard]] const std::array<SeaStateField, 15>& SeaStateFields() noexcept;
+/** @brief Returns the atmosphere debug mode names. The index of a name is the mode number that the shader reads */
+[[nodiscard]] const std::array<std::string_view, 10>& AtmosphereDebugModeNames() noexcept;
+/** @brief Returns the index of the atmosphere debug mode whose name matches, or -1 when no mode matches */
+[[nodiscard]] int32_t FindAtmosphereDebugMode(std::string_view name);
+/** @brief Returns the SSR debug mode names. The index of a name is the mode number that the shader reads */
+[[nodiscard]] const std::array<std::string_view, 6>& SsrDebugModeNames() noexcept;
+/** @brief Returns the index of the SSR debug mode whose name matches, or -1 when no mode matches */
+[[nodiscard]] int32_t FindSsrDebugMode(std::string_view name);
+/** @brief Returns the surface debug mode names. The index of a name is the mode number that the shader reads */
+[[nodiscard]] const std::array<std::string_view, 11>& SurfaceDebugModeNames() noexcept;
+/** @brief Returns the index of the surface debug mode whose name matches, or -1 when no mode matches */
+[[nodiscard]] int32_t FindSurfaceDebugMode(std::string_view name);
+
+enum class ScriptResult : uint8_t
+{
+    Invalid = 0,
+    Success = 1,
+    CannotOpen,
+};
+
+[[nodiscard]] std::string_view ToString(ScriptResult error) noexcept;
 
 /** Holds the lines from the script and stdin, and hands out the commands for each frame. Push may be called from any
  *  thread. The stdin reader pushes through the queue. Every other method runs on the frame thread. */
 class SceneCommands
 {
 public:
-    /** @brief Appends the file's lines. Returns an error when it cannot be read */
-    [[nodiscard]] std::expected<void, std::string> LoadScript(const std::filesystem::path& path);
+    /** @brief Appends the file's lines */
+    [[nodiscard]] ScriptResult LoadScript(const std::filesystem::path& path);
     /** @brief Starts a detached thread that reads stdin until end of file */
     void StartStdin();
     void Push(std::string line);

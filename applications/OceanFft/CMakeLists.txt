@@ -23,7 +23,9 @@ set(OCEAN_FFT_GENERATED_SOURCES
     "${OCEAN_FFT_GENERATED_DIR}/DonelanBannerNormLUT.cpp"
     "${OCEAN_FFT_GENERATED_DIR}/DonelanBannerNormLUT.hpp"
     "${OCEAN_FFT_GENERATED_DIR}/SinCosLUT.cpp"
-    "${OCEAN_FFT_GENERATED_DIR}/SinCosLUT.hpp")
+    "${OCEAN_FFT_GENERATED_DIR}/SinCosLUT.hpp"
+    "${OCEAN_FFT_GENERATED_DIR}/OceanFftCascades.cpp"
+    "${OCEAN_FFT_GENERATED_DIR}/OceanFftCascades.hpp")
 set(OCEAN_FFT_SUPPORT_STAMP "${OCEAN_FFT_GENERATED_DIR}/ocean_fft_support.stamp")
 add_custom_command(
     OUTPUT "${OCEAN_FFT_SUPPORT_STAMP}"
@@ -127,6 +129,7 @@ add_library(ocean_simulation STATIC
     "simulation/OceanSimulation.hpp"
     "simulation/SeaState.cpp"
     "simulation/SeaState.hpp"
+    "simulation/SeaState.reflect.hpp"
     ${OCEAN_FFT_GENERATED_SOURCES})
 target_include_directories(ocean_simulation PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/simulation")
 target_include_directories(ocean_simulation PRIVATE "${OCEAN_FFT_GENERATED_DIR}")
@@ -153,6 +156,18 @@ target_link_libraries(ocean_foam PUBLIC ocean_simulation PRIVATE gli)
 set_target_properties(ocean_foam PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(ocean_foam LIBRARY)
 
+add_library(ocean_camera STATIC
+    "camera/ArcballCamera.cpp"
+    "camera/ArcballCamera.hpp"
+    "camera/ArcballController.cpp"
+    "camera/ArcballController.hpp")
+target_include_directories(ocean_camera PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/camera"
+    "${PROJECT_SOURCE_DIR}/foundation/include")
+target_link_libraries(ocean_camera PUBLIC foundation)
+set_target_properties(ocean_camera PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+diamond_dogs_add_pch(ocean_camera LIBRARY)
+
 # The demo itself. It borrows the VulkanScene frame loop from the integration test fixtures until there is an
 # application framework to put it in.
 set(DIAMOND_DOGS_TEST_FIXTURES "${PROJECT_SOURCE_DIR}/tests/integration_tests/fixtures")
@@ -162,6 +177,7 @@ add_executable(OceanFft
     "ArcballCamera.hpp"
     "OceanScene.cpp"
     "OceanScene.hpp"
+    "OceanSceneTools.cpp"
     "OceanUi.cpp"
     "OceanUi.hpp"
     "SceneCommands.cpp"
@@ -200,7 +216,7 @@ target_compile_definitions(OceanFft PRIVATE
     "OCEAN_FFT_SEABED_DIR=\"${OCEAN_FFT_SEABED_DIR}\""
     "OCEAN_FFT_SEABED_NAME=\"${OCEAN_FFT_SEABED_MATERIAL_NAME}\""
     "OCEAN_FFT_COLOR_PIPE_MANIFEST=\"$<TARGET_PROPERTY:color_pipe_shaders,LODESTONE_MANIFEST>\"")
-target_link_libraries(OceanFft PRIVATE ocean_simulation ocean_foam color_pipe frame_capture imgui_module platform_system input_system glfw gli ${Vulkan_LIBRARY})
+target_link_libraries(OceanFft PRIVATE agent_tools ocean_simulation ocean_foam color_pipe frame_capture imgui_module platform_system input_system glfw gli ${Vulkan_LIBRARY})
 set_target_properties(OceanFft PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(OceanFft LIBRARY)
 if (DIAMOND_DOGS_COMPILER_IS_CL)

@@ -7,9 +7,12 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -19,6 +22,9 @@
 #include <vector>
 #include "OceanSimulation.hpp"
 #include "SeaState.hpp"
+#include "SeaState.reflect.hpp"
+#include "reflect/TypeInfo.hpp"
+#include "reflect/ValueAccess.hpp"
 
 namespace
 {
@@ -52,9 +58,12 @@ namespace
         { "shading", { SceneCommand::Kind::Shading, 0u, 0u, false } },
         { "foamreset", { SceneCommand::Kind::FoamReset, 0u, 0u, false } },
         { "rotate", { SceneCommand::Kind::Rotate, 0u, 0u, true } },
+        { "spectrum", { SceneCommand::Kind::Spectrum, 0u, 0u, true } },
+        { "spreading", { SceneCommand::Kind::Spreading, 0u, 0u, true } },
         { "sky", { SceneCommand::Kind::Sky, 0u, 0u, false } },
         { "sky_res", { SceneCommand::Kind::SkyRes, 0u, 0u, true } },
         { "sky_intensity", { SceneCommand::Kind::SkyIntensity, 1u, 1u, false } },
+        { "sun", { SceneCommand::Kind::Sun, 2u, 2u, false } },
         { "tonemap", { SceneCommand::Kind::Tonemap, 0u, 0u, false } },
         { "exposure", { SceneCommand::Kind::Exposure, 1u, 1u, false } },
         { "bloom", { SceneCommand::Kind::Bloom, 0u, 0u, false } },
@@ -72,30 +81,16 @@ namespace
         { "ssr", { SceneCommand::Kind::Ssr, 0u, 0u, false } },
         { "auto_exposure", { SceneCommand::Kind::AutoExposure, 0u, 0u, false } },
         { "capture", { SceneCommand::Kind::Capture, 0u, 0u, true } },
+        { "capture_burst", { SceneCommand::Kind::CaptureBurst, 0u, 0u, false } },
+        { "atmosdebug", { SceneCommand::Kind::AtmosDebug, 0u, 0u, false } },
+        { "ssrdebug", { SceneCommand::Kind::SsrDebug, 0u, 0u, false } },
+        { "surfdebug", { SceneCommand::Kind::SurfDebug, 0u, 0u, false } },
         { "sync", { SceneCommand::Kind::Sync, 0u, 0u, true } },
         { "wait", { SceneCommand::Kind::Wait, 1u, 1u, false } },
         { "print", { SceneCommand::Kind::Print, 0u, 0u, false } },
+        { "tool", { SceneCommand::Kind::Tool, 0u, 0u, true } },
         { "resize", { SceneCommand::Kind::Resize, 2u, 2u, false } },
         { "quit", { SceneCommand::Kind::Quit, 0u, 0u, false } },
-    };
-
-    const std::array<SeaStateField, 15> k_SeaStateFields
-    {
-        SeaStateField{ "WindForce", &ocean::SeaState::WindForce },
-        SeaStateField{ "Openness", &ocean::SeaState::Openness },
-        SeaStateField{ "WindDirection", &ocean::SeaState::WindDirection },
-        SeaStateField{ "Spread", &ocean::SeaState::Spread },
-        SeaStateField{ "Regularity", &ocean::SeaState::Regularity },
-        SeaStateField{ "RippleDetail", &ocean::SeaState::RippleDetail },
-        SeaStateField{ "Depth", &ocean::SeaState::Depth },
-        SeaStateField{ "SwellHeight", &ocean::SeaState::SwellHeight },
-        SeaStateField{ "SwellPeriod", &ocean::SeaState::SwellPeriod },
-        SeaStateField{ "SwellDirection", &ocean::SeaState::SwellDirection },
-        SeaStateField{ "SwellOrder", &ocean::SeaState::SwellOrder },
-        SeaStateField{ "HeightScale", &ocean::SeaState::HeightScale },
-        SeaStateField{ "WhitecapThreshold", &ocean::SeaState::WhitecapThreshold },
-        SeaStateField{ "FoamAmount", &ocean::SeaState::FoamAmount },
-        SeaStateField{ "CrestSharpness", &ocean::SeaState::CrestSharpness },
     };
 
     const std::array<std::string_view, 8> k_FoamFields
@@ -108,9 +103,9 @@ namespace
         "underwater", "specular", "albedo", "normal"
     };
 
-    const std::array<std::string_view, 4> k_BrdfFields
+    const std::array<std::string_view, 5> k_BrdfFields
     {
-        "sss", "leadr", "foam_roughness", "seabed_roughness"
+        "sss", "body", "leadr", "foam_roughness", "seabed_roughness"
     };
 
     std::vector<std::string_view> SplitWords(std::string_view line)
@@ -146,6 +141,7 @@ namespace
     bool ParseFloat(std::string_view word, float& value);
     std::expected<SceneCommand, std::string> ParsePreset(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseSea(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseTool(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseCascade(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseFoamWeight(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseFoam(const std::vector<std::string_view>& words);
@@ -158,6 +154,49 @@ namespace
     std::expected<SceneCommand, std::string> ParseTaa(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseSsr(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseAutoExposure(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseCaptureBurst(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseAtmosDebug(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseSsrDebug(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseSurfDebug(const std::vector<std::string_view>& words);
+
+    const std::array<std::string_view, 10> k_AtmosphereDebugModes
+    {
+        "off",
+        "heighterror",
+        "muerror",
+        "museam",
+        "inscatter",
+        "transmittance",
+        "constant",
+        "lutformula",
+        "luttotal",
+        "museamcam",
+    };
+
+    const std::array<std::string_view, 6> k_SsrDebugModes
+    {
+        "off",
+        "hit",
+        "weight",
+        "step",
+        "thickness",
+        "distance",
+    };
+
+    const std::array<std::string_view, 11> k_SurfaceDebugModes
+    {
+        "off",
+        "normal",
+        "slope",
+        "stretch",
+        "jacobian",
+        "leansigma",
+        "miplevel",
+        "cascades",
+        "reflectdir",
+        "foamterms",
+        "specsplit",
+    };
 }
 
 std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view line)
@@ -188,6 +227,11 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
     if (shape.Kind == Kind::Sea)
     {
         return ParseSea(words);
+    }
+
+    if (shape.Kind == Kind::Tool)
+    {
+        return ParseTool(words);
     }
 
     if (shape.Kind == Kind::Cascade)
@@ -250,6 +294,26 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
         return ParseAutoExposure(words);
     }
 
+    if (shape.Kind == Kind::CaptureBurst)
+    {
+        return ParseCaptureBurst(words);
+    }
+
+    if (shape.Kind == Kind::AtmosDebug)
+    {
+        return ParseAtmosDebug(words);
+    }
+
+    if (shape.Kind == Kind::SsrDebug)
+    {
+        return ParseSsrDebug(words);
+    }
+
+    if (shape.Kind == Kind::SurfDebug)
+    {
+        return ParseSurfDebug(words);
+    }
+
     SceneCommand command{};
     command.Type = shape.Kind;
     if (shape.TakesText)
@@ -270,6 +334,22 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
         if (command.Type == Kind::SkyRes && command.Text != "8k" && command.Text != "16k")
         {
             return std::unexpected(std::string{ "sky_res takes 8k or 16k" });
+        }
+
+        if (command.Type == Kind::Spectrum && command.Text != "jonswap" && command.Text != "elfouhaily" && command.Text != "bringer")
+        {
+            return std::unexpected(std::string{ "spectrum takes jonswap, elfouhaily or bringer" });
+        }
+
+        if (command.Type == Kind::Spreading &&
+            command.Text != "mitsuyasu" &&
+            command.Text != "hasselmann" &&
+            command.Text != "donelan" &&
+            command.Text != "elfouhaily" &&
+            command.Text != "hybrid" &&
+            command.Text != "ewans")
+        {
+            return std::unexpected(std::string{ "spreading takes mitsuyasu, hasselmann, donelan, elfouhaily, hybrid or ewans" });
         }
 
         return command;
@@ -303,14 +383,19 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
     return command;
 }
 
-const SeaStateField* FindSeaStateField(std::string_view name)
+const foundation::reflect::FieldInfo* FindSeaStateField(std::string_view name)
 {
-    const auto found = std::ranges::find_if(k_SeaStateFields, [name](const SeaStateField& field)
+    const std::span<const foundation::reflect::FieldInfo> fields =
+        foundation::reflect::GetTypeInfo<ocean::SeaState>().Fields;
+
+    const auto matchesName = [name](const foundation::reflect::FieldInfo& field)
     {
         return EqualsIgnoreCase(field.Name, name);
-    });
+    };
 
-    return found != k_SeaStateFields.end() ? &*found : nullptr;
+    const auto found = std::ranges::find_if(fields, matchesName);
+
+    return found != fields.end() ? std::addressof(*found) : nullptr;
 }
 
 const ocean::SeaStatePreset* FindSeaStatePreset(std::string_view name)
@@ -321,20 +406,90 @@ const ocean::SeaStatePreset* FindSeaStatePreset(std::string_view name)
         return EqualsIgnoreCase(preset.Name, name);
     });
 
-    return found != presets.end() ? &*found : nullptr;
+    return found != presets.end() ? std::addressof(*found) : nullptr;
 }
 
-const std::array<SeaStateField, 15>& SeaStateFields() noexcept
+const std::array<std::string_view, 10>& AtmosphereDebugModeNames() noexcept
 {
-    return k_SeaStateFields;
+    return k_AtmosphereDebugModes;
 }
 
-std::expected<void, std::string> SceneCommands::LoadScript(const std::filesystem::path& path)
+int32_t FindAtmosphereDebugMode(std::string_view name)
+{
+    const auto matchesName = [name](std::string_view mode)
+    {
+        return EqualsIgnoreCase(mode, name);
+    };
+
+    const auto found = std::ranges::find_if(k_AtmosphereDebugModes, matchesName);
+    if (found == k_AtmosphereDebugModes.end())
+    {
+        return -1;
+    }
+
+    return static_cast<int32_t>(found - k_AtmosphereDebugModes.begin());
+}
+
+const std::array<std::string_view, 6>& SsrDebugModeNames() noexcept
+{
+    return k_SsrDebugModes;
+}
+
+int32_t FindSsrDebugMode(std::string_view name)
+{
+    const auto matchesName = [name](std::string_view mode)
+    {
+        return EqualsIgnoreCase(mode, name);
+    };
+
+    const auto found = std::ranges::find_if(k_SsrDebugModes, matchesName);
+    if (found == k_SsrDebugModes.end())
+    {
+        return -1;
+    }
+
+    return static_cast<int32_t>(found - k_SsrDebugModes.begin());
+}
+
+const std::array<std::string_view, 11>& SurfaceDebugModeNames() noexcept
+{
+    return k_SurfaceDebugModes;
+}
+
+int32_t FindSurfaceDebugMode(std::string_view name)
+{
+    const auto matchesName = [name](std::string_view mode)
+    {
+        return EqualsIgnoreCase(mode, name);
+    };
+
+    const auto found = std::ranges::find_if(k_SurfaceDebugModes, matchesName);
+    if (found == k_SurfaceDebugModes.end())
+    {
+        return -1;
+    }
+
+    return static_cast<int32_t>(found - k_SurfaceDebugModes.begin());
+}
+
+std::string_view ToString(ScriptResult error) noexcept
+{
+    switch (error)
+    {
+    case ScriptResult::Invalid: return "Invalid";
+    case ScriptResult::Success: return "Success";
+    case ScriptResult::CannotOpen: return "CannotOpen";
+    }
+
+    return "Unknown";
+}
+
+ScriptResult SceneCommands::LoadScript(const std::filesystem::path& path)
 {
     std::ifstream file(path);
     if (!file)
     {
-        return std::unexpected("cannot open " + path.string());
+        return ScriptResult::CannotOpen;
     }
 
     std::string line;
@@ -343,7 +498,7 @@ std::expected<void, std::string> SceneCommands::LoadScript(const std::filesystem
         lines.push_back(std::move(line));
     }
 
-    return {};
+    return ScriptResult::Success;
 }
 
 void SceneCommands::StartStdin()
@@ -417,7 +572,14 @@ std::vector<SceneCommand> SceneCommands::TakeForFrame()
         }
 
         // a capture takes this frame as the commands so far left it, so the ones after it wait for the next frame
-        const bool endsFrame = parsed->Type == SceneCommand::Kind::Capture || parsed->Type == SceneCommand::Kind::Sync;
+        const bool endsFrame = parsed->Type == SceneCommand::Kind::Capture || parsed->Type == SceneCommand::Kind::Sync ||
+                               parsed->Type == SceneCommand::Kind::CaptureBurst;
+        if (parsed->Type == SceneCommand::Kind::CaptureBurst)
+        {
+            // the burst takes this frame and the next count-1 frames, so the commands after it wait for those
+            waitFrames = static_cast<uint32_t>(parsed->Values[0]) - 1u;
+        }
+
         commands.push_back(std::move(*parsed));
         if (endsFrame)
         {
@@ -486,6 +648,21 @@ namespace
         return command;
     }
 
+    std::string DescribeRefusedSeaValue(const foundation::reflect::FieldInfo& field,
+                                        std::string_view value_word,
+                                        foundation::reflect::ValueResult error)
+    {
+        std::string message = std::format("sea: {} {}: {}", field.Name, value_word,
+                                          foundation::reflect::ValueResultText(error));
+
+        if (error == foundation::reflect::ValueResult::OutOfRange && field.Metadata.Range.has_value())
+        {
+            message += std::format(" ({} to {})", field.Metadata.Range->Min, field.Metadata.Range->Max);
+        }
+
+        return message;
+    }
+
     std::expected<SceneCommand, std::string> ParseSea(const std::vector<std::string_view>& words)
     {
         if (words.size() != 3u)
@@ -493,7 +670,7 @@ namespace
             return std::unexpected(std::string{ "sea takes a field name and a value" });
         }
 
-        const SeaStateField* field = FindSeaStateField(words[1]);
+        const foundation::reflect::FieldInfo* field = FindSeaStateField(words[1]);
         if (field == nullptr)
         {
             return std::unexpected(std::string{ "sea: unknown field '" } + std::string{ words[1] } + "'");
@@ -505,11 +682,45 @@ namespace
             return std::unexpected(std::string{ "sea: '" } + std::string{ words[2] } + "' is not a number");
         }
 
+        // a write to a scratch value, so that a refused value fails on its script line, not later in a frame
+        ocean::SeaState scratch{};
+
+        const foundation::reflect::PathResult written = foundation::reflect::SetValue(
+            foundation::reflect::GetTypeInfo<ocean::SeaState>(),
+            &scratch,
+            field->Name,
+            foundation::reflect::ScalarValue{ static_cast<double>(value) });
+
+        if (!written.Succeeded())
+        {
+            return std::unexpected(DescribeRefusedSeaValue(*field, words[2], written.Code));
+        }
+
         SceneCommand command{};
         command.Type = SceneCommand::Kind::Sea;
         command.Text = std::string{ field->Name };
         command.Values[0] = value;
         command.ValueCount = 1u;
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseTool(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u)
+        {
+            return std::unexpected(std::string{ "tool takes a request: describe, get, set or call" });
+        }
+
+        SceneCommand command{};
+
+        command.Type = SceneCommand::Kind::Tool;
+
+        for (size_t index = 1u; index < words.size(); ++index)
+        {
+            command.Text += words[index];
+            command.Text += ' ';
+        }
+
         return command;
     }
 
@@ -1040,6 +1251,99 @@ namespace
             cmd.Values[0] = val;
             cmd.ValueCount = 1u;
         }
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseCaptureBurst(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "capture_burst takes a frame count and a name" });
+        }
+
+        int32_t count = 0;
+        const std::from_chars_result result = std::from_chars(words[1].data(), words[1].data() + words[1].size(), count);
+        if (result.ec != std::errc{} || result.ptr != words[1].data() + words[1].size() || count < 1)
+        {
+            return std::unexpected(std::string{ "capture_burst: '" } + std::string{ words[1] } + "' is not a frame count of 1 or more");
+        }
+
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::CaptureBurst;
+        cmd.Text = std::string{ words[2] };
+        cmd.Values[0] = static_cast<float>(count);
+        cmd.ValueCount = 1u;
+
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseAtmosDebug(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 2u)
+        {
+            return std::unexpected(std::string{ "atmosdebug takes a mode name" });
+        }
+
+        const int32_t mode = FindAtmosphereDebugMode(words[1]);
+        if (mode < 0)
+        {
+            return std::unexpected(std::string{ "atmosdebug: unknown mode '" } + std::string{ words[1] } + "'");
+        }
+
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::AtmosDebug;
+        cmd.Text = std::string{ words[1] };
+        cmd.Values[0] = static_cast<float>(mode);
+        cmd.ValueCount = 1u;
+
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseSsrDebug(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 2u)
+        {
+            return std::unexpected(std::string{ "ssrdebug takes a mode name" });
+        }
+
+        const int32_t mode = FindSsrDebugMode(words[1]);
+        if (mode < 0)
+        {
+            const std::string modeName{ words[1] };
+
+            return std::unexpected("ssrdebug: unknown mode '" + modeName + "'");
+        }
+
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::SsrDebug;
+        cmd.Text = std::string{ words[1] };
+        cmd.Values[0] = static_cast<float>(mode);
+        cmd.ValueCount = 1u;
+
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseSurfDebug(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 2u)
+        {
+            return std::unexpected(std::string{ "surfdebug takes a mode name" });
+        }
+
+        const int32_t mode = FindSurfaceDebugMode(words[1]);
+        if (mode < 0)
+        {
+            const std::string modeName{ words[1] };
+
+            return std::unexpected("surfdebug: unknown mode '" + modeName + "'");
+        }
+
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::SurfDebug;
+        cmd.Text = std::string{ words[1] };
+        cmd.Values[0] = static_cast<float>(mode);
+        cmd.ValueCount = 1u;
+
         return cmd;
     }
 }

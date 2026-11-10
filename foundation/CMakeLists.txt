@@ -4,9 +4,12 @@ set(foundation_source_files
     "include/ImageDataFormatsVulkan.hpp"
     "include/Unit.hpp"
     "include/Handle.hpp"
-    "src/ImageDataFormats.cpp")
+    "src/ImageDataFormats.cpp"
+    # Replaces global new/delete with mimalloc in every executable that links foundation
+    "src/miMallocOverride.cpp")
 
 set(foundation_async_source_files
+    "include/async/FrameHeap.hpp"
     "include/async/FrameNames.hpp"
     "include/async/FrameStatistics.hpp"
     "include/async/Promise.hpp"
@@ -14,28 +17,56 @@ set(foundation_async_source_files
     "include/async/Task.hpp"
     "include/async/Timeline.hpp"
     "include/async/TimelineSource.hpp"
+    "include/async/Yield.hpp"
+    "src/async/FrameHeap.cpp"
     "src/async/FrameNames.cpp"
     "src/async/Promise.cpp"
     "src/async/Scheduler.cpp"
-    "src/async/Timeline.cpp")
+    "src/async/Timeline.cpp"
+    "src/async/Yield.cpp")
 
 set(foundation_content_source_files
+    "include/content/ByteStreamSink.hpp"
+    "include/content/BytesSink.hpp"
     "include/content/CanonicalSink.hpp"
     "include/content/Encode.hpp"
+    "include/content/EncodeErased.hpp"
     "include/content/HashSink.hpp"
+    "include/content/JsonSink.hpp"
+    "include/content/JsonWriter.hpp"
     "include/content/Key.hpp"
     "include/content/RecipeKey.hpp"
     "include/content/TextSink.hpp"
-    "include/reflect/Describe.hpp"
+    "src/content/ByteStreamSink.cpp"
+    "src/content/BytesSink.cpp"
+    "src/content/EncodeErased.cpp"
     "src/content/HashSink.cpp"
+    "src/content/JsonSink.cpp"
+    "src/content/JsonWriter.cpp"
     "src/content/Key.cpp"
     "src/content/RecipeKey.cpp"
     "src/content/TextSink.cpp")
 
+set(foundation_net_source_files
+    "include/net/Socket.hpp"
+    "src/net/SocketWaker.cpp"
+    "src/net/SocketWin32.cpp")
+
+set(foundation_reflect_source_files
+    "include/reflect/Describe.hpp"
+    "include/reflect/TypeInfo.hpp"
+    "include/reflect/ValueAccess.hpp"
+    "include/reflect/ValueTraits.hpp"
+    "src/reflect/TypeInfo.cpp"
+    "src/reflect/ValueAccess.cpp")
+
 set(foundation_containers_source_files
     "include/containers/CircularBuffer.hpp"
     "include/containers/ConcurrentDeque.hpp"
-    "include/containers/mwsrQueue.hpp")
+    "include/containers/DenseHashMap.hpp"
+    "include/containers/LruCache.hpp"
+    "include/containers/mwsrQueue.hpp"
+    "include/containers/SmallVector.hpp")
 
 set(threading_source_files
     "include/threading/atomic128.hpp"
@@ -104,6 +135,8 @@ set(maths_source_files
 source_group("foundation" FILES ${foundation_source_files})
 source_group("async" FILES ${foundation_async_source_files})
 source_group("content" FILES ${foundation_content_source_files})
+source_group("net" FILES ${foundation_net_source_files})
+source_group("reflect" FILES ${foundation_reflect_source_files})
 source_group("containers" FILES ${foundation_containers_source_files})
 source_group("threading" FILES ${threading_source_files} ${threading_platform_source_files})
 source_group("utility" FILES ${utility_source_files})
@@ -114,6 +147,8 @@ source_group("events" FILES ${event_source_files})
 add_library(foundation STATIC
     ${foundation_async_source_files}
     ${foundation_content_source_files}
+    ${foundation_net_source_files}
+    ${foundation_reflect_source_files}
     ${foundation_source_files}
     ${foundation_containers_source_files}
     ${threading_source_files}
@@ -136,9 +171,13 @@ target_link_libraries(foundation PRIVATE xxHash::xxhash)
 if(WIN32)
     # FrameSymbolizer reads function names with DbgHelp in every build below Release (RelWithDebInfo defines NDEBUG too,
     # so NDEBUG can't decide this)
-    target_link_libraries(foundation PUBLIC dbghelp winmm)
+    target_link_libraries(foundation PUBLIC dbghelp winmm ws2_32)
     target_compile_definitions(foundation PUBLIC "FOUNDATION_ASYNC_SYMBOLS=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>")
 endif()
+
+# The frame counters cost atomics on the allocation path, so Release and MinSizeRel compile them out. NDEBUG can't decide
+# this: RelWithDebInfo defines it and keeps the counters
+target_compile_definitions(foundation PUBLIC "FOUNDATION_ASYNC_FRAME_STATISTICS=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>")
 
 if(UNIX)
     target_link_libraries(foundation PUBLIC "c++fs" "dl" "pthread")

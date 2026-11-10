@@ -1,7 +1,10 @@
 #include "async/Scheduler.hpp"
+#include "async/FrameHeap.hpp"
+#include "async/FrameStatistics.hpp"
 #include "async/Task.hpp"
 #include "async/Timeline.hpp"
 #include "async/TimelineSource.hpp"
+#include "async/Yield.hpp"
 #include <algorithm>
 #include <cassert>
 #include <coroutine>
@@ -13,12 +16,15 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace foundation
 {
 
-Scheduler::Scheduler() noexcept
+Scheduler::Scheduler() noexcept : ownerThread{ std::this_thread::get_id() }
 {
+    // the first root's frame is created before Spawn, so the heap is bound here and not on the first call
+    frameHeap.BindToCurrentThread();
 }
 
 Scheduler::~Scheduler()
@@ -32,13 +38,18 @@ Scheduler::~Scheduler()
 #endif
 
     // a root's frame owns the Tasks it is awaiting, so destroying the roots destroys every frame below them. Roots
-    // that never started are in `roots` too
+    // that never started are in `roots` too. Ready and yielded frames belong to a root as well
     parked.clear();
+    ready.clear();
+    yielded.clear();
+    yieldedPreviously.clear();
 
     for (std::coroutine_handle<> root : roots)
     {
         root.destroy();
     }
+
+    frameHeap.UnbindFromCurrentThread();
 }
 
 void Scheduler::Spawn(Task<void>&& root)
@@ -52,6 +63,14 @@ void Scheduler::Spawn(Task<void>&& root)
     promise.Awaiting = nullptr;
 
     roots.push_back(handle);
+
+    // inside a Tick the ready list starts it in this Tick, so a chain of spawns does not take one Tick for each link
+    if (ticking)
+    {
+        ready.push_back(ReadyFrame{ handle, &promise, tickCount });
+        return;
+    }
+
     spawned.push_back(handle);
 }
 
@@ -62,15 +81,44 @@ void Scheduler::Park(const Timeline& source, uint64_t target_value, std::corouti
     parked.push_back(ParkedFrame{ &source, target_value, handle, waiter, tickCount });
 }
 
+void Scheduler::ParkUntilNextTick(std::coroutine_handle<> handle, BasePromise* waiter)
+{
+    checkOwnerThread();
+    yielded.push_back(ReadyFrame{ handle, waiter, tickCount });
+}
+
+void Scheduler::Post(std::coroutine_handle<> handle)
+{
+    Post(handle, nullptr);
+}
+
+void Scheduler::Post(std::coroutine_handle<> handle, BasePromise* waiter)
+{
+    checkOwnerThread();
+    ready.push_back(ReadyFrame{ handle, waiter, tickCount });
+}
+
 void Scheduler::Tick()
 {
     checkOwnerThread();
+    assert(!ticking && "Tick is not reentrant");
     ++tickCount;
+    ticking = true;
+
+    // an older scheduler that ticks while a newer one lives on this thread must still allocate from its own heap
+    FrameHeap* const previousHeap = frameHeap.MakeCurrent();
+
+    // taken before any frame runs: a frame that yields in this Tick lands in `yielded` and waits for the next one
+    std::swap(yieldedPreviously, yielded);
 
     pollSources();
     resumeReachedFrames();
     startSpawnedRoots();
+    runReadyList();
     destroyFinishedRoots();
+
+    ticking = false;
+    FrameHeap::RestoreCurrent(previousHeap);
 }
 
 void Scheduler::AddSource(TimelineSource& source)
@@ -111,6 +159,31 @@ int64_t Scheduler::TickCount() const noexcept
     return tickCount;
 }
 
+FrameStatisticsSnapshot Scheduler::FrameStatistics() const noexcept
+{
+    return frameHeap.Snapshot();
+}
+
+bool Scheduler::HoldsFrame(std::coroutine_handle<> frame) const noexcept
+{
+    // only the queues of frames that wait to be resumed. `draining`, `resuming` and `yieldedPreviously` keep entries
+    // that already ran until the end of their loop, so a check there would report frames that are free
+    const auto isFrame = [frame](const auto& entry) { return entry.Handle == frame; };
+
+    return std::ranges::any_of(parked, isFrame) || std::ranges::any_of(ready, isFrame) ||
+           std::ranges::any_of(yielded, isFrame);
+}
+
+namespace detail
+{
+
+bool SchedulerHoldsFrame(const Scheduler& scheduler, std::coroutine_handle<> frame) noexcept
+{
+    return scheduler.HoldsFrame(frame);
+}
+
+}
+
 std::string Scheduler::DumpState() const
 {
     std::string output;
@@ -120,27 +193,18 @@ std::string Scheduler::DumpState() const
         std::format_to(std::back_inserter(output), "parked: timeline {} target {} (value {}), {} ticks\n",
                        static_cast<const void*>(frame.Source), frame.TargetValue, frame.Source->Value(),
                        tickCount - frame.ParkedAtTick);
-
-        for (const BasePromise* promise = frame.Waiter; promise != nullptr; promise = promise->Awaiting)
-        {
-            std::string description = symbolizer.DescribeFrame(promise->FrameAddress);
-            std::format_to(std::back_inserter(output), "    frame {}\n", description);
-        }
+        appendBacktrace(output, frame.Waiter, frame.Handle);
     }
+
+    appendReadyFrames(output, "ready", ready);
+    appendReadyFrames(output, "yielded", yielded);
 
     return output;
 }
 
-void Scheduler::checkOwnerThread() noexcept
+void Scheduler::checkOwnerThread() const noexcept
 {
-    const std::thread::id current = std::this_thread::get_id();
-
-    if (ownerThread == std::thread::id{})
-    {
-        ownerThread = current;
-    }
-
-    assert(ownerThread == current && "a Scheduler is used from one owner thread only");
+    assert(ownerThread == std::this_thread::get_id() && "a Scheduler is used from its owner thread only");
 }
 
 void Scheduler::pollSources()
@@ -153,7 +217,7 @@ void Scheduler::pollSources()
 
 void Scheduler::startSpawnedRoots()
 {
-    // a starting root can spawn another root, so take the list before resuming any of them
+    // these roots were spawned outside a Tick. A root spawned while this loop runs goes on the ready list instead
     starting.clear();
     std::swap(starting, spawned);
 
@@ -170,7 +234,7 @@ void Scheduler::resumeReachedFrames()
     std::erase_if(parked,
                   [this](const ParkedFrame& frame)
                   {
-                      if (!frame.Source->Reached(frame.TargetValue))
+                      if (!frame.Source->Reached(frame.TargetValue) && !frame.Source->Failed())
                       {
                           return false;
                       }
@@ -182,6 +246,28 @@ void Scheduler::resumeReachedFrames()
     for (const ParkedFrame& frame : resuming)
     {
         frame.Handle.resume();
+    }
+}
+
+void Scheduler::runReadyList()
+{
+    // a resumed frame can yield again, which appends to `yielded`, and it can post, which appends to `ready`
+    for (const ReadyFrame& frame : yieldedPreviously)
+    {
+        frame.Handle.resume();
+    }
+
+    yieldedPreviously.clear();
+
+    while (!ready.empty())
+    {
+        draining.clear();
+        std::swap(draining, ready);
+
+        for (const ReadyFrame& frame : draining)
+        {
+            frame.Handle.resume();
+        }
     }
 }
 
@@ -198,6 +284,32 @@ void Scheduler::destroyFinishedRoots()
                       root.destroy();
                       return true;
                   });
+}
+
+void Scheduler::appendReadyFrames(std::string& output, const char* label, const std::vector<ReadyFrame>& frames) const
+{
+    for (const ReadyFrame& frame : frames)
+    {
+        std::format_to(std::back_inserter(output), "{}: {} ticks\n", label, tickCount - frame.QueuedAtTick);
+        appendBacktrace(output, frame.Waiter, frame.Handle);
+    }
+}
+
+void Scheduler::appendBacktrace(std::string& output, const BasePromise* waiter, std::coroutine_handle<> handle) const
+{
+    // a frame that was posted by handle only has no promise to walk, so it prints its own frame
+    if (waiter == nullptr)
+    {
+        std::string description = symbolizer.DescribeFrame(handle.address());
+        std::format_to(std::back_inserter(output), "    frame {}\n", description);
+        return;
+    }
+
+    for (const BasePromise* promise = waiter; promise != nullptr; promise = promise->Awaiting)
+    {
+        std::string description = symbolizer.DescribeFrame(promise->FrameAddress);
+        std::format_to(std::back_inserter(output), "    frame {}\n", description);
+    }
 }
 
 }

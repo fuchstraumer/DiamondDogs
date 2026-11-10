@@ -261,11 +261,17 @@ namespace
 
     [[nodiscard]] std::string Describe(const ocean::OceanSimulationSettings& settings)
     {
-        constexpr std::array<std::string_view, 3> k_SpreadingNames{ "Mitsuyasu", "Hasselmann", "Donelan-Banner" };
-        const uint32_t spreading = std::min(settings.Spectrum.DirectionalSpreadingMode, 2u);
-        return std::format("size {} {} {} {}", settings.Size,
+        constexpr std::array<std::string_view, 6> k_SpreadingNames
+        {
+            "Mitsuyasu", "Hasselmann", "Donelan-Banner", "Elfouhaily", "Hybrid", "Ewans"
+        };
+        const uint32_t spreading = std::min(settings.Spectrum.DirectionalSpreadingMode, 5u);
+        constexpr std::array<std::string_view, 3> k_SpectrumNames{ "JONSWAP", "Elfouhaily", "Bringer" };
+        const uint32_t spectrumIdx = std::min(settings.Spectrum.EnergySpectrumModel, 2u);
+        const std::string_view spectrumName = k_SpectrumNames[spectrumIdx];
+        return std::format("size {} {} {} {} {}", settings.Size,
             settings.WaveSize == 0u ? std::string{ "no wave ops" } : std::format("wave {}", settings.WaveSize), k_SpreadingNames[spreading],
-            settings.FusedKernels ? "fused" : "unfused");
+            settings.FusedKernels ? "fused" : "unfused", spectrumName);
     }
 
     int32_t TestIfft(const TestContext& context, const ocean::OceanSimulationSettings& settings)
@@ -377,11 +383,11 @@ namespace
         const uint32_t size = settings.Size;
         const uint64_t spectrumElements = uint64_t{ size } * size * ocean::k_CascadeCount;
 
-        // Displacement and Derivatives (rgba16f), then Whitecaps (rg16f): mip 0 of every layer
+        // Displacement, Derivatives and Whitecaps, all rgba16f: mip 0 of every layer
         const uint64_t textureBytes = spectrumElements * 8u;
         const uint64_t derivativesOffset = textureBytes;
         const uint64_t whitecapsOffset = textureBytes * 2u;
-        const uint64_t readbackBytes = whitecapsOffset + spectrumElements * 4u;
+        const uint64_t readbackBytes = whitecapsOffset + textureBytes;
 
         // the first run also computes the spectrum, and the second run reuses it: both ticks see the same h0(k) and time
         const auto run = [&](bool fused, bool initialize, const Readback& readback)
@@ -441,7 +447,7 @@ namespace
         {
             Field{ "Displacement", 0u, spectrumElements * 4u },
             Field{ "Derivatives", derivativesOffset, spectrumElements * 4u },
-            Field{ "Whitecaps", whitecapsOffset, spectrumElements * 2u }
+            Field{ "Whitecaps", whitecapsOffset, spectrumElements * 4u }
         };
 
         int32_t failures = 0;
@@ -630,7 +636,7 @@ namespace
             {
                 const uint64_t index = cascade * planeElements + element;
                 // k follows from the thread position and the cascade, as WaveSpacing computes it on the GPU
-                const double waveSpacing = 2.0 * std::numbers::pi / static_cast<double>(settings.LengthScales[cascade]);
+                const double waveSpacing = 2.0 * std::numbers::pi / static_cast<double>(ocean.Settings().LengthScales[cascade]);
                 const int64_t offsetX = static_cast<int64_t>(element % size) - static_cast<int64_t>(size / 2u);
                 const int64_t offsetY = static_cast<int64_t>(element / size) - static_cast<int64_t>(size / 2u);
                 const double kx = waveSpacing * static_cast<double>(offsetX);
@@ -786,6 +792,205 @@ namespace
         return failures;
     }
 
+    [[nodiscard]] int32_t TestElfouhailySpectrum()
+    {
+        int32_t failures = 0;
+        const auto check = [&](bool condition, std::string_view desc)
+        {
+            if (!condition)
+            {
+                std::cerr << std::format("[ElfouhailySpectrum] FAIL: {}\n", desc);
+                ++failures;
+            }
+        };
+
+        const auto findPreset = [](std::string_view name) -> std::optional<ocean::SeaState>
+        {
+            for (const ocean::SeaStatePreset& preset : ocean::SeaStatePresets())
+            {
+                if (preset.Name == name)
+                {
+                    return preset.State;
+                }
+            }
+
+            return std::nullopt;
+        };
+
+        const std::optional<ocean::SeaState> breezyState = findPreset("Breezy");
+        const std::optional<ocean::SeaState> freshState = findPreset("Fresh");
+        const std::optional<ocean::SeaState> galeState = findPreset("Gale");
+        check(breezyState.has_value() && freshState.has_value() && galeState.has_value(), "Breezy, Fresh, Gale presets exist");
+
+        if (breezyState && freshState && galeState)
+        {
+            const std::array<uint32_t, 3> models{ 0u, 1u, 2u };
+
+            for (const uint32_t model : models)
+            {
+                constexpr std::array<std::string_view, 3> modelNames{ "JONSWAP", "Elfouhaily", "Bringer" };
+                const std::string_view modelName = modelNames[std::min(model, 2u)];
+                ocean::SpectrumParameters base{};
+                base.EnergySpectrumModel = model;
+
+                const ocean::SeaStateResult breezyResult = ocean::ApplySeaState(*breezyState, base);
+                const ocean::SeaStateResult freshResult = ocean::ApplySeaState(*freshState, base);
+                const ocean::SeaStateResult galeResult = ocean::ApplySeaState(*galeState, base);
+
+                const std::array<ocean::SeaStateResult, 3> results{ breezyResult, freshResult, galeResult };
+                const std::array<std::string_view, 3> presetNames{ "Breezy", "Fresh", "Gale" };
+
+                for (int32_t i = 0; i < 3; ++i)
+                {
+                    const ocean::SeaStateReadout& r = results[static_cast<size_t>(i)].Readout;
+                    const std::string desc = std::format("{} model {}", presetNames[static_cast<size_t>(i)], modelName);
+                    check(std::isfinite(r.WindSeaHeight) && r.WindSeaHeight > 0.0f, std::format("{}: WindSeaHeight is finite positive ({:.3f})", desc, r.WindSeaHeight));
+                    check(std::isfinite(r.SignificantHeight) && r.SignificantHeight > 0.0f, std::format("{}: SignificantHeight is finite positive ({:.3f})", desc, r.SignificantHeight));
+                    check(std::isfinite(r.PeakPeriod) && r.PeakPeriod > 0.0f, std::format("{}: PeakPeriod is finite positive ({:.3f})", desc, r.PeakPeriod));
+                    check(std::isfinite(r.PeakWavelength) && r.PeakWavelength > 0.0f, std::format("{}: PeakWavelength is finite positive ({:.3f})", desc, r.PeakWavelength));
+                }
+
+                check(breezyResult.Readout.WindSeaHeight < freshResult.Readout.WindSeaHeight,
+                    std::format("{}: Breezy WindSeaHeight ({:.3f}) < Fresh ({:.3f})", modelName, breezyResult.Readout.WindSeaHeight, freshResult.Readout.WindSeaHeight));
+                check(freshResult.Readout.WindSeaHeight < galeResult.Readout.WindSeaHeight,
+                    std::format("{}: Fresh WindSeaHeight ({:.3f}) < Gale ({:.3f})", modelName, freshResult.Readout.WindSeaHeight, galeResult.Readout.WindSeaHeight));
+
+                check(breezyResult.Readout.PeakPeriod < freshResult.Readout.PeakPeriod,
+                    std::format("{}: Breezy PeakPeriod ({:.3f}) < Fresh ({:.3f})", modelName, breezyResult.Readout.PeakPeriod, freshResult.Readout.PeakPeriod));
+                check(freshResult.Readout.PeakPeriod < galeResult.Readout.PeakPeriod,
+                    std::format("{}: Fresh PeakPeriod ({:.3f}) < Gale ({:.3f})", modelName, freshResult.Readout.PeakPeriod, galeResult.Readout.PeakPeriod));
+            }
+        }
+
+        // Check that for EnergySpectrumModel = 1u (Elfouhaily), MeasureSpectrum with FadeLength = 0.0f (RippleDetail = 1.0f)
+        // yields strictly greater WindSeaHeight than FadeLength = 0.1f (RippleDetail = 0.0f), confirming positive short-wave variance from B_h(k).
+        {
+            ocean::SpectrumParameters elfFade0{};
+            elfFade0.EnergySpectrumModel = 1u;
+            elfFade0.WindSpeed = 10.0f;
+            elfFade0.Fetch = 100.0f;
+            elfFade0.Depth = 50.0f;
+            elfFade0.FadeLength = 0.0f;
+
+            ocean::SpectrumParameters elfFade01 = elfFade0;
+            elfFade01.FadeLength = 0.1f;
+
+            const ocean::SeaStateReadout rFade0 = ocean::MeasureSpectrum(elfFade0);
+            const ocean::SeaStateReadout rFade01 = ocean::MeasureSpectrum(elfFade01);
+
+            check(rFade0.WindSeaHeight > rFade01.WindSeaHeight,
+                std::format("Elfouhaily: WindSeaHeight at FadeLength=0 ({:.4f}) > FadeLength=0.1 ({:.4f})",
+                    rFade0.WindSeaHeight, rFade01.WindSeaHeight));
+        }
+
+        // Check that for EnergySpectrumModel = 1u (Elfouhaily) and 2u (Bringer), shallow water (Depth = 4.0f) yields strictly smaller
+        // WindSeaHeight and strictly shorter PeakWavelength (shoaling) than deep water (Depth = 50.0f) at the same wind and fetch.
+        for (const uint32_t model : { 1u, 2u })
+        {
+            const std::string_view name = (model == 2u) ? "Bringer" : "Elfouhaily";
+            ocean::SpectrumParameters shallow{};
+            shallow.EnergySpectrumModel = model;
+            shallow.WindSpeed = 10.0f;
+            shallow.Fetch = 100.0f;
+            shallow.Depth = 4.0f;
+            shallow.FadeLength = 0.01f;
+
+            ocean::SpectrumParameters deep = shallow;
+            deep.Depth = 50.0f;
+
+            const ocean::SeaStateReadout rShallow = ocean::MeasureSpectrum(shallow);
+            const ocean::SeaStateReadout rDeep = ocean::MeasureSpectrum(deep);
+
+            check(rShallow.WindSeaHeight < rDeep.WindSeaHeight,
+                std::format("{}: shallow water Depth=4m WindSeaHeight ({:.4f}) < deep Depth=50m ({:.4f})",
+                    name, rShallow.WindSeaHeight, rDeep.WindSeaHeight));
+            check(rShallow.PeakWavelength < rDeep.PeakWavelength,
+                std::format("{}: shallow water Depth=4m PeakWavelength ({:.4f}) < deep Depth=50m ({:.4f})",
+                    name, rShallow.PeakWavelength, rDeep.PeakWavelength));
+        }
+
+        if (failures == 0)
+        {
+            std::cout << "[ElfouhailySpectrum] PASS: Elfouhaily and Bringer spectra, shoaling, and depth correction verified\n";
+        }
+
+        return failures;
+    }
+
+    [[nodiscard]] int32_t TestCascadeLayouts()
+    {
+        int32_t failures = 0;
+        const auto check = [&](bool condition, std::string_view desc)
+        {
+            if (!condition)
+            {
+                std::cerr << std::format("[CascadeLayouts] FAIL: {}\n", desc);
+                ++failures;
+            }
+        };
+
+        const std::array<uint32_t, 3> sizes{ 128u, 256u, 512u };
+
+        for (const uint32_t size : sizes)
+        {
+            const ocean::CascadeParameters params = ocean::MakeCascadeParameters(size);
+            const std::string desc = std::format("size {}", size);
+
+            check(params.Dimensions[0] == size && params.Dimensions[1] == size, std::format("{}: dimensions match size", desc));
+
+            for (int32_t c = 0; c < static_cast<int32_t>(ocean::k_CascadeCount); ++c)
+            {
+                check(params.LengthScales[static_cast<size_t>(c)] > 0.0f, std::format("{}: length scale {} is positive", desc, c));
+
+                if (c > 0)
+                {
+                    check(params.LengthScales[static_cast<size_t>(c)] < params.LengthScales[static_cast<size_t>(c - 1)],
+                        std::format("{}: length scale {} strictly less than {}", desc, c, c - 1));
+                }
+            }
+
+            check(params.CutoffsLow[0] > 0.0f, std::format("{}: CutoffsLow[0] is positive", desc));
+
+            for (int32_t c = 0; c < static_cast<int32_t>(ocean::k_CascadeCount); ++c)
+            {
+                check(params.CutoffsHigh[static_cast<size_t>(c)] > params.CutoffsLow[static_cast<size_t>(c)],
+                    std::format("{}: CutoffsHigh[{}] > CutoffsLow[{}]", desc, c, c));
+
+                if (c > 0)
+                {
+                    check(std::abs(params.CutoffsLow[static_cast<size_t>(c)] - params.CutoffsHigh[static_cast<size_t>(c - 1)]) < 1e-5f,
+                        std::format("{}: CutoffsLow[{}] matches CutoffsHigh[{}]", desc, c, c - 1));
+                }
+            }
+        }
+
+        const ocean::CascadeParameters log512 = ocean::MakeCascadeParameters(512u);
+        check(log512.CutoffsHigh[ocean::k_CascadeCount - 1u] > 360.0f, "LogBands 512: finest cutoff high > 360");
+
+        for (int32_t c = 1; c < static_cast<int32_t>(ocean::k_CascadeCount); ++c)
+        {
+            const float minLength = 6.0f * (2.0f * std::numbers::pi_v<float> / log512.CutoffsLow[static_cast<size_t>(c)]) - 1e-3f;
+            check(log512.LengthScales[static_cast<size_t>(c)] >= minLength,
+                std::format("LogBands 512: cascade {} length scale >= 6 * (2 pi / k_low)", c));
+        }
+
+        for (int32_t c = 0; c < static_cast<int32_t>(ocean::k_CascadeCount); ++c)
+        {
+            const float margin = (std::numbers::pi_v<float> * 512.0f / log512.LengthScales[static_cast<size_t>(c)]) / log512.CutoffsHigh[static_cast<size_t>(c)];
+            check(margin >= 2.0f - 1e-3f, std::format("LogBands 512: cascade {} margin >= 2.0", c));
+        }
+
+        const float lastMargin = (std::numbers::pi_v<float> * 512.0f / log512.LengthScales[ocean::k_CascadeCount - 1u]) / log512.CutoffsHigh[ocean::k_CascadeCount - 1u];
+        check(lastMargin >= 4.0f - 1e-2f, std::format("LogBands 512: cascade 4 margin >= 4.0 (got {:.3f})", lastMargin));
+
+        if (failures == 0)
+        {
+            std::cout << "[CascadeLayouts] PASS: LogBands cascade tables verified across sizes\n";
+        }
+
+        return failures;
+    }
+
     [[nodiscard]] int32_t TestComputeCdlodMaxLevel()
     {
         int32_t failures = 0;
@@ -900,7 +1105,7 @@ namespace
             return failures + 1;
         }
         const lodestone::ManifestIndex* renderIndex = *renderIndexResult;
-        constexpr std::array<std::string_view, 2> surfaceEntry{ "OceanSurfaceVS", "OceanSurfaceFS" };
+        constexpr std::array<std::string_view, 2> surfaceEntry{ "OceanSurfaceVS", "OceanSurfaceGBufferFS" };
         constexpr std::array<std::string_view, 2> seabedEntry{ "SeabedVS", "SeabedFS" };
 
         // OceanRender scalar variant (OCEAN_USE_WAVE_OPS = false)
@@ -1635,6 +1840,8 @@ int main()
     }
 
     int32_t failures = 0;
+    failures += TestCascadeLayouts();
+    failures += TestElfouhailySpectrum();
     failures += TestComputeCdlodMaxLevel();
     failures += TestExrLoader();
     {
@@ -1674,7 +1881,7 @@ int main()
 
         // every spreading function is normalized over the circle, so each one must give the same plausible wave height.
         // Donelan-Banner reads the generated LUT, so this also checks its upload and its axis mapping
-        for (const uint32_t spreading : { 0u, 1u, 2u })
+        for (const uint32_t spreading : { 0u, 1u, 2u, 3u, 4u, 5u })
         {
             ocean::OceanSimulationSettings settings{};
             settings.Size = 256u;
@@ -1695,6 +1902,50 @@ int main()
         // the default settings above run the fused kernels: run the unfused passes through the same checks too
         seaStateSettings.FusedKernels = false;
         failures += TestPipeline(context, seaStateSettings, 3.25f);
+
+        ocean::OceanSimulationSettings logBandsSettings{};
+        logBandsSettings.Size = 512u;
+        logBandsSettings.WaveSize = context.WaveSize;
+        logBandsSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, logBandsSettings.Spectrum).Spectrum;
+        failures += TestPipeline(context, logBandsSettings, 3.25f);
+
+        ocean::OceanSimulationSettings elfouhailyWindSeaSettings{};
+        elfouhailyWindSeaSettings.Size = 256u;
+        elfouhailyWindSeaSettings.WaveSize = context.WaveSize;
+        elfouhailyWindSeaSettings.Spectrum.EnergySpectrumModel = 1u;
+        elfouhailyWindSeaSettings.Spectrum.SwellScale = 0.0f;
+        failures += TestPipeline(context, elfouhailyWindSeaSettings, 3.25f);
+
+        ocean::OceanSimulationSettings elfouhailyLogSettings{};
+        elfouhailyLogSettings.Size = 512u;
+        elfouhailyLogSettings.WaveSize = context.WaveSize;
+        elfouhailyLogSettings.Spectrum.EnergySpectrumModel = 1u;
+        elfouhailyLogSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, elfouhailyLogSettings.Spectrum).Spectrum;
+        failures += TestPipeline(context, elfouhailyLogSettings, 3.25f);
+
+        ocean::OceanSimulationSettings elfouhailyHybridSettings{};
+        elfouhailyHybridSettings.Size = 512u;
+        elfouhailyHybridSettings.WaveSize = context.WaveSize;
+        elfouhailyHybridSettings.Spectrum.EnergySpectrumModel = 1u;
+        elfouhailyHybridSettings.Spectrum.DirectionalSpreadingMode = 4u;
+        elfouhailyHybridSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, elfouhailyHybridSettings.Spectrum).Spectrum;
+        failures += TestPipeline(context, elfouhailyHybridSettings, 3.25f);
+
+        ocean::OceanSimulationSettings elfouhailyEwansSettings{};
+        elfouhailyEwansSettings.Size = 512u;
+        elfouhailyEwansSettings.WaveSize = context.WaveSize;
+        elfouhailyEwansSettings.Spectrum.EnergySpectrumModel = 1u;
+        elfouhailyEwansSettings.Spectrum.DirectionalSpreadingMode = 5u;
+        elfouhailyEwansSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, elfouhailyEwansSettings.Spectrum).Spectrum;
+        failures += TestPipeline(context, elfouhailyEwansSettings, 3.25f);
+
+        ocean::OceanSimulationSettings bringerHybridSettings{};
+        bringerHybridSettings.Size = 512u;
+        bringerHybridSettings.WaveSize = context.WaveSize;
+        bringerHybridSettings.Spectrum.EnergySpectrumModel = 2u;
+        bringerHybridSettings.Spectrum.DirectionalSpreadingMode = 4u;
+        bringerHybridSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, bringerHybridSettings.Spectrum).Spectrum;
+        failures += TestPipeline(context, bringerHybridSettings, 3.25f);
     }
 
     if (failures != 0)

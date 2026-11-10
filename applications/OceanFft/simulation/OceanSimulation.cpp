@@ -2,6 +2,7 @@
 #include "math/Math.hpp"
 #include "RhiSystem.hpp"
 #include "DonelanBannerNormLUT.hpp"
+#include "OceanFftCascades.hpp"
 #include "ImageDataFormats.hpp"
 #include "ManifestDescriptors.hpp"
 #include "CommandBuffer.hpp"
@@ -273,26 +274,19 @@ namespace ocean
         return supported ? waveSize : 0u;
     }
 
-    CascadeParameters MakeCascadeParameters(uint32_t size, const std::array<float, k_CascadeCount>& length_scales) noexcept
+    CascadeParameters MakeCascadeParameters(uint32_t size) noexcept
     {
-        // cascade i takes the wave numbers below six samples per wavelength of cascade i + 1. The lowest bound
-        // excludes k = 0 (the mean height), and the last cascade has no upper bound
-        constexpr float k_SamplesPerWavelength = 6.0f;
-        CascadeParameters parameters{};
-        std::ranges::copy(length_scales, parameters.LengthScales.begin());
-        parameters.Dimensions = { size, size };
-        float lowerBound = 0.0001f;
-
-        for (uint32_t i = 0; i < k_CascadeCount; ++i)
+        const auto it = std::ranges::find_if(k_GeneratedCascadeTables, [size](const GeneratedCascadeTable& entry)
         {
-            parameters.CutoffsLow[i] = lowerBound;
-            const float upperBound = (i + 1u < k_CascadeCount) ?
-                2.0f * std::numbers::pi_v<float> / length_scales[i + 1u] * k_SamplesPerWavelength :
-                9999.0f;
-            parameters.CutoffsHigh[i] = upperBound;
-            lowerBound = upperBound;
-        }
+            return entry.Resolution == size;
+        });
+        const GeneratedCascadeTable& table = (it != k_GeneratedCascadeTables.end()) ? *it : k_GeneratedCascadeTables.back();
 
+        CascadeParameters parameters{};
+        std::copy_n(table.LengthScales.begin(), k_CascadeCount, parameters.LengthScales.begin());
+        std::copy_n(table.CutoffsLow.begin(), k_CascadeCount, parameters.CutoffsLow.begin());
+        std::copy_n(table.CutoffsHigh.begin(), k_CascadeCount, parameters.CutoffsHigh.begin());
+        parameters.Dimensions = { size, size };
         return parameters;
     }
 
@@ -311,7 +305,7 @@ namespace ocean
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
             info.Usage = usage;
-            info.Format = CommonFormats::RG16_Float;
+            info.Format = CommonFormats::RGBA16_Float;
             info.Width = size;
             info.Height = size;
             info.ArrayLayers = k_CascadeCount;
@@ -365,7 +359,8 @@ namespace ocean
                     { "SwellFetch", offsetof(SpectrumParameters, SwellFetch) },
                     { "SwellPeakingFactor", offsetof(SpectrumParameters, SwellPeakingFactor) },
                     { "SwellSpread", offsetof(SpectrumParameters, SwellSpread) },
-                    { "SwellFadeLength", offsetof(SpectrumParameters, SwellFadeLength) }
+                    { "SwellFadeLength", offsetof(SpectrumParameters, SwellFadeLength) },
+                    { "EnergySpectrumModel", offsetof(SpectrumParameters, EnergySpectrumModel) }
                 }
                 },
             };
@@ -487,7 +482,8 @@ namespace ocean
         }
 
         // the whitecaps images, one per cascade. pre-fill with zeroes just on init.
-        // two-channel half image: x = k_i^2, y = dDx/dz (the crest sharpness term). The tick fills it every frame
+        // four-channel half image: x = k_i^2, y = dDx/dz (the crest sharpness term), z, w = the squared slopes (the
+        // shading's slope variance). The tick fills it every frame
         constexpr ImageUsageBits k_ScalarImageUsage = ImageUsageBits::UavComputeShader |
                                                       ImageUsageBits::SampledImage |
                                                       ImageUsageBits::SrvFragmentShader |
@@ -496,7 +492,8 @@ namespace ocean
         rhi::ResourceFuture<GraphicsResource> whitecapReply =
             resources.CreateImage(MakeCascadeScalarImageInfo(size, impl->MipLevels, k_ScalarImageUsage, "Ocean_Whitecaps"));
 
-        const CascadeParameters cascadeParameters = MakeCascadeParameters(size, settings.LengthScales);
+        const CascadeParameters cascadeParameters = MakeCascadeParameters(size);
+        std::copy_n(cascadeParameters.LengthScales.begin(), k_CascadeCount, impl->Settings.LengthScales.begin());
         const RhiBufferResourceData cascadeData{ std::as_bytes(std::span{ &cascadeParameters, 1 }), 0u };
         BufferCreateInfo cascadeInfo{};
         cascadeInfo.Domain = ResourceDomain::CPUToGPU;
@@ -615,7 +612,7 @@ namespace ocean
         pyramid::MipTargetCreateInfo whitecapInfo
         {
             .Image=reinterpret_cast<VkImage>(impl->WhitecapsImage.VkHandle),
-            .Format=VK_FORMAT_R16G16_SFLOAT,
+            .Format=VK_FORMAT_R16G16B16A16_SFLOAT,
             .Width=size,
             .Height=size,
             .MipLevels=impl->MipLevels,

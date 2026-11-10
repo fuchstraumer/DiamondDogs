@@ -31,6 +31,8 @@
 #include "ResourceTypes.hpp"
 #include "SceneCommands.hpp"
 #include "SeaState.hpp"
+#include "SeaState.reflect.hpp"
+#include "reflect/TypeInfo.hpp"
 #include "RhiAssert.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
@@ -93,7 +95,6 @@ namespace
         std::chrono::steady_clock::time_point last;
     };
     constexpr std::string_view k_RenderModule{ "OceanRender" };
-    constexpr std::array<std::string_view, 2> k_SurfaceEntryPoints{ "OceanSurfaceVS", "OceanSurfaceFS" };
     constexpr std::array<std::string_view, 2> k_SeabedEntryPoints{ "SeabedVS", "SeabedFS" };
     // the estimate of GPU timer scopes per frame (the panel shows any that were dropped)
     constexpr uint32_t k_MaxGpuTimerScopes = 128u;
@@ -130,8 +131,14 @@ namespace
         float SsrIntensity{ 1.0f };
         float TaaBlendAlpha{ 0.1f };
         float AutoExposureSpeed{ 1.0f };
+        std::array<float, 3> WaterLeavingReflectanceAp1{};
+        float BodyReflectanceScale{ 1.0f };
     };
-    static_assert(sizeof(FrameConstants) == 320u);
+    static_assert(sizeof(FrameConstants) == 336u);
+
+    // Remote-sensing reflectance R_rs of clear open ocean in sr^-1, at about 670, 555 and 443 nm. The body radiance
+    // of the water is R_rs times the downwelling irradiance
+    constexpr std::array<float, 3> k_OpenOceanReflectanceAp1{ 0.0003f, 0.0018f, 0.0060f };
 
     constexpr std::string_view k_DeferredModule{ "OceanDeferred" };
     constexpr std::array<std::string_view, 2> k_GBufferEntryPoints{ "OceanSurfaceVS", "OceanSurfaceGBufferFS" };
@@ -140,6 +147,8 @@ namespace
     constexpr std::string_view k_DeferredLightingEntry{ "OceanDeferredLightingCS" };
     constexpr std::string_view k_TaaResolveEntry{ "OceanTaaResolveCS" };
     constexpr std::string_view k_AutoExposureEntry{ "OceanAutoExposureCS" };
+    // an adaptation speed at which one frame reaches the target exposure
+    constexpr float k_InstantAdaptationSpeed = 1.0e4f;
 
     template<typename T>
     void PushProgramConstants(rhi::CommandBuffer& cmd, const rhi::ManifestProgram& program, const T& data)
@@ -208,7 +217,8 @@ namespace
         float AdaptationSpeed{ 1.0f };
         float MinLogLum{ -8.0f };
         float MaxLogLum{ 4.0f };
-        std::array<float, 2> Padding{ 0.0f, 0.0f };
+        float CompensationEv{ 0.0f };
+        float Padding{ 0.0f };
     };
     static_assert(sizeof(AutoExposurePushConstants) == 32u);
 
@@ -271,6 +281,11 @@ namespace
 
     constexpr float k_DegreesToRadians = std::numbers::pi_v<float> / 180.0f;
 
+    // Preetham's model is not valid below the horizon. Bruneton's inscatter LUT covers mu_s down to -0.2, about -11.5
+    // degrees, which is civil twilight and the start of nautical twilight
+    constexpr float k_MinPreethamSunElevationDeg = 1.0f;
+    constexpr float k_MinBrunetonSunElevationDeg = -11.0f;
+
     /** @brief How the swapchain encodes color, or nothing when FrameCapture cannot convert it */
     std::optional<capture::CaptureEncoding> CaptureEncodingFor(ImageFormat format, ColorSpace color_space)
     {
@@ -331,6 +346,7 @@ OceanScene::OceanScene(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platfor
 {
     // the simulation starts from the sea state, not from the raw spectrum defaults
     applySeaState();
+    createToolSurface();
     settings.Simulation.Spectrum = spectrum;
 
     camera.Current.Distance = 0.6f * settings.GridSize;
@@ -497,7 +513,7 @@ void OceanScene::Initialize(void* user_data)
     }
     colorPipe = std::move(*pipeResult);
     colorPipe->SetBloomSettings(bloomSettings);
-    colorPipe->SetExposureEv(exposureEv);
+    colorPipe->SetExposureEv(exposure.Ev);
     startup.Mark("ColorPipe library and Create");
 
     // Ocean CDLOD
@@ -527,7 +543,7 @@ void OceanScene::Initialize(void* user_data)
 
     // Ocean Environment (Sky, SH, Pyramidal mip gen)
     ocean::OceanEnvironmentSettings envSettings{};
-    envSettings.Samples = msaaSamples;
+    envSettings.Samples = VK_SAMPLE_COUNT_1_BIT;
     envSettings.Downsample8K = downsample8k;
     auto envResult = ocean::OceanEnvironment::Create(*device, *resources, *library, envSettings);
     if (!envResult.has_value())
@@ -595,6 +611,11 @@ void OceanScene::Initialize(void* user_data)
     if (atmoRes.has_value())
     {
         atmosphere = std::move(*atmoRes);
+
+        if (!atmosphere->CreateLightingSlots(numFramebuffers))
+        {
+            Fail("OceanScene: creating the atmosphere lighting slots failed");
+        }
     }
     else
     {
@@ -609,8 +630,7 @@ void OceanScene::Initialize(void* user_data)
     startup.Mark("createDeferredPrograms");
     createRenderTargets();
     startup.Mark("createRenderTargets");
-    std::cout << std::format("OceanFft: msaa {}x, anisotropy {}x, grid {}\n", static_cast<uint32_t>(msaaSamples), anisotropy, settings.GridResolution)
-        << std::flush;
+    std::cout << std::format("OceanFft: anisotropy {}x, grid {}\n", anisotropy, settings.GridResolution) << std::flush;
 
     const ImGuiModuleCreateInfo imguiInfo
     {
@@ -628,7 +648,7 @@ void OceanScene::Initialize(void* user_data)
     startup.Mark("ImGuiModule");
 
     // capture only costs anything on the frames it copies, but it needs transfer source usage on the swapchain
-    if (settings.Capture.Count > 0u || settings.Commands != nullptr)
+    if (settings.Capture.Count > 0u || settings.Commands != nullptr || settings.Tools != nullptr)
     {
         if (swapchain->SupportsTransferSource())
         {
@@ -652,19 +672,17 @@ void OceanScene::createRenderPrograms()
         Fail(std::format("OceanScene: module {}: {}", k_RenderModule, rhi::ToString(index.error())));
     }
 
-    // two sets per frame (surface, seabed), each with up to every sampled texture: Displacement, Derivatives,
-    // Whitecaps, FoamClipmap, FoamSurface, FoamNormal. A pool that is too small is not a validation error, but the
-    // sets past its end can alias
+    // one set per frame (seabed)
     constexpr uint32_t k_SampledImagesPerSet = 12u;
     const std::array<VkDescriptorPoolSize, 4> poolSizes
     {
-        VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 4u * numFramebuffers },
-        VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4u * numFramebuffers },
-        VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 2u * k_SampledImagesPerSet * numFramebuffers },
-        VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, 4u * numFramebuffers },
+        VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2u * numFramebuffers },
+        VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2u * numFramebuffers },
+        VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1u * k_SampledImagesPerSet * numFramebuffers },
+        VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, 2u * numFramebuffers },
     };
     const VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, 0,
-        2u * numFramebuffers, static_cast<uint32_t>(poolSizes.size()), poolSizes.data() };
+        1u * numFramebuffers, static_cast<uint32_t>(poolSizes.size()), poolSizes.data() };
     RhiAssert(rhi::Result(vkCreateDescriptorPool(vkDevice, &poolInfo, nullptr, &descriptorPool)));
     rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(descriptorPool), "Ocean_SceneDescriptorPool");
 
@@ -675,86 +693,28 @@ void OceanScene::createRenderPrograms()
         renderQuery = renderQuery.Where("OCEAN_WAVE_SIZE", settings.Simulation.WaveSize);
     }
 
-    for (auto& [program, entryPoints] : { std::pair<DrawProgram*, std::span<const std::string_view>>{ &surface, k_SurfaceEntryPoints },
-                                          std::pair<DrawProgram*, std::span<const std::string_view>>{ &seabed, k_SeabedEntryPoints } })
-    {
-        std::expected<lodestone::VariantKey, lodestone::QueryError> variant = renderQuery.SingleFor(entryPoints);
-        if (!variant.has_value())
-        {
-            Fail(std::format("OceanScene: no {} variant for {}", k_RenderModule, entryPoints[0]));
-        }
-
-        rhi::ShaderLibraryResult<std::unique_ptr<rhi::ManifestProgram>> created = library->CreateProgram(device->Handle(), k_RenderModule, *variant, entryPoints);
-        if (!created.has_value())
-        {
-            Fail(std::format("OceanScene: {}: {}", entryPoints[0], rhi::ToString(created.error())));
-        }
-
-        program->Program = std::move(*created);
-
-        const VkDescriptorSetLayout setLayout = program->Program->SetLayouts()[0].As<VkDescriptorSetLayout>();
-        for (uint32_t frame = 0; frame < numFramebuffers; ++frame)
-        {
-            VkDescriptorSet& set = program->Sets.emplace_back(VK_NULL_HANDLE);
-            const VkDescriptorSetAllocateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, descriptorPool, 1, &setLayout };
-            RhiAssert(rhi::Result(vkAllocateDescriptorSets(vkDevice, &setInfo, &set)));
-            // the simulation's textures stay in General: the compute passes write them as storage images
-            const BoundResources bound
-            {
-                { "View", { viewBuffers[frame] } },
-                { "Frame", { frameConstantsBuffers[frame] } },
-                { "Displacement", { simulation->Displacement(), VK_IMAGE_LAYOUT_GENERAL } },
-                { "Derivatives", { simulation->Derivatives(), VK_IMAGE_LAYOUT_GENERAL } },
-                { "Whitecaps", { simulation->Whitecaps(), VK_IMAGE_LAYOUT_GENERAL } },
-                { "FoamClipmap", { foam->Clipmap(), VK_IMAGE_LAYOUT_GENERAL } },
-                { "FoamSurface", { foamMaterial->Surface() } },
-                { "FoamNormal", { foamMaterial->Normal() } },
-                { "OceanSampler", { sampler } },
-                { "PatchVertices", { cdlod ? cdlod->GridVertexBuffer() : GraphicsResource{} } },
-                { "SelectedPatches", { cdlod ? cdlod->SelectedPatchesBuffer() : GraphicsResource{} } },
-                { "SkyDomeTexture", { environment ? environment->Image() : GraphicsResource{} } },
-                { "SkyDomeSampler", { environment ? environment->Sampler() : sampler } },
-                { "SeabedAlbedoTexture", { seabedMaterial ? seabedMaterial->AlbedoView : GraphicsResource{} } },
-                { "SeabedOrdTexture", { seabedMaterial ? seabedMaterial->OrdView : GraphicsResource{} } },
-                { "SeabedNormalTexture", { seabedMaterial ? seabedMaterial->NormalView : GraphicsResource{} } },
-                { "SeabedSampler", { seabedMaterial ? seabedMaterial->Sampler : sampler } },
-            };
-
-            if (std::optional<std::string> error = WriteManifestDescriptors(vkDevice, set, **index, *variant, entryPoints, bound); error.has_value())
-            {
-                Fail(std::format("OceanScene: {}", *error));
-            }
-        }
-    }
-}
-
-void OceanScene::updateSurfaceDescriptors()
-{
-    if (!surface.Program)
-    {
-        return;
-    }
-
-    rhi::ShaderLibraryResult<const lodestone::ManifestIndex*> index = library->ModuleIndex(k_RenderModule);
-    if (!index.has_value())
-    {
-        return;
-    }
-    const bool useWaveOps = settings.Simulation.WaveSize != 0u;
-    lodestone::ManifestQueryBuilder renderQuery = (*index)->Query().Where("OCEAN_USE_WAVE_OPS", useWaveOps);
-    if (useWaveOps)
-    {
-        renderQuery = renderQuery.Where("OCEAN_WAVE_SIZE", settings.Simulation.WaveSize);
-    }
-    std::expected<lodestone::VariantKey, lodestone::QueryError> variant = renderQuery.SingleFor(k_SurfaceEntryPoints);
+    const std::span<const std::string_view> entryPoints = k_SeabedEntryPoints;
+    std::expected<lodestone::VariantKey, lodestone::QueryError> variant = renderQuery.SingleFor(entryPoints);
     if (!variant.has_value())
     {
-        return;
+        Fail(std::format("OceanScene: no {} variant for {}", k_RenderModule, entryPoints[0]));
     }
 
-    for (size_t frame = 0; frame < surface.Sets.size(); ++frame)
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ManifestProgram>> created = library->CreateProgram(device->Handle(), k_RenderModule, *variant, entryPoints);
+    if (!created.has_value())
     {
-        VkDescriptorSet set = surface.Sets[frame];
+        Fail(std::format("OceanScene: {}: {}", entryPoints[0], rhi::ToString(created.error())));
+    }
+
+    seabed.Program = std::move(*created);
+
+    const VkDescriptorSetLayout setLayout = seabed.Program->SetLayouts()[0].As<VkDescriptorSetLayout>();
+    for (uint32_t frame = 0; frame < numFramebuffers; ++frame)
+    {
+        VkDescriptorSet& set = seabed.Sets.emplace_back(VK_NULL_HANDLE);
+        const VkDescriptorSetAllocateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, descriptorPool, 1, &setLayout };
+        RhiAssert(rhi::Result(vkAllocateDescriptorSets(vkDevice, &setInfo, &set)));
+        // the simulation's textures stay in General: the compute passes write them as storage images
         const BoundResources bound
         {
             { "View", { viewBuffers[frame] } },
@@ -776,13 +736,15 @@ void OceanScene::updateSurfaceDescriptors()
             { "SeabedSampler", { seabedMaterial ? seabedMaterial->Sampler : sampler } },
         };
 
-        if (std::optional<std::string> error = WriteManifestDescriptors(vkDevice, set, **index, *variant, k_SurfaceEntryPoints, bound); error.has_value())
+        if (std::optional<std::string> error = WriteManifestDescriptors(vkDevice, set, **index, *variant, entryPoints, bound); error.has_value())
         {
             Fail(std::format("OceanScene: {}", *error));
         }
     }
+}
 
-    // the deferred sets bind the same sky dome image and sampler
+void OceanScene::updateSurfaceDescriptors()
+{
     updateDeferredDescriptors();
 }
 
@@ -1038,6 +1000,7 @@ void OceanScene::updateDeferredDescriptors()
     const BoundResources autoExpBound{
         { "HdrResolvedInput", { colorPipe ? colorPipe->SceneResource() : GraphicsResource{}, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL } },
         { "ExposureStateBuffer", { exposureStateBuffer } },
+        { "CompositeExposureEv", { colorPipe ? colorPipe->ExposureResource() : GraphicsResource{} } },
     };
     (void)WriteManifestDescriptors(vkDevice, autoExposureSet, **deferredIndex, autoExpVariant, autoExpSpan, autoExpBound);
 }
@@ -1083,54 +1046,10 @@ void OceanScene::updateCdlodSettings() noexcept
 
 void OceanScene::createRenderTargets()
 {
-    // the highest count up to k_MaxMsaaSamples that both color and depth attachments support
-    if (msaaSamples == VK_SAMPLE_COUNT_1_BIT)
-    {
-        VkPhysicalDeviceProperties properties{};
-        vkGetPhysicalDeviceProperties(vkPhysicalDevice, &properties);
-        const VkSampleCountFlags supported = properties.limits.framebufferColorSampleCounts & properties.limits.framebufferDepthSampleCounts;
-        for (uint32_t samples = settings.MaxMsaaSamples; samples > 1u; samples >>= 1u)
-        {
-            if ((supported & samples) != 0u)
-            {
-                msaaSamples = static_cast<VkSampleCountFlagBits>(samples);
-                break;
-            }
-        }
-    }
-
-    if (environment)
-    {
-        environment->SetSampleCount(msaaSamples);
-    }
-
     const math::Float2 extent = swapchain->GetExtent();
-    ImageCreateInfo depthInfo{};
-    depthInfo.Domain = ResourceDomain::GPUOnly;
-    depthInfo.Usage = ImageUsageBits::DepthRead | ImageUsageBits::DepthWrite;
-    depthInfo.Type = ImageType::Type2D;
-    depthInfo.Format = CommonFormats::Depth32;
-    depthInfo.Width = static_cast<uint32_t>(extent.x);
-    depthInfo.Height = static_cast<uint32_t>(extent.y);
-    depthInfo.Depth = 1u;
-    depthInfo.SampleCount = static_cast<uint32_t>(msaaSamples);
-    depthInfo.ViewInfo = ImageViewCreateInfo{};
-    depthInfo.ViewInfo->ViewType = ImageViewType::Type2D;
-    depthInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Depth;
-    depthImage = WaitForResource(*resources, resources->CreateImage(depthInfo), "the depth image");
 
-    if (msaaSamples != VK_SAMPLE_COUNT_1_BIT)
-    {
-        // Resolves into ColorPipe::SceneTarget (RGBA16_Float)
-        ImageCreateInfo colorInfo = depthInfo;
-        colorInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite;
-        colorInfo.Format = CommonFormats::RGBA16_Float;
-        colorInfo.Name = "Ocean_MsaaColorImage";
-        colorInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
-        msaaColorImage = WaitForResource(*resources, resources->CreateImage(colorInfo), "the multisampled color image");
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, msaaColorImage.VkHandle, "Ocean_MsaaColorImage");
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, msaaColorImage.VkViewHandle, "Ocean_MsaaColorImageView");
-    }
+    // a capture tool copies these targets (capture.target)
+    constexpr ImageUsageBits k_CaptureUsage = ImageUsageBits::TransferSource;
 
     // Deferred Render Targets
     ImageCreateInfo hdrInfo{};
@@ -1146,27 +1065,27 @@ void OceanScene::createRenderTargets()
     hdrInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
 
     hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite |
-                    ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader;
+                    ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
     hdrInfo.Name = "Ocean_GBufferNormalSigma";
     gbufferNormalSigma = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferNormalSigma");
 
-    hdrInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination;
+    hdrInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination | k_CaptureUsage;
     hdrInfo.Name = "Ocean_GBufferNormalSigmaFiltered";
     gbufferNormalSigmaFiltered = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferNormalSigmaFiltered");
 
-    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader;
+    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
     hdrInfo.Name = "Ocean_GBufferFoamSss";
     gbufferFoamSss = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferFoamSss");
 
-    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader;
+    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
     hdrInfo.Name = "Ocean_GBufferMotionFoam";
     gbufferMotionFoam = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferMotionFoam");
 
-    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader;
+    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
     hdrInfo.Name = "Ocean_SeabedColorImage";
     seabedColorImage = WaitForResource(*resources, resources->CreateImage(hdrInfo), "SeabedColorImage");
 
-    hdrInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination;
+    hdrInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination | k_CaptureUsage;
     hdrInfo.Name = "Ocean_HdrLightingImage";
     hdrLightingImage = WaitForResource(*resources, resources->CreateImage(hdrInfo), "HdrLightingImage");
 
@@ -1184,7 +1103,7 @@ void OceanScene::createRenderTargets()
     depthTargetInfo.Height = static_cast<uint32_t>(extent.y);
     depthTargetInfo.Depth = 1u;
     depthTargetInfo.SampleCount = 1u;
-    depthTargetInfo.Usage = ImageUsageBits::DepthRead | ImageUsageBits::DepthWrite | ImageUsageBits::SrvComputeShader;
+    depthTargetInfo.Usage = ImageUsageBits::DepthRead | ImageUsageBits::DepthWrite | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
     depthTargetInfo.ViewInfo = ImageViewCreateInfo{};
     depthTargetInfo.ViewInfo->ViewType = ImageViewType::Type2D;
     depthTargetInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Depth;
@@ -1203,7 +1122,7 @@ void OceanScene::createRenderTargets()
     hiZInfo.Height = (static_cast<uint32_t>(extent.y) + 1u) / 2u;
     hiZInfo.Depth = 1u;
     hiZInfo.SampleCount = 1u;
-    hiZInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader;
+    hiZInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
     hiZInfo.ViewInfo = ImageViewCreateInfo{};
     hiZInfo.ViewInfo->ViewType = ImageViewType::Type2D;
     hiZInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
@@ -1227,10 +1146,12 @@ void OceanScene::createRenderTargets()
 
     BufferCreateInfo expInfo{};
     expInfo.Domain = ResourceDomain::GPUOnly;
-    expInfo.Usage = BufferUsageBits::ComputeShaderUAV;
+    // CopyDestination for the clear before the first auto exposure pass, CopySource for a capture tool
+    expInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopyDestination | BufferUsageBits::CopySource;
     expInfo.Size = sizeof(float) * 4;
     expInfo.Name = "Ocean_ExposureStateBuffer";
     exposureStateBuffer = WaitForResource(*resources, resources->CreateBuffer(expInfo, {}), "exposure state buffer");
+    exposureStateCleared = false;
 
     BufferCreateInfo atmoInfo{};
     atmoInfo.Domain = ResourceDomain::CPUToGPU;
@@ -1250,7 +1171,7 @@ void OceanScene::createRenderTargets()
 
 void OceanScene::destroyRenderTargets()
 {
-    for (GraphicsResource* target : { &depthImage, &msaaColorImage,
+    for (GraphicsResource* target : {
         &gbufferNormalSigma, &gbufferNormalSigmaFiltered, &gbufferFoamSss, &gbufferMotionFoam,
         &seabedColorImage, &seabedDepthImage, &oceanDepthImage, &hdrLightingImage,
         &taaHistoryImages[0], &taaHistoryImages[1], &hiZImage, &linearClampSampler, &pointClampSampler,
@@ -1290,10 +1211,6 @@ void OceanScene::onSwapchainRecreated()
     }
 
     createRenderTargets();
-    if (environment)
-    {
-        environment->SetSampleCount(msaaSamples);
-    }
 }
 
 void OceanScene::Destroy()
@@ -1349,7 +1266,6 @@ void OceanScene::Destroy()
     imgui.reset();
     gpuTimers.reset();
     foam.reset();
-    surface = DrawProgram{};
     seabed = DrawProgram{};
 
     if (descriptorPool != VK_NULL_HANDLE)
@@ -1468,6 +1384,20 @@ void OceanScene::runCommand(const SceneCommand& command)
     case SceneCommand::Kind::Capture:
         captureRequest = command.Text.empty() ? std::format("capture_{:06}", frameNumber) : command.Text;
         break;
+    case SceneCommand::Kind::CaptureBurst:
+        captureBurstName = command.Text;
+        captureBurstRemaining = static_cast<int32_t>(v[0]);
+        captureBurstIndex = 0;
+        break;
+    case SceneCommand::Kind::AtmosDebug:
+        atmosphereDebugMode = static_cast<int32_t>(v[0]);
+        break;
+    case SceneCommand::Kind::SsrDebug:
+        ssrDebugMode = static_cast<int32_t>(v[0]);
+        break;
+    case SceneCommand::Kind::SurfDebug:
+        surfaceDebugMode = static_cast<int32_t>(v[0]);
+        break;
     case SceneCommand::Kind::Preset:
         setSeaStatePreset(command.Text);
         if (command.Text == "GaleFoam")
@@ -1496,8 +1426,55 @@ void OceanScene::runCommand(const SceneCommand& command)
     case SceneCommand::Kind::Rotate:
         rotateCascades = command.Text == "on";
         break;
+    case SceneCommand::Kind::Spectrum:
+        if (command.Text == "bringer")
+        {
+            spectrum.EnergySpectrumModel = 2u;
+        }
+        else if (command.Text == "elfouhaily")
+        {
+            spectrum.EnergySpectrumModel = 1u;
+        }
+        else
+        {
+            spectrum.EnergySpectrumModel = 0u;
+        }
+
+        seaStateEdited();
+        break;
+    case SceneCommand::Kind::Spreading:
+        if (command.Text == "mitsuyasu")
+        {
+            spectrum.DirectionalSpreadingMode = 0u;
+        }
+        else if (command.Text == "hasselmann")
+        {
+            spectrum.DirectionalSpreadingMode = 1u;
+        }
+        else if (command.Text == "donelan")
+        {
+            spectrum.DirectionalSpreadingMode = 2u;
+        }
+        else if (command.Text == "elfouhaily")
+        {
+            spectrum.DirectionalSpreadingMode = 3u;
+        }
+        else if (command.Text == "hybrid")
+        {
+            spectrum.DirectionalSpreadingMode = 4u;
+        }
+        else if (command.Text == "ewans")
+        {
+            spectrum.DirectionalSpreadingMode = 5u;
+        }
+
+        spectrumChanged = true;
+        break;
     case SceneCommand::Kind::Print:
         printState();
+        break;
+    case SceneCommand::Kind::Tool:
+        runToolLine(command.Text);
         break;
     case SceneCommand::Kind::CameraReset:
         camera.Current = initialCameraState;
@@ -1524,7 +1501,6 @@ void OceanScene::runCommand(const SceneCommand& command)
         break;
     }
     case SceneCommand::Kind::Deferred:
-        useDeferredPath = command.Text == "on";
         break;
     case SceneCommand::Kind::SpecAa:
         useSpecularAa = command.Text == "on";
@@ -1547,10 +1523,10 @@ void OceanScene::runCommand(const SceneCommand& command)
         }
         break;
     case SceneCommand::Kind::AutoExposure:
-        useAutoExposure = command.Text == "on";
+        exposure.Auto = command.Text == "on";
         if (command.ValueCount > 0u)
         {
-            autoExposureSpeed = v[0];
+            exposure.Speed = v[0];
         }
         break;
     case SceneCommand::Kind::Sky:
@@ -1613,6 +1589,10 @@ void OceanScene::runCommand(const SceneCommand& command)
     case SceneCommand::Kind::SkyIntensity:
         skyIntensityScale = std::max(v[0], 0.0f);
         break;
+    case SceneCommand::Kind::Sun:
+        sunElevation = v[0] * k_DegreesToRadians;
+        sunAzimuth = v[1] * k_DegreesToRadians;
+        break;
     case SceneCommand::Kind::Tonemap:
         if (command.Text == "agx")
         {
@@ -1636,10 +1616,10 @@ void OceanScene::runCommand(const SceneCommand& command)
         }
         break;
     case SceneCommand::Kind::Exposure:
-        exposureEv = v[0];
+        exposure.Ev = v[0];
         if (colorPipe)
         {
-            colorPipe->SetExposureEv(exposureEv);
+            colorPipe->SetExposureEv(exposure.Ev);
         }
         break;
     case SceneCommand::Kind::Bloom:
@@ -1695,6 +1675,10 @@ void OceanScene::runCommand(const SceneCommand& command)
         {
             sssStrength = std::max(v[0], 0.0f);
         }
+        else if (command.Text == "body")
+        {
+            bodyReflectanceScale = std::max(v[0], 0.0f);
+        }
         else if (command.Text == "leadr")
         {
             leadrSlopeVarianceScale = std::max(v[0], 0.0f);
@@ -1735,6 +1719,10 @@ void OceanScene::runCommand(const SceneCommand& command)
         else if (command.Text == "sea" || command.Text == "seastate")
         {
             currentTab = ocean::TelemetryTab::SeaState;
+        }
+        else if (command.Text == "debug")
+        {
+            currentTab = ocean::TelemetryTab::Debug;
         }
         break;
     case SceneCommand::Kind::Sync:
@@ -1786,22 +1774,6 @@ void OceanScene::setSeaStatePreset(std::string_view _name)
 
     seaState = preset->State;
     seabedDepth = seaState.Depth;
-    seaStateEdited();
-}
-
-void OceanScene::setSeaStateField(std::string_view _name, float _value)
-{
-    const SeaStateField* field = FindSeaStateField(_name);
-    if (field == nullptr)
-    {
-        return;
-    }
-
-    seaState.*(field->Member) = _value;
-    if (_name == "Depth")
-    {
-        seabedDepth = _value;
-    }
     seaStateEdited();
 }
 
@@ -1879,9 +1851,13 @@ void OceanScene::printState() const
         state.Yaw / k_DegreesToRadians, state.Pitch / k_DegreesToRadians, state.Distance, state.Target[0], state.Target[1], state.Target[2]);
 
     std::cout << "sea";
-    for (const SeaStateField& field : SeaStateFields())
+    const foundation::reflect::TypeInfo& seaStateInfo = foundation::reflect::GetTypeInfo<ocean::SeaState>();
+
+    for (const foundation::reflect::FieldInfo& field : seaStateInfo.Fields)
     {
-        std::cout << std::format(" {}={}", field.Name, seaState.*field.Member);
+        const float value = *static_cast<const float*>(foundation::reflect::FieldAddress(field, &seaState));
+
+        std::cout << std::format(" {}={}", field.Name, value);
     }
 
     std::cout << "\ncascades enabled";
@@ -1906,6 +1882,18 @@ void OceanScene::printState() const
     std::cout << std::format("\nshading underwater {} specular {} albedo {} normal {}", underwaterFoam, sunSpecular, foamAlbedoGain, foamNormalStrength);
 
     std::cout << "\nrotate cascades " << (rotateCascades ? "on" : "off");
+    constexpr std::array<std::string_view, 3> k_SpectrumModelNames
+    {
+        "jonswap", "elfouhaily", "bringer"
+    };
+    const size_t spectrumIdx = std::min<size_t>(spectrum.EnergySpectrumModel, k_SpectrumModelNames.size() - 1u);
+    std::cout << "\nspectrum model " << k_SpectrumModelNames[spectrumIdx];
+    constexpr std::array<std::string_view, 6> k_SpreadingModelNames
+    {
+        "mitsuyasu", "hasselmann", "donelan", "elfouhaily", "hybrid", "ewans"
+    };
+    const size_t spreadingIdx = std::min<size_t>(spectrum.DirectionalSpreadingMode, k_SpreadingModelNames.size() - 1u);
+    std::cout << "\nspreading model " << k_SpreadingModelNames[spreadingIdx];
     std::cout << std::format("\nsky {} res {} intensity {:.2f}",
         ocean::SkyPresetName(skyPreset), downsample8k ? "8k" : "16k", skyIntensityScale);
     std::string_view tonemapperName = "unknown";
@@ -1918,16 +1906,52 @@ void OceanScene::printState() const
     default: break;
     }
     std::cout << std::format("\ntonemap {} exposure {:.2f} EV bloom {} intensity {:.4f} scatter {:.2f}",
-        tonemapperName, exposureEv, bloomSettings.Enabled ? "on" : "off", bloomSettings.Intensity, bloomSettings.Scatter);
+        tonemapperName, exposure.Ev, bloomSettings.Enabled ? "on" : "off", bloomSettings.Intensity, bloomSettings.Scatter);
     std::cout << std::format("\ncdlod {} scale {:.2f} morph {:.2f} max_level {} ({}) wireframe {}",
         useCdlod ? "on" : "off", lodDistanceScale, morphStartRatio,
         cdlod ? cdlod->Settings().MaxLevel : 0u,
         cdlodMaxLevelOverride.has_value() ? "manual" : "auto",
         wireframe ? "on" : "off");
-    std::cout << std::format("\nbrdf sss {:.2f} leadr {:.2f} foam_roughness {:.2f} seabed_roughness {:.2f}",
-        sssStrength, leadrSlopeVarianceScale, foamRoughnessScale, seabedRoughnessScale);
+    std::cout << std::format("\nbrdf sss {:.2f} body {:.2f} leadr {:.2f} foam_roughness {:.2f} seabed_roughness {:.2f}",
+        sssStrength, bodyReflectanceScale, leadrSlopeVarianceScale, foamRoughnessScale, seabedRoughnessScale);
     std::cout << std::format("\nasync compute {}", (useAsyncCompute && hasAsyncComputeQueue) ? "on" : "off");
     std::cout << '\n' << std::flush;
+}
+
+std::array<float, 3> OceanScene::sunDirection() const noexcept
+{
+    if (!useBrunetonAtmosphere && environment && skyPreset != ocean::OceanSkyPreset::AnalyticPreetham)
+    {
+        return environment->DominantLightDirection();
+    }
+
+    const float minElevation = (useBrunetonAtmosphere ? k_MinBrunetonSunElevationDeg : k_MinPreethamSunElevationDeg) * k_DegreesToRadians;
+    const float elevation = std::max(sunElevation, minElevation);
+    const float cosElevation = std::cos(elevation);
+    return { std::sin(sunAzimuth) * cosElevation, std::sin(elevation), std::cos(sunAzimuth) * cosElevation };
+}
+
+void OceanScene::drawDebugModeCombo(
+    const char* label,
+    std::span<const std::string_view> mode_names,
+    int32_t& selected_mode)
+{
+    const std::string currentName{ mode_names[static_cast<size_t>(selected_mode)] };
+
+    if (ImGui::BeginCombo(label, currentName.c_str()))
+    {
+        for (int32_t index = 0; index < static_cast<int32_t>(mode_names.size()); ++index)
+        {
+            const std::string modeName{ mode_names[static_cast<size_t>(index)] };
+            const bool selected = index == selected_mode;
+            if (ImGui::Selectable(modeName.c_str(), selected))
+            {
+                selected_mode = index;
+            }
+        }
+
+        ImGui::EndCombo();
+    }
 }
 
 void OceanScene::drawPanel()
@@ -2374,7 +2398,12 @@ void OceanScene::drawPanel()
 
         case ocean::TelemetryTab::Physics:
         {
-            spectrumChanged |= ocean::DrawSpectrumPhysicsInspector(fonts, spectrum);
+            if (ocean::DrawSpectrumPhysicsInspector(fonts, spectrum))
+            {
+                seaReadout = ocean::MeasureSpectrum(spectrum);
+                spectrumChanged = true;
+            }
+
             break;
         }
 
@@ -2399,13 +2428,14 @@ void OceanScene::drawPanel()
                 ocean::AccentTone::Cyan,
                 true);
 
-            float sunElevationDeg = sunElevation / k_DegreesToRadians;
+            const float minSunElevationDeg = useBrunetonAtmosphere ? k_MinBrunetonSunElevationDeg : k_MinPreethamSunElevationDeg;
+            float sunElevationDeg = std::max(sunElevation / k_DegreesToRadians, minSunElevationDeg);
             if (ocean::DrawArtistSlider(
                     "##sun_elevation",
                     "Sun elevation",
                     "horizon -> zenith",
                     &sunElevationDeg,
-                    1.0f,
+                    minSunElevationDeg,
                     90.0f,
                     std::format("{:.1f}", sunElevationDeg),
                     "deg",
@@ -2444,18 +2474,20 @@ void OceanScene::drawPanel()
             }
 
             ocean::DrawSubSectionDivider("DEFERRED & TEMPORAL", fonts, headerFontMode, ocean::AccentTone::Cyan);
-            (void)ocean::DrawTelemetryToggle("##use_deferred", "Deferred path", "OFF", "ON", &useDeferredPath, fonts, ocean::AccentTone::Cyan);
             (void)ocean::DrawTelemetryToggle("##use_bruneton", "Bruneton sky", "OFF", "ON", &useBrunetonAtmosphere, fonts, ocean::AccentTone::Amber);
             (void)ocean::DrawTelemetryToggle("##use_spec_aa", "Specular AA", "OFF", "ON", &useSpecularAa, fonts, ocean::AccentTone::Cyan);
             (void)ocean::DrawArtistSlider("##spec_aa_str", "Spec AA str", "variance filter", &specularAaStrength, 0.0f, 4.0f, std::format("{:.2f}", specularAaStrength), "", fonts, ocean::AccentTone::Cyan, false);
             (void)ocean::DrawTelemetryToggle("##use_taa", "Temporal AA", "OFF", "ON", &useTaa, fonts, ocean::AccentTone::Cyan);
             (void)ocean::DrawArtistSlider("##taa_alpha", "TAA alpha", "blend rate", &taaBlendAlpha, 0.01f, 0.5f, std::format("{:.2f}", taaBlendAlpha), "", fonts, ocean::AccentTone::Cyan, false);
             (void)ocean::DrawArtistSlider("##ssr_int", "SSR intensity", "crest reflections", &ssrIntensity, 0.0f, 2.0f, std::format("{:.2f}", ssrIntensity), "", fonts, ocean::AccentTone::Ice, false);
-            (void)ocean::DrawTelemetryToggle("##auto_exp", "Auto exposure", "OFF", "ON", &useAutoExposure, fonts, ocean::AccentTone::Amber);
+            (void)ocean::DrawTelemetryToggle("##auto_exp", "Auto exposure", "OFF", "ON", &exposure.Auto, fonts, ocean::AccentTone::Amber);
 
             ocean::DrawSubSectionDivider("SKY & ENVIRONMENT", fonts, headerFontMode, ocean::AccentTone::Amber);
             if (ocean::DrawSkyPresetGrid(fonts, skyPreset))
             {
+                // a preset is a sky of its own, the same as the sky scene commands
+                useBrunetonAtmosphere = false;
+
                 if (environment)
                 {
                     device->WaitDeviceIdle();
@@ -2507,10 +2539,10 @@ void OceanScene::drawPanel()
                     "##exposure_ev",
                     "Exposure EV",
                     "stops of exposure compensation",
-                    &exposureEv,
+                    &exposure.Ev,
                     -6.0f,
                     6.0f,
-                    std::format("{:+.1f}", exposureEv),
+                    std::format("{:+.1f}", exposure.Ev),
                     "EV",
                     fonts,
                     ocean::AccentTone::Ice,
@@ -2518,7 +2550,7 @@ void OceanScene::drawPanel()
             {
                 if (colorPipe)
                 {
-                    colorPipe->SetExposureEv(exposureEv);
+                    colorPipe->SetExposureEv(exposure.Ev);
                 }
             }
 
@@ -2593,6 +2625,19 @@ void OceanScene::drawPanel()
                 false);
 
             (void)ocean::DrawArtistSlider(
+                "##body_reflectance",
+                "Body reflectance",
+                "x open-ocean R_rs",
+                &bodyReflectanceScale,
+                0.25f,
+                4.0f,
+                std::format("{:.2f}", bodyReflectanceScale),
+                "",
+                fonts,
+                ocean::AccentTone::Cyan,
+                false);
+
+            (void)ocean::DrawArtistSlider(
                 "##leadr_variance",
                 "LEADR slope scale",
                 "geometric slope variance scale",
@@ -2647,6 +2692,37 @@ void OceanScene::drawPanel()
             ImGui::PushFont(fonts.BodyItalic);
             ImGui::TextColored(ImVec4{ 0.48f, 0.60f, 0.72f, 1.0f }, "Left drag: orbit   |   Right/middle drag: pan   |   Wheel: zoom");
             ImGui::PopFont();
+            break;
+        }
+        case ocean::TelemetryTab::Debug:
+        {
+            ocean::DrawSubSectionDivider("SURFACE & SHADING DEBUG", fonts, headerFontMode, ocean::AccentTone::Amber);
+            drawDebugModeCombo("Surface debug", SurfaceDebugModeNames(), surfaceDebugMode);
+            if (surfaceDebugMode != 0)
+            {
+                if (ImGui::Button("Reset surface debug"))
+                {
+                    surfaceDebugMode = 0;
+                }
+            }
+
+            (void)ocean::DrawTelemetryToggle(
+                "##debug_wireframe",
+                "Wireframe mode",
+                "FILL",
+                "LINES",
+                &wireframe,
+                fonts,
+                ocean::AccentTone::Amber);
+            (void)ocean::DrawTelemetryToggle("##debug_spec_aa", "Specular AA", "OFF", "ON", &useSpecularAa, fonts, ocean::AccentTone::Cyan);
+            (void)ocean::DrawTelemetryToggle("##debug_taa", "Temporal AA", "OFF", "ON", &useTaa, fonts, ocean::AccentTone::Cyan);
+
+            ocean::DrawSubSectionDivider("CASCADE BANDS", fonts, headerFontMode, ocean::AccentTone::Cyan);
+            ocean::DrawCascadeBandStrip(fonts, simulationSettings.LengthScales, cascadeEnabled);
+
+            ocean::DrawSubSectionDivider("DEFERRED PASS DEBUG", fonts, headerFontMode, ocean::AccentTone::Amber);
+            drawDebugModeCombo("Atmosphere debug", AtmosphereDebugModeNames(), atmosphereDebugMode);
+            drawDebugModeCombo("SSR debug", SsrDebugModeNames(), ssrDebugMode);
             break;
         }
         }
@@ -2778,8 +2854,12 @@ void OceanScene::collectGpuTimings()
     const uint64_t completedBefore = frameNumber >= framesInFlight ? frameNumber - framesInFlight + 1u : 0u;
     gpuTimers->Collect(completedBefore);
 
+    const std::vector<rhi::GpuTimingBlock> completed = gpuTimers->TakeCompleted();
+
+    feedToolTimings(completed, TimerQueue::Graphics);
+
     // every finished frame feeds the averages, so none is skipped when two finish between updates
-    for (const rhi::GpuTimingBlock& block : gpuTimers->TakeCompleted())
+    for (const rhi::GpuTimingBlock& block : completed)
     {
         // a scope opened more than once in a frame counts once, with its total
         std::unordered_map<uint64_t, double> totals;
@@ -2806,7 +2886,12 @@ void OceanScene::collectGpuTimings()
         if (asyncTimeline->GetValue(completedValue).IsSuccess())
         {
             asyncGpuTimers->Collect(completedValue + 1u);
-            for (const rhi::GpuTimingBlock& block : asyncGpuTimers->TakeCompleted())
+
+            const std::vector<rhi::GpuTimingBlock> asyncCompleted = asyncGpuTimers->TakeCompleted();
+
+            feedToolTimings(asyncCompleted, TimerQueue::AsyncCompute);
+
+            for (const rhi::GpuTimingBlock& block : asyncCompleted)
             {
                 std::unordered_map<uint64_t, double> totals;
                 for (const rhi::GpuTiming& timing : block.Timings)
@@ -2824,6 +2909,8 @@ void OceanScene::collectGpuTimings()
             }
         }
     }
+
+    finishToolTimings();
 }
 
 void OceanScene::drawTimingsPanel()
@@ -2840,6 +2927,8 @@ void OceanScene::update()
     imgui->BeginFrame();
     updateCamera(input);
 
+    tickToolSurface();
+
     if (settings.Commands != nullptr)
     {
         for (const SceneCommand& command : settings.Commands->TakeForFrame())
@@ -2850,19 +2939,36 @@ void OceanScene::update()
 
     collectGpuTimings();
 
-    if (showUi)
+    toolCaptureThisFrame = frameCapture != nullptr && toolCaptureWaiting() && !scriptCaptureDue();
+
+    // a tool capture can ask for a frame that shows only the scene
+    const bool hideUiForCapture = toolCaptureThisFrame && toolCaptureHidesUi();
+
+    if (!hideUiForCapture && showUi)
     {
         drawPanel();
     }
-    else
+    else if (!hideUiForCapture)
     {
         (void)ocean::DrawRestoreMenuButton(imgui->Fonts(), &showUi);
     }
 
+    // the eye adapts in real time, paused or not. A fixed step keeps a scripted run repeatable
+    exposureDeltaSeconds = settings.FixedTimeStep > 0.0f ? settings.FixedTimeStep : ImGui::GetIO().DeltaTime;
+
     // the foam advances by the same step as the simulation time, so a paused sea holds its foam
     double foamStep = 0.0;
 
-    if (!paused)
+    if (paused && stepFramesLeft > 0)
+    {
+        // a tool step advances by exactly its step, whatever this frame took
+        ++stepIndex;
+        --stepFramesLeft;
+        commandedTime = stepBaseTime + static_cast<double>(stepIndex) * stepSeconds;
+        simulationTime = static_cast<float>(commandedTime);
+        foamStep = stepSeconds;
+    }
+    else if (!paused)
     {
         const float step = settings.FixedTimeStep > 0.0f ? settings.FixedTimeStep : ImGui::GetIO().DeltaTime;
         simulationTime += step * timeScale;
@@ -2937,7 +3043,7 @@ void OceanScene::writeViewParameters()
         { -0.875f, 0.7777778f }
     }};
 
-    if (useDeferredPath && useTaa)
+    if (useTaa && !repeatableFrames)
     {
         const auto [jx, jy] = k_Halton8[frameNumber % 8];
         jitterOffsetNdc[0] = (jx / extent.x) * 2.0f;
@@ -2964,16 +3070,12 @@ void OceanScene::writeViewParameters()
         view.FoamWeights[cascade] = foamWeights[cascade];
     }
 
-    const float cosElevation = std::cos(sunElevation);
-    std::array<float, 3> sunDir{ std::sin(sunAzimuth) * cosElevation, std::sin(sunElevation), std::cos(sunAzimuth) * cosElevation };
-    if (environment && skyPreset != ocean::OceanSkyPreset::AnalyticPreetham)
-    {
-        sunDir = environment->DominantLightDirection();
-    }
+    const std::array<float, 3> sunDir = sunDirection();
     view.SunDirectionSeabedDepth = { sunDir[0], sunDir[1], sunDir[2], seabedDepth };
-    view.LodParameters = { lodScale, static_cast<float>(simulation->Settings().Size), rotateCascades ? 1.0f : 0.0f, 0.0f };
+    view.LodParameters = { lodScale, static_cast<float>(simulation->Settings().Size), rotateCascades ? 1.0f : 0.0f, static_cast<float>(surfaceDebugMode) };
     view.WhitecapParameters = { seaState.WhitecapThreshold, seaState.FoamAmount, seaState.CrestSharpness, 0.0f };
-    view.ShadingParameters = { underwaterFoam, sunSpecular, 0.0f, 0.0f };
+    view.ShadingParameters = { underwaterFoam, sunSpecular, static_cast<float>(atmosphereDebugMode),
+        static_cast<float>(ssrDebugMode) };
     const std::array<float, 3> foamTint = foamMaterial->Tint();
     view.FoamTextureParameters = { foamAlbedoGain, foamNormalStrength, 0.0f, 0.0f };
     view.FoamTextureTint = { foamTint[0], foamTint[1], foamTint[2], 0.0f };
@@ -2989,9 +3091,22 @@ void OceanScene::writeViewParameters()
         frameConstants.SkyShCoeffs = environment->SphericalHarmonics();
         frameConstants.SunRadianceAp1 = environment->DominantLightRadiance();
     }
+
+    // Bruneton lights the water itself. The values come from this slot's previous frame, so they lag the sun
+    // sliders by the number of frames in flight
+    const std::optional<ocean::OceanAtmosphereLighting> atmosphereLighting =
+        (useBrunetonAtmosphere && atmosphere) ? atmosphere->ReadLighting(currentFrame) : std::nullopt;
+
+    if (atmosphereLighting.has_value())
+    {
+        frameConstants.SkyShCoeffs = atmosphereLighting->SkyShCoeffs;
+        frameConstants.SunRadianceAp1 = atmosphereLighting->SunIrradianceAp1;
+    }
     frameConstants.FoamRoughnessScale = foamRoughnessScale;
     frameConstants.WaterScatterColorAp1 = { 0.02f, 0.15f, 0.2f };
     frameConstants.SssStrength = sssStrength;
+    frameConstants.WaterLeavingReflectanceAp1 = k_OpenOceanReflectanceAp1;
+    frameConstants.BodyReflectanceScale = bodyReflectanceScale;
     frameConstants.SeabedTintAp1 = { 0.6f, 0.5f, 0.4f };
     frameConstants.SeabedRoughnessScale = seabedRoughnessScale;
     frameConstants.UseCdlod = useCdlod ? 1u : 0u;
@@ -3002,13 +3117,15 @@ void OceanScene::writeViewParameters()
     frameConstants.JitterOffsetNdc = jitterOffsetNdc;
     frameConstants.PrevJitterOffsetNdc = prevJitterOffsetNdc;
     frameConstants.UseBrunetonAtmosphere = useBrunetonAtmosphere ? 1u : 0u;
-    frameConstants.UseDeferredPath = useDeferredPath ? 1u : 0u;
+    frameConstants.UseDeferredPath = 1u;
     frameConstants.UseSpecularAa = useSpecularAa ? 1u : 0u;
-    frameConstants.UseTaa = useTaa ? 1u : 0u;
+    // without jitter TAA only blends a frame with older copies of itself, which adds nothing but a slow tail of
+    // earlier frames. With it off, the resolve writes this frame alone to the history
+    frameConstants.UseTaa = useTaa && !repeatableFrames ? 1u : 0u;
     frameConstants.SpecularAaStrength = specularAaStrength;
     frameConstants.SsrIntensity = ssrIntensity;
     frameConstants.TaaBlendAlpha = taaBlendAlpha;
-    frameConstants.AutoExposureSpeed = autoExposureSpeed;
+    frameConstants.AutoExposureSpeed = exposure.Speed;
 
     std::memcpy(frameConstantsBufferPointers[currentFrame], &frameConstants, sizeof(FrameConstants));
 
@@ -3060,30 +3177,6 @@ bool GridStitches(uint32_t grid_resolution, uint32_t rings, uint32_t min_resolut
 uint32_t OceanScene::ringResolution(uint32_t ring) const noexcept
 {
     return GridRingResolution(settings.GridResolution, settings.GridMinResolution, ring);
-}
-
-void OceanScene::recordDraw(rhi::CommandBuffer& command_buffer, const DrawProgram& program, const std::array<float, 2>& origin, float tile_size,
-                            uint32_t resolution, uint32_t ring, uint32_t outer_resolution, uint32_t instance_count, bool alpha_blend) const
-{
-    RhiAssert(command_buffer.BindShaders(program.Program->Program()));
-    SetShaderObjectDrawState(command_buffer.Handle().As<VkCommandBuffer>(), ShaderObjectDrawState{
-        .DepthTest = true,
-        .DepthWrite = !alpha_blend,
-        .AlphaBlend = alpha_blend,
-        .CullMode = VK_CULL_MODE_NONE,
-        .PolygonMode = wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
-        .Samples = msaaSamples
-    });
-    const rhi::DescriptorSetHandle set{ reinterpret_cast<uint64_t>(program.Sets[currentFrame]) };
-    command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Graphics, program.Program->PipelineLayout(), 0, std::span{ &set, 1 });
-
-    const OceanGridParameters grid{ origin[0], origin[1], tile_size, resolution, ring, outer_resolution };
-    if (const std::optional<rhi::PushConstantRange> range = program.Program->PushConstants(); range.has_value())
-    {
-        command_buffer.PushConstants(program.Program->PipelineLayout(), range->StageFlags, 0u, std::as_bytes(std::span{ &grid, 1 }));
-    }
-
-    command_buffer.Draw(6u * resolution * resolution, instance_count, 0u, 0u);
 }
 
 void OceanScene::recordDeferredPipeline(
@@ -3540,11 +3633,30 @@ void OceanScene::recordDeferredPipeline(
     }
     historyPingPong = nextPingPong;
 
-    // 7. Auto Exposure Compute Pass
+    // 7. Auto Exposure Compute Pass. It writes the composite's exposure, so the color pipe does not
     const color::ColorTargetView sceneTarget = colorPipe->SceneTarget();
-    if (useAutoExposure)
+
+    colorPipe->SetExposureEv(exposure.Ev);
+    colorPipe->SetExposureSource(exposure.Auto ? color::ExposureSource::Consumer : color::ExposureSource::Manual);
+
+    if (exposure.Auto)
     {
         const rhi::ScopedGpuTimer timer(timerBlock, "Auto Exposure");
+        const rhi::BufferHandle stateBuffer{ exposureStateBuffer.VkHandle };
+
+        // the state holds the adapted luminance, so a new buffer starts from zero: the pass then takes its target
+        if (!exposureStateCleared)
+        {
+            const rhi::GlobalBarrier readToClear{
+                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite,
+                rhi::PipelineStage::AllTransfer, rhi::Access::TransferWrite
+            };
+
+            cmd.Barrier(rhi::DependencyInfo{ std::span{ &readToClear, 1 }, {}, {} });
+            cmd.FillBuffer(stateBuffer, 0u, sizeof(float) * 4u, 0u);
+            exposureStateCleared = true;
+        }
+
         const rhi::ImageBarrier sceneToSampled{
             sceneTarget.Image,
             rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
@@ -3552,19 +3664,29 @@ void OceanScene::recordDeferredPipeline(
             rhi::ImageLayout::General, rhi::ImageLayout::ShaderReadOnly,
             k_ColorRange
         };
-        cmd.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &sceneToSampled, 1 } });
+        // the last composite read the exposure, and the clear above may have written the state
+        const rhi::GlobalBarrier beforeWrite{
+            rhi::PipelineStage::FragmentShader | rhi::PipelineStage::AllTransfer, rhi::Access::ShaderStorageRead | rhi::Access::TransferWrite,
+            rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite
+        };
+
+        cmd.Barrier(rhi::DependencyInfo{ std::span{ &beforeWrite, 1 }, {}, std::span{ &sceneToSampled, 1 } });
 
         RhiAssert(cmd.BindShaders(autoExposureProgram->Program()));
         const rhi::DescriptorSetHandle setHandle{ reinterpret_cast<uint64_t>(autoExposureSet) };
         cmd.BindDescriptorSets(rhi::PipelineBindPoint::Compute, autoExposureProgram->PipelineLayout(), 0, std::span{ &setHandle, 1 });
 
+        // exp(-1 x 1e4) is 0 in float, so a repeatable frame's exposure equals its target, with no history
+        const float adaptationSpeed = repeatableFrames ? k_InstantAdaptationSpeed : exposure.Speed;
+        const float adaptationSeconds = repeatableFrames ? 1.0f : exposureDeltaSeconds;
         const AutoExposurePushConstants push{
             .Dimensions = { width, height },
-            .DeltaTime = 0.016f,
-            .AdaptationSpeed = autoExposureSpeed,
+            .DeltaTime = adaptationSeconds,
+            .AdaptationSpeed = adaptationSpeed,
             .MinLogLum = -8.0f,
             .MaxLogLum = 4.0f,
-            .Padding = { 0.0f, 0.0f }
+            .CompensationEv = exposure.Ev,
+            .Padding = 0.0f
         };
         PushProgramConstants(cmd, *autoExposureProgram, push);
         cmd.Dispatch(1u, 1u, 1u);
@@ -3576,7 +3698,12 @@ void OceanScene::recordDeferredPipeline(
             rhi::ImageLayout::ShaderReadOnly, rhi::ImageLayout::ColorAttachment,
             k_ColorRange
         };
-        cmd.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &sceneToColorPipe, 1 } });
+        const rhi::GlobalBarrier exposureToComposite{
+            rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
+            rhi::PipelineStage::FragmentShader, rhi::Access::ShaderStorageRead
+        };
+
+        cmd.Barrier(rhi::DependencyInfo{ std::span{ &exposureToComposite, 1 }, {}, std::span{ &sceneToColorPipe, 1 } });
     }
     else
     {
@@ -3704,6 +3831,12 @@ void OceanScene::recordCommands()
         atmosphereSettingsChanged = false;
     }
 
+    if (atmosphere && useBrunetonAtmosphere)
+    {
+        const std::array<float, 3> sunDir = sunDirection();
+        atmosphere->RecordLighting(cmd, currentFrame, math::Float3{ sunDir[0], sunDir[1], sunDir[2] });
+    }
+
     if (environment)
     {
         environment->RecordMipGen(cmd, &timerBlock);
@@ -3729,8 +3862,6 @@ void OceanScene::recordCommands()
     const rhi::ImageHandle image{ reinterpret_cast<uint64_t>(swapchain->ImageHandle(currentAcquiredImage)) };
     const rhi::ImageViewHandle swapchainView{ reinterpret_cast<uint64_t>(swapchain->ImageViewHandle(currentAcquiredImage)) };
     constexpr rhi::ImageSubresourceRange k_ColorRange{ rhi::ImageAspect::Color, 0, 1, 0, 1 };
-    constexpr rhi::ImageSubresourceRange k_DepthRange{ rhi::ImageAspect::Depth, 0, 1, 0, 1 };
-    const bool multisampled = static_cast<bool>(msaaColorImage);
 
     const rhi::ImageBarrier swapchainInitBarrier{
         image,
@@ -3741,136 +3872,8 @@ void OceanScene::recordCommands()
     };
     cmd.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &swapchainInitBarrier, 1 } });
 
-    if (useDeferredPath)
-    {
-        recordDeferredPipeline(cmd, timerBlock, extent, aspect, cameraPosition);
-        passTimer.reset();
-    }
-    else
-    {
-        std::vector<rhi::ImageBarrier> toAttachments{
-            rhi::ImageBarrier{
-                rhi::ImageHandle{ depthImage.VkHandle },
-                rhi::PipelineStage::LateFragmentTests, rhi::Access::DepthStencilAttachmentWrite,
-                rhi::PipelineStage::EarlyFragmentTests | rhi::PipelineStage::LateFragmentTests, rhi::Access::DepthStencilAttachmentRead | rhi::Access::DepthStencilAttachmentWrite,
-                rhi::ImageLayout::Undefined, rhi::ImageLayout::DepthStencilAttachment,
-                k_DepthRange
-            }
-        };
-
-        if (multisampled)
-        {
-            toAttachments.push_back(rhi::ImageBarrier{
-                rhi::ImageHandle{ msaaColorImage.VkHandle },
-                rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentWrite,
-                rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentRead | rhi::Access::ColorAttachmentWrite,
-                rhi::ImageLayout::Undefined, rhi::ImageLayout::ColorAttachment,
-                k_ColorRange
-            });
-        }
-
-        cmd.Barrier(rhi::DependencyInfo{ {}, {}, toAttachments });
-
-        const color::ColorTargetView sceneTarget = colorPipe->SceneTarget();
-        rhi::ColorAttachment colorAttachment{};
-        colorAttachment.ClearValue = rhi::ClearColorValue{ 0.0f, 0.0f, 0.0f, 1.0f };
-        colorAttachment.LoadOp = rhi::LoadOp::Clear;
-        if (multisampled)
-        {
-            colorAttachment.ImageView = rhi::ImageViewHandle{ msaaColorImage.VkViewHandle };
-            colorAttachment.StoreOp = rhi::StoreOp::DontCare;
-            colorAttachment.ResolveImageView = sceneTarget.View;
-        }
-        else
-        {
-            colorAttachment.ImageView = sceneTarget.View;
-            colorAttachment.StoreOp = rhi::StoreOp::Store;
-        }
-
-        rhi::DepthStencilAttachment depthAttachment{};
-        depthAttachment.ImageView = rhi::ImageViewHandle{ depthImage.VkViewHandle };
-        depthAttachment.DepthLoadOp = rhi::LoadOp::Clear;
-        depthAttachment.DepthStoreOp = rhi::StoreOp::DontCare;
-        depthAttachment.ClearValue = rhi::ClearDepthStencilValue{ 0.0f, 0 };
-
-        rhi::RenderingInfo renderingInfo{};
-        renderingInfo.ColorAttachments = std::span{ &colorAttachment, 1 };
-        renderingInfo.DepthStencilAttachment = depthAttachment;
-        renderingInfo.RenderArea = rhi::Rect2D{ 0, 0, static_cast<uint32_t>(extent.x), static_cast<uint32_t>(extent.y) };
-        cmd.BeginRendering(renderingInfo);
-
-        const rhi::Viewport viewport{ 0.0f, 0.0f, extent.x, extent.y, 0.0f, 1.0f };
-        cmd.SetViewports(std::span{ &viewport, 1 });
-        cmd.SetScissors(std::span{ &renderingInfo.RenderArea, 1 });
-
-        // 1. Fullscreen Sky Background
-        if (environment)
-        {
-            const math::Float4x4 rotViewProj = camera.ViewRotationProjection(aspect);
-            const math::Float4x4 invRotViewProj = math::FromMatrix<math::Float4x4>(math::ToMatrix(rotViewProj).Inverse());
-            environment->RecordSkyBackground(cmd, &timerBlock, invRotViewProj, math::Float3{ 0.0f, 0.0f, 0.0f }, 0.0f);
-        }
-
-        // 2. Seabed Draw
-        const float tileSize = settings.GridSize;
-        const std::array<float, 2> centerTile{
-            (std::round(cameraPosition[0] / tileSize) - 0.5f) * tileSize,
-            (std::round(cameraPosition[2] / tileSize) - 0.5f) * tileSize
-        };
-        const float rings = static_cast<float>(settings.GridRings);
-        const float seabedSize = cdlod ? cdlod->Settings().WorldExtent : (2.0f * rings + 1.0f) * tileSize;
-        const std::array<float, 2> seabedOrigin{ centerTile[0] - 0.5f * seabedSize, centerTile[1] - 0.5f * seabedSize };
-        const uint32_t seabedResolution = cdlod ? 64u : 1u;
-
-        {
-            const rhi::ScopedGpuTimer timer(timerBlock, "Seabed");
-            recordDraw(cmd, seabed, seabedOrigin, seabedSize, seabedResolution, 0u, seabedResolution, 1u, false);
-        }
-
-        // 3. Ocean Surface Draw
-        if (useCdlod && cdlod)
-        {
-            const rhi::ScopedGpuTimer timer(timerBlock, "Surface CDLOD");
-            RhiAssert(cmd.BindShaders(surface.Program->Program()));
-            SetShaderObjectDrawState(cmd.Handle().As<VkCommandBuffer>(), ShaderObjectDrawState{
-                .DepthTest = true,
-                .DepthWrite = false,
-                .AlphaBlend = true,
-                .CullMode = VK_CULL_MODE_NONE,
-                .PolygonMode = wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
-                .Samples = msaaSamples
-            });
-
-            const rhi::DescriptorSetHandle setHandle{ reinterpret_cast<uint64_t>(surface.Sets[currentFrame]) };
-            cmd.BindDescriptorSets(rhi::PipelineBindPoint::Graphics, surface.Program->PipelineLayout(), 0, std::span{ &setHandle, 1 });
-
-            const OceanGridParameters grid{ centerTile[0], centerTile[1], tileSize, 64u, 0u, 64u };
-            if (const std::optional<rhi::PushConstantRange> range = surface.Program->PushConstants(); range.has_value())
-            {
-                cmd.PushConstants(surface.Program->PipelineLayout(), range->StageFlags, 0u, std::as_bytes(std::span{ &grid, 1 }));
-            }
-
-            cmd.BindIndexBuffer(rhi::BufferHandle{ cdlod->GridIndexBuffer().VkHandle }, 0u, rhi::IndexType::Uint32);
-            vkCmdDrawIndexedIndirect(
-                cmd.Handle().As<VkCommandBuffer>(),
-                reinterpret_cast<VkBuffer>(cdlod->IndirectDrawBuffer().VkHandle),
-                0u,
-                1u,
-                sizeof(VkDrawIndexedIndirectCommand));
-        }
-        else
-        {
-            const rhi::ScopedGpuTimer timer(timerBlock, "Surface Grid");
-            for (uint32_t ring = 0; ring <= settings.GridRings; ++ring)
-            {
-                const uint32_t tiles = ring == 0u ? 1u : 8u * ring;
-                recordDraw(cmd, surface, centerTile, tileSize, ringResolution(ring), ring, ringResolution(ring + 1u), tiles, true);
-            }
-        }
-
-        cmd.EndRendering();
-        passTimer.reset();
-    }
+    recordDeferredPipeline(cmd, timerBlock, extent, aspect, cameraPosition);
+    passTimer.reset();
 
     // 4. ImGui Render Pass into ColorPipe::UiTarget (RGBA8_UNORM)
     const color::ColorTargetView uiTarget = colorPipe->UiTarget();
@@ -3903,10 +3906,51 @@ void OceanScene::recordCommands()
     ++frameNumber;
 }
 
+bool OceanScene::scriptCaptureDue() const noexcept
+{
+    return captureRequest.has_value() || captureBurstRemaining > 0 || settings.Capture.Due(frameNumber);
+}
+
+std::optional<capture::CaptureSource> OceanScene::swapchainCaptureSource(rhi::ImageHandle image) const
+{
+    const std::optional<capture::CaptureEncoding> encoding = CaptureEncodingFor(swapchain->ImageFormat(), swapchain->ColorSpace());
+
+    if (!encoding.has_value())
+    {
+        return std::nullopt;
+    }
+
+    const math::Float2 extent = swapchain->GetExtent();
+    capture::CaptureSource source{};
+
+    source.Image = image;
+    source.Width = static_cast<uint32_t>(extent.x);
+    source.Height = static_cast<uint32_t>(extent.y);
+    source.Format = swapchain->ImageFormat();
+    source.Encoding = *encoding;
+    // the composite scales paper white to the display's SDR white, so a capture divides it back out
+    source.LinearScale = k_ScRgbRefNits / colorPipe->Target().PaperWhiteNits;
+
+    return source;
+}
+
 void OceanScene::recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image)
 {
+    // this frame's fence wait freed the slot, so its earlier capture can go to the writer now
+    if (frameCapture != nullptr)
+    {
+        frameCapture->Collect(currentFrame);
+    }
+
     std::optional<std::string> name = std::move(captureRequest);
     captureRequest.reset();
+    if (!name.has_value() && captureBurstRemaining > 0)
+    {
+        name = std::format("{}_{:03}", captureBurstName, captureBurstIndex);
+        ++captureBurstIndex;
+        --captureBurstRemaining;
+    }
+
     if (!name.has_value() && settings.Capture.Due(frameNumber))
     {
         name = std::format("frame_{:06}", frameNumber);
@@ -3940,6 +3984,11 @@ void OceanScene::recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi:
             return;
         }
         std::cerr << "OceanFft: this swapchain format cannot be captured\n";
+    }
+
+    if (!name.has_value() && toolCaptureThisFrame && recordToolCapture(command_buffer, image))
+    {
+        return;
     }
 
     constexpr rhi::ImageSubresourceRange k_ColorRange{ rhi::ImageAspect::Color, 0, 1, 0, 1 };

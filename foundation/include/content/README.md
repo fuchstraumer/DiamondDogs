@@ -8,13 +8,17 @@ choice is in doubt, the encoding chooses the miss.
 
 | File | Holds |
 |---|---|
-| `reflect/Describe.hpp` | `Describe<T>`, `Field`, `EnumCase`, and the concepts `DescribedStruct` and `DescribedEnum`. |
+| `reflect/Describe.hpp` | `Describe<T>`, `Field`, `EnumCase`, and the concepts `DescribedStruct` and `DescribedEnum`. `reflect/README.md` covers metadata and `TypeInfo`. |
 | `Key.hpp` | `Key<Tag>`, the aliases `RecipeKey`, `BlobKey`, `ArtifactHash`, the map hasher and the hex text. |
 | `CanonicalSink.hpp` | The abstract sink and the one-byte tags. |
-| `HashSink.hpp` | The sink that feeds XXH3-128 in streaming mode. |
+| `ByteStreamSink.hpp` | The one writer of the byte layout. It has a pure-virtual `Append(const std::byte*, size_t)`. |
+| `HashSink.hpp` | The sink that feeds XXH3-128 in streaming mode. It implements `Append` only. |
+| `BytesSink.hpp` | The sink that appends the same bytes to a `std::vector<std::byte>`. It implements `Append` only. |
 | `TextSink.hpp` | The sink that prints the same walk as indented text. |
+| `JsonSink.hpp` | The sink that writes the same walk as one JSON document, for tools. It never feeds a key. |
+| `JsonWriter.hpp` | The low-level JSON writer. A copy of Lodestone's writer, which Loom's diagnostics also use. |
 | `Encode.hpp` | `Encode` (the one template that walks a value) and `FindNaN`. |
-| `RecipeKey.hpp` | `MakeRecipeKey`, `HashBlob`, `RecipeInput`, `KeyError`. |
+| `RecipeKey.hpp` | `MakeRecipeKey`, `HashBlob`, `RecipeInput` (slot, source key, output name), `KeyError`. |
 
 ## How to describe a type
 
@@ -74,12 +78,25 @@ The consequences:
 2. The kind name and the kind version.
 3. The parameters, through `Encode`.
 4. The input count, then for each input the slot name, the alternative name (`RecipeKey` or `BlobKey`) and the key.
+   For a `RecipeKey` input only, the name of the output that the input reads follows the key, as a string. A
+   `BlobKey` input writes nothing more. `AppendRecipeInputs` asserts that a recipe input has a non-empty output and
+   that a blob input has an empty one.
+
+A kind can make several artifacts (outputs), and two consumers of one producer can read different outputs. The output
+is in the key so that these two consumers get two keys. The key holds the name of the output and not its index, so
+that reordering the outputs of a kind does not change what an old key means. Renaming an output changes the keys of
+its readers, which is a deliberate cache miss.
 
 `HashBlob` hashes the domain `"dd.blob"`, the encoding version, the byte count, then the bytes. A blob key and a recipe
 key can never be equal by accident of content, and the two types do not convert into each other.
 
 When the encoding changes on purpose, raise `k_EncodingVersion`. The known-answer tests in `test_keys.cpp` fail first,
-and that is their job.
+and that is their job. The version is 2 since the output name entered the stream. The version also enters
+`HashBlob`, so every blob key changed with it.
+
+The expected keys come from `tests/unit_tests/foundation/content/known_answer_keys.py`. It is an independent encoder,
+written from the stream description above with the `xxhash` Python module. It prints the keys of the known-answer
+tests. `--old` prints the keys of version 1, where an input has no output name.
 
 ## Why a key changed
 
@@ -92,10 +109,25 @@ foundation::content::Encode(params, sink);
 std::println("{}", sink.Text());
 ```
 
+## One layout, two sinks
+
+`ByteStreamSink` writes every tag, width, length and little-endian value, once, in `ByteStreamSink.cpp`. Its
+`CanonicalSink` functions are `final`. `HashSink` and `BytesSink` only say where the bytes go, so the two cannot
+disagree about the layout.
+
+- `HashSink` passes each chunk to XXH3-128. `Finish` returns the hash.
+- `BytesSink` appends each chunk to a vector. `Bytes` reads it, and `TakeBytes` moves it out. The content compiler
+  keeps these bytes with each recipe, so that two recipes with one key can be compared byte for byte.
+- XXH3-128 over the bytes of a `BytesSink` equals `HashSink::Finish` for the same walk. XXH3 streaming gives the same
+  hash for any split of the input.
+- `TextSink` is separate. It prints the walk as text, and it does not write bytes.
+
 ## Notes on the implementation
 
 - `HashSink` keeps the XXH3 state in a fixed, aligned buffer inside the object. `xxhash.h` is included only in
   `HashSink.cpp`, and `foundation` links xxHash PRIVATE. A key costs no allocation.
 - `CanonicalSink` is virtual, so the encoder is one template and the sinks are ordinary classes in source files.
+- Each write on a byte sink costs one more virtual call, `Append`, for each chunk (the tag, the width, the value). The
+  chunks are the same ones that `HashSink` fed to XXH3 before the split.
 - `FindNaN` is a separate walk over the same descriptors. It runs before the hash, so a refused parameter never
   produces a key.

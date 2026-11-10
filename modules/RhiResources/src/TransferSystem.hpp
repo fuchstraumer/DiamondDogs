@@ -3,13 +3,17 @@
 #define DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
 #include "ResourceMessageTypesInternal.hpp"
 #include "ResourceFuture.hpp"
+#include "UploadBuffer.hpp"
+#include "containers/RingAllocator.hpp"
 #include "containers/mwsrQueue.hpp"
 
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <cstddef>
 #include <memory>
 #include <optional>
+#include <span>
 #include <vector>
 #include <thread>
 
@@ -23,8 +27,6 @@ namespace rhi
     class FutureTable;
 }
 
-struct UploadBuffer;
-
 /** @brief Moved from include/ to src/: it includes the internal message types and VMA, and only ResourceContextImpl uses it. */
 enum class ResourceContextError : uint8_t;
 
@@ -37,6 +39,9 @@ struct TransferSystemCounters
     int64_t CompletionReads{ 0 };
     int64_t BytesStaged{ 0 };
     int64_t BlockedPushes{ 0 };
+    int64_t StagingRingStalls{ 0 };
+    int64_t StagingDedicatedUploads{ 0 };
+    int64_t StagingRingBytesInUse{ 0 };
 };
 
 class ResourceTransferSystem
@@ -57,7 +62,8 @@ public:
         VkInstance instance,
         uint32_t vulkan_api_version,
         mwsrQueue<ResourceMessagePayloadType>* context_queue,
-        rhi::FutureTable* future_table);
+        rhi::FutureTable* future_table,
+        uint64_t staging_ring_size);
 
     /** @brief Only the context worker calls this, so the tickets in the queue rise in queue order. */
     void EnqueueTransfer(TransferPayloadType&& payload);
@@ -86,6 +92,16 @@ private:
         int32_t WaitCount{ 0 };
     };
 
+    /** @brief The staging of one transfer: a destination in the ring, or in a dedicated buffer when the ring is too small
+     *  for it. A default-constructed grant means that the transfer stages nothing. */
+    struct StagingGrant
+    {
+        StagingDestination Destination;
+        uint64_t Size{ 0u };
+        std::unique_ptr<UploadBuffer> Dedicated;
+    };
+
+    [[nodiscard]] ResourceContextError createStagingRing(uint64_t size);
     void startWorker();
     void stopWorker();
     void workerThreadJob();
@@ -96,8 +112,21 @@ private:
      *  it. Starts a batch when none is recording, and submits a full one first. A transfer with waits goes alone in
      *  its batch: the batch that is open is submitted first, unless it holds no transfer. Returns null when Vulkan fails. */
     [[nodiscard]] VkCommandBuffer beginTransfer(const TransferWaitSet& waits);
-    /** @brief Adds a recorded transfer to the batch. `staging` may be null. A transfer with waits is submitted at once. */
-    void endTransfer(int32_t future_slot, std::unique_ptr<UploadBuffer>&& staging, uint64_t ticket, const TransferWaitSet& waits);
+    /** @brief Returns the staging for a transfer of `size` bytes, with its offset a multiple of `alignment`. The ring
+     *  stages it when it can ever fit, and a dedicated buffer stages it otherwise. When the ring is full, this submits
+     *  the recording batch and waits for the oldest batch in flight. Returns nullopt when the size is 0 or Vulkan fails. */
+    [[nodiscard]] std::optional<StagingGrant> acquireStaging(uint64_t size, uint64_t alignment, uint64_t ticket);
+    [[nodiscard]] std::optional<StagingGrant> createDedicatedStaging(uint64_t size);
+    /** @brief Returns a range of the ring. A failed first try polls the timeline. If that does not help, it counts one stall. */
+    [[nodiscard]] std::optional<RingRange> allocateFromRing(uint64_t size, uint64_t alignment, uint64_t ticket);
+    /** @brief Submits the recording batch and waits until the completed ticket moves. Returns false when nothing is left
+     *  to wait for, or when the wait failed. */
+    [[nodiscard]] bool waitForRingSpace();
+    /** @brief Waits until the timeline reaches the last signaled value. */
+    void waitForSignaledTickets();
+    void flushStaging(const StagingGrant& staging);
+    /** @brief Adds a recorded transfer to the batch. A transfer with waits is submitted at once. */
+    void endTransfer(int32_t future_slot, StagingGrant&& staging, uint64_t ticket, const TransferWaitSet& waits);
     /** @brief Fails the future. The ticket still counts as consumed, so the next submit signals it. */
     void failTransfer(int32_t future_slot, uint64_t ticket, rhi::ResourceError error);
     /** @brief Fails every transfer in the recording batch with `error`, and returns the batch to the free list. */
@@ -133,6 +162,11 @@ private:
     std::vector<TransferBatch> freeBatches;
     // in signal order, oldest first
     std::vector<TransferBatch> inflightBatches;
+    // the staging ring: one persistently mapped buffer, and the allocator that hands out its ranges by ticket
+    VkBuffer ringBuffer{ VK_NULL_HANDLE };
+    VmaAllocation ringAllocation{ VK_NULL_HANDLE };
+    std::span<std::byte> ringMapped;
+    std::optional<RingAllocator<uint64_t>> ring;
     uint64_t highestConsumedTicket{ 0u };
     uint64_t lastSignaledValue{ 0u };
     bool exitRequested{ false };
@@ -145,6 +179,9 @@ private:
     std::atomic<int64_t> batchesSubmitted{ 0 };
     std::atomic<int64_t> completionReads{ 0 };
     std::atomic<int64_t> bytesStaged{ 0 };
+    std::atomic<int64_t> ringStalls{ 0 };
+    std::atomic<int64_t> dedicatedUploads{ 0 };
+    std::atomic<int64_t> ringBytesInUse{ 0 };
 
     const rhi::Device* device{ nullptr };
     VmaAllocator allocatorHandle{ VK_NULL_HANDLE };

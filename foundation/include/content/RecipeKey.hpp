@@ -1,7 +1,6 @@
 #pragma once
 #ifndef DIAMOND_DOGS_FOUNDATION_CONTENT_RECIPE_KEY_HPP
 #define DIAMOND_DOGS_FOUNDATION_CONTENT_RECIPE_KEY_HPP
-
 #include "content/Encode.hpp"
 #include "content/HashSink.hpp"
 #include "content/Key.hpp"
@@ -21,12 +20,14 @@ namespace foundation::content
     // Changing any of these constants changes every key.
     inline constexpr std::string_view k_RecipeDomain = "dd.recipe";
     inline constexpr std::string_view k_BlobDomain = "dd.blob";
-    inline constexpr uint32_t k_EncodingVersion = 1;
+    inline constexpr uint32_t k_EncodingVersion = 2;
 
     struct RecipeInput
     {
         std::string_view Slot;
         std::variant<RecipeKey, BlobKey> Source;
+        // the name of the output of the producer; a recipe source needs one, a blob source has none
+        std::string_view Output;
     };
 
     enum class KeyErrorCode : uint8_t
@@ -43,8 +44,8 @@ namespace foundation::content
 
     namespace detail
     {
-        void BeginRecipeKey(HashSink& sink, std::string_view kind, uint32_t kind_version);
-        void AppendRecipeInputs(HashSink& sink, std::span<const RecipeInput> inputs);
+        void BeginRecipeKey(CanonicalSink& sink, std::string_view kind, uint32_t kind_version);
+        void AppendRecipeInputs(CanonicalSink& sink, std::span<const RecipeInput> inputs);
         RecipeKey FinishRecipeKey(const HashSink& sink) noexcept;
     }
 

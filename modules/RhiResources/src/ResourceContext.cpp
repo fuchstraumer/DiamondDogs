@@ -467,6 +467,11 @@ ResourceContextCounters ResourceContext::Counters() const noexcept
     return impl->Counters();
 }
 
+MemoryBudgetSnapshot ResourceContext::MemoryBudgets() const noexcept
+{
+    return impl->MemoryBudgets();
+}
+
 namespace
 {
     rhi::OperationFuture PushCopyContents(

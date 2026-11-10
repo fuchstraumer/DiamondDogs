@@ -7,6 +7,13 @@ __include Spectra;
 internal const static uint OCEAN_FFT_SPREAD_MODE_MITSUYASU = 0u;
 internal const static uint OCEAN_FFT_SPREAD_MODE_HASSELMAN = 1u;
 internal const static uint OCEAN_FFT_SPREAD_MODE_DONELAN_BANNER = 2u;
+internal const static uint OCEAN_FFT_SPREAD_MODE_ELFOUHAILY = 3u;
+internal const static uint OCEAN_FFT_SPREAD_MODE_HYBRID = 4u;
+internal const static uint OCEAN_FFT_SPREAD_MODE_EWANS = 5u;
+
+internal const static uint OCEAN_FFT_SPECTRUM_JONSWAP = 0u;
+internal const static uint OCEAN_FFT_SPECTRUM_ELFOUHAILY = 1u;
+internal const static uint OCEAN_FFT_SPECTRUM_BRINGER = 2u;
 
 internal uint4 Rand4DPCG32(in int4 p)
 {
@@ -86,6 +93,7 @@ internal float CascadeContribution(in float k, in uint cascade)
 
 internal float DirectionalSpreading(
     in float thetaIn,
+    in float kLength,
     in float omega,
     in float peakOmega,
     in uniform float windSpeed,
@@ -99,6 +107,7 @@ internal float DirectionalSpreading(
     // since we can swap in approximate trig functions that are only valid in that range
     theta = theta - OceanFft_2PI * round(theta / OceanFft_2PI);
     float spread = 0.0f;
+
     if (DirectionalSpreadingMode == OCEAN_FFT_SPREAD_MODE_MITSUYASU)
     {
         spread = MitsuyasuDirectionalSpread(theta, omega, peakOmega, windSpeed, swellAmount);
@@ -110,6 +119,18 @@ internal float DirectionalSpreading(
     else if (DirectionalSpreadingMode == OCEAN_FFT_SPREAD_MODE_DONELAN_BANNER)
     {
         spread = DonelanBannerDirectionalSpreading(theta, omega, peakOmega, swellAmount);
+    }
+    else if (DirectionalSpreadingMode == OCEAN_FFT_SPREAD_MODE_ELFOUHAILY)
+    {
+        spread = ElfouhailyDirectionalSpreading(theta, kLength, omega, peakOmega, windSpeed, swellAmount);
+    }
+    else if (DirectionalSpreadingMode == OCEAN_FFT_SPREAD_MODE_HYBRID)
+    {
+        spread = HybridDirectionalSpreading(theta, kLength, omega, peakOmega, windSpeed, swellAmount);
+    }
+    else if (DirectionalSpreadingMode == OCEAN_FFT_SPREAD_MODE_EWANS)
+    {
+        spread = EwansDirectionalSpreading(theta, omega, peakOmega, swellAmount);
     }
 
     // now get into range
@@ -141,10 +162,49 @@ void SpectrumInitCS(uint3 dispatchThreadID : SV_DispatchThreadID,
         const float2 randomFloats = GetGaussianRandomFloat2(coordinates, cascade, SpectrumParams.NoiseSeed);
         const float theta = atan2(k.y, k.x);
         float2 omegaAnddOmegadK = DispersionRelationWithDerivative(kLength, SpectrumParams.Depth);
+        const float omega = omegaAnddOmegadK.x;
+        const float dOmegadK = abs(omegaAnddOmegadK.y);
         const float dimensionlessFetch = GetDimensionlessFetch(SpectrumParams.Fetch, SpectrumParams.WindSpeed);
-        const float peakOmega = GetJonswapPeakOmega(dimensionlessFetch, SpectrumParams.WindSpeed);
+
+        float peakOmega = 0.0f;
+        float windRadialSpectrum = 0.0f;
+
+        if (SpectrumParams.EnergySpectrumModel == OCEAN_FFT_SPECTRUM_ELFOUHAILY)
+        {
+            peakOmega = GetElfouhailyPeakOmega(dimensionlessFetch, SpectrumParams.WindSpeed, SpectrumParams.Depth);
+            windRadialSpectrum = ElfouhailyRadialSpectrum(
+                kLength,
+                omega,
+                SpectrumParams.WindSpeed,
+                SpectrumParams.Fetch,
+                SpectrumParams.Depth,
+                SpectrumParams.PeakingFactor);
+        }
+        else if (SpectrumParams.EnergySpectrumModel == OCEAN_FFT_SPECTRUM_BRINGER)
+        {
+            peakOmega = GetElfouhailyPeakOmega(dimensionlessFetch, SpectrumParams.WindSpeed, SpectrumParams.Depth);
+            windRadialSpectrum = BringerRadialSpectrum(
+                kLength,
+                omega,
+                SpectrumParams.WindSpeed,
+                SpectrumParams.Fetch,
+                SpectrumParams.Depth,
+                SpectrumParams.PeakingFactor);
+        }
+        else
+        {
+            peakOmega = GetJonswapPeakOmega(dimensionlessFetch, SpectrumParams.WindSpeed);
+            windRadialSpectrum = OceanEnergySpectrum(
+                SpectrumParams.WindSpeed,
+                SpectrumParams.Fetch,
+                omega,
+                SpectrumParams.Depth,
+                SpectrumParams.PeakingFactor) * dOmegadK;
+        }
+
         float directionalComponent = DirectionalSpreading(theta,
-                                                          omegaAnddOmegadK.x,
+                                                          kLength,
+                                                          omega,
                                                           peakOmega,
                                                           SpectrumParams.WindSpeed,
                                                           SpectrumParams.SwellAmount,
@@ -152,14 +212,8 @@ void SpectrumInitCS(uint3 dispatchThreadID : SV_DispatchThreadID,
                                                           SpectrumParams.LocalWindDirection,
                                                           SpectrumParams.Alignment);
 
-        float freqComponent = OceanEnergySpectrum(SpectrumParams.WindSpeed,
-                                                  SpectrumParams.Fetch,
-                                                  omegaAnddOmegadK.x,
-                                                  SpectrumParams.Depth,
-                                                  SpectrumParams.PeakingFactor);
-
         const float fade = ShortWavesFade(kLength, SpectrumParams.FadeLength);
-        float finalSpectrum = freqComponent * directionalComponent * fade;
+        float finalRadialSpectrum = windRadialSpectrum * directionalComponent * fade;
 
         // the swell: long-period energy from distant wind, from its own direction. Its spreading uses the same model,
         // with full alignment: SwellSpread narrows the lobe through the same swell shaping term
@@ -168,7 +222,8 @@ void SpectrumInitCS(uint3 dispatchThreadID : SV_DispatchThreadID,
             const float swellFetch = GetDimensionlessFetch(SpectrumParams.SwellFetch, SpectrumParams.SwellWindSpeed);
             const float swellPeakOmega = GetJonswapPeakOmega(swellFetch, SpectrumParams.SwellWindSpeed);
             const float swellDirectional = DirectionalSpreading(theta,
-                                                                omegaAnddOmegadK.x,
+                                                                kLength,
+                                                                omega,
                                                                 swellPeakOmega,
                                                                 SpectrumParams.SwellWindSpeed,
                                                                 SpectrumParams.SwellSpread,
@@ -178,20 +233,16 @@ void SpectrumInitCS(uint3 dispatchThreadID : SV_DispatchThreadID,
 
             const float swellFrequency = OceanEnergySpectrum(SpectrumParams.SwellWindSpeed,
                                                              SpectrumParams.SwellFetch,
-                                                             omegaAnddOmegadK.x,
+                                                             omega,
                                                              SpectrumParams.Depth,
                                                              SpectrumParams.SwellPeakingFactor);
 
-            finalSpectrum += SpectrumParams.SwellScale * swellFrequency * swellDirectional * ShortWavesFade(kLength, SpectrumParams.SwellFadeLength);
+            finalRadialSpectrum += SpectrumParams.SwellScale * (swellFrequency * dOmegadK) * swellDirectional * ShortWavesFade(kLength, SpectrumParams.SwellFadeLength);
         }
 
         const float dK2 = dK * dK;
-        const float dOmegaUnit = abs(omegaAnddOmegadK.y) / kLength;
-        // fix: multiplied by 2.0f, which is the Tessendorf form instead of Horvath's improved form.
-        // the field variance must be S(k) dK^2 per wave vector, and the tick's h0(k) + conj(h0(-k)) sum doubles it, so
-        // E|h0|^2 = S dK^2 / 2. randomFloats is one complex Gaussian with E|xi|^2 = 2, which leaves 1/4 inside the root
-        // (OceanFftTest checks the resulting significant wave height). WaveHeightScale is the artist's multiplier on top
-        const float spectrumNorm = SpectrumParams.WaveHeightScale * sqrt(0.25f * finalSpectrum * dOmegaUnit * dK2);
+        // finalRadialSpectrum is the 1D wavenumber density S(k, theta); dividing by kLength gives the 2D wavenumber density Psi(k)
+        const float spectrumNorm = SpectrumParams.WaveHeightScale * sqrt(0.25f * (finalRadialSpectrum / kLength) * dK2);
         const float2 scaledPermutedSpectrum = contribution.xx * randomFloats * spectrumNorm.xx;
         WaveData[linearIndex] = half(omegaAnddOmegadK.x);
         // doing it this way just bc of warnings about implicit conversions, lol

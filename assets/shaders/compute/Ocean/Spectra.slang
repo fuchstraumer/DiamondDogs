@@ -110,6 +110,162 @@ internal float2 DispersionRelationWithDerivative(in float kLength, in float dept
     return result;
 }
 
+// Elfouhaily et al. (1997) Eq. 37: dimensionless inverse wave age Omega_c from dimensionless fetch X
+internal float GetElfouhailyInverseWaveAge(in float dimensionlessFetch)
+{
+    static const float x0 = 2.2e4f;
+    const float ratio = max(dimensionlessFetch / x0, 1.0e-4f);
+    const float tanhTerm = tanh(pow(ratio, 0.4f));
+    return min(0.84f * pow(max(tanhTerm, 1.0e-4f), -0.75f), 5.0f);
+}
+
+// Solves omega^2 = g * k * tanh(k * depth) for k using Eckart's guess and 2 Newton-Raphson steps.
+internal float GetShoaledWavenumber(in float omega, in float depth)
+{
+    const float kDeep = max((omega * omega) * OceanFft_InvG, 1.0e-6f);
+    const float x = min(kDeep * depth, 10.0f);
+    float k = kDeep * rsqrt(tanh(max(x, 1.0e-6f)));
+
+    [unroll]
+    for (int iter = 0; iter < 2; ++iter)
+    {
+        const float kd = min(k * depth, 10.0f);
+        const float th = tanh(kd);
+        const float ch = cosh(kd);
+        const float sech2 = 1.0f / (ch * ch);
+        const float f = k * th - kDeep;
+        const float df = max(th + k * depth * sech2, 1.0e-6f);
+        k = max(k - f / df, 1.0e-6f);
+    }
+
+    return k;
+}
+
+internal float GetElfouhailyPeakOmega(in float dimensionlessFetch, in float windSpeed, in float depth)
+{
+    const float omegaC = GetElfouhailyInverseWaveAge(dimensionlessFetch);
+    return OceanFft_G * omegaC / max(windSpeed, 1.0e-4f);
+}
+
+internal float GetElfouhailyPeakWavenumber(in float dimensionlessFetch, in float windSpeed, in float depth)
+{
+    const float omegaP = GetElfouhailyPeakOmega(dimensionlessFetch, windSpeed, depth);
+    return GetShoaledWavenumber(omegaP, depth);
+}
+
+// Evaluates Elfouhaily et al. (1997) dimensionless curvature spectrum B_E(k) = B_l(k) + B_h(k) at wavenumber kLength.
+internal float ElfouhailyCurvatureB(
+    in float kLength,
+    in float omega,
+    in float kp,
+    in float omegaP,
+    in float omegaC,
+    in float windSpeed,
+    in float gamma)
+{
+    const float cp = omegaP / kp;
+    const float c = max(omega / kLength, 1.0e-6f);
+
+    // Long-wave curvature spectrum B_l (Eq. 31-37)
+    const float alphaP = 6.0e-3f * sqrt(omegaC);
+    const float gammaBase = (omegaC <= 1.0f) ? 1.7f : (1.7f + 6.0f * log10(omegaC));
+    const float gammaEff = max(1.0f, gammaBase * (gamma / 1.7f));
+    const float sigma = 0.08f * (1.0f + 4.0f / (omegaC * omegaC * omegaC));
+    const float sqrtKOverKp = sqrt(kLength / kp);
+    const float kpOverK = kp / kLength;
+    const float lpm = exp(-1.25f * kpOverK * kpOverK);
+    const float peakDiff = sqrtKOverKp - 1.0f;
+    const float gammaExp = exp(-(peakDiff * peakDiff) / (2.0f * sigma * sigma));
+    const float jp = pow(gammaEff, gammaExp);
+    const float fp = lpm * jp * exp(-(omegaC / sqrt(10.0f)) * peakDiff);
+    const float bl = 0.5f * alphaP * (cp / c) * fp;
+
+    // Short-wave curvature spectrum B_h (Eq. 40-44) with Wu (1980) friction velocity u_*
+    const float cd = (0.8f + 0.065f * windSpeed) * 1.0e-3f;
+    const float uStar = sqrt(cd) * windSpeed;
+    const float logUStarOverCm = log(max(uStar, 1.0e-4f) / OceanFft_Cm);
+    const float alphaM = 1.0e-2f * ((uStar <= OceanFft_Cm) ? (1.0f + logUStarOverCm) : (1.0f + 3.0f * logUStarOverCm));
+    const float kOverKmDiff = (kLength / OceanFft_Km) - 1.0f;
+    const float fm = lpm * exp(-0.25f * kOverKmDiff * kOverKmDiff);
+    const float bh = 0.5f * alphaM * (OceanFft_Cm / c) * fm;
+
+    return bl + bh;
+}
+
+internal float ElfouhailyRadialSpectrum(
+    in float kLength,
+    in float omega,
+    in float windSpeed,
+    in float fetch,
+    in float depth,
+    in float gamma)
+{
+    const float dimensionlessFetch = GetDimensionlessFetch(fetch, windSpeed);
+    const float omegaC = GetElfouhailyInverseWaveAge(dimensionlessFetch);
+    const float omegaP = OceanFft_G * omegaC / max(windSpeed, 1.0e-4f);
+    const float kp = GetShoaledWavenumber(omegaP, depth);
+    const float bTotal = ElfouhailyCurvatureB(kLength, omega, kp, omegaP, omegaC, windSpeed, gamma);
+    return bTotal / (kLength * kLength * kLength);
+}
+
+// Bringer, Chapron, Mouche, Guerin (2014) IEEE TGRS 52(1) Eq. VI.36-37:
+// Uses Elfouhaily for k < k_1 = 2*pi/1.6 and the 3-branch WCA radar/optical short-wave curvature B_sw(k) for k >= k_1.
+internal float BringerRadialSpectrum(
+    in float kLength,
+    in float omega,
+    in float windSpeed,
+    in float fetch,
+    in float depth,
+    in float gamma)
+{
+    const float dimensionlessFetch = GetDimensionlessFetch(fetch, windSpeed);
+    const float omegaC = GetElfouhailyInverseWaveAge(dimensionlessFetch);
+    const float omegaP = OceanFft_G * omegaC / max(windSpeed, 1.0e-4f);
+    const float kp = GetShoaledWavenumber(omegaP, depth);
+
+    float bTotal = 0.0f;
+
+    if (kLength < OceanFft_BringerK1)
+    {
+        bTotal = ElfouhailyCurvatureB(kLength, omega, kp, omegaP, omegaC, windSpeed, gamma);
+    }
+    else
+    {
+        const float omega1 = DispersionRelation(OceanFft_BringerK1, depth);
+        const float b1 = ElfouhailyCurvatureB(OceanFft_BringerK1, omega1, kp, omegaP, omegaC, windSpeed, gamma);
+
+        const float u = clamp(windSpeed, 5.0f, 15.0f);
+        const float u2 = u * u;
+        const float u3 = u2 * u;
+        const float u4 = u2 * u2;
+        const float u5 = u4 * u;
+
+        const float g1 = 6.1e-2f * u - 3.3e-2f;
+        const float g2 = -1.314e-4f * u5 + 7.036e-3f * u4 - 1.468e-1f * u3 + 1.4741f * u2 - 6.9122f * u + 12.162f;
+        const float g3 = 1.5378e-4f * u5 - 7.1804e-3f * u4 + 1.2835e-1f * u3 - 1.095f * u2 + 4.4721f * u - 5.52f;
+        const float cPeak = -8.6e-6f * u3 + 3.0e-4f * u2 - 1.6e-3f * u + 5.1e-3f;
+
+        const float kpOverK = kp / kLength;
+        const float lpm = exp(-1.25f * kpOverK * kpOverK);
+
+        if (kLength <= OceanFft_BringerK3)
+        {
+            const float logKOverK1 = log10(max(kLength / OceanFft_BringerK1, 1.0e-6f));
+            const float logKOverK3 = log10(max(kLength / OceanFft_BringerK3, 1.0e-6f));
+            const float bDip = b1 * exp(-g1 * logKOverK1 * logKOverK1);
+            const float bCap = lpm * cPeak * exp(-g2 * logKOverK3 * logKOverK3);
+            bTotal = max(bDip, bCap);
+        }
+        else
+        {
+            const float kRatio = kLength / OceanFft_BringerK3;
+            bTotal = lpm * cPeak * exp(-g3 * (kRatio * kRatio - 1.0f));
+        }
+    }
+
+    return bTotal / (kLength * kLength * kLength);
+}
+
 internal float DonelanBannerBeta(in float omega, in float peakOmega)
 {
     // Watching occupancy and VGPRs get bigger the more of this we implement.... sad
@@ -237,4 +393,90 @@ internal float DonelanBannerDirectionalSpreading(
     const float db2 = db * db;
     const float swell = SwellDirectionalSpreading(theta, omega, peakOmega, swellAmount);
     return (db2 * swell) * norm;
+}
+
+// Elfouhaily et al. (1997) Eq. 49-59 with analytical one-sided fold (1 + cos(theta)).
+// Integrates to 1 over [-pi, pi] because cos(theta) and cos(2*theta)*cos(theta) integrate to 0.
+internal float ElfouhailyDirectionalSpreading(
+    in float theta,
+    in float kLength,
+    in float omega,
+    in float peakOmega,
+    in float windSpeed,
+    in float swellAmount)
+{
+    const float c = max(omega / max(kLength, 1.0e-6f), 1.0e-6f);
+    const float cp = OceanFft_G / max(peakOmega, 1.0e-4f);
+    const float cd = (0.8f + 0.065f * windSpeed) * 1.0e-3f;
+    const float uStar = sqrt(cd) * windSpeed;
+
+    static const float a0 = 0.173286795f; // ln(2) / 4
+    static const float ap = 4.0f;
+    const float am = 0.13f * (uStar / OceanFft_Cm);
+    const float deltaBase = tanh(a0 + ap * pow(c / cp, 2.5f) + am * pow(OceanFft_Cm / c, 2.5f));
+    const float swell = saturate(SwellShaper(omega, peakOmega, swellAmount) / 16.0f);
+    const float delta = lerp(deltaBase, 1.0f, swell);
+    return (0.5f / OceanFft_PI) * (1.0f + delta * cos(2.0f * theta)) * (1.0f + cos(theta));
+}
+
+// Smooth transition in log10(k / kp) from Donelan-Banner below ~4*kp to Elfouhaily above ~25*kp.
+internal float HybridDirectionalSpreading(
+    in float theta,
+    in float kLength,
+    in float omega,
+    in float peakOmega,
+    in float windSpeed,
+    in float swellAmount)
+{
+    const float kp = max((peakOmega * peakOmega) * OceanFft_InvG, 1.0e-6f);
+    const float logKRatio = log10(max(kLength / kp, 1.0e-4f));
+    const float blend = smoothstep(0.6f, 1.4f, logKRatio);
+    const float db = DonelanBannerDirectionalSpreading(theta, omega, peakOmega, swellAmount);
+    const float elf = ElfouhailyDirectionalSpreading(theta, kLength, omega, peakOmega, windSpeed, swellAmount);
+    return lerp(db, elf, blend);
+}
+
+// Ewans (1998) J. Phys. Oceanogr. 28(3) Eq. 4.1, 6.4, 6.5: bimodal wrapped double-Gaussian.
+// Normalized to 1 over [-pi, pi] by periodicity of the wrapped Gaussian sum.
+internal float EwansDirectionalSpreading(
+    in float theta,
+    in float omega,
+    in float peakOmega,
+    in float swellAmount)
+{
+    const float r = max(omega / max(peakOmega, 1.0e-4f), 0.2f);
+    float deltaDeg = 14.93f;
+    float sigmaDeg = 11.38f;
+
+    if (r < 1.0f)
+    {
+        sigmaDeg = min(11.38f + 5.357f * pow(r, -7.929f), 120.0f);
+    }
+    else
+    {
+        deltaDeg = exp(5.453f - 2.750f / r);
+        sigmaDeg = 32.13f - 15.39f / (r * r);
+    }
+
+    const float swell = SwellShaper(omega, peakOmega, swellAmount);
+    const float narrow = rsqrt(1.0f + 0.5f * swell);
+    static const float k_DegToRad = OceanFft_PI / 180.0f;
+    const float delta = 0.5f * deltaDeg * narrow * k_DegToRad;
+    const float sigma = max(sigmaDeg * narrow * k_DegToRad, 0.05f);
+    const float invTwoSigma2 = 0.5f / (sigma * sigma);
+    // 1 / (2 * sqrt(2 * pi) * sigma) = 0.19947114 / sigma
+    const float norm = 0.19947114f / sigma;
+
+    float sum = 0.0f;
+
+    [unroll]
+    for (int m = -1; m <= 1; ++m)
+    {
+        const float shift = float(m) * OceanFft_2PI;
+        const float d1 = theta - delta + shift;
+        const float d2 = theta + delta + shift;
+        sum += exp(-d1 * d1 * invTwoSigma2) + exp(-d2 * d2 * invTwoSigma2);
+    }
+
+    return norm * sum;
 }

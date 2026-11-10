@@ -34,13 +34,9 @@ cmake --preset ninja-msvc
 cmake --build build/ninja-msvc --config Debug --target foundation_tests rhi_system_tests platform_system_tests resource_context_tests loom_tests TriangleTest ComputeManifestTest ImGuiTest
 ```
 
-A third preset, `ninja-msvc-static` (in `build/ninja-msvc-static`), links the static C runtime into everything,
-Slang included, for builds that run on other machines. Build its `OceanFft_package` target in Release. The result,
-`package/OceanFft-Release`, needs only a GPU driver with Vulkan. The preset also sets `CMAKE_POLICY_DEFAULT_CMP0091`
-to NEW, because the root `cmake_minimum_required(VERSION 3.10)` leaves that policy OLD, and OLD ignores
-`CMAKE_MSVC_RUNTIME_LIBRARY`. It sets glfw's `USE_MSVC_RUNTIME_LIBRARY_DLL` OFF too. Check the result with
-`dumpbin /dependents`: no `VCRUNTIME140.dll` or `MSVCP140.dll`. The same target in the other presets copies the
-VC++ runtime DLLs next to the exe instead (app-local deployment).
+For a build that runs on another machine, build `OceanFft_package` in Release on `ninja-msvc`. It writes
+`package/OceanFft-Release` with every DLL the exe needs, the VC++ runtime DLLs included (app-local deployment). There
+is no static-runtime preset: the author removed it on 2026-11-02, because she ships the bundled-DLL package.
 
 CMake sets `MSVC` for clang-cl too, so `if(MSVC)` means "cl-style flags", not "cl.exe". clang-cl has no `/MP` (and
 gtest builds with `-WX`, so the warning fails the build) and no SVML library (`_XM_SVML_INTRINSICS_` breaks
@@ -165,8 +161,8 @@ What eight sessions of working with her showed (2026-10-21):
   every answer, finding and decision in the message text itself. Never write "below" about content that is only in
   the box.
 - **Practical context:** the RTX 4080 desktop is shared with her games, so check that the GPU is idle before you
-  benchmark. Her spouse runs packaged demo builds on a laptop with a 4080: keep the `ninja-msvc-static` package
-  working.
+  benchmark. Her husband sometimes runs a packaged demo (`OceanFft_package`, DLLs bundled). That is an occasional
+  build, not a constraint on every change.
 
 ### Code spacing
 

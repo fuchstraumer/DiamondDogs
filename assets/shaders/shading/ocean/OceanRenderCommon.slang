@@ -23,7 +23,7 @@ public struct OceanViewParameters
     public float4 SunDirectionSeabedDepth;
     // x: the cascade fade distance in patch lengths. Cascade c fades out between x * LengthScales[c] and twice that,
     // so waves far smaller than a pixel stop shimmering. y: texels along an edge of mip 0 of the textures.
-    // z: 1 rotates and offsets each cascade's lattice (tiling A/B, see CascadeUv), 0 samples them all aligned. w unused
+    // z: 1 rotates and offsets each cascade's lattice (tiling A/B, see CascadeUv), 0 samples them all aligned. w: surface debug mode (0 is off)
     public float4 LodParameters;
     // x: WhitecapThreshold (breaking trigger [0, 1] -> [-0.2, 0.2]), y: FoamAmount (coverage scale),
     // z: CrestSharpness (0: Dupuy's determinant, 1: the tensor's smaller eigenvalue), w unused
@@ -105,6 +105,23 @@ internal float ViewFoamWeight(uint cascade)
     return View.FoamWeights[cascade >> 2u][cascade & 3u];
 }
 
+internal static const uint SURF_DEBUG_OFF = 0u;
+internal static const uint SURF_DEBUG_NORMAL = 1u;
+internal static const uint SURF_DEBUG_SLOPE = 2u;
+internal static const uint SURF_DEBUG_STRETCH = 3u;
+internal static const uint SURF_DEBUG_JACOBIAN = 4u;
+internal static const uint SURF_DEBUG_LEAN_SIGMA = 5u;
+internal static const uint SURF_DEBUG_MIP_LEVEL = 6u;
+internal static const uint SURF_DEBUG_CASCADE_WEIGHTS = 7u;
+internal static const uint SURF_DEBUG_REFLECT_DIR = 8u;
+internal static const uint SURF_DEBUG_FOAM_TERMS = 9u;
+internal static const uint SURF_DEBUG_SPECULAR_SPLIT = 10u;
+
+internal uint GetSurfaceDebugMode()
+{
+    return uint(View.LodParameters.w + 0.5f);
+}
+
 // the angle of cascade `cascade`'s lattice in radians: the golden angle per cascade, so no two lattices line up. 0 when off
 internal float CascadeAngle(uint cascade)
 {
@@ -166,8 +183,45 @@ internal float3 CascadeTensorToWorld(float3 tensor, uint cascade)
 // below a pixel
 internal float CascadeDistanceWeight(uint cascade, float distance)
 {
-    const float fadeStart = View.LodParameters.x * ViewLengthScale(cascade);
+    const float fineScale = (cascade >= 2u) ? 0.65f : 1.0f;
+    const float fadeStart = View.LodParameters.x * ViewLengthScale(cascade) * fineScale;
     return ViewCascadeWeight(cascade) * (1.0f - smoothstep(fadeStart, 2.0f * fadeStart, distance));
+}
+
+// Grazing-aware cascade distance weight for fragment slope evaluation. Foreshortening at low camera elevation
+// compresses vertical wave spacing by 1 / cosElevation, so fine cascades fade into LEAN roughness earlier.
+internal float CascadeGrazingDistanceWeight(uint cascade, float distance, float cosElevation)
+{
+    const float grazingScale = (cascade >= 2u) ? clamp(sqrt(max(0.04f, cosElevation)), 0.30f, 1.0f) : 1.0f;
+    const float fineScale = (cascade >= 2u) ? 0.55f : 1.0f;
+    const float fadeStart = View.LodParameters.x * ViewLengthScale(cascade) * fineScale * grazingScale;
+    return ViewCascadeWeight(cascade) * (1.0f - smoothstep(fadeStart, 2.0f * fadeStart, distance));
+}
+
+// Smoothly limits away-facing wave back-slopes (nv < 0) to the Smith visible-normal masking bound so back-slopes
+// reflect the ambient mid-sky (reflect(-V, N).y >= 0.55 * V.y) instead of clamping onto the 0-degree horizon band.
+internal float3 RegularizeGrazingNormal(float3 V, float3 N, float2 sigmaSq)
+{
+    const float2 vHorizXz = V.xz;
+    const float vHorizLen = length(vHorizXz);
+    if (vHorizLen < 1e-4f)
+    {
+        return N;
+    }
+
+    const float2 vDirXz = vHorizXz / vHorizLen;
+    const float nv = dot(N.xz, vDirXz);
+    const float2 nPerpXz = N.xz - nv * vDirXz;
+
+    const float sigmaV = sqrt(max(0.0f, 0.5f * (sigmaSq.x + sigmaSq.y)));
+    const float effectiveVy = max(0.05f, V.y + 0.20f * sigmaV);
+    const float nvMin = -0.18f * (effectiveVy / vHorizLen) * N.y;
+    const float diff = nv - nvMin;
+    const float smoothness = 0.08f * N.y;
+    const float nvMasked = nvMin + 0.5f * (diff + sqrt(diff * diff + smoothness * smoothness));
+
+    const float2 maskedXz = nPerpXz + nvMasked * vDirXz;
+    return normalize(float3(maskedXz.x, max(0.25f, N.y), maskedXz.y));
 }
 
 // The mip of cascade `cascade` whose texels are `spacing` meters wide: the level that holds no wave finer than a grid
@@ -186,9 +240,10 @@ public Texture2DArray<float4> Derivatives;
 // linear, repeat: each cascade tiles with its own patch size
 public SamplerState OceanSampler;
 // written by OceanResolveCS for the whitecap coverage. x: k_i^2 (the mean of k_i is in Displacement.w), y: dDx/dz,
-// the Jacobian tensor's off-diagonal. [IFFT_SIZE, IFFT_SIZE, CASCADE_COUNT]
-[format("rg16f")]
-public Texture2DArray<float2> Whitecaps;
+// the Jacobian tensor's off-diagonal. z, w: (dHeight/dx)^2, (dHeight/dz)^2, the second moments of the slopes in
+// Derivatives.xy. [IFFT_SIZE, IFFT_SIZE, CASCADE_COUNT]
+[format("rgba16f")]
+public Texture2DArray<float4> Whitecaps;
 // the persistent foam clipmap, one layer per level (OceanFoam.slang): OceanFoamStepCS writes it as storage, the
 // fragment stage samples it. Both bind the same image
 [format("r16f")]
@@ -246,6 +301,8 @@ public struct FrameConstants
     public float SsrIntensity;
     public float TaaBlendAlpha;
     public float AutoExposureSpeed;
+    public float3 WaterLeavingReflectanceAp1;
+    public float BodyReflectanceScale;
     public property float3 FoamAlbedoTint
     {
         get

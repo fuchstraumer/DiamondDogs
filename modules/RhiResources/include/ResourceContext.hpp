@@ -4,6 +4,7 @@
 #include "ResourceTypes.hpp"
 #include "ResourceFuture.hpp"
 #include "RhiHandle.hpp"
+#include <array>
 #include <cstdint>
 #include <cstddef>
 #include <memory>
@@ -21,6 +22,12 @@ namespace rhi
  *  futures of a full table, so 4095 futures can be live at once. */
 constexpr inline int32_t k_DefaultMaxFutures = 4096;
 
+/** @brief The default size of the staging ring in bytes: 64 MiB of host-visible memory, mapped for the life of the context. */
+constexpr inline uint64_t k_DefaultStagingRingSize = 64ull * 1024ull * 1024ull;
+
+/** @brief The smallest staging ring that Initialize accepts: 1 MiB. */
+constexpr inline uint64_t k_MinStagingRingSize = 1024ull * 1024ull;
+
 /**
  * @brief Configuration structure for initializing a ResourceContext
  * 
@@ -34,6 +41,7 @@ struct ResourceContextCreateInfo
     bool ValidationEnabled{ false };            ///< Whether Vulkan validation layers are enabled
     bool DeviceAddressesEnabled{ false };       ///< Whether this session needs device addresses enabled for buffers
     int32_t MaxFutures{ k_DefaultMaxFutures };  ///< The size of the future table. At least 2
+    uint64_t StagingRingSize{ k_DefaultStagingRingSize };  ///< The bytes of the staging ring. At least k_MinStagingRingSize
 };
 
 enum class ResourceContextError : uint8_t
@@ -41,7 +49,8 @@ enum class ResourceContextError : uint8_t
     Invalid = 0,
     Success = 1,
     AlreadyInitialized = 2,
-    /** @brief The create info has no instance or no device, or MaxFutures is below 2. */
+    /** @brief The create info has no instance or no device, MaxFutures is below 2, or StagingRingSize is below
+     *  k_MinStagingRingSize. */
     InvalidCreateInfo = 3,
     /** @brief VMA could not create an allocator, for the context or for its transfer system. */
     AllocatorCreationFailed = 4,
@@ -84,6 +93,37 @@ struct ResourceContextCounters
     int64_t FuturesLive{ 0 };
     /** @brief Calls that found the future table full. Each returned a Failed future and did nothing. */
     int64_t FutureTableFull{ 0 };
+    /** @brief Transfers that found the staging ring full and waited for the GPU to free a range. */
+    int64_t StagingRingStalls{ 0 };
+    /** @brief Uploads that were larger than the staging ring and got a staging buffer of their own. */
+    int64_t StagingDedicatedUploads{ 0 };
+    /** @brief The bytes of the staging ring that were in use at the last poll of the transfer timeline. */
+    int64_t StagingRingBytesInUse{ 0 };
+};
+
+/** @brief The largest number of memory heaps that a Vulkan device reports (VK_MAX_MEMORY_HEAPS). */
+constexpr inline int32_t k_MaxMemoryHeaps = 16;
+
+/** @brief The budget and the usage of one memory heap, in bytes. DeviceLocal is true for a heap of device-local memory. */
+struct MemoryHeapBudget
+{
+    uint64_t BudgetBytes{ 0u };
+    uint64_t UsageBytes{ 0u };
+    bool DeviceLocal{ false };
+};
+
+/**
+ * @brief The memory budget that the last Tick published. Each heap's values are read one after another with relaxed
+ * loads, so they are not one consistent snapshot across heaps. HeapCount is 0 before the first Tick. FromExtension is
+ * true when the usage comes from VK_EXT_memory_budget, and false when VMA estimates it. TickSequence counts the Ticks
+ * that published a budget.
+ */
+struct MemoryBudgetSnapshot
+{
+    std::array<MemoryHeapBudget, k_MaxMemoryHeaps> Heaps{};
+    int32_t HeapCount{ 0 };
+    bool FromExtension{ false };
+    int64_t TickSequence{ 0 };
 };
 
 class ResourceContextImpl;
@@ -447,6 +487,13 @@ public:
 
     /** @brief Returns the counters. Safe from any thread. */
     [[nodiscard]] ResourceContextCounters Counters() const noexcept;
+
+    /**
+     * @brief Returns the memory budget that the last Tick published. Safe from any thread, with no lock and no blocking
+     * call. The worker publishes it once per Tick, because the allocator is externally synchronized and only the worker
+     * may query it.
+     */
+    [[nodiscard]] MemoryBudgetSnapshot MemoryBudgets() const noexcept;
 
 private:
     // the Vulkan-only placement calls reach the impl through these. see ResourcePlacement.hpp

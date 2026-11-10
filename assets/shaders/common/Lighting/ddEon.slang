@@ -9,7 +9,6 @@ internal static const float k_EonInvPi = 0.31830988618379067154f;
 internal static const float k_FonConstant1 = 0.287813735748f; // 0.5 - 2 / (3 pi)
 internal static const float k_FonConstant2 = 0.072237894236f; // 2 / 3 - 28 / (15 pi)
 
-[ForceInline]
 internal float FastAcosPositive(float x)
 {
     const float cx = saturate(x);

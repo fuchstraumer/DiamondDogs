@@ -461,6 +461,12 @@ above, the shared rules now win, and the difference is listed under "Superseded"
 - Prefer wave operations (`WaveActiveSum`, `WavePrefixSum`, `WaveIsFirstLane`). Reduce within a wave first, then
   across waves. Minimize barriers; compute per thread when the arithmetic is cheaper than shared memory plus a
   barrier. `GroupMemoryBarrierWithGroupSync()` for full synchronization, `GroupMemoryBarrier()` for visibility only.
+- Do not add `[ForceInline]`. The driver's shader compiler inlines nearly every call, so the attribute does not
+  change the code that runs. Add it to a function only when a measurement (SPIR-V, ISA or GPU time) shows a problem
+  because that function was not inlined, and put the reason in a comment beside it.
+- One known exception: a function that takes a `Texture*` or `SamplerState` parameter needs `[ForceInline]`.
+  Lodestone's reflection traces each sampled image back to its bound texture and sampler variables, and it cannot
+  trace through a function parameter. Without the tag the cook fails with `ReflectionSamplerPairUnresolved`.
 - Buffer device address and bindless are not designed yet (the author owns that design). Lodestone refuses Pointer
   and Handle placements on SPIR-V today, and `ResourceContext` refuses `DeviceAddressBuffer`.
 

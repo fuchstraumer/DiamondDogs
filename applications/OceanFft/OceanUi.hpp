@@ -40,6 +40,7 @@ namespace ocean
         Physics = 3,
         Timings = 4,
         Scene = 5,
+        Debug = 6,
     };
 
     struct OceanPanelState
