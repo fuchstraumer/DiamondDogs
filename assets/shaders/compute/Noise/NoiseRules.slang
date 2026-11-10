@@ -128,6 +128,14 @@ public struct Swiss : IOctaveRule
     /// 0 is the original warp: octave i samples at (p + warp * dsum) * frequency_i. 1 is the warp of the CUDA_Noise
     /// port, where the offset is scaled by lacunarity again each octave (about 0.01 to 0.02 there).
     public int compoundingWarp;
+    /// Not in de Carpentier's rule. 1 divides each octave's warp term by lacunarity^octave. In the original, every
+    /// octave adds about the same amount to the Jacobian of the sample position (amplitude * frequency stays near 1),
+    /// so the stretch grows with the octave count and folds the plane past about 8 octaves. With the falloff the
+    /// terms form a geometric series. 0 is the original.
+    public int warpFalloff;
+    /// Not in de Carpentier's rule. 1 replaces saturate(sum) in the amplitude with a smooth minimum (k = 0.25), so the
+    /// amplitude, and through it the warp's Jacobian, has no kink where the sum crosses 1. 0 is the original.
+    public int smoothClamp;
 
     [Differentiable, NoDiffThis]
     public OctaveState begin()
@@ -138,9 +146,11 @@ public struct Swiss : IOctaveRule
     [Differentiable, NoDiffThis]
     public void step(inout OctaveState state, no_diff OctaveContext context, float4 noise)
     {
+        const float warpScale = warpFalloff != 0 ? pow(context.lacunarity, -float(context.octave)) : 1.0;
+
         state.sum += state.amplitude * (1.0 - abs(noise.x));
         state.range += state.envelope;
-        state.warpSum += state.amplitude * noise.yzw * -noise.x;
+        state.warpSum += state.amplitude * warpScale * noise.yzw * -noise.x;
 
         if (compoundingWarp != 0)
         {
@@ -152,7 +162,9 @@ public struct Swiss : IOctaveRule
             state.sampleOffset = warpStrength * state.warpSum * nextFrequency;
         }
 
-        state.amplitude *= gain * saturate(state.sum);
+        // the sum is never negative here, so only the upper clamp matters
+        const float clampedSum = smoothClamp != 0 ? SmoothMin(state.sum, 1.0, k_SwissClampSmoothing) : saturate(state.sum);
+        state.amplitude *= gain * clampedSum;
         state.envelope *= gain;
     }
 
@@ -161,6 +173,17 @@ public struct Swiss : IOctaveRule
     {
         return 2.0 * state.sum / state.range - 1.0;
     }
+}
+
+static const float k_SwissClampSmoothing = 0.25;
+
+/// The polynomial smooth minimum (Inigo Quilez): equal to min(a, b) when |a - b| >= k, with a continuous slope
+/// across the blend.
+[Differentiable]
+float SmoothMin(float a, float b, no_diff float k)
+{
+    const float h = max(k - abs(a - b), 0.0) / k;
+    return min(a, b) - h * h * k * 0.25;
 }
 
 /// Jordan turbulence (Giliam de Carpentier, "Scape: 3. Procedural extensions", 2012). It sums n^2, warps each octave

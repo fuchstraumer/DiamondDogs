@@ -31,12 +31,14 @@ reference only. The section "What changed from CUDA_Noise" says what was wrong i
 | `NoiseLattice` | `NoiseLattice.slang` | `LatticePoint`, `MakeLatticePoint`, the 12 edge gradients, the quintic fade. |
 | `NoiseField` | `NoiseField.slang` | `IField3`, `IVecField3`, `IBasis3`, `IOctaveRule`, `OctaveState`, `k_MaxOctaves`, the autodiff gradient. |
 | `NoiseBases` | `NoiseBases.slang`, `BasisPerlin.slang`, `BasisSimplex.slang`, `BasisValue.slang` | `Perlin3`, `Simplex3`, `Value3`. |
+| `NoiseCellular` | `NoiseCellular.slang` | `Cellular3` (Worley cellular noise), `CellularSites`, the metric and output constants. |
 | `NoiseFractal` | `NoiseFractal.slang` | `Fractal<B, R>`, the octave rotation. |
 | `NoiseRules` | `NoiseRules.slang` | `Fbm`, `Billow`, `RidgedMulti`, `Swiss`, `Jordan`. |
 | `NoiseNodes` | `NoiseNodes.slang`, `NodesValue.slang`, `NodesDomain.slang` | Value nodes, `VecFromFields`, `Warp`, `Affine`. |
 | `NoiseGrids` | `NoiseGrids.slang` | `PlaneGrid` (the plane z = 0). |
 | `NoiseKernels` | `NoiseKernels.slang` | Mode A kernels `NoiseBasisCS` (axis `BASIS`) and `NoiseFractalCS` (axes `BASIS` x `RULE`): 15 variants. |
-| `NoiseSampleGraph` | `NoiseSampleGraph.slang` | `NoiseSampleGraphCS`: one fused graph that uses every node, basis and rule. |
+| `NoiseCellularKernels` | `NoiseCellularKernels.slang` | Mode A kernel `NoiseCellularCS`: one variant, the metric and output are runtime members. |
+| `NoiseSampleGraph` | `NoiseSampleGraph.slang` | `NoiseSampleGraphCS`: one fused graph that uses every node, basis and rule, and `Cellular3`. |
 | | `spikes/` | The M0 probes and their notes. The build does not cook them. |
 
 The kernels write a `float4` per element (value, then gradient) to a storage buffer over a `PlaneGrid`. That output form is
@@ -88,6 +90,39 @@ value can pass 1 by a small amount. Perlin3 reached 1.01547, Simplex3 0.013007 (
 
 The gradient pick takes the high 16 bits of the hash and maps them to 12 values with a multiply and a shift (Lemire). The
 bias is at most 12 / 65536, and no lookup table of hashes exists.
+
+## Cellular3
+
+Worley's cellular noise. Each lattice cell holds `floor(density + u)` sites (1 to 4, u uniform per cell), each at
+`0.5 + jitter * (hash - 0.5)` inside its cell. A position searches its own cell and the 26 neighbors and keeps the two
+nearest sites: F1 and F2. `Cellular3` is not an `IBasis3`, because it has members, so it is a field of its own and not a
+`Fractal` input.
+
+| Member | Meaning |
+|---|---|
+| `frequency` | Cells per unit of position. The cell size is `1 / frequency`. |
+| `jitter` | 0 is a regular grid, 1 lets a site sit anywhere in its cell. |
+| `density` | Mean sites per cell, clamped to [1, 4]. Distances are multiplied by `cbrt(density)`, so density adds cells but keeps the output range. |
+| `metric` | `k_CellularEuclidean`, `EuclideanSquared`, `Manhattan`, `Chebyshev`, `Minkowski`. |
+| `minkowskiExponent` | The exponent of Minkowski: 1 is Manhattan, 2 is Euclidean, large values approach Chebyshev. |
+| `output` | `k_CellularF1`, `F2`, `F2MinusF1` (cell edges), `F1PlusF2` (the mean), `F1TimesF2`, `CellValue` (a hash of the nearest site in [-1, 1], flat in each cell). |
+| `seed` | Hash seed. |
+
+- **Range.** Not normalized to [-1, 1], unlike the bases: the outputs are distances, in cell units times
+  `cbrt(density)`. `bound()` returns the largest distance that the 3x3x3 search can give under the metric. Use
+  `ScaleBias` to map them. Measured at frequency 4 over the 5 x 5 sample square: Euclidean F1 [0.002, 1.14], F2 - F1
+  [0, 1.03], Manhattan F1 with density 2 [0.004, 1.77], Chebyshev F1 with jitter 0.5 [0.25, 0.74], Minkowski 0.5 F2
+  [0.20, 4.95].
+- **Gradient.** `evalGrad` searches once, then runs three forward-mode passes over the distances to the two chosen sites
+  only (the default `evalGrad` would search three times). The gradient is exact inside a cell; F1 has a kink on each
+  cell boundary, and `CellValue` has a step there and a zero gradient elsewhere. Measured median relative error against
+  central differences: 0.02% for every distance output.
+- **Ids.** `findSites` returns `CellularSites`: both sites relative to the position's own cell, and a 32-bit id for
+  each. An id depends only on the integer cell, the site index and the seed, so it is the same in every tile. Plates
+  will read it.
+- **Limits.** The search covers 3x3x3 cells only. With jitter 1, a nearer site two cells away is possible but rare for
+  F1, and less rare for F2 and for Minkowski exponents below 1, where distances stretch along the axes. The Minkowski
+  0.5 sample shows a few short straight breaks that are probably such misses. Not verified against a 5x5x5 search yet.
 
 ## The fractal and its rules
 
@@ -157,6 +192,21 @@ Notes on the rules:
   `compoundingWarp = 1` is the CUDA_Noise form, where the offset is multiplied by the lacunarity again each octave. At
   lacunarity 2 and 8 octaves, the offset of the first octave arrives 128 times larger, which is why the old code needed a
   warp of 0.01 to 0.02, against de Carpentier's 0.15. The author keeps both (question Q6).
+- **Swiss `warpFalloff` and `smoothClamp` (our changes, off by default).** The sample position of octave k is
+  `(p + warp * dsum) * f_k`, so its Jacobian divided by f_k is `I + warp * d(dsum)/dp`. The gradient in dsum is taken
+  with respect to the scaled position, so octave i adds a term of size `amplitude_i * f_i`, which stays near 1 at gain
+  0.5 and lacunarity 2. The terms do not decay: the stretch grows with each octave, and past about 8 octaves the plane
+  folds (determinant <= 0). At 16384² this shows as streaked, fan-like detail. `warpFalloff = 1` divides octave i's term
+  by `lacunarity^i`, so the terms form a geometric series. `smoothClamp = 1` replaces `saturate(sum)` in the amplitude
+  with a polynomial smooth minimum (Inigo Quilez, k = 0.25), which removes one kink in the amplitude.
+  Measured on a 1024² window of the 16384² render (NoiseHeightmaps `--region`, `NoiseWarpStudy.slang`), warp 0.15:
+
+  | Variant | Smallest singular value, 8 / 12 oct | Folded, 12 oct | Anisotropy p99, 12 oct |
+  |---|---|---|---|
+  | Original | 0.10 / 0.0035 | 0.005% | 7.8 |
+  | `warpFalloff` | 0.31 / 0.31 | 0% | 3.2 |
+  | `smoothClamp` | 0.12 / 0.0064 | 0.003% | 7.1 |
+  | Both | 0.31 / 0.31 | 0% | 3.2 |
 - **Swiss `-n`.** The chain rule gives `gradient * -sign(n)` for `1 - abs(n)`. De Carpentier uses `-n` on purpose, to avoid
   artifacts from the jump of `sign`. The rule keeps `-n`.
 - **Jordan** evaluates its first octave with its own gain, warp and damping (`gain1`, `warp0`, `damp0`), as de Carpentier's
@@ -231,8 +281,8 @@ No code from libnoise is here (decision D3: libnoise is LGPL). The node names fo
   [-1, -0.43]. The other rules use most of [-1, 1].
 - **RidgedMulti on Simplex3** shows a few short straight creases. Not traced yet: they may be kernel edges that the
   ridge sharpens.
-- **Bases and nodes of milestone M3 and later:** `Cellular3` (plates need cell ids and edge distance), `SphereWarp`, `Turbulence`,
-  `Displace`, the stream-function flow, and the curvature rules.
+- **Bases and nodes of milestone M3 and later:** `SphereWarp`, `Turbulence`, `Displace`, the stream-function flow, and the
+  curvature rules. `Cellular3` exists; a kernel that writes cell ids and the plate boundary pass do not yet.
 - **Grids and the rasterizer:** cube face, lat-lon, HEALPix, texture output, `Sampled` leaves.
 - **Performance:** each basis `eval` calls `evalGrad` (todo-perf: a value-only path), and a fractal's gradient comes from
   three forward-mode passes.
@@ -251,6 +301,8 @@ No code from libnoise is here (decision D3: libnoise is LGPL). The node names fo
 - **Giliam de Carpentier**: Swiss and Jordan turbulence, "Scape: 3. Procedural extensions" (2012,
   https://www.decarpentier.nl/scape-procedural-extensions). The page states no license, so this code is written from the
   math, not copied.
+- **Steven Worley**: cellular noise, "A Cellular Texture Basis Function" (SIGGRAPH 1996). `Cellular3` implements it
+  from the paper's description, with a different site count rule, search size and hash (see the Cellular3 section).
 - **Inigo Quilez**: the expanded form of the gradient-noise derivative (iquilezles.org, article on noise derivatives).
 - **Daniel Lemire**: the multiply-shift range reduction ("Fast Random Integer Generation in an Interval", 2019).
 - **Edwin Catmull and Raphael Rom** (1974): the Catmull-Rom spline of `Curve`.

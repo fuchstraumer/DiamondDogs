@@ -38,8 +38,16 @@ public struct Fractal<B : IBasis3, R : IOctaveRule> : IField3
     [Differentiable, NoDiffThis]
     public float eval(float3 p)
     {
+        return rule.finish(runOctaves(p, octaveCount));
+    }
+
+    /// Runs the first stopOctave octaves (clamped to [1, k_MaxOctaves]) and returns the rule's state. eval uses
+    /// octaveCount; a study can stop early to read, for example, the sample offset of one octave.
+    [Differentiable, NoDiffThis]
+    public OctaveState runOctaves(float3 p, no_diff int stopOctave)
+    {
         const B basis = {};
-        const int clampedCount = clamp(octaveCount, 1, k_MaxOctaves);
+        const int clampedCount = clamp(stopOctave, 1, k_MaxOctaves);
         const float3x3 stepRotation = rotateOctaves != 0 ? k_OctaveRotation : k_Identity;
 
         // octave 0 is rotated too: an unrotated octave on the plane z = 0 samples a lattice plane, where Perlin's edge
@@ -69,7 +77,7 @@ public struct Fractal<B : IBasis3, R : IOctaveRule> : IField3
             rotation = mul(rotation, stepRotation);
         }
 
-        return rule.finish(state);
+        return state;
     }
 
     public float bound()

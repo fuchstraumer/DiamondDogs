@@ -7,6 +7,7 @@ import NoiseFractal;
 import NoiseRules;
 import NoiseNodes;
 import NoiseGrids;
+import NoiseCellular;
 
 typealias Ridges = Fractal<Simplex3, RidgedMulti>;
 typealias Hills = Fractal<Perlin3, Fbm>;
@@ -17,7 +18,7 @@ typealias Dunes = Fractal<Perlin3, Jordan>;
 typealias Land = Warp<Ridges, VecFromFields<Hills, Swells, Hills>>;
 typealias Plains = Terrace<ScaleBias<Cliffs>>;
 typealias Mix = Blend<Land, Plains, Clamp<Affine<Dunes>>>;
-typealias Detail = Multiply<Curve<Exponent<Abs<Hills>>>, Const>;
+typealias Detail = Multiply<Curve<Exponent<Abs<Hills>>>, Cellular3>;
 typealias Floor = Max<Min<Invert<Const>, Const>, Power<Const, Const>>;
 typealias SampleGraph = Select<Add<Mix, Detail>, Floor, Swells>;
 
