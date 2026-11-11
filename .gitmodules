@@ -28,3 +28,9 @@
 [submodule "third_party/glfw"]
 	path = third_party/glfw
 	url = https://github.com/glfw/glfw
+[submodule "third_party/meshoptimizer"]
+	path = third_party/meshoptimizer
+	url = https://github.com/zeux/meshoptimizer
+[submodule "third_party/ufbx"]
+	path = third_party/ufbx
+	url = https://github.com/ufbx/ufbx

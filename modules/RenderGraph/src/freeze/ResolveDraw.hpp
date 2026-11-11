@@ -13,7 +13,7 @@
 #include <vector>
 
 // Step 3, for the statements of draw and Record passes. Each function resolves the names in one kind of statement and
-// checks the values that need no lookup (LM101, LM109), plus the at-most-once rule (LM113). Resolve.hpp calls these
+// checks the values that need no lookup (LM101, LM109), plus the at-most-once rule (LM113). ResolveNames.hpp calls these
 // from ResolvePass.
 namespace loom::freeze
 {

@@ -7,10 +7,11 @@
 #include "Declarations.hpp"
 #include "LoomKeys.hpp"
 #include "Records.hpp"
+#include <algorithm>
 #include <source_location>
 #include <string_view>
 
-// Step 2: check values that need no lookup (LM101, LM109). Walks the record, so duplicates are checked too.
+// Step 2: check values that need no lookup (LM101, LM108, LM109). Walks the record, so duplicates are checked too.
 namespace loom::freeze
 {
 
@@ -352,6 +353,27 @@ namespace loom::freeze
         for (const DeclarationRecord<OutputDeclaration>& decl : context.Record.Outputs)
         {
             CheckOutput(context, decl);
+        }
+    }
+
+    // LM108: a graph pin on an axis that an earlier graph pin already set. Where is the second pin, OtherWhere the
+    // first. The first pin of each axis goes into the frozen graph.
+    inline void CheckGraphPins(FreezeContext& context)
+    {
+        for (const PinRecord& pin : context.Record.Pins)
+        {
+            const auto sameAxis = [&pin](const PinRecord& earlier) { return earlier.AxisName == pin.AxisName; };
+            const auto earlier = std::ranges::find_if(context.Graph.Pins, sameAxis);
+
+            if (earlier != context.Graph.Pins.end())
+            {
+                Diagnostic diag = MakeDiagnostic(DiagnosticCode::LM108, pin.Where);
+                diag.OtherWhere = earlier->Where;
+                context.Sink.Report(diag);
+                continue;
+            }
+
+            context.Graph.Pins.push_back(pin);
         }
     }
 

@@ -1,6 +1,6 @@
 #pragma once
-#ifndef DIAMOND_DOGS_LOOM_FREEZE_RESOLVE_HPP
-#define DIAMOND_DOGS_LOOM_FREEZE_RESOLVE_HPP
+#ifndef DIAMOND_DOGS_LOOM_FREEZE_RESOLVE_NAMES_HPP
+#define DIAMOND_DOGS_LOOM_FREEZE_RESOLVE_NAMES_HPP
 #include "Freeze.hpp"
 #include "ResolveDraw.hpp"
 #include "ResolveKey.hpp"
@@ -311,4 +311,4 @@ namespace loom::freeze
 
 }
 
-#endif // !DIAMOND_DOGS_LOOM_FREEZE_RESOLVE_HPP
+#endif // !DIAMOND_DOGS_LOOM_FREEZE_RESOLVE_NAMES_HPP

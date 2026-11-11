@@ -156,3 +156,40 @@ TEST(Freeze, UnnormalizedSamplerReportsEachBrokenRule)
     EXPECT_EQ(sink.Diagnostics()[2].Actual.FieldName, "AddressU");
     EXPECT_EQ(sink.Diagnostics()[3].Actual.FieldName, "AddressV");
 }
+
+// Graph pins reach the frozen graph, in call order, so the Resolve stage can merge them.
+TEST(Freeze, GraphPinsAreCopied)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Pin("TAPS", loom::AxisValue::Unsigned(2u));
+    graph.Pin("USE_WAVE_OPS", loom::AxisValue::Boolean(true));
+
+    loom::CollectingSink sink;
+    const std::optional<loom::FrozenGraph> frozen = loom::Freeze(graph.Record(), sink);
+
+    ASSERT_TRUE(frozen.has_value());
+    ASSERT_EQ(frozen->Pins.size(), 2u);
+    EXPECT_EQ(frozen->Pins[0].AxisName, "TAPS");
+    EXPECT_EQ(std::get<uint32_t>(frozen->Pins[0].Value.Value), 2u);
+    EXPECT_EQ(frozen->Pins[1].AxisName, "USE_WAVE_OPS");
+}
+
+// LM108: the second pin on one axis points at the first, even with the same value.
+TEST(Freeze, GraphPinSetTwiceIsLM108)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    const uint32_t firstLine = std::source_location::current().line() + 1;
+    graph.Pin("TAPS", loom::AxisValue::Unsigned(2u));
+    graph.Pin("USE_WAVE_OPS", loom::AxisValue::Boolean(true));
+    const uint32_t secondLine = std::source_location::current().line() + 1;
+    graph.Pin("TAPS", loom::AxisValue::Unsigned(2u));
+
+    loom::CollectingSink sink;
+    const std::optional<loom::FrozenGraph> frozen = loom::Freeze(graph.Record(), sink);
+
+    ASSERT_FALSE(frozen.has_value());
+    const loom::Diagnostic& diagnostic = OnlyDiagnostic(sink);
+    EXPECT_EQ(diagnostic.Code, loom::DiagnosticCode::LM108);
+    EXPECT_EQ(diagnostic.Where.line(), secondLine);
+    EXPECT_EQ(diagnostic.OtherWhere.line(), firstLine);
+}

@@ -10,6 +10,7 @@ set(LOOM_TEST_SOURCES
     test_freeze_draw.cpp
     test_order.cpp
     test_explain.cpp
+    test_resolve.cpp
 )
 
 add_unit_test_target(loom_tests
@@ -18,3 +19,13 @@ add_unit_test_target(loom_tests
 
 # The stages and their helpers live in modules/RenderGraph/src. Tests feed them directly.
 target_include_directories(loom_tests PRIVATE "${CMAKE_SOURCE_DIR}/modules/RenderGraph/src")
+
+# The Resolve tests read this bundle with no device. Both profiles, so the later Bind tests meet every placement form.
+lodestone_add_shader_cook(loom_test_shaders
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
+    TARGETS spirv spirv-modern-mutable
+    MODULES shaders/LoomResolveTest.slang shaders/LoomResolveOther.slang)
+set_target_properties(loom_test_shaders PROPERTIES FOLDER "Tests/Unit Tests")
+add_dependencies(loom_tests loom_test_shaders)
+target_compile_definitions(loom_tests PRIVATE
+    "LOOM_TEST_BUNDLE=\"$<TARGET_PROPERTY:loom_test_shaders,LODESTONE_MANIFEST>\"")

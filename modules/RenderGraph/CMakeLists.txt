@@ -11,7 +11,7 @@ set(LOOM_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/FrozenGraph.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Freeze.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Publish.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Resolve.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/ResolveNames.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/ResolveDraw.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/ResolveKey.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Validate.hpp"
@@ -36,6 +36,13 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/order/Sort.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/order/DataChecks.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/order/Liveness.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/resolve/ResolvedGraph.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/resolve/ResolveContext.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/resolve/ResolvedGraph.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/resolve/Shaders.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/resolve/Pins.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/resolve/Variants.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/resolve/Helpers.cpp"
 )
 
 add_module(loom
