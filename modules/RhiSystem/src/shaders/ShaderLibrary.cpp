@@ -226,6 +226,7 @@ namespace rhi
             {
                 return std::unexpected(ShaderLibraryError::EntryPointNotInVariant);
             }
+            
             instances.push_back(variantView->EntryPoint(*entryPointIndex));
         }
 

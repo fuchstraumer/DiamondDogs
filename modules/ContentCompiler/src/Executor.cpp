@@ -19,6 +19,7 @@
 namespace
 {
     int32_t SlotIndexOf(std::span<const cc::Slot> slots, std::string_view name);
+    bool OutputsMatch(std::span<const cc::Output> declared, std::span<const cc::Artifact> made);
 }
 
 namespace cc
@@ -90,44 +91,198 @@ namespace cc
     // - Wanted 0 to 1 on an Idle row: the row becomes Waiting. For each input: add this row to the input's Dependents
     //   if the input has not succeeded, add 1 to the input's Wanted (which may start the input in turn), and count
     //   the unfinished inputs into Unresolved. With Unresolved 0 the row is spawned (spawnRun).
-    // - An input that is already Failed (a memo from an earlier run) never finishes again, so it must not be waited
-    //   on: the row fails at once with InputFailed and that input's Origin. A row that fails this way during the walk
-    //   may already be in the Dependents of the row that wanted it, so the failure cascades as in complete. Share
-    //   that cascade with complete; do not write it twice.
+    // - Count per input edge, not per source row: a row that reads two outputs of one input adds itself to that
+    //   input's Dependents twice, and its Wanted and Unresolved by 2. complete and releaseInputs count the same way.
+    // - Finish all the inputs of one row before you pop the next row. Dependents may only hold rows that are set up.
+    // - An input that is already Failed (a memo from an earlier run) never finishes again. Check the inputs for one
+    //   before the row wants anything. If one is Failed, the row wants none of its inputs: set it Failed with
+    //   { InputFailed, that input's Origin, that input's Failure }, then call failDependents, because the row that
+    //   wanted it may already wait on it.
+    // - Collect the unwants and the finished rows in two local lists, and use them only after the walk: drainUnwants,
+    //   then notifyRoots for each finished row. An unwant during the walk could cancel a row that is still on the
+    //   walk's stack, before that row has wanted its own inputs.
     // - A Waiting, Ready, Running, Succeeded or Failed row only gains the count.
     void Executor::want(RecipeId /*_recipe*/, Transience /*_transience*/)
     {
         assert(false && "want is not written yet");
     }
 
-    // QUESTION (unwant). Contract:
-    // - Takes 1 from the row's Wanted. At 0: a Waiting row is cancelled (cancel). A Ready row is left for its run to
-    //   cancel when it starts. A Running row finishes. A Succeeded row stays cached.
-    // - The cancel cascades down through cancel and unwant, so it must be iterative too.
-    void Executor::unwant(RecipeId /*_recipe*/)
+    void Executor::unwant(RecipeId _recipe)
     {
-        assert(false && "unwant is not written yet");
+        std::vector<RecipeId> unwants{ _recipe };
+        drainUnwants(unwants);
     }
 
-    // QUESTION (cancel). Contract:
-    // - Only for a Waiting row, or a Ready row whose run is starting with Wanted 0. The row becomes Idle.
-    // - Remove the row from the Dependents of each input that has not finished, then unwant each input.
-    void Executor::cancel(RecipeId /*_recipe*/)
+    void Executor::cancel(RecipeId _recipe, std::vector<RecipeId>& _unwants)
     {
-        assert(false && "cancel is not written yet");
+        NodeRow& row = rowOf(_recipe);
+        const bool cancellable = row.State == NodeState::Waiting || row.State == NodeState::Ready;
+        assert(cancellable && row.Wanted == 0 && "only a Waiting or Ready row that nobody wants is cancelled");
+        assert(row.Dependents.empty() && "each dependent counts in Wanted, so a row with Wanted 0 has none");
+
+        row.State = NodeState::Idle;
+        row.Unresolved = 0;
+        row.Strongest = Transience::Invalid;
+
+        releaseInputs(_recipe, _unwants);
     }
 
-    // QUESTION (complete). Contract:
-    // - Succeeded needs every output set, each with the kind that the output declares; otherwise the row fails with
-    //   MissingOutput. The row adds each output to the artifact table and holds it.
-    // - Failed: store the context's diagnostics as a new FailureId; Error = { KindFailed, this recipe, that id }.
-    // - Each dependent: on success, Unresolved minus 1, and spawnRun at 0 if it is still wanted. On failure, the
-    //   dependent fails at once with InputFailed and the same Origin, without running, and that cascades.
-    // - Then unwant each input of this row: a finished row no longer needs them.
-    // - Then notifyRoots for every row that finished here.
-    void Executor::complete(RecipeId /*_recipe*/, KindResult /*_result*/, Context& /*_context*/)
+    void Executor::complete(RecipeId _recipe, KindResult _result, Context& _context)
     {
-        assert(false && "complete is not written yet");
+        const Recipe& recipe = recipes->Get(_recipe);
+        const KindOps& kind = registry->Ops(recipe.Kind);
+        ContentErrorCode code = ContentErrorCode::Invalid;
+
+        // a status that is not Succeeded, Invalid included, is a failure: bad content degrades and never crashes
+        if (!_result.Succeeded())
+        {
+            code = ContentErrorCode::KindFailed;
+        }
+        else if (!OutputsMatch(kind.Outputs, _context.Outputs()))
+        {
+            code = ContentErrorCode::MissingOutput;
+        }
+
+        std::vector<RecipeId> unwants;
+        std::vector<RecipeId> finished;
+        NodeRow& row = rowOf(_recipe);
+        assert(row.State == NodeState::Running && "only a Running row completes");
+
+        if (code == ContentErrorCode::Invalid)
+        {
+            for (Artifact& output : _context.Outputs())
+            {
+                // the table's first holder is the row; the destructor releases it
+                row.Outputs.push_back(artifacts.Add(std::move(output)));
+            }
+
+            row.State = NodeState::Succeeded;
+            const std::vector<RecipeId> dependents = std::move(row.Dependents);
+            row.Dependents.clear();
+
+            releaseInputs(_recipe, unwants);
+            finished.push_back(_recipe);
+
+            for (const RecipeId dependent : dependents)
+            {
+                NodeRow& dependentRow = rowOf(dependent);
+                assert(dependentRow.State == NodeState::Waiting && dependentRow.Unresolved > 0);
+
+                --dependentRow.Unresolved;
+
+                // a Waiting row is still wanted: cancel takes it out of every Dependents list
+                if (dependentRow.Unresolved == 0)
+                {
+                    spawnRun(dependent);
+                }
+            }
+        }
+        else
+        {
+            const std::span<const Diagnostic> diagnostics = _context.Diagnostics();
+            const FailureId failure{ static_cast<uint32_t>(failures.size()) };
+            failures.emplace_back(diagnostics.begin(), diagnostics.end());
+
+            row.State = NodeState::Failed;
+            row.Error = ContentError{ .Code = code, .Origin = _recipe, .Failure = failure };
+
+            releaseInputs(_recipe, unwants);
+            failDependents(_recipe, unwants, finished);
+        }
+
+        drainUnwants(unwants);
+
+        for (const RecipeId done : finished)
+        {
+            notifyRoots(done);
+        }
+    }
+
+    void Executor::drainUnwants(std::vector<RecipeId>& _unwants)
+    {
+        while (!_unwants.empty())
+        {
+            const RecipeId current = _unwants.back();
+            _unwants.pop_back();
+
+            NodeRow& row = rowOf(current);
+            assert(row.Wanted > 0 && "an unwant needs a matching want");
+
+            --row.Wanted;
+
+            // a Ready row is cancelled by its run when it starts; Running, Succeeded and Failed rows keep their state
+            if (row.Wanted == 0 && row.State == NodeState::Waiting)
+            {
+                cancel(current, _unwants);
+            }
+        }
+    }
+
+    void Executor::releaseInputs(RecipeId _recipe, std::vector<RecipeId>& _unwants)
+    {
+        const Recipe& recipe = recipes->Get(_recipe);
+
+        for (const RecipeInputRef& input : recipe.Inputs)
+        {
+            NodeRow& source = rowOf(input.Source);
+            const bool unfinished = source.State == NodeState::Waiting || source.State == NodeState::Ready ||
+                                    source.State == NodeState::Running;
+
+            // one entry for each edge, so a source that feeds two slots loses one entry here for each
+            if (unfinished)
+            {
+                const auto found = std::ranges::find(source.Dependents, _recipe);
+                assert(found != source.Dependents.end() && "an unfinished input lists each row that waits on it");
+
+                source.Dependents.erase(found);
+            }
+
+            _unwants.push_back(input.Source);
+        }
+    }
+
+    void Executor::failDependents(RecipeId _failed, std::vector<RecipeId>& _unwants, std::vector<RecipeId>& _finished)
+    {
+        std::vector<RecipeId> pending{ _failed };
+
+        while (!pending.empty())
+        {
+            const RecipeId current = pending.back();
+            pending.pop_back();
+            _finished.push_back(current);
+
+            NodeRow& row = rowOf(current);
+            assert(row.State == NodeState::Failed && "failDependents starts from a Failed row");
+
+            const ContentError inherited
+            {
+                .Code = ContentErrorCode::InputFailed,
+                .Origin = row.Error.Origin,
+                .Failure = row.Error.Failure,
+            };
+            const std::vector<RecipeId> dependents = std::move(row.Dependents);
+            row.Dependents.clear();
+
+            for (const RecipeId dependent : dependents)
+            {
+                NodeRow& dependentRow = rowOf(dependent);
+
+                // a row that reads two outputs of this row is listed twice, and fails on the first entry
+                if (dependentRow.State == NodeState::Failed)
+                {
+                    continue;
+                }
+
+                assert(dependentRow.State == NodeState::Waiting && "only a Waiting row waits on an unfinished input");
+
+                dependentRow.State = NodeState::Failed;
+                dependentRow.Error = inherited;
+                dependentRow.Unresolved = 0;
+
+                releaseInputs(dependent, _unwants);
+                pending.push_back(dependent);
+            }
+        }
     }
 
     NodeRow& Executor::rowOf(RecipeId _recipe)
@@ -161,7 +316,10 @@ namespace cc
         // cooperative cancellation: the last check before any work
         if (readyRow.Wanted == 0)
         {
-            cancel(_recipe);
+            std::vector<RecipeId> unwants;
+            cancel(_recipe, unwants);
+            drainUnwants(unwants);
+
             co_return;
         }
 
@@ -307,5 +465,21 @@ namespace
         assert(found != slots.end() && "ingestion checked every slot name");
 
         return static_cast<int32_t>(found - slots.begin());
+    }
+
+    // An output that Run did not set keeps the kind Invalid, so it fails the comparison too.
+    bool OutputsMatch(std::span<const cc::Output> declared, std::span<const cc::Artifact> made)
+    {
+        assert(declared.size() == made.size() && "the context has one artifact for each output of the kind");
+
+        for (size_t index = 0; index < declared.size(); ++index)
+        {
+            if (made[index].Kind != declared[index].Produces)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

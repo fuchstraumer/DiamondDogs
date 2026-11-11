@@ -11,8 +11,10 @@ Write your text in ASD-STE100 (Simplified Technical English), as the style file 
 
 DiamondDogs is a Vulkan engine that the author uses for research. Its current job is to host the noise graph and
 planet generator (the plan is in `C:\SoftwareDev\CUDA_Noise\noise-audit-and-slang-plan.md`). The live modules are
-`foundation`, `RhiSystem`, `PlatformSystem`, `RhiResources`, `FrameCapture`, `GpuPyramid`, `ColorPipe`, and `ImGuiModule`. Everything else in `modules/` is out
-of the build; `docs/audit.md` section 6 says which to keep.
+`foundation`, `RhiSystem`, `PlatformSystem`, `RhiResources`, `RenderGraph` (Loom), `FrameCapture`, `GpuPyramid`,
+`ColorPipe`, `NoiseGraph`, `ImGuiModule`, `InputSystem`, `ContentCompiler` and `AgentTools`. `TerrainModule`,
+`VtfModule` and `modules/old` are out of the build; `docs/audit.md` section 6 says which to keep. OceanFft
+(`applications/OceanFft`) is the main application, and the test bed for the agent tools.
 
 **Lodestone is the only shader path.** Lodestone (`../Lodestone`, a sibling checkout, not a submodule) cooks Slang to
 SPIR-V as a build step, and `rhi::ShaderLibrary` reads the cooked bundle at runtime. There is no runtime Slang
@@ -31,7 +33,7 @@ cmake --preset ninja-msvc
 ```
 
 ```bat
-cmake --build build/ninja-msvc --config Debug --target foundation_tests rhi_system_tests platform_system_tests resource_context_tests loom_tests TriangleTest ComputeManifestTest ImGuiTest
+cmake --build build/ninja-msvc --config Debug --target foundation_tests rhi_system_tests platform_system_tests resource_context_tests loom_tests color_pipe_tests frame_capture_tests input_system_tests ocean_camera_tests sea_state_tests content_compiler_tests agent_tools_tests TriangleTest ComputeManifestTest ImGuiTest OceanFft
 ```
 
 For a build that runs on another machine, build `OceanFft_package` in Release on `ninja-msvc`. It writes
@@ -52,6 +54,8 @@ Requirements:
 - A Python with Pillow and numpy packs the OceanFft foam textures. Set it with
   `-DOCEAN_FFT_TEXTURE_PYTHON=C:/Python313/python.exe`. Configure fails without it.
 - CMake 4.x. `third_party/gli` asks for CMake 3.1, so the root file sets `CMAKE_POLICY_VERSION_MINIMUM` around it.
+- For the agent sidecar and `check_engine.py`: the MCP SDK, numpy and Pillow in `C:\Python315`
+  (`python -m pip install --user "mcp>=2,<3"`). `scripts/agent_sidecar/README.md` has the setup.
 
 For agents on Windows: run builds and tests through PowerShell. The Bash tool runs in a sandbox, and its writes
 outside the repositories are not real.
@@ -80,7 +84,13 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `rhi_system_tests` | Instance and device creation per API version, extension resolution, shader objects. |
 | `platform_system_tests` | Displays, windows, swapchain creation, JSON configuration. |
 | `resource_context_tests` | `ResourceContext` on a real device: every create path, uploads read back word for word, fills, copies, maps, samplers, four threads at once, and shutdown with queued work. |
-| `loom_tests` | Loom with no GPU: the diagnostic catalog, the sinks (counts, text and JSON Lines output), and the JSON writer. Freeze and the later stages add their suites here. |
+| `loom_tests` | Loom with no GPU: the builder, the diagnostic catalog, the sinks (counts, text and JSON Lines output), the JSON writer, Freeze, Order and explain. |
+| `content_compiler_tests` | The content compiler with no GPU: kinds, the kind registry, the parameter box, the recipe table and ingestion. |
+| `input_system_tests` | InputSystem with no window: the control space, frame assembly and the record-and-replay log. |
+| `ocean_camera_tests` | The OceanFft camera and its controller: the view basis, picking, pan and smoothed zoom. |
+| `sea_state_tests` | The sea state descriptor and the sea command that reads it. |
+| `agent_tools_tests` | AgentTools with no GPU: the registry, its schemas and text form, and the transport (`ToolServer`, `ToolRpc`) over real loopback sockets. |
+| `frame_capture_tests` | FrameCapture's conversions with no GPU (the decode of every captured format and encoding, the sRGB encode, the downsample), against the double reference in `color_math`. Also `CaptureSchedule`. |
 | `ComputeManifestTest` | The cook-to-dispatch path. Lodestone cooks `HashFill.slang`, `rhi::ShaderLibrary` selects each variant, `ResourceContext` creates every buffer, and every output word matches the CPU. |
 | `GpuPyramidTest` | `pyramid::MipGenerator` fills every level of rgba32f and rgba16f 2D arrays, on the fast and the general pipeline, for power-of-two, odd and non-square sizes. Each level matches the CPU reduction of the level above it: min and max bit for bit, averages within float rounding. |
 | `OceanFftTest` | The ocean compute chain (IFFT kernels, spectrum, tick, resolve, mips) against double precision on the CPU. |
@@ -90,6 +100,7 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `ColorMathTest` | Every `ddColor` Slang function against the double reference, on the GPU. |
 | `ColorPipeTest` | The HDR composite, headless: each tonemapper x encoding against the CPU model of the whole composite, within about one code value. |
 | `DisplayProbe` | Not a test: prints the display's Vulkan surface pairs, DXGI and DisplayConfig data, read-only. `--platform` adds PlatformSystem's view. |
+| `check_engine.py <OceanFft.exe> checks` | Not a CMake target (`scripts/agent_sidecar`). OceanFft through the MCP sidecar: captures, repeatable time, raw targets, auto exposure and GPU timings, against numpy. Run it with `C:\Python315\python.exe`. |
 
 ## Where the code lives
 
@@ -102,6 +113,15 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `modules/GpuPyramid/` | `pyramid::MipGenerator`: fills mip chains with compute shaders. The shaders, `assets/shaders/compute/Pyramid`, are a Slang transcription of NVIDIA's nvpro_pyramid (Apache 2.0, attribution in each file). A consumer cooks `GPU_PYRAMID_SHADER_MODULE` into its own bundle. |
 | `modules/ColorPipe/` | The HDR color pipe. `color_math` is the double-precision CPU reference. `color_pipe` is the runtime: the scene and UI targets, and the composite (exposure, tonemapper, display primaries, encode). `README.md` explains it. |
 | `modules/ImGuiModule/` | Dear ImGui on `imgui_impl_glfw` and `imgui_impl_vulkan`. |
+| `modules/RenderGraph/` | Loom, the render graph (namespace `loom`): the builders, the diagnostics, Freeze and Order. The author designs it. |
+| `modules/FrameCapture/` | Copies images and buffers out to PNG and raw files, for screenshots and the agent tools. `src/CaptureConversion` holds the CPU conversions. |
+| `modules/NoiseGraph/` | The cook of the noise field library. The Slang is in `assets/shaders/compute/Noise`, and its README credits the sources. |
+| `modules/InputSystem/` | Platform-free input: the control space, frame assembly, record and replay, and the GLFW source. |
+| `modules/ContentCompiler/` | The content compiler (namespace `cc`): kinds, recipes and ingestion. It depends on `foundation` only. |
+| `modules/AgentTools/` | The tool surface for agents (namespace `agent`): the registry and the JSON-RPC transport, `ToolServer`. |
+| `foundation/include/net/` | TCP sockets and `SocketWaker`, over `std::byte` spans. Only `src/net/SocketWin32.cpp` touches Winsock. |
+| `applications/OceanFft/` | The ocean demo. `--tool-port=N` starts the tool server on 127.0.0.1 (`0` prints the port that the system chose). `OceanSceneTools.cpp` holds the scene's tools. |
+| `scripts/agent_sidecar/` | The MCP sidecar between an agent and the tool server, its tests, and `check_engine.py`. The README lists the tools. |
 | `cmake/ConfigureLodestone.cmake` | Adds Lodestone, and works around its embedding issues (each one is listed in the Lodestone requests file). |
 | `tests/unit_tests/`, `tests/integration_tests/` | Google Test suites, and executables with their own `main`. |
 | `docs/audit.md` | The running notes: state, fixes, open findings, decisions, next steps, log. |

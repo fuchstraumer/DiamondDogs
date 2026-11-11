@@ -89,6 +89,26 @@ def target(client, name):
     return report, values.reshape(report["Height"], report["Width"], report["Channels"])
 
 
+# an 8-bit PNG hides a difference below one code value: a held time once differed in float on every run while its PNG
+# matched in most. These raw targets show any difference. The foam channels were the ones that differed
+REPEATABLE_TARGETS = ("scene", "foam_sss", "motion_foam")
+
+
+def held_raw(client):
+    return {name: target(client, name)[1].tobytes() for name in REPEATABLE_TARGETS}
+
+
+def raw_differences(first, second):
+    """The names of the raw targets whose bytes differ, with the count of differing bytes."""
+    differences = {}
+    for name in first:
+        if first[name] != second[name]:
+            a = numpy.frombuffer(first[name], numpy.uint8)
+            b = numpy.frombuffer(second[name], numpy.uint8)
+            differences[name] = int((a != b).sum())
+    return differences
+
+
 def run_target_checks(client, screen):
     """Raw targets at a held time. The exposure checks compare the GPU's metering with numpy, and the composite's image
     at the metered exposure with the image at the same exposure set by hand."""
@@ -261,12 +281,19 @@ def run_repeatable_checks(client, window_arguments):
     check(held["SimulationTime"] == 10.0 and held["Paused"] and held["Repeatable"],
           f"hold_time 10 pauses in repeatable mode at {held['SimulationTime']}")
     direct = held_capture(client, "check_time_direct")
+    direct_raw = held_raw(client)
 
     # TAA jitter cycles through 8 offsets, so three captures that agree rule out a jitter that only matched by chance
     for index in (1, 2):
         report, _ = diff(client, direct, held_capture(client, f"check_time_again_{index}"))
         check(report["identical"], f"capture {index + 1} of one held time is identical: {report['changed_pixels']} "
                                    f"pixels changed")
+
+    # a wave-wide branch once made the foam channels depend on how pixels were packed into waves, which changes per frame
+    client.json_tool("wait_frames", {"frames": 5})
+    differences = raw_differences(direct_raw, held_raw(client))
+    check(not differences, f"raw scene and foam targets of one held time are identical 5 frames later (bytes that "
+                           f"differ: {differences})")
 
     # reach the same time after a bright debug view far away, so that exposure and TAA carry a different history
     client.json_tool("hold_time", {"time": 37.3, "settle_frames": 0})
@@ -280,6 +307,10 @@ def run_repeatable_checks(client, window_arguments):
     check(report["identical"] and heat_map is None,
           f"time 10 after another history, by steps, is identical: {report['changed_pixels']} pixels changed, "
           f"max {report['max_difference_rgb']}")
+    # the foam drift once accumulated the steps, so steps and a jump sampled the foam texture at different offsets
+    differences = raw_differences(direct_raw, held_raw(client))
+    check(not differences, f"time 10 by steps has the same raw scene and foam targets as by a jump (bytes that differ: "
+                           f"{differences})")
 
     # 3.3 and 1/60 have no exact binary form. Steps added to the float base land one float away from the double sum,
     # and a settle of 0 makes the reply come right after the last step

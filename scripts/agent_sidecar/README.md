@@ -81,6 +81,10 @@ Useful engine arguments for `engine_launch`: `--window=WxH`, `--borderless` (the
   engine keeps the double that a tool sent, and N steps add to it in double, so N steps of `s` from `T` store the same
   float as `hold_time` with `T + N * s`. A time that the sea reached by running is only a float.
 - **Foam is history.** `hold_time` rebuilds the persistent foam for the new time (the replay that "Rebuild foam" runs).
+  The foam texture drifts with the wind. While the sea runs, the drift adds up each frame's step. When a tool sets the
+  time (`hold_time`, and each frame of `step_time`), the drift is placed at `velocity x time` instead, so a jump and
+  steps to one time sample the texture at the same offset. Before this, they did not, and a held time differed in a few
+  lit pixels after steps (2026-11-09).
   `step_time` advances the foam step by step instead, so with foam on, a stepped frame and a held frame can differ.
   Foam is off by default.
 - **A/B recipe.** `hold_time` T, `capture_screen` (keep its `Path`), change one thing, `hold_time` T again,
@@ -122,12 +126,110 @@ Useful engine arguments for `engine_launch`: `--window=WxH`, `--borderless` (the
 - **One engine thread.** The SDK can run tool calls at the same time. The engine connection takes one request at a time,
   so one thread owns it, and each tool hands its work to that thread (`EngineThread`). There is no lock.
 
+## Investigation tickets for small models
+
+A ticket gives a small model (Haiku) one question about the running engine, and the tool calls that answer it. The
+model runs the calls and reports numbers and file paths. It does not explain, tune or fix. The planner (or a person)
+reads the report and decides. A good ticket has an answer that a check can prove: identical or not, a number, a count.
+
+Run the model with only the sidecar's tools, so that it cannot edit files or run a shell:
+
+```bash
+claude -p --model haiku --allowedTools "mcp__diamond-dogs__*" < ticket.md
+```
+
+### The template
+
+```markdown
+# Ticket: <the question, in one line>
+
+## Question
+<One question. The answer is yes or no, or numbers. Name what each answer means.>
+
+## Rules
+- Use only the diamond-dogs tools. Do not edit a file. Do not run a shell.
+- Run the steps in order, one tool call at a time. Wait for each result before the next call.
+- Do not add steps, and do not change a value that a step does not name.
+- When a tool returns an error, stop. Report the step number and the whole error text.
+- Do not explain a result, and do not guess a cause. Report what the tools returned.
+- Call engine_stop at the end, also after an error.
+
+## Steps
+1. engine_launch with arguments [<--window=1280x720, and only the arguments that the question needs>].
+2. <one tool call per step, with every argument written out>
+...
+
+## Report
+<A fixed form, one line for each value, for example:>
+- step 4 Path: <path>
+- step 6 identical: <true or false>, changed pixels: <count>
+- step 7 Auto Exposure median_us: <number>, or "absent"
+- errors: <none, or the step and the error text>
+```
+
+### What a ticket must say, because the model will not know it
+
+- **Hold the time before each capture** (`hold_time`). A paused sea is not static: TAA jitters and auto exposure
+  adapts, so two captures without `hold_time` differ.
+- **A PNG hides float differences.** `capture_diff` compares 8-bit PNGs. When the question is about values, ask for
+  `capture_target` and its statistics, not a picture.
+- **Timings need the right build.** Give the RelWithDebInfo executable and `--validation=off`. Release has no timers.
+  Tell the model to report the warnings from `gpu_timings` word for word, and check yourself that the GPU is idle.
+- **Name each value exactly.** Give the field path (`ocean.exposure.Ev`) and the value. A command argument has a type:
+  `ssr` takes a number, and `ssr off` does nothing and reports no error.
+- **One question per ticket.** Two questions give two half answers.
+
+### A worked example
+
+```markdown
+# Ticket: does manual exposure at the metered EV give the same image, and what does metering cost?
+
+## Question
+At time 10, with auto exposure on, read the EV that the frame used. Then turn auto exposure off at that EV. Are the two
+images identical? What is the GPU time of the Auto Exposure scope with auto exposure on, and is the scope present with
+it off? Identical images mean that the manual path reproduces the metered frame.
+
+## Rules
+(the rules from the template)
+
+## Steps
+1. engine_launch with executable
+   "C:/SoftwareDev/DiamondDogs/build/ninja-msvc/applications/OceanFft/RelWithDebInfo/OceanFft.exe" and arguments
+   ["--window=1280x720", "--validation=off"].
+2. hold_time with time 10.
+3. capture_target with target "exposure_ev" and include_image false. Keep the min of channel 0 as EV.
+4. capture_screen. Keep the Path as A.
+5. gpu_timings with frames 120.
+6. set path "ocean.exposure.Auto" value false.
+7. set path "ocean.exposure.Ev" value EV (from step 3).
+8. hold_time with time 10.
+9. capture_screen. Keep the Path as B.
+10. capture_diff with path_a A and path_b B, and include_image false.
+11. gpu_timings with frames 120.
+12. engine_stop.
+
+## Report
+- step 3 EV: <number>
+- step 5 Auto Exposure median_us and max_us: <numbers>; busy median_us: <number>; warnings: <text or none>
+- step 7 the value that set returned: <number>
+- step 10 identical: <true or false>, changed pixels: <count>, largest difference: <number>
+- step 11 Auto Exposure scope: <present or absent>; busy median_us: <number>
+- errors: <none, or the step and the error text>
+```
+
+`check_engine.py checks` proves the expected answer: the images are identical, and the scope is absent after step 6.
+A different answer is a regression, or a ticket error. Read the report before you trust it.
+
+Haiku ran this ticket in 26 s on 2026-11-09 and gave the expected answer. Before the one-call rule, it sent steps 6
+and 7 in parallel, and it added a one-line verdict above the report. Expect small deviations of that kind, and check
+the report against the steps.
+
 ## Tests
 
 | File | Needs | Proves |
 |---|---|---|
 | `test_sidecar.py` | The SDK, numpy, Pillow | Every tool's mapping and schema, `capture_diff` on known images, `capture_target` statistics, texel and picture on a known `.bin`, the `gpu_timings` table, warnings and limits, refusals, timeouts, stale replies, one request at a time to the engine, and the real stdio process, against a fake engine. The tests use the SDK's in-process client. `python -m unittest test_sidecar` |
-| `check_engine.py ... checks` | The SDK, numpy, Pillow, a built OceanFft | The real engine through MCP. Two paused captures are identical, a region equals the crop of the full capture, the downsample equals a linear box average, pixels equal the PNG, a debug view off restores the image, a held time is identical by a jump and by steps, steps of 1/60 s land on the same float as a jump, a different time differs, and bad input is refused. Raw targets have their sizes, two raw captures agree, and Hi-Z equals the 2x2 maximum of the depth it reduces. The GPU's mean log luminance equals numpy's, the metered EV maps it to 18% gray, the image at that EV set by hand is identical, and the compensation adds 1 EV. GPU timings: each scope's median, mean, min and max equal numpy's on its samples, no scope is shorter than the scopes nested in it, the busy time is the sum of the top scopes, the units are microseconds, and the Auto Exposure scope is in no measured frame after auto exposure turns off and in every one after it turns on (so frames from before the request are left out). In Release, the call fails. |
+| `check_engine.py ... checks` | The SDK, numpy, Pillow, a built OceanFft | The real engine through MCP. Two paused captures are identical, the raw `scene`, `foam_sss` and `motion_foam` of a held time are identical byte for byte 5 frames later and after steps from another history (a PNG hides differences below one code value), a region equals the crop of the full capture, the downsample equals a linear box average, pixels equal the PNG, a debug view off restores the image, a held time is identical by a jump and by steps, steps of 1/60 s land on the same float as a jump, a different time differs, and bad input is refused. Raw targets have their sizes, two raw captures agree, and Hi-Z equals the 2x2 maximum of the depth it reduces. The GPU's mean log luminance equals numpy's, the metered EV maps it to 18% gray, the image at that EV set by hand is identical, and the compensation adds 1 EV. GPU timings: each scope's median, mean, min and max equal numpy's on its samples, no scope is shorter than the scopes nested in it, the busy time is the sum of the top scopes, the units are microseconds, and the Auto Exposure scope is in no measured frame after auto exposure turns off and in every one after it turns on (so frames from before the request are left out). In Release, the call fails. |
 | `check_engine.py ... demo DIR` | The SDK, numpy, Pillow, a built OceanFft | Captures three sea states and three debug views, for a person to look at. |
 
 `mcp_client.py` is the small MCP client that `check_engine.py` uses. It writes the JSON-RPC lines itself and does not

@@ -9,6 +9,7 @@ set(RENDERING_CONTEXT_TEST_SOURCES
     TestJsonConfig.cpp
     TestMain.cpp
     TestRhiSystem.cpp
+    TestShaderBundle.cpp
     TestShaderProgram.cpp)
 
 # Create test target
@@ -25,3 +26,8 @@ target_include_directories(rhi_system_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party"
     "${CMAKE_SOURCE_DIR}/third_party/json/include"
     ${Vulkan_INCLUDE_DIR})
+
+# TestShaderBundle opens the HashFill bundle that ComputeManifestTest cooks, with no device
+add_dependencies(rhi_system_tests compute_manifest_test_shaders)
+target_compile_definitions(rhi_system_tests PRIVATE
+    "HASH_FILL_BUNDLE=\"$<TARGET_PROPERTY:compute_manifest_test_shaders,LODESTONE_MANIFEST>\"")

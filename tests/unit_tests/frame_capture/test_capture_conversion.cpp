@@ -192,6 +192,23 @@ TEST(CaptureConversion, EncodeSrgbClampsAndSendsNaNToBlack)
     EXPECT_EQ(conversion::EncodeSrgb(k_Infinity), 255u);
 }
 
+TEST(CaptureConversion, EncodeSrgbChangesCodeExactlyAtEveryRoundingBoundary)
+{
+    for (int32_t code = 1; code <= 255; ++code)
+    {
+        const double encoded = (static_cast<double>(code) - 0.5) / 255.0;
+        const double linear = color::SrgbDecode(encoded);
+        float boundary = static_cast<float>(linear);
+
+        boundary = static_cast<double>(boundary) < linear ? std::nextafter(boundary, 2.0f) : boundary;
+
+        const float below = std::nextafter(boundary, 0.0f);
+
+        EXPECT_EQ(conversion::EncodeSrgb(boundary), code) << "boundary of code " << code;
+        EXPECT_EQ(conversion::EncodeSrgb(below), code - 1) << "just below the boundary of code " << code;
+    }
+}
+
 TEST(CaptureConversion, EveryEightBitCodeSurvivesADecodeAndAnEncode)
 {
     for (int32_t code = 0; code < 256; ++code)

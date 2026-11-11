@@ -231,6 +231,9 @@ commands, and four captures:
 | `frame.step` | Pauses, then advances by exactly `Seconds` on each of `Frames` frames. The time is the double base plus N steps, so it does not drift. |
 | `frame.repeatable` | Stops TAA (jitter and resolve) and makes auto exposure reach its target in one frame, so a paused time renders the same bytes whatever came before. |
 
+`frame.time` and each `frame.step` frame also place the foam drift at `velocity x time` (`OceanFoam::AdvanceTo`), so
+the foam texture's offset depends on the time alone. A running sea still adds up the drift frame by frame.
+
 The first frame at a new time still reflects the old one, because SSR samples the previous frame. That is why
 `SettleFrames` defaults to 2. With repeatable frames on, the measured images were identical after 0 settle frames
 through the sidecar, because a capture always records at least one frame after the reply.

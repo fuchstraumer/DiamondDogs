@@ -62,10 +62,22 @@ namespace cc
         void want(RecipeId _recipe, Transience _transience);
         // Takes one from the row's Wanted; at 0 it cancels a Waiting row and releases its inputs.
         void unwant(RecipeId _recipe);
-        // Returns a Waiting or Ready row to Idle and takes its count from each input's Wanted.
-        void cancel(RecipeId _recipe);
+        // Returns a Waiting or Ready row with Wanted 0 to Idle. Its inputs go on _unwants for the caller to drain.
+        void cancel(RecipeId _recipe, std::vector<RecipeId>& _unwants);
         // Stores the result of a run, tells the dependents, releases the inputs, and tells the roots.
         void complete(RecipeId _recipe, KindResult _result, Context& _context);
+
+        // Shared by the four parts.
+        // Takes one from the Wanted of each row on the list, and cancels each Waiting row that reaches 0. Iterative:
+        // a cancel adds its inputs to the list. The list is empty when it returns.
+        void drainUnwants(std::vector<RecipeId>& _unwants);
+        // The row no longer needs its inputs: it leaves the Dependents of each input that has not finished, and each
+        // input goes on _unwants. Call it once for each row that leaves Waiting, Ready or Running.
+        void releaseInputs(RecipeId _recipe, std::vector<RecipeId>& _unwants);
+        // The row is Failed already, with its Error set. Every row that waits on it, through Dependents, fails with
+        // InputFailed and the same Origin and Failure, and releases its inputs. Each failed row, this one included,
+        // goes on _finished.
+        void failDependents(RecipeId _failed, std::vector<RecipeId>& _unwants, std::vector<RecipeId>& _finished);
 
         [[nodiscard]] NodeRow& rowOf(RecipeId _recipe);
         void spawnRun(RecipeId _recipe);

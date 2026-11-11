@@ -175,9 +175,30 @@ functions exist only so that the kinds register.
 
 ## Executor (T4, skeleton, 2026-11-07)
 
-The types, the artifact table, `Root`, and the run coroutine are written. The four parts that decide correctness are
-stubs that assert: `want`, `unwant`, `cancel` and `complete`. Their contracts are comments in `src/Executor.cpp`. No
-test runs the executor yet. The artifact table has no test yet either; it gets one with the executor tests.
+The types, the artifact table, `Root`, and the run coroutine are written. Of the four parts that decide correctness,
+`unwant`, `cancel` and `complete` are written (2026-11-09). `want` is a stub that asserts; its contract is a comment in
+`src/Executor.cpp`. No test runs the executor yet. The artifact table has no test yet either; it gets one with the
+executor tests.
+
+Three helpers are shared by the four parts:
+
+- `drainUnwants` takes a list of rows, takes 1 from each row's `Wanted`, and cancels each `Waiting` row that reaches 0.
+  A cancel adds the row's inputs to the same list. So a cancel cascade is a loop over a list, not a recursion.
+- `releaseInputs` is called once for each row that leaves `Waiting`, `Ready` or `Running`. The row leaves the
+  `Dependents` of each input that has not finished, and each input goes on the unwant list.
+- `failDependents` starts from a row that is `Failed`. Every row that waits on it fails with `InputFailed` and the same
+  `Origin`, and releases its inputs.
+
+**Counts are per edge.** A row that reads two outputs of one input is in that input's `Dependents` twice, and counts 2
+in its `Wanted` and in its own `Unresolved`. Every part counts the same way, so the numbers always match.
+
+**Unwants wait until a walk ends.** `complete` and `want` collect their unwants in a list and drain it at the end.
+During `want`, an early unwant could cancel a row that is still on the walk's stack, before that row has wanted its
+own inputs. Its cancel would then release inputs that it never wanted.
+
+**A status that is not `Succeeded` is a failure**, `Invalid` included. A `Succeeded` run with an output that is unset,
+or that has another kind than the output declares, fails with `MissingOutput`. The diagnostics of each failure go into
+the failure memo under a new `FailureId`, and every row that fails because of it shares that id.
 
 **One row per recipe.** `rows[recipeId]` grows beside the recipe table. The row is the in-flight entry, the memory
 cache and the failure memo, so no second table can disagree with it.

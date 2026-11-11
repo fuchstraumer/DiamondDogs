@@ -638,3 +638,12 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
 ### 2026-11-08 (Opus: noise shaders)
 
 - Noise field library (Slang, M1 and M2 plus value nodes), spikes S1 to S5, cook target `noise_shaders`, not committed. Details in `docs/noise-shaders-agent.md`.
+
+### 2026-11-09 (Opus: tools)
+
+- Held-time repeatability fixed (foam drift pinned to a tool-set time; foam material chosen per pixel, not per wave). Details in `docs/tools-agent.md`.
+- `frame_capture_tests` added; it found and fixed a transposed BT.2020 to BT.709 matrix in HDR10 captures. Ticket template for small models in the sidecar README. CLAUDE.md tables updated. Details in `docs/tools-agent.md`.
+
+### 2026-11-10 (Opus: render graph)
+
+- Resolve plumbing and its test bundle, the Freeze graph-pin fix (LM108), and the engine boot brief (`docs/engine-boot-brief.md`). Details in `docs/rendergraph-agent.md`.

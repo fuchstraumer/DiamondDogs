@@ -8,12 +8,15 @@
 #include <span>
 #include <vector>
 
-namespace cc::detail
+namespace cc
 {
     struct AuthoredGraph;
     class KindRegistry;
     struct PreparedRecipe;
-    
+}
+
+namespace cc::detail
+{
     inline constexpr int32_t k_NoNode = -1;
     inline constexpr int32_t k_NoOutput = -1;
 

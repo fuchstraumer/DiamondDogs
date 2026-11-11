@@ -4,11 +4,13 @@
 set(NOISE_SHADER_DIR "${PROJECT_SOURCE_DIR}/assets/shaders/compute/Noise"
     CACHE INTERNAL "The folder of the noise field library")
 
-# The modules with entry points. The library modules (NoiseHash, NoiseLattice, NoiseField, NoiseBases, NoiseFractal,
-# NoiseRules, NoiseNodes, NoiseGrids) have none: these two import them, so the depfile re-cooks on any change
+# The modules with entry points. The library modules (NoiseHash, NoiseLattice, NoiseField, NoiseBases, NoiseCellular,
+# NoiseFractal, NoiseRules, NoiseNodes, NoiseGrids) have none: these modules import them, so the depfile re-cooks on any
+# change
 set(NOISE_SHADER_MODULES
     "${NOISE_SHADER_DIR}/NoiseKernels.slang"
     "${NOISE_SHADER_DIR}/NoiseSampleGraph.slang"
+    "${NOISE_SHADER_DIR}/NoiseCellularKernels.slang"
     CACHE INTERNAL "The noise Slang modules that declare entry points, for consumers to cook into their bundles")
 
 # SPIR-V only: DiamondDogs builds Lodestone without Tint, so a wgsl cook here has no validator.
@@ -17,7 +19,7 @@ lodestone_add_shader_cook(noise_shaders
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
     TARGETS spirv
     OPTIONS --quiet
-    MODULES ${NOISE_SHADER_MODULES})
+    MODULES ${NOISE_SHADER_MODULES} "${NOISE_SHADER_DIR}/NoiseWarpStudy.slang")
 set_target_properties(noise_shaders PROPERTIES FOLDER "Modules")
 
 # A headless compute app: renders sample heightmaps of the fractal rules to PNG, and compares the autodiff gradient
@@ -33,6 +35,13 @@ target_compile_definitions(NoiseHeightmaps PRIVATE
     "NOMINMAX"
     "NOISE_HEIGHTMAPS_MANIFEST=\"$<TARGET_PROPERTY:noise_shaders,LODESTONE_MANIFEST>\"")
 set_target_properties(NoiseHeightmaps PROPERTIES FOLDER "Applications" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+
+# the CPU side (downsample, shading, stb's PNG filter and deflate) touches 268M elements at 16384². cl and clang-cl
+# both take /arch:AVX2
+if(MSVC)
+    target_compile_options(NoiseHeightmaps PRIVATE "/arch:AVX2")
+endif()
+
 diamond_dogs_add_pch(NoiseHeightmaps LIBRARY)
 # cmake -E copy fails on an empty list, so the copy runs only when the app links a shared library
 add_custom_command(TARGET NoiseHeightmaps POST_BUILD
