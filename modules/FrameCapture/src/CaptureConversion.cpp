@@ -61,6 +61,14 @@ namespace
     constexpr float k_PqC2 = 18.8515625f;
     constexpr float k_PqC3 = 18.6875f;
 
+    // rows for a column vector. math::Float3x3 * Float3 multiplies a row vector, which applies the transpose
+    constexpr float k_Bt2020ToBt709[3][3]
+    {
+        {  1.6605f, -0.5876f, -0.0728f },
+        { -0.1246f,  1.1329f, -0.0083f },
+        { -0.0182f, -0.1006f,  1.1187f },
+    };
+
     // Each stage runs over a whole chunk so that the std::pow calls in a stage do not depend on each other. The
     // CPU overlaps independent calls, and one texel at a time it cannot: a PQ convert was 24% slower that way.
     constexpr size_t k_ChunkTexels = 64u;
@@ -80,6 +88,32 @@ namespace
     void EncodeChunk(const TexelChunk& chunk, size_t count, std::span<uint8_t> out) noexcept;
     void QuantizeChunk(const TexelChunk& chunk, size_t count, std::span<uint8_t> out) noexcept;
     void AccumulateClamped(const TexelChunk& chunk, size_t first, size_t count, uint32_t factor, std::span<double> sums) noexcept;
+
+    // Decoded values of every 8-bit and 10-bit code. They replace a std::pow per channel on the decode side.
+    struct DecodeTables
+    {
+        std::array<float, 256> Unorm8;
+        std::array<float, 1024> Unorm10;
+        std::array<float, 256> Srgb8;
+        std::array<float, 1024> Srgb10;
+        std::array<float, 1024> Pq10;
+    };
+
+    // The encode replaces a std::pow per channel with a table lookup. A linear value in [0, 1] falls in one of 4096
+    // buckets of equal width. The width is below the smallest gap between two code boundaries (3.03e-4 at the dark end),
+    // so a bucket holds at most one boundary. Base is the number of boundaries at or below the bucket's lower edge,
+    // and Threshold is the boundary inside the bucket, or 2 when there is none. The code is Base, plus one when the
+    // value reaches Threshold.
+    constexpr size_t k_EncodeBuckets = 4096u;
+
+    struct EncodeTable
+    {
+        std::array<float, k_EncodeBuckets + 1u> Threshold;
+        std::array<uint8_t, k_EncodeBuckets + 1u> Base;
+    };
+
+    [[nodiscard]] const DecodeTables& GetDecodeTables() noexcept;
+    [[nodiscard]] const EncodeTable& GetEncodeTable() noexcept;
 
     template<TexelLayout Layout>
     [[nodiscard]] constexpr size_t BytesPerTexel() noexcept
@@ -138,12 +172,12 @@ namespace
         }
         else if constexpr (Layout == TexelLayout::Rgba16Half)
         {
-            const std::span<const std::byte, 6> texel = pixels.subspan(index * 8u).first<6>();
-            uint16_t halves[3]{};
+            const std::span<const std::byte, 8> texel = pixels.subspan(index * 8u).first<8>();
+            alignas(16) float channels[4];
 
-            std::memcpy(halves, texel.data(), sizeof(halves));
+            _mm_store_ps(channels, _mm_cvtph_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(texel.data()))));
 
-            return Rgb{ math::HalfToFloat(halves[0]), math::HalfToFloat(halves[1]), math::HalfToFloat(halves[2]) };
+            return Rgb{ channels[0], channels[1], channels[2] };
         }
         else
         {
@@ -223,6 +257,85 @@ namespace
         }
     }
 
+    template<TexelLayout Layout>
+    void LoadDecoded8(std::span<const std::byte> pixels, size_t first, size_t count, const std::array<float, 256>& table, TexelChunk& chunk) noexcept
+    {
+        for (size_t i = 0; i < count; ++i)
+        {
+            const std::array<uint8_t, 3> codes = LoadCodes8<Layout>(pixels, first + i);
+
+            chunk.Red[i] = table[codes[0]];
+            chunk.Green[i] = table[codes[1]];
+            chunk.Blue[i] = table[codes[2]];
+        }
+    }
+
+    template<TexelLayout Layout>
+    void LoadDecoded10(std::span<const std::byte> pixels, size_t first, size_t count, const std::array<float, 1024>& table, TexelChunk& chunk) noexcept
+    {
+        for (size_t i = 0; i < count; ++i)
+        {
+            const std::span<const std::byte, 4> texel = pixels.subspan((first + i) * 4u).first<4>();
+            uint32_t word = 0u;
+
+            std::memcpy(&word, texel.data(), sizeof(word));
+
+            const float low = table[word & 0x3FFu];
+            const float mid = table[(word >> 10u) & 0x3FFu];
+            const float high = table[(word >> 20u) & 0x3FFu];
+
+            // A2B10G10R10 keeps red in the low bits, A2R10G10B10 keeps blue there
+            chunk.Red[i] = Layout == TexelLayout::A2B10G10R10 ? low : high;
+            chunk.Green[i] = mid;
+            chunk.Blue[i] = Layout == TexelLayout::A2B10G10R10 ? high : low;
+        }
+    }
+
+    // Loads a chunk as linear BT.709. Codes that have a decode table skip the pow, and the other layouts decode in
+    // the vector stages.
+    template<TexelLayout Layout, CaptureEncoding Encoding>
+    void LoadLinearChunk(std::span<const std::byte> pixels, size_t first, size_t count, float linear_scale, TexelChunk& chunk) noexcept
+    {
+        constexpr bool isEightBit = Layout == TexelLayout::Rgba8 || Layout == TexelLayout::Bgra8;
+        constexpr bool isTenBit = Layout == TexelLayout::A2B10G10R10 || Layout == TexelLayout::A2R10G10B10;
+
+        if constexpr (Encoding == CaptureEncoding::sRGB && isEightBit)
+        {
+            LoadDecoded8<Layout>(pixels, first, count, GetDecodeTables().Srgb8, chunk);
+        }
+        else if constexpr (Encoding == CaptureEncoding::sRGB && isTenBit)
+        {
+            LoadDecoded10<Layout>(pixels, first, count, GetDecodeTables().Srgb10, chunk);
+        }
+        else if constexpr (Encoding == CaptureEncoding::HDR10_PQ && isTenBit)
+        {
+            LoadDecoded10<Layout>(pixels, first, count, GetDecodeTables().Pq10, chunk);
+            ConvertBt2020ToBt709Run(chunk, count);
+            ScaleRun(chunk.Red, count, linear_scale);
+            ScaleRun(chunk.Green, count, linear_scale);
+            ScaleRun(chunk.Blue, count, linear_scale);
+        }
+        else if constexpr (Encoding == CaptureEncoding::LinearExtendedSRGB && isEightBit)
+        {
+            LoadDecoded8<Layout>(pixels, first, count, GetDecodeTables().Unorm8, chunk);
+            ScaleRun(chunk.Red, count, linear_scale);
+            ScaleRun(chunk.Green, count, linear_scale);
+            ScaleRun(chunk.Blue, count, linear_scale);
+        }
+        else if constexpr (Encoding == CaptureEncoding::LinearExtendedSRGB && isTenBit)
+        {
+            LoadDecoded10<Layout>(pixels, first, count, GetDecodeTables().Unorm10, chunk);
+            ScaleRun(chunk.Red, count, linear_scale);
+            ScaleRun(chunk.Green, count, linear_scale);
+            ScaleRun(chunk.Blue, count, linear_scale);
+        }
+        else
+        {
+            LoadChunk<Layout>(pixels, first, count, chunk);
+            LinearizeChunk<Encoding>(chunk, count, linear_scale);
+        }
+    }
+
     template<TexelLayout Layout, CaptureEncoding Encoding>
     void ConvertTexels(std::span<const std::byte> pixels, std::span<uint8_t> rgb, float linear_scale) noexcept
     {
@@ -249,16 +362,15 @@ namespace
                 const size_t chunkCount = std::min(k_ChunkTexels, count - first);
                 const std::span<uint8_t> out = rgb.subspan(first * 3u, chunkCount * 3u);
 
-                LoadChunk<Layout>(pixels, first, chunkCount, chunk);
-
                 if constexpr (Encoding == CaptureEncoding::sRGB)
                 {
                     // packed 10-bit and half float values that are already sRGB encoded
+                    LoadChunk<Layout>(pixels, first, chunkCount, chunk);
                     QuantizeChunk(chunk, chunkCount, out);
                 }
                 else
                 {
-                    LinearizeChunk<Encoding>(chunk, chunkCount, linear_scale);
+                    LoadLinearChunk<Layout, Encoding>(pixels, first, chunkCount, linear_scale, chunk);
                     EncodeChunk(chunk, chunkCount, out);
                 }
             }
@@ -290,8 +402,7 @@ namespace
                 {
                     const size_t chunkCount = std::min(k_ChunkTexels, size_t{ width } - first);
 
-                    LoadChunk<Layout>(row, first, chunkCount, chunk);
-                    LinearizeChunk<Encoding>(chunk, chunkCount, linear_scale);
+                    LoadLinearChunk<Layout, Encoding>(row, first, chunkCount, linear_scale, chunk);
                     AccumulateClamped(chunk, first, chunkCount, factor, sums);
                 }
             }
@@ -366,12 +477,6 @@ namespace capture::conversion
 
     void Bt2020ToBt709(float& r, float& g, float& b) noexcept
     {
-        // rows for a column vector. math::Float3x3 * Float3 multiplies a row vector, which applies the transpose
-        constexpr float k_Bt2020ToBt709[3][3]{
-            {  1.6605f, -0.5876f, -0.0728f },
-            { -0.1246f,  1.1329f, -0.0083f },
-            { -0.0182f, -0.1006f,  1.1187f },
-        };
         const float red = r;
         const float green = g;
         const float blue = b;
@@ -390,8 +495,7 @@ namespace capture::conversion
         {
             DispatchEncoding(encoding, [&]<CaptureEncoding Encoding>()
             {
-                LoadChunk<Layout>(pixels, index, 1u, chunk);
-                LinearizeChunk<Encoding>(chunk, 1u, linear_scale);
+                LoadLinearChunk<Layout, Encoding>(pixels, index, 1u, linear_scale, chunk);
             });
         });
 
@@ -457,7 +561,8 @@ namespace
 
     float ClampUnit(float value) noexcept
     {
-        return value > 0.0f ? std::min(value, 1.0f) : 0.0f;
+        // max(0, value) returns 0 for NaN, and both calls compile to branchless min and max instructions
+        return std::min(std::max(0.0f, value), 1.0f);
     }
 
     uint8_t QuantizeEncodedValue(float encoded) noexcept
@@ -526,34 +631,103 @@ namespace
 
     void ConvertBt2020ToBt709Run(TexelChunk& chunk, size_t count) noexcept
     {
-        for (size_t i = 0; i < count; ++i)
+        const size_t lanes = RoundUpToLanes(count);
+        const math::Vector rowRed[3]{ math::Vector::Replicate(k_Bt2020ToBt709[0][0]), math::Vector::Replicate(k_Bt2020ToBt709[0][1]), math::Vector::Replicate(k_Bt2020ToBt709[0][2]) };
+        const math::Vector rowGreen[3]{ math::Vector::Replicate(k_Bt2020ToBt709[1][0]), math::Vector::Replicate(k_Bt2020ToBt709[1][1]), math::Vector::Replicate(k_Bt2020ToBt709[1][2]) };
+        const math::Vector rowBlue[3]{ math::Vector::Replicate(k_Bt2020ToBt709[2][0]), math::Vector::Replicate(k_Bt2020ToBt709[2][1]), math::Vector::Replicate(k_Bt2020ToBt709[2][2]) };
+
+        for (size_t i = 0; i < lanes; i += 4u)
         {
-            capture::conversion::Bt2020ToBt709(chunk.Red[i], chunk.Green[i], chunk.Blue[i]);
+            const math::Vector red = LoadLanes(&chunk.Red[i]);
+            const math::Vector green = LoadLanes(&chunk.Green[i]);
+            const math::Vector blue = LoadLanes(&chunk.Blue[i]);
+
+            StoreLanes(&chunk.Red[i], (rowRed[0] * red) + (rowRed[1] * green) + (rowRed[2] * blue));
+            StoreLanes(&chunk.Green[i], (rowGreen[0] * red) + (rowGreen[1] * green) + (rowGreen[2] * blue));
+            StoreLanes(&chunk.Blue[i], (rowBlue[0] * red) + (rowBlue[1] * green) + (rowBlue[2] * blue));
         }
     }
 
     void EncodeChannel(const std::array<float, k_ChunkTexels>& linear, size_t count, std::span<uint8_t> out, size_t channel) noexcept
     {
-        std::array<float, k_ChunkTexels> clamped{};
-        std::array<float, k_ChunkTexels> powered{};
-        const size_t lanes = RoundUpToLanes(count);
+        const EncodeTable& table = GetEncodeTable();
 
         for (size_t i = 0; i < count; ++i)
         {
-            clamped[i] = ClampUnit(linear[i]);
-        }
+            const float value = ClampUnit(linear[i]);
+            const size_t bucket = static_cast<size_t>(value * static_cast<float>(k_EncodeBuckets));
+            const uint8_t carry = value >= table.Threshold[bucket] ? 1u : 0u;
 
-        for (size_t i = 0; i < lanes; i += 4u)
+            out[(i * 3u) + channel] = static_cast<uint8_t>(table.Base[bucket] + carry);
+        }
+    }
+
+    const DecodeTables& GetDecodeTables() noexcept
+    {
+        static const DecodeTables tables = []
         {
-            StoreLanes(&powered[i], LoadLanes(&clamped[i]).Pow(1.0f / 2.4f));
-        }
+            DecodeTables built{};
 
-        for (size_t i = 0; i < count; ++i)
+            for (size_t code = 0; code < built.Srgb8.size(); ++code)
+            {
+                built.Unorm8[code] = static_cast<float>(code) / 255.0f;
+                built.Srgb8[code] = capture::conversion::DecodeSrgb(static_cast<float>(code) / 255.0f);
+            }
+
+            for (size_t code = 0; code < built.Srgb10.size(); ++code)
+            {
+                const float signal = static_cast<float>(code) / 1023.0f;
+
+                built.Unorm10[code] = signal;
+                built.Srgb10[code] = capture::conversion::DecodeSrgb(signal);
+                built.Pq10[code] = capture::conversion::DecodePq(signal);
+            }
+
+            return built;
+        }();
+
+        return tables;
+    }
+
+    const EncodeTable& GetEncodeTable() noexcept
+    {
+        static const EncodeTable table = []
         {
-            const float encoded = clamped[i] <= 0.0031308f ? 12.92f * clamped[i] : (1.055f * powered[i]) - 0.055f;
+            // boundary k is the smallest float whose double value reaches the encoded value (k - 0.5) / 255, which is
+            // where the rounded code becomes k
+            std::array<float, 255> boundaries{};
 
-            out[(i * 3u) + channel] = static_cast<uint8_t>((encoded * 255.0f) + 0.5f);
-        }
+            for (size_t k = 1; k <= boundaries.size(); ++k)
+            {
+                const double encoded = (static_cast<double>(k) - 0.5) / 255.0;
+                const double linear = encoded <= 0.04045 ? encoded / 12.92 : std::pow((encoded + 0.055) / 1.055, 2.4);
+                float boundary = static_cast<float>(linear);
+
+                boundary = static_cast<double>(boundary) < linear ? std::nextafter(boundary, 2.0f) : boundary;
+                boundaries[k - 1u] = boundary;
+            }
+
+            EncodeTable built{};
+            size_t next = 0u;
+
+            for (size_t bucket = 0; bucket <= k_EncodeBuckets; ++bucket)
+            {
+                const float lower = static_cast<float>(bucket) / static_cast<float>(k_EncodeBuckets);
+                const float upper = static_cast<float>(bucket + 1u) / static_cast<float>(k_EncodeBuckets);
+
+                while (next < boundaries.size() && boundaries[next] <= lower)
+                {
+                    ++next;
+                }
+
+                built.Base[bucket] = static_cast<uint8_t>(next);
+                built.Threshold[bucket] = next < boundaries.size() && boundaries[next] < upper ? boundaries[next] : 2.0f;
+            }
+
+            return built;
+        }();
+
+        return table;
     }
 
     void EncodeChunk(const TexelChunk& chunk, size_t count, std::span<uint8_t> out) noexcept
