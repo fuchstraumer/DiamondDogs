@@ -2,9 +2,12 @@
 #ifndef DIAMOND_DOGS_RHI_SYSTEM_HPP
 #define DIAMOND_DOGS_RHI_SYSTEM_HPP
 #include "RhiFlags.hpp"
+#include "ShaderManifestDevice.hpp"
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
@@ -53,6 +56,9 @@ class PhysicalDevice;
 class Device;
 class ExtensionPack;
 struct RhiSystemImpl;
+struct InstanceStartInfo;
+struct DeviceStartInfo;
+struct RhiSystemResult;
 
 struct RhiSystemCreateInfo
 {
@@ -73,10 +79,35 @@ class RhiSystem
 {
 public:
 
+    /** @brief The start path: construct empty, then StartInstance and StartDevice. Nothing throws, and the device
+     *  enables only what DeviceStartInfo asks for. */
+    RhiSystem() noexcept;
+    /** @brief The old path: enables every supported feature. Step 5 of the boot work moves its callers to the start
+     *  path and deletes it. */
     RhiSystem(const RhiSystemCreateInfo& create_info);
     ~RhiSystem();
     RhiSystem(const RhiSystem&) = delete;
     RhiSystem& operator=(const RhiSystem&) = delete;
+
+    /** @brief Creates the instance and, with validation, the debug messenger. Fails with InstanceExtensionMissing
+     *  before vkCreateInstance when a Required extension is not offered. */
+    [[nodiscard]] RhiSystemResult StartInstance(const InstanceStartInfo& start_info);
+    /** @brief Plans every physical device, chooses the best one that meets every Required need, and creates the
+     *  device with only the planned extensions and feature members. Fails with NoDeviceMeetsRequirements, naming the
+     *  first unmet need of the best device, when none meets them. */
+    [[nodiscard]] RhiSystemResult StartDevice(const DeviceStartInfo& start_info);
+
+    /** @brief Answers from the enabled set, never from the physical device, so that a variant filter cannot pick
+     *  code that needs a capability the device was created without. Aliases count as their primary name. */
+    [[nodiscard]] bool SupportsCapability(std::string_view capability_name) const noexcept;
+    /** @brief The shape of lodestone::manifest::CapabilitySupportFn. `user` is the RhiSystem. */
+    [[nodiscard]] static bool SupportsCapabilityFn(void* user, std::string_view capability_name) noexcept;
+    /** @brief The primary names of the enabled capabilities, sorted. Empty on the old path. */
+    [[nodiscard]] std::span<const std::string> EnabledCapabilities() const noexcept;
+    /** @brief The "Struct.member" features that StartDevice enabled, sorted. */
+    [[nodiscard]] std::span<const std::string> EnabledFeatures() const noexcept;
+    /** @brief The compute and push constant limits of the device, for the variant filter. */
+    [[nodiscard]] const lodestone::manifest::DeviceLimits& Limits() const noexcept;
 
     void Update();
     void Destroy();
@@ -100,6 +131,9 @@ private:
     std::string shaderCacheDir;
     VkDebugUtilsMessengerEXT debugUtilsMessenger{ VK_NULL_HANDLE };
     PFN_vkDestroyDebugUtilsMessengerEXT destroyDebugUtilsMessenger{ nullptr };
+    std::vector<std::string> enabledCapabilities;
+    std::vector<std::string> enabledFeatures;
+    lodestone::manifest::DeviceLimits deviceLimits;
 
 };
 

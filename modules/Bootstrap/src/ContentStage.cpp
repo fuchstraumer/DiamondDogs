@@ -8,9 +8,10 @@
 #include "ShaderBundle.hpp"
 #include "ShaderManifest.hpp"
 #include <algorithm>
-#include <expected>
 #include <filesystem>
 #include <format>
+#include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -43,7 +44,7 @@ namespace bootstrap
         const LaunchStage& launch = _core.Launch();
         const ScopedBootSpan stageSpan(launch.Timings(), Stage::Content, BootSpanKind::Stage, ToString(Stage::Content));
 
-        core = &_core;
+        core = std::addressof(_core);
 
         for (const BundleRequest& request : app_bundles)
         {
@@ -112,6 +113,7 @@ namespace bootstrap
 
     BootResult ContentStage::openBundle(const BundleRequest& request, std::string_view requested_by)
     {
+        // First, check to see if we already loaded the requested bundle.
         const auto sameRequest = [&request](const LoadedBundle& loaded) { return SameRequest(loaded, request); };
         const auto earlier = std::ranges::find_if(bundles, sameRequest);
 
@@ -126,7 +128,7 @@ namespace bootstrap
             return ContentFailure(BootResultCode::BundleNameConflict,
                                   requested_by,
                                   std::string{ request.FileName },
-                                  std::format("\"{}\" and \"{}\"", earlier->BuildTreePath, request.BuildTreePath));
+                                  std::format(R"("{}" and "{}")", earlier->BuildTreePath, request.BuildTreePath));
         }
 
         const LaunchStage& launch = core->Launch();

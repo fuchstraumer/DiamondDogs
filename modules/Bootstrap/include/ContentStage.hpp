@@ -18,9 +18,14 @@ namespace bootstrap
     // LoadedBundle.hpp defines it. It holds a ShaderBundle by value, so this header does not include it
     struct LoadedBundle;
 
-    /** The stage that loads the content which needs no device: today, the shader bundles. It opens every bundle
-     *  that the executable lists and every bundle that a selected module needs, so that GatherDeviceRequirements can
-     *  read them before the device exists. The bundles stay open until Stop. */
+    /** @brief The content stage is responsible for loading binary content that doesn't need to use the GPU
+      * in any way - think decoding textures, reading shader bundles, localization data, etc.
+      *
+      * Primarily,it is intended currently to open shader bundles and parse the features and capabilities
+      * they declare, so that we can select and enable as many supported features, extensions, and properties
+      * as possible. This is even more important on WebGPU, where we also need to actually manage and set 
+      * limits on things like thread counts, binding layouts, and resource sizes explicitly!
+    */
     class ContentStage
     {
     public:

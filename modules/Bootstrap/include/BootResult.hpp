@@ -11,7 +11,7 @@ namespace bootstrap
     enum class BootResultCode : uint8_t
     {
         Invalid = 0,
-        Success = 1,
+        Success,
         // launch: the arguments, the config file, the profile, the module list
         MalformedArgument,
         ConfigUnreadable,
@@ -46,16 +46,16 @@ namespace bootstrap
     enum class Stage : uint8_t
     {
         Invalid = 0,
-        Launch,
-        Core,
-        Content,
-        Window,
-        Device,
-        Gpu,
+        Launch,     // The initial start of a binary, before *any* core systems are loaded
+        Core,       // The core systems of the application are being initialized: logging, config, filesystem, etc
+        Content,    // Content layer is coming online: shaders, asset servers, asset cookers, etc
+        Window,     // Platform windows are being created - WebGPU context and swapchain, or GLFW context and swapchain
+        Device,     // The physical and logical devices are being configured and initialized based on reqs from prev stages
+        Gpu,        // The GPU is fully initialized and ready for work: all other engine systems online
     };
 
     /** The status of one boot step. A step that yields no value returns this record, with Code set to Success when
-     *  the step succeeded. The step fills the fields, and FormatFailure turns them into text. */
+     *  the step succeeded. The step fills the fields, and FormatFailure turns them into succinct printable text. */
     struct BootResult
     {
         BootResultCode Code{ BootResultCode::Invalid };

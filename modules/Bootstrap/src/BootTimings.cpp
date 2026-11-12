@@ -1,8 +1,13 @@
 #include "BootTimings.hpp"
 #include "BootResult.hpp"
-#include <chrono>
+#include "timing/MonotonicClock.hpp"
+#include <cstddef>
+#include <cstdint>
 #include <format>
 #include <iterator>
+#include <span>
+#include <string>
+#include <string_view>
 
 #ifndef BOOTSTRAP_BUILD_CONFIG
 #define BOOTSTRAP_BUILD_CONFIG "unknown configuration"
@@ -11,7 +16,6 @@
 #if BOOTSTRAP_TIMINGS_ENABLED
 namespace
 {
-    [[nodiscard]] int64_t NowNanoseconds() noexcept;
     [[nodiscard]] std::string_view KindLabel(bootstrap::BootSpanKind kind) noexcept;
     void AppendSpanRow(std::string& output, const bootstrap::BootSpan& span);
 }
@@ -37,7 +41,7 @@ namespace bootstrap
             .OwningStage = stage,
             .Kind = kind,
             .Name = name,
-            .StartNanoseconds = NowNanoseconds(),
+            .StartNanoseconds = foundation::MonotonicNanoseconds(),
         };
 
         ++spanCount;
@@ -53,7 +57,7 @@ namespace bootstrap
 
         BootSpan& span = spans[static_cast<size_t>(span_index)];
 
-        span.Nanoseconds = NowNanoseconds() - span.StartNanoseconds;
+        span.Nanoseconds = foundation::MonotonicNanoseconds() - span.StartNanoseconds;
     }
 
     void BootTimings::Clear() noexcept
@@ -64,7 +68,9 @@ namespace bootstrap
 
     std::span<const BootSpan> BootTimings::Spans() const noexcept
     {
-        return std::span<const BootSpan>{ spans.data(), static_cast<size_t>(spanCount) };
+        const std::span<const BootSpan> allSpans{ spans };
+
+        return allSpans.first(static_cast<size_t>(spanCount));
     }
 
     int32_t BootTimings::DroppedSpans() const noexcept
@@ -128,22 +134,20 @@ namespace bootstrap
 #if BOOTSTRAP_TIMINGS_ENABLED
 namespace
 {
-    int64_t NowNanoseconds() noexcept
-    {
-        const auto sinceEpoch = std::chrono::steady_clock::now().time_since_epoch();
-
-        return std::chrono::duration_cast<std::chrono::nanoseconds>(sinceEpoch).count();
-    }
-
     std::string_view KindLabel(bootstrap::BootSpanKind kind) noexcept
     {
         switch (kind)
         {
-        case bootstrap::BootSpanKind::Invalid: return "invalid";
-        case bootstrap::BootSpanKind::Stage: return "stage";
-        case bootstrap::BootSpanKind::Module: return "module";
-        case bootstrap::BootSpanKind::Bundle: return "bundle";
-        case bootstrap::BootSpanKind::Step: return "step";
+        case bootstrap::BootSpanKind::Invalid:
+            return "invalid";
+        case bootstrap::BootSpanKind::Stage:
+            return "stage";
+        case bootstrap::BootSpanKind::Module:
+            return "module";
+        case bootstrap::BootSpanKind::Bundle:
+            return "bundle";
+        case bootstrap::BootSpanKind::Step:
+            return "step";
         }
 
         return "invalid";

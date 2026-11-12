@@ -89,8 +89,9 @@ Struct::Struct(int _val0, int _val1, int _val2) :
 {}
 ```
 - **Switch Statements**: if a case is going to do more than return a value or call a function, pull that logic out into a separate function with a descriptive name. If brackets would need to be inserted to initialize variables in the case: pull it out into a separate function. Treat switch statements in this usage like a table of functions to be called.
-  Layout: a case that only returns a value may stay on one line (`case Kind::Text: return "Text";`). Any other
-  case puts the label, the statement and the `break` each on its own line, with no blank lines between cases:
+  Layout: every case puts its label on one line and each statement on its own line below it, the `break` or
+  `return` included. Never write a case on one line, not even a case that only returns a value
+  (`case Kind::Text: return "Text";` is wrong). No blank lines between cases:
 ```cpp
 switch (event.Kind)
 {
@@ -102,6 +103,14 @@ case InputEventKind::FocusLost:
     break;
 default:
     break;
+}
+
+switch (kind)
+{
+case Kind::Text:
+    return "Text";
+case Kind::Binary:
+    return "Binary";
 }
 ```
 - **Comment usage**: Avoid as much as absolutely possible. Comments are no subsititute for descriptive code: I would rather have function names that are 80 characters long than comments that will rapidly drift from the source. Absolutely no comments depicting categories of code: that should be inferred from how functions are grouped (in the same order as they are declared, and in declaration order in the definition file)

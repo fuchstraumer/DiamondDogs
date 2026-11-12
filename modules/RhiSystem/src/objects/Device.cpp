@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -189,6 +190,20 @@ namespace rhi
 
     struct DeviceImpl
     {
+        // the start path: RhiSystem::StartDevice chose the physical device from the needs
+        DeviceImpl(const Instance* instance, uint32_t api_version, VkPhysicalDevice physical_device) :
+            ParentInstance{ instance },
+            ApiVersion{ api_version },
+            PhysicalDevice{ physical_device },
+            NumGraphicsQueues{ 0u },
+            NumComputeQueues{ 0u },
+            NumTransferQueues{ 0u },
+            NumSparseBindingQueues{ 0u }
+        {
+            RetrievePhysicalDeviceProperties();
+            QueryQueueProperties();
+        }
+
         DeviceImpl(const Instance* instance, uint32_t api_version) :
             ParentInstance{ instance },
             ApiVersion{ api_version },
@@ -507,6 +522,20 @@ namespace rhi
         createDevice(extensions);
     }
 
+    Device::Device(const Instance* instance,
+                   uint32_t api_version,
+                   PhysicalDeviceHandle physical_device,
+                   std::span<const char* const> extension_names,
+                   std::vector<std::string> core_extensions,
+                   const void* feature_chain) :
+        impl{ std::make_unique<DeviceImpl>(instance, api_version, physical_device.As<VkPhysicalDevice>()) },
+        handle{ 0u }
+    {
+        impl->CoreExtensions = std::move(core_extensions);
+        // on failure the handle stays invalid, and RhiSystem::StartDevice reports it
+        (void)createLogicalDevice(extension_names, feature_chain);
+    }
+
     Device::~Device()
     {
         if (handle.IsValid())
@@ -633,13 +662,23 @@ namespace rhi
 
     void Device::createDevice(ExtensionPack& extensions)
     {
-        const QueueFamilyIndices& queueIndices = impl->QueueFamilyIndices;
         extensions.SetPhysicalDevice(impl->PhysicalDevice);
         extensions.AddAllSupportedMaintenanceExtensions();
         // optional, so that a device without it still creates. ResourceContext asks HasExtension for it
         extensions.AddOptionalDeviceExtension("VK_EXT_memory_budget");
         extensions.ResolveDeviceDependencies();
-        
+        impl->CoreExtensions = extensions.GetCoreDeviceExtensions();
+
+        const std::vector<const char*>& deviceExtensions = extensions.GetDeviceExtensions();
+        const VkResult result = createLogicalDevice(deviceExtensions, extensions.GetDeviceFeatures());
+
+        RhiAssert(result);
+    }
+
+    VkResult Device::createLogicalDevice(std::span<const char* const> extension_names, const void* feature_chain)
+    {
+        const QueueFamilyIndices& queueIndices = impl->QueueFamilyIndices;
+
         // Collect unique queue families
         std::set<uint32_t> uniqueQueueFamilies = 
         {
@@ -679,20 +718,10 @@ namespace rhi
             queueCreateInfos.push_back(queueCreateInfo);
         }
         
-        // Get device extensions
-        const std::vector<const char*>& deviceExtensions = extensions.GetDeviceExtensions();
-        
-        // Store enabled extensions
-        impl->EnabledExtensions.reserve(deviceExtensions.size());
-        for (const char* ext : deviceExtensions)
-        {
-            impl->EnabledExtensions.emplace_back(ext);
-        }
-        impl->CoreExtensions = extensions.GetCoreDeviceExtensions();
-        
-        // Device features
-        const VkPhysicalDeviceFeatures2* deviceFeatures = extensions.GetDeviceFeatures();
-        
+        impl->EnabledExtensions.assign(extension_names.begin(), extension_names.end());
+
+        const auto* deviceFeatures = static_cast<const VkPhysicalDeviceFeatures2*>(feature_chain);
+
         VkDeviceCreateInfo createInfo = 
         {
             VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -702,8 +731,8 @@ namespace rhi
             queueCreateInfos.data(),
             0, // Layer count (deprecated at device level)
             nullptr, // Layer names (deprecated at device level)
-            static_cast<uint32_t>(deviceExtensions.size()),
-            deviceExtensions.data(),
+            static_cast<uint32_t>(extension_names.size()),
+            extension_names.data(),
             nullptr
         };
 
@@ -716,17 +745,23 @@ namespace rhi
         
         const VkPhysicalDevice pDevice = impl->PhysicalDevice;
         VkDevice resultHandle = VK_NULL_HANDLE;
-        rhi::Result result = vkCreateDevice(pDevice, &createInfo, nullptr, &resultHandle);
-        RhiAssert(result);
- 
+        const VkResult result = vkCreateDevice(pDevice, &createInfo, nullptr, &resultHandle);
+
+        if (result != VK_SUCCESS)
+        {
+            return result;
+        }
+
         handle.Set<VkDevice>(resultHandle);
         impl->SetupQueues(handle.As<VkDevice>());
         impl->SetupDebugUtils(handle.As<VkDevice>());
+
         if (HasExtension("VK_KHR_device_fault"))
         {
             impl->SetupDeviceFaultHandler(handle.As<VkDevice>());
         }
-        
+
+        return result;
     }
 
 #endif // RHI_SYSTEM_USE_VULKAN

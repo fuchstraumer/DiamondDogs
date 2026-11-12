@@ -2,6 +2,72 @@
 
 RhiSystem is the Vulkan layer of DiamondDogs. It owns the instance, the device, the extension tables, command pools, fences, semaphores, shader objects, and `ShaderLibrary`.
 
+## The start path: a device from its needs
+
+`RhiSystem` has two ways to start. The old constructor (`RhiSystem(const RhiSystemCreateInfo&)`) enables every
+feature that the device supports. The start path enables only what it is asked for. The boot stages use the start
+path; the old constructor goes away when every executable moves to the stages.
+
+```cpp
+rhi::RhiSystem system;
+const rhi::RhiSystemResult instance = system.StartInstance(instanceInfo);
+const rhi::RhiSystemResult device = system.StartDevice(deviceInfo);
+```
+
+Nothing throws. `RhiSystemResult` has a code, the need that failed, and the reason with the device name.
+
+### The needs
+
+`DeviceStartInfo` (`RhiSystemStart.hpp`) has four lists. Each need is `Required` or `Wanted`.
+
+| List | Names | Example |
+|---|---|---|
+| `Extensions` | device extension names | `VK_KHR_swapchain` |
+| `Features` | API features, as `Struct.member` | `VkPhysicalDeviceVulkan13Features.synchronization2` |
+| `Capabilities` | SPIR-V capability and extension names, Lodestone's vocabulary | `GroupNonUniformArithmetic` |
+| `Declined` | Wanted capabilities to leave off, to test the fallback variants | `Int64` |
+
+Features are the needs of spine code (sync2, timeline semaphores, dynamic rendering, shader objects). Capabilities
+come from the shader bundles, through bootstrap's `GatherDeviceRequirements`.
+
+### How StartDevice chooses
+
+`PlanDevice` (`src/core/DevicePlanner`) runs once per physical device. It reads the device and creates nothing:
+
+1. The device's API version must be at least the instance's.
+2. Each extension must be supported, or the device fails a Required need.
+3. Each feature: the struct must be available (a version the device has, or a supported extension), and the member
+   must be supported. A member of an extension struct also enables its extension.
+4. Each capability: Lodestone's `VulkanCapabilityTable.hpp` lists its enables, and any one is enough. The planner
+   tries them in this order: a Vulkan version, a feature of a core struct, a feature of an extension struct, an
+   extension, a property. A property (a subgroup operation bit, for example) enables nothing; it only tests.
+
+`StartDevice` takes the best-scored plan (discrete first, then device-local memory) that meets every Required need.
+When none does, it names the first unmet need of the best-scored device.
+
+**Promoted structs fold into the core struct.** `VkPhysicalDeviceTimelineSemaphoreFeatures.timelineSemaphore` is set
+in `VkPhysicalDeviceVulkan12Features`, because device creation must not chain a promoted struct beside the
+`VkPhysicalDeviceVulkanNNFeatures` that absorbed it. Callers can name either struct.
+
+**The enabled chain starts zeroed.** `FeatureChain` (`src/core/FeatureChain`) holds one heap block per struct, so a
+move keeps the pNext pointers valid. It sets and reads one member by its row in the generated table.
+
+### The supports function
+
+`SupportsCapability` and `SupportsCapabilityFn` (the shape of `lodestone::manifest::CapabilitySupportFn`) answer from
+the **enabled** set, never from the physical device. A variant filter that asked the physical device could choose a
+variant that needs a capability the device was created without. On the RTX 4080, `Float64` is supported, and it
+answers false unless a need asked for it. `Limits()` gives the compute and push constant limits for the same filter.
+
+### The generated feature table
+
+`GenerateExtensionAndFeatureHeaders.py` also writes `GeneratedFeatureTable.hpp`: every `VkBool32` member of every
+feature struct, and every `VkBool32` or flags member of every property struct, with the sType, the struct size and the
+member offset (`offsetof`). It also writes the struct aliases (the `...KHR` names) and the flag bits of the flags
+members. Only the structs that `vulkan_core.h` defines go in, without the `VK_ENABLE_BETA_EXTENSIONS` blocks, so the
+table always compiles against the SDK headers. Lodestone's capability table can be newer than our headers; a name it
+uses that our headers lack counts as unsupported.
+
 ## Shader executable statistics
 
 `rhi::CaptureComputeStatistics` asks the driver for compile statistics of a compute shader. The declaration is in `shaders/ExecutableStatistics.hpp`.

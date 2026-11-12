@@ -652,3 +652,6 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
 
 - New role and handbook (`docs/rhi-agent.md`). Bootstrap module designed (`docs/bootstrap-api-draft.md`); step 1 done: JSON RhiSystem constructor removed, `ShaderBundle` moved to its own target, no default argument on `ShaderLibrary::Open`. Details in `docs/rhi-agent.md`.
 - Step 2: `modules/Bootstrap` (`LaunchStage`, `CoreStage`, profiles, boot timings), `bootstrap_tests` (35), the `ContentCooker` stub with a configure-time no-RHI check. Item 6 deferred to `DeviceStage`. Details in `docs/rhi-agent.md`.
+- Step 3: `ContentStage` and `GatherDeviceRequirements` (Required and Wanted capabilities from the manifests, two limit sets), `bootstrap_tests` 54. `rhi_system_tests` crashed in instance creation with a game on the GPU; open in `docs/rhi-agent.md` 4c.
+- Step 4, RhiSystem half: `StartInstance` and `StartDevice` enable only the needs (generated feature table, device planner, supports from the enabled set). A generator bug put `VK_EXT_debug_utils` in the device table; fixed. Details in `docs/rhi-agent.md` 4e.
+- `foundation/timing/`: `MonotonicNanoseconds`, `Stopwatch`, `HighResolutionWait` (was `PrecisionTimer`), `FrameLimiter` (no default argument). Details in `docs/rhi-agent.md` log, 2026-11-12.

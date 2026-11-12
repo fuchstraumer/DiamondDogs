@@ -16,16 +16,21 @@ set(RHI_CORE_HEADERS
     "include/core/RhiAssert.hpp"
     "include/core/RhiDefines.hpp"
     "include/core/RhiSystem.hpp"
+    "include/core/RhiSystemStart.hpp"
     "include/core/RhiFlags.hpp"
     "include/core/RhiTypes.hpp")
 
 set(RHI_CORE_SOURCES
+    "src/core/DevicePlanner.cpp"
     "src/core/ExtensionWrangler.cpp"
+    "src/core/FeatureChain.cpp"
     "src/core/ExtensionPack.cpp"
     "src/core/RhiAssert.cpp"
     "src/core/RhiSystem.cpp")
 
 set(RHI_CORE_INTERNAL_HEADERS
+    "src/core/DevicePlanner.hpp"
+    "src/core/FeatureChain.hpp"
     "src/core/VulkanConversions.hpp")
 
 set(RHI_OBJECT_HEADERS
@@ -137,24 +142,26 @@ find_package(Python COMPONENTS Interpreter REQUIRED)
 set(RHI_SYSTEM_VK_XML_PATH "$ENV{VULKAN_SDK}/share/vulkan/registry/vk.xml")
 set(RHI_SYSTEM_GENERATOR_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/GenerateExtensionAndFeatureHeaders.py")
 set(RHI_SYSTEM_OUTPUT_HEADER "${CMAKE_CURRENT_BINARY_DIR}/GeneratedExtensionHeader.hpp")
+# the (struct, member) to (sType, offset) table that device creation uses to set one feature member
+set(RHI_SYSTEM_FEATURE_TABLE_HEADER "${CMAKE_CURRENT_BINARY_DIR}/GeneratedFeatureTable.hpp")
 
 if (RHI_SYSTEM_GRAPHICS_API STREQUAL "Vulkan")
     add_custom_command(
-        OUTPUT "${RHI_SYSTEM_OUTPUT_HEADER}"
+        OUTPUT "${RHI_SYSTEM_OUTPUT_HEADER}" "${RHI_SYSTEM_FEATURE_TABLE_HEADER}"
         COMMAND "${Python_EXECUTABLE}" "${RHI_SYSTEM_GENERATOR_SCRIPT}"
                                     "-specDir=$ENV{VULKAN_SDK}" "-outputDir=${CMAKE_CURRENT_BINARY_DIR}"
-        DEPENDS "${RHI_SYSTEM_VK_XML_PATH}" "${RHI_SYSTEM_GENERATOR_SCRIPT}"
+        DEPENDS "${RHI_SYSTEM_VK_XML_PATH}" "$ENV{VULKAN_SDK}/Include/vulkan/vulkan_core.h" "${RHI_SYSTEM_GENERATOR_SCRIPT}"
         COMMENT "Generating extension lookup header (dependencies changed)"
         VERBATIM
     )
 
-    set_source_files_properties("${RHI_SYSTEM_OUTPUT_HEADER}" PROPERTIES GENERATED TRUE)
+    set_source_files_properties("${RHI_SYSTEM_OUTPUT_HEADER}" "${RHI_SYSTEM_FEATURE_TABLE_HEADER}" PROPERTIES GENERATED TRUE)
 
-    target_sources(rhi_system PRIVATE "${RHI_SYSTEM_OUTPUT_HEADER}")
+    target_sources(rhi_system PRIVATE "${RHI_SYSTEM_OUTPUT_HEADER}" "${RHI_SYSTEM_FEATURE_TABLE_HEADER}")
 
     # Custom target that depends on the output file
     add_custom_target(rhi_system_generate_extension_headers
-        DEPENDS "${RHI_SYSTEM_OUTPUT_HEADER}"
+        DEPENDS "${RHI_SYSTEM_OUTPUT_HEADER}" "${RHI_SYSTEM_FEATURE_TABLE_HEADER}"
     )
 
     add_dependencies(rhi_system rhi_system_generate_extension_headers)

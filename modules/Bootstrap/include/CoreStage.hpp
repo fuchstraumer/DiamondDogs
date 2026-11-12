@@ -17,8 +17,10 @@ namespace bootstrap
     struct BootResult;
     class LaunchStage;
 
-    /** The stage that every executable starts, the cooker included. It constructs the Scheduler on the calling
-     *  thread, which then owns it, and starts every selected module that has StartCore, in list order. */
+    /** @brief The stage that every executable starts, the cooker included.
+     *
+     *  It constructs the async Scheduler on the calling thread, which then owns it, and starts every
+     *  selected module that has StartCore, in list order. */
     class CoreStage
     {
     public:

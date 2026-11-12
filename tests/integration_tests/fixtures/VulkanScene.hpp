@@ -4,7 +4,7 @@
 #include "Fence.hpp"
 #include "RhiHandle.hpp"
 #include "Semaphore.hpp"
-#include "threading/FrameLimiter.hpp"
+#include "timing/FrameLimiter.hpp"
 #include <vulkan/vulkan_core.h>
 #include <cstdint>
 #include <chrono>
@@ -19,6 +19,8 @@ namespace rhi
 
 class PlatformWindowSystem;
 class Swapchain;
+
+constexpr double k_FramerateBeforeSwapchain{ 60.0 };
 
 class VulkanScene
 {
@@ -67,7 +69,8 @@ protected:
     bool swapchainOutOfDate{ false };
     uint32_t swapchainRecreationCount{ 0u };
 
-    foundation::FrameLimiter frameLimiter;
+    // the constructor sets the swapchain's refresh rate; this rate only lasts until then
+    foundation::FrameLimiter frameLimiter{ k_FramerateBeforeSwapchain };
     uint32_t currentFrame; // Index of the current frame, but *NOT* the current framebuffer
     uint32_t currentAcquiredImage;
     uint32_t numFramebuffers;

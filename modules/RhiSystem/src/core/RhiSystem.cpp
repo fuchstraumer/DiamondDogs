@@ -1,8 +1,18 @@
 #include "RhiSystem.hpp"
 #include "DebugUtilFns.hpp"
 #include "Device.hpp"
+#include "DevicePlanner.hpp"
 #include "ExtensionPack.hpp"
+#include "ExtensionWrangler.hpp"
 #include "Instance.hpp"
+#include "RhiSystemStart.hpp"
+#include "VulkanCapabilityTable.hpp"
+#include <algorithm>
+#include <exception>
+#include <functional>
+#include <span>
+#include <string_view>
+#include <utility>
 
 #include <cstddef>
 #include <cstdint>
@@ -26,6 +36,10 @@ namespace
                                                                VkDebugUtilsMessageTypeFlagBitsEXT message_type,
                                                                const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
                                                                void* user_data);
+
+    [[nodiscard]] rhi::RhiSystemResult StartResult(rhi::RhiSystemResultCode code, std::string_view subject, std::string detail);
+    // the best-scored plan, among the plans that meet every Required need when `only_complete` is true
+    [[nodiscard]] const rhi::DevicePlan* BestPlan(const std::vector<rhi::DevicePlan>& plans, bool only_complete) noexcept;
 
     VkDebugUtilsMessengerCreateInfoEXT MessengerCreateInfo() noexcept
     {
@@ -85,9 +99,198 @@ namespace rhi
         shaderCacheDir = create_info.ShaderCacheDir;
     }
 
+    RhiSystem::RhiSystem() noexcept = default;
+
     RhiSystem::~RhiSystem()
     {
         Destroy();
+    }
+
+    RhiSystemResult RhiSystem::StartInstance(const InstanceStartInfo& start_info)
+    {
+        if (vulkanInstance)
+        {
+            return StartResult(RhiSystemResultCode::AlreadyStarted, "", "StartInstance ran twice without Destroy");
+        }
+
+        extensionPack = std::make_unique<ExtensionPack>(start_info.VkVersion);
+
+        // a wrangler with no physical device answers for instance extensions
+        const ExtensionWrangler wrangler(extensionPack->GetVulkanApiVersion(), VK_NULL_HANDLE);
+        std::vector<std::string> required;
+        std::vector<std::string> wanted;
+
+        for (const DeviceNeed& need : start_info.Extensions)
+        {
+            if (need.Level == DeviceNeedLevel::Wanted)
+            {
+                wanted.emplace_back(need.Name);
+                continue;
+            }
+
+            if (!wrangler.IsExtensionSupported(need.Name))
+            {
+                extensionPack.reset();
+                return StartResult(RhiSystemResultCode::InstanceExtensionMissing,
+                                    need.Name,
+                                    "neither the loader nor an enabled layer offers it");
+            }
+
+            required.emplace_back(need.Name);
+        }
+
+        extensionPack->AddRequiredInstanceExtensions(std::move(required));
+        extensionPack->AddOptionalInstanceExtensions(std::move(wanted));
+        extensionPack->ResolveInstanceDependencies();
+
+        const VkDebugUtilsMessengerCreateInfoEXT messengerInfo = MessengerCreateInfo();
+
+        vulkanInstance = std::make_unique<Instance>(std::string{ start_info.ApplicationName },
+                                                    std::string{ start_info.EngineName },
+                                                    start_info.AppVersion,
+                                                    start_info.EngineVersion,
+                                                    start_info.ValidationLevel,
+                                                    *extensionPack,
+                                                    RHI_SYSTEM_VALIDATION_ENABLED ? &messengerInfo : nullptr);
+
+        if (!vulkanInstance->Handle().IsValid())
+        {
+            Destroy();
+            return StartResult(RhiSystemResultCode::InstanceCreateFailed, "", "vkCreateInstance failed");
+        }
+
+        // before the device, so that device creation messages reach our callback
+        createDebugUtilsMessenger();
+        return StartResult(RhiSystemResultCode::Success, "", "");
+    }
+
+    RhiSystemResult RhiSystem::StartDevice(const DeviceStartInfo& start_info)
+    {
+        if (!vulkanInstance)
+        {
+            return StartResult(RhiSystemResultCode::InstanceNotStarted, "", "StartDevice needs StartInstance first");
+        }
+
+        if (logicalDevice)
+        {
+            return StartResult(RhiSystemResultCode::AlreadyStarted, "", "StartDevice ran twice without Destroy");
+        }
+
+        const VkInstance instance = vulkanInstance->Handle().As<VkInstance>();
+        uint32_t physicalDeviceCount = 0u;
+
+        vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, nullptr);
+
+        std::vector<VkPhysicalDevice> physicalDevices(physicalDeviceCount);
+
+        vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices.data());
+
+        if (physicalDevices.empty())
+        {
+            return StartResult(RhiSystemResultCode::NoPhysicalDevice, "", "the instance reports no physical device");
+        }
+
+        std::vector<DevicePlan> plans;
+
+        for (const VkPhysicalDevice physicalDevice : physicalDevices)
+        {
+            plans.push_back(PlanDevice(physicalDevice, extensionPack->GetVulkanApiVersion(), start_info));
+        }
+
+        const DevicePlan* chosen = BestPlan(plans, true);
+
+        if (chosen == nullptr)
+        {
+            const DevicePlan* closest = BestPlan(plans, false);
+
+            return StartResult(RhiSystemResultCode::NoDeviceMeetsRequirements,
+                                closest->UnmetNeed,
+                                std::format("{}: {}", closest->DeviceName, closest->UnmetReason));
+        }
+
+        // the dependencies of the planned extensions, and the split into enabled-by-name and core
+        extensionPack->SetPhysicalDevice(chosen->PhysicalDevice);
+        extensionPack->AddRequiredDeviceExtensions(chosen->Extensions);
+
+        try
+        {
+            extensionPack->ResolveDeviceDependencies();
+        }
+        catch (const std::exception& error)
+        {
+            return StartResult(RhiSystemResultCode::DeviceCreateFailed, "", error.what());
+        }
+
+        // the plan is not const: the device reads its feature chain, which Head returns as a mutable pointer
+        DevicePlan& plan = plans[static_cast<size_t>(chosen - plans.data())];
+        const PhysicalDeviceHandle physicalDevice{ reinterpret_cast<uint64_t>(plan.PhysicalDevice) };
+
+        logicalDevice = std::make_unique<Device>(vulkanInstance.get(),
+                                                 plan.ApiVersion,
+                                                 physicalDevice,
+                                                 extensionPack->GetDeviceExtensions(),
+                                                 extensionPack->GetCoreDeviceExtensions(),
+                                                 plan.Enabled.Head());
+
+        if (!logicalDevice->Handle().IsValid())
+        {
+            logicalDevice.reset();
+            return StartResult(RhiSystemResultCode::DeviceCreateFailed, "", std::format("vkCreateDevice failed on {}", plan.DeviceName));
+        }
+
+        setupObjectNaming();
+        enabledCapabilities = std::move(plan.EnabledCapabilities);
+        enabledFeatures = std::move(plan.EnabledFeatures);
+        deviceLimits = plan.Limits;
+        return StartResult(RhiSystemResultCode::Success, "", "");
+    }
+
+    bool RhiSystem::SupportsCapability(std::string_view capability_name) const noexcept
+    {
+        const std::string_view primaryName = lodestone::vulkan::PrimaryCapabilityName(capability_name);
+
+        return std::ranges::binary_search(enabledCapabilities, primaryName, std::less<>{});
+    }
+
+    bool RhiSystem::SupportsCapabilityFn(void* user, std::string_view capability_name) noexcept
+    {
+        return static_cast<const RhiSystem*>(user)->SupportsCapability(capability_name);
+    }
+
+    std::span<const std::string> RhiSystem::EnabledCapabilities() const noexcept
+    {
+        return enabledCapabilities;
+    }
+
+    std::span<const std::string> RhiSystem::EnabledFeatures() const noexcept
+    {
+        return enabledFeatures;
+    }
+
+    const lodestone::manifest::DeviceLimits& RhiSystem::Limits() const noexcept
+    {
+        return deviceLimits;
+    }
+
+    bool RhiSystemResult::Succeeded() const noexcept
+    {
+        return Code == RhiSystemResultCode::Success;
+    }
+
+    std::string_view ToString(RhiSystemResultCode code) noexcept
+    {
+        switch (code)
+        {
+        case RhiSystemResultCode::Success: return "Success";
+        case RhiSystemResultCode::AlreadyStarted: return "AlreadyStarted";
+        case RhiSystemResultCode::InstanceNotStarted: return "InstanceNotStarted";
+        case RhiSystemResultCode::InstanceExtensionMissing: return "InstanceExtensionMissing";
+        case RhiSystemResultCode::InstanceCreateFailed: return "InstanceCreateFailed";
+        case RhiSystemResultCode::NoPhysicalDevice: return "NoPhysicalDevice";
+        case RhiSystemResultCode::NoDeviceMeetsRequirements: return "NoDeviceMeetsRequirements";
+        case RhiSystemResultCode::DeviceCreateFailed: return "DeviceCreateFailed";
+        default: return "Invalid";
+        }
     }
 
     void RhiSystem::Update()
@@ -113,6 +316,9 @@ namespace rhi
         destroyDebugUtilsMessenger = nullptr;
         vulkanInstance.reset();
         extensionPack.reset();
+        enabledCapabilities.clear();
+        enabledFeatures.clear();
+        deviceLimits = lodestone::manifest::DeviceLimits{};
     }
 
     Instance* RhiSystem::GetInstance() noexcept
@@ -244,6 +450,30 @@ namespace rhi
 
 namespace
 {
+    rhi::RhiSystemResult StartResult(rhi::RhiSystemResultCode code, std::string_view subject, std::string detail)
+    {
+        return rhi::RhiSystemResult{ .Code = code, .Subject = std::string{ subject }, .Detail = std::move(detail) };
+    }
+
+    const rhi::DevicePlan* BestPlan(const std::vector<rhi::DevicePlan>& plans, bool only_complete) noexcept
+    {
+        const rhi::DevicePlan* best = nullptr;
+
+        for (const rhi::DevicePlan& plan : plans)
+        {
+            if (only_complete && !plan.UnmetNeed.empty())
+            {
+                continue;
+            }
+
+            if (best == nullptr || plan.Score > best->Score)
+            {
+                best = &plan;
+            }
+        }
+
+        return best;
+    }
 
     VKAPI_ATTR VkBool32 VKAPI_CALL DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
                                                                VkDebugUtilsMessageTypeFlagBitsEXT message_type,

@@ -3,7 +3,7 @@
 #include "ImageDataFormats.hpp"
 #include "Swapchain.hpp"
 #include "PlatformSurface.hpp"
-#include <chrono>
+#include "timing/MonotonicClock.hpp"
 #include <cstdint>
 #include <vector>
 #include <unordered_map>
@@ -27,8 +27,6 @@ namespace
         float X;
         float Y;
     };
-
-    int64_t NowNanoseconds() noexcept;
 
     FramebufferScale FramebufferScaleOf(GLFWwindow* window) noexcept;
 
@@ -275,7 +273,7 @@ void PlatformSystemImpl::SetInputAssembler(input::FrameAssembler* assembler)
 {
     const bool focused = Window != nullptr && glfwGetWindowAttrib(Window, GLFW_FOCUSED) != GLFW_FALSE;
 
-    InputSource.SetAssembler(assembler, NowNanoseconds(), focused);
+    InputSource.SetAssembler(assembler, foundation::MonotonicNanoseconds(), focused);
 }
 
 void PlatformSystemImpl::AddShouldResizeEventListener(const ShouldResizeEvent& listener, void* user_data)
@@ -298,13 +296,6 @@ void PlatformSystemImpl::AddShouldCloseEventListener(const ShouldCloseEvent& lis
 
 namespace
 {
-    int64_t NowNanoseconds() noexcept
-    {
-        const auto sinceEpoch = std::chrono::steady_clock::now().time_since_epoch();
-
-        return std::chrono::duration_cast<std::chrono::nanoseconds>(sinceEpoch).count();
-    }
-
     FramebufferScale FramebufferScaleOf(GLFWwindow* window) noexcept
     {
         int windowWidth = 0;
@@ -345,17 +336,17 @@ namespace
     {
         static_cast<void>(scancode);
 
-        ImplOf(window).InputSource.OnKey(NowNanoseconds(), key, action, mods);
+        ImplOf(window).InputSource.OnKey(foundation::MonotonicNanoseconds(), key, action, mods);
     }
 
     void InputCharCallback(GLFWwindow* window, unsigned int code_point)
     {
-        ImplOf(window).InputSource.OnChar(NowNanoseconds(), code_point);
+        ImplOf(window).InputSource.OnChar(foundation::MonotonicNanoseconds(), code_point);
     }
 
     void InputMouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
     {
-        ImplOf(window).InputSource.OnMouseButton(NowNanoseconds(), button, action, mods);
+        ImplOf(window).InputSource.OnMouseButton(foundation::MonotonicNanoseconds(), button, action, mods);
     }
 
     void InputCursorPositionCallback(GLFWwindow* window, double pos_x, double pos_y)
@@ -364,18 +355,18 @@ namespace
         const float framebufferX = static_cast<float>(pos_x) * scale.X;
         const float framebufferY = static_cast<float>(pos_y) * scale.Y;
 
-        ImplOf(window).InputSource.OnCursorPosition(NowNanoseconds(), framebufferX, framebufferY);
+        ImplOf(window).InputSource.OnCursorPosition(foundation::MonotonicNanoseconds(), framebufferX, framebufferY);
     }
 
     void InputScrollCallback(GLFWwindow* window, double x_offset, double y_offset)
     {
         ImplOf(window).InputSource.OnScroll(
-            NowNanoseconds(), static_cast<float>(x_offset), static_cast<float>(y_offset));
+            foundation::MonotonicNanoseconds(), static_cast<float>(x_offset), static_cast<float>(y_offset));
     }
 
     void InputFocusCallback(GLFWwindow* window, int focused)
     {
-        ImplOf(window).InputSource.OnFocus(NowNanoseconds(), focused != GLFW_FALSE);
+        ImplOf(window).InputSource.OnFocus(foundation::MonotonicNanoseconds(), focused != GLFW_FALSE);
     }
 
     void InputCursorEnterCallback(GLFWwindow* window, int entered)

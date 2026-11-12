@@ -5,8 +5,10 @@
 #include "RhiHandle.hpp"
 #include "RhiFlags.hpp"
 #include <memory>
+#include <span>
 #include <vector>
 #include <string>
+#include <vulkan/vulkan_core.h>
 
 namespace rhi 
 {
@@ -21,7 +23,16 @@ namespace rhi
     public:
         Device(const Instance* instance,
                ExtensionPack& extensions);
-        
+        /** @brief The start path: creates the device on a physical device that RhiSystem::StartDevice chose, with
+         *  exactly these extensions and this feature chain (a VkPhysicalDeviceFeatures2). On failure, Handle() is
+         *  invalid. */
+        Device(const Instance* instance,
+               uint32_t api_version,
+               PhysicalDeviceHandle physical_device,
+               std::span<const char* const> extension_names,
+               std::vector<std::string> core_extensions,
+               const void* feature_chain);
+
         ~Device();
         
         // No copy/move
@@ -62,6 +73,7 @@ namespace rhi
 
     private:
         void createDevice(ExtensionPack& extensions);
+        [[nodiscard]] VkResult createLogicalDevice(std::span<const char* const> extension_names, const void* feature_chain);
         void setupQueues();
         void setupDebugUtils();
         void setupDeviceFaultHandler();

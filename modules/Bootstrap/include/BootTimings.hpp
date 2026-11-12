@@ -9,7 +9,7 @@
 
 /** CPU time spans for each boot stage, module start, bundle open and device step. bootstrap sets
  *  BOOTSTRAP_TIMINGS_ENABLED to 1 in Debug and RelWithDebInfo, and to 0 in Release and MinSizeRel. With 0 the same
- *  classes exist with empty inline bodies, so call sites need no #if, and nothing is recorded. */
+ *  classes exist with empty inline bodies, so we don't need macros at call sites to guard timing code. */
 #ifndef BOOTSTRAP_TIMINGS_ENABLED
 #define BOOTSTRAP_TIMINGS_ENABLED 0
 #endif
@@ -21,10 +21,10 @@ namespace bootstrap
     enum class BootSpanKind : uint8_t
     {
         Invalid = 0,
-        Stage,
-        Module,
-        Bundle,
-        Step,
+        Stage,      // A high-level boot stage, like Core, Content, Window, Device or Gpu
+        Module,     // The start of a module, identified by its descriptor name
+        Bundle,     // The opening of a bundle (content data), identified by its file name
+        Step,       // A fine-grained individual operation within a stage, module or bundle, for detailed timing analysis
     };
 
     struct BootSpan
@@ -63,6 +63,8 @@ namespace bootstrap
         int32_t droppedSpans{ 0 };
     };
 
+    /** @brief A helper RAII class that starts a boot span on construction and ends it on destruction: declare
+      * in a scoped block to time that specific block */
     class ScopedBootSpan
     {
     public:
