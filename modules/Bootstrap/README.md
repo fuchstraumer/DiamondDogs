@@ -10,7 +10,7 @@ console links it alone. A later target, `bootstrap_vulkan`, adds the window, dev
 LaunchStage ──> CoreStage ──> ContentStage ──> WindowStage? ──> DeviceRequirements ──> DeviceStage ──> GpuStage
 ```
 
-Only `LaunchStage` and `CoreStage` exist today. Each stage:
+`LaunchStage`, `CoreStage`, `ContentStage` and the `DeviceRequirements` function exist today. Each stage:
 
 - is constructed empty, and `Start` returns a `BootResult`, because a constructor cannot fail without an exception;
 - takes the earlier stages as `const&` in `Start`, so the compiler enforces the order;
@@ -64,6 +64,61 @@ self-registration through static constructors. A profile is a set: the selected 
 calls `StartCore` of each selected module, in list order. When a module fails, the stage stops what it started and
 returns the failure, with the stage and the module name filled in.
 
+### ContentStage
+
+`ContentStage::Start(core, app_bundles)` opens the content that needs no device: today, the shader bundles. It opens
+the executable's own list first, then the bundles in each selected module's `Needs.Bundles`, in list order. A
+`BundleRequest` names:
+
+- `FileName`: the name of the copy beside the executable (`OceanFft.ldmanifest`). `FindBundle` matches it;
+- `BuildTreePath`: the cooked file, for a run from the build tree;
+- `Profile`: the Lodestone profile to open (`rhi::k_SpirvProfileName` on Vulkan).
+
+Every Lodestone cook writes `ShaderLibrary.ldmanifest`, so the file name is the app's choice and never comes from the
+cook. A request that repeats an earlier one (same file name, profile and build-tree path) opens nothing. `Start`
+refuses:
+
+- a file name and profile that an earlier request gave with another build-tree path (`BundleNameConflict`). A copied
+  request that keeps the old name would otherwise drop a bundle in silence;
+- a file that is neither beside the executable nor at the build-tree path (`BundleNotFound`);
+- a file that does not open for the profile, or a module with no code facts (`BundleInvalid`). Without code facts a
+  bundle cannot say what the device needs.
+
+`Bundles()` returns `LoadedBundle` records (`LoadedBundle.hpp`): the request fields, the module that asked, the path
+that was opened, and the `rhi::ShaderBundle`. `ContentStage.hpp` only forward-declares the record, so it stays light.
+
+### DeviceRequirements
+
+`GatherDeviceRequirements(content, spine_needs)` is a pure function. It reads no device. It returns the union of three
+sources, in this order: the spine needs (each one sets its `NeedKind`), the `ModuleNeeds` of each selected module, and
+every entry point of every open bundle.
+
+For one entry point, the rule comes from the capability masks in the manifest:
+
+- a capability that **every** variant needs is `Required`: no variant runs without it;
+- a capability that **only some** variants need is `Wanted`: a capability axis made the difference, and Lodestone's
+  axis check proved that the off path needs a subset of the on path.
+
+The test bundle shows the rule. `BootNeedsWave` has a capability axis, so the wave variant needs
+`GroupNonUniformArithmetic` and the other does not: `Wanted`. Both variants do 64-bit math: `Int64` is `Required`.
+
+One name keeps one entry, per kind. `Required` wins over `Wanted`, and the entry keeps the source of the first need at
+its level. A failure then names one module, bundle, shader module and entry point, which is enough to act on.
+
+Lodestone lists only the capabilities that the code declares beyond the base set. `Shader` is not listed, so a bundle
+of plain compute code (HashFill) adds limits and no capabilities.
+
+Two sets of limits:
+
+- `RequiredLimits`: for each entry point, the smallest value of each limit over its variants, then the largest over
+  the entry points. A device below one of these cannot run any variant of some entry point. This is a necessary check,
+  not a sufficient one, because each field takes its own minimum.
+- `WantedLimits`: the largest value over every entry point instance. A device at these limits runs every variant.
+  WebGPU requests these at `requestDevice`.
+
+Push constant bytes count only for an entry point whose constants are push constants. The workgroup size and the
+invocations count only for compute.
+
 ## Modules
 
 A module is an optional part that a profile selects: the tool server, ImGui, frame capture, editor panels. The spine
@@ -95,7 +150,7 @@ This is a service locator, but only at the composition root. Nothing global poin
 
 ## Boot timings
 
-Each stage `Start` and each module start records one CPU span into `LaunchStage::Timings()`. Later stages take the
+Each stage `Start`, each module start and each opened bundle records one CPU span into `LaunchStage::Timings()`. Later stages take the
 launch stage as `const`, and the recorder is `mutable`, because it is a diagnostic and not launch state. The spans go
 in a fixed array of `k_MaxBootSpans` (64), so recording allocates nothing. A span past the end is counted as dropped.
 

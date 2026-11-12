@@ -89,7 +89,7 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `input_system_tests` | InputSystem with no window: the control space, frame assembly and the record-and-replay log. |
 | `ocean_camera_tests` | The OceanFft camera and its controller: the view basis, picking, pan and smoothed zoom. |
 | `sea_state_tests` | The sea state descriptor and the sea command that reads it. |
-| `bootstrap_tests` | The boot stages with no GPU: arguments, the config file, profiles, module selection and its refusals, module start and stop order, `Require`, and the boot timings. Its CMake file checks that it links no RHI. |
+| `bootstrap_tests` | The boot stages with no GPU: arguments, the config file, profiles, module selection and its refusals, module start and stop order, `Require`, the content stage against cooked test bundles, the device requirements (Required and Wanted capabilities, limits), and the boot timings. Its CMake file checks that it links no RHI. |
 | `agent_tools_tests` | AgentTools with no GPU: the registry, its schemas and text form, and the transport (`ToolServer`, `ToolRpc`) over real loopback sockets. |
 | `frame_capture_tests` | FrameCapture's conversions with no GPU (the decode of every captured format and encoding, the sRGB encode, the downsample), against the double reference in `color_math`. Also `CaptureSchedule`. |
 | `ComputeManifestTest` | The cook-to-dispatch path. Lodestone cooks `HashFill.slang`, `rhi::ShaderLibrary` selects each variant, `ResourceContext` creates every buffer, and every output word matches the CPU. |

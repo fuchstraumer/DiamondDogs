@@ -1,6 +1,7 @@
 #include "test_modules.hpp"
 #include "BootResult.hpp"
 #include "CoreStage.hpp"
+#include "ShaderBundle.hpp"
 #include <array>
 #include <fstream>
 #include <memory>
@@ -22,6 +23,37 @@ namespace
 
     constexpr std::array<std::string_view, 1> k_DependsOnAlpha{ "alpha" };
     constexpr std::array<std::string_view, 1> k_DependsOnGamma{ "gamma" };
+
+    constexpr std::string_view k_BootNeedsPath{ BOOT_NEEDS_BUNDLE };
+    constexpr std::string_view k_HashFillPath{ HASH_FILL_BUNDLE };
+
+    constexpr std::array<std::string_view, 1> k_WantedInstanceExtensions{ "VK_EXT_debug_utils" };
+    constexpr std::array<std::string_view, 2> k_RequiredDeviceExtensions{ "VK_KHR_swapchain", "VK_EXT_shader_object" };
+    constexpr std::array<std::string_view, 1> k_RequiredCapabilities{ "GroupNonUniformArithmetic" };
+
+    constexpr bootstrap::BundleRequest k_BootNeeds
+    {
+        .FileName = "BootNeeds.ldmanifest",
+        .BuildTreePath = k_BootNeedsPath,
+        .Profile = rhi::k_SpirvProfileName,
+    };
+
+    constexpr bootstrap::BundleRequest k_HashFill
+    {
+        .FileName = "HashFill.ldmanifest",
+        .BuildTreePath = k_HashFillPath,
+        .Profile = rhi::k_SpirvProfileName,
+    };
+
+    constexpr bootstrap::BundleRequest k_Missing
+    {
+        .FileName = "missing.ldbundle",
+        .BuildTreePath = "C:/nowhere/missing.ldbundle",
+        .Profile = rhi::k_SpirvProfileName,
+    };
+
+    constexpr std::array<bootstrap::BundleRequest, 2> k_HashFillUserBundles{ k_HashFill, k_BootNeeds };
+    constexpr std::array<bootstrap::BundleRequest, 1> k_MissingBundles{ k_Missing };
 }
 
 namespace bootstrap_tests
@@ -81,6 +113,36 @@ namespace bootstrap_tests
         .Name = "needs_gamma",
         .DependsOn = k_DependsOnGamma,
         .StartCore = &StartAlpha,
+    };
+
+    const bootstrap::BundleRequest k_BootNeedsRequest{ k_BootNeeds };
+    const bootstrap::BundleRequest k_HashFillRequest{ k_HashFill };
+    const bootstrap::BundleRequest k_MissingRequest{ k_Missing };
+
+    const bootstrap::ModuleDescriptor k_HashFillUserModule
+    {
+        .Name = "hash_fill_user",
+        .Needs = bootstrap::ModuleNeeds{ .Bundles = k_HashFillUserBundles },
+        .StartGpu = &StartGamma,
+    };
+
+    const bootstrap::ModuleDescriptor k_ExtensionsModule
+    {
+        .Name = "extensions",
+        .Needs = bootstrap::ModuleNeeds
+        {
+            .WantedInstanceExtensions = k_WantedInstanceExtensions,
+            .RequiredDeviceExtensions = k_RequiredDeviceExtensions,
+            .RequiredCapabilities = k_RequiredCapabilities,
+        },
+        .StartGpu = &StartGamma,
+    };
+
+    const bootstrap::ModuleDescriptor k_MissingBundleModule
+    {
+        .Name = "missing_bundle",
+        .Needs = bootstrap::ModuleNeeds{ .Bundles = k_MissingBundles },
+        .StartGpu = &StartGamma,
     };
 
     std::vector<std::string>& DestroyLog()

@@ -41,6 +41,7 @@ namespace bootstrap
         case BootResultCode::ModuleInstanceInvalid: return "ModuleInstanceInvalid";
         case BootResultCode::BundleNotFound: return "BundleNotFound";
         case BootResultCode::BundleInvalid: return "BundleInvalid";
+        case BootResultCode::BundleNameConflict: return "BundleNameConflict";
         case BootResultCode::InstanceCreateFailed: return "InstanceCreateFailed";
         case BootResultCode::SurfaceCreateFailed: return "SurfaceCreateFailed";
         case BootResultCode::NoDeviceMeetsRequirements: return "NoDeviceMeetsRequirements";

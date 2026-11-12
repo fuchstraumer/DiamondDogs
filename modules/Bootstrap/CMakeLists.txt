@@ -1,8 +1,11 @@
 set(BOOTSTRAP_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/BootResult.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/BootTimings.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/ContentStage.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/CoreStage.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/DeviceRequirements.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/LaunchStage.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/LoadedBundle.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/ModuleDescriptor.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ModuleSelection.hpp"
 )
@@ -10,7 +13,9 @@ set(BOOTSTRAP_HEADERS
 set(BOOTSTRAP_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/BootResult.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/BootTimings.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ContentStage.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/CoreStage.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/DeviceRequirements.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/LaunchStage.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ModuleDescriptor.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ModuleSelection.cpp"

@@ -31,6 +31,8 @@ namespace bootstrap
         // content
         BundleNotFound,
         BundleInvalid,
+        // two requests give one file name and profile, with different build-tree paths
+        BundleNameConflict,
         // device
         InstanceCreateFailed,
         SurfaceCreateFailed,

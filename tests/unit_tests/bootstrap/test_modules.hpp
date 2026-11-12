@@ -50,6 +50,20 @@ namespace bootstrap_tests
     // core: depends on gamma, which starts later
     extern const bootstrap::ModuleDescriptor k_NeedsGammaModule;
 
+    // the bundle of BootNeedsWave and BootNeedsPlain, and the HashFill bundle, at their build-tree paths. Every cook
+    // writes ShaderLibrary.ldmanifest, so each request names the copy that an app would place beside its executable
+    extern const bootstrap::BundleRequest k_BootNeedsRequest;
+    extern const bootstrap::BundleRequest k_HashFillRequest;
+    // a file that exists nowhere
+    extern const bootstrap::BundleRequest k_MissingRequest;
+
+    // gpu: needs the HashFill bundle, and the BootNeeds bundle again (opened once)
+    extern const bootstrap::ModuleDescriptor k_HashFillUserModule;
+    // gpu: needs extensions, and requires GroupNonUniformArithmetic, which BootNeedsWave only wants
+    extern const bootstrap::ModuleDescriptor k_ExtensionsModule;
+    // gpu: needs a bundle that does not exist
+    extern const bootstrap::ModuleDescriptor k_MissingBundleModule;
+
     /** @brief The names of the destroyed module objects, in destruction order. */
     [[nodiscard]] std::vector<std::string>& DestroyLog();
 
