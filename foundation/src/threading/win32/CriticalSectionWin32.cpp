@@ -1,11 +1,9 @@
 #include "threading/CriticalSection.hpp"
 #include <cstdint>
 #include <cstddef>
-#define NO_MINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #undef WIN32_LEAN_AND_MEAN
-#undef NO_MINMAX
 
 CriticalSection::CriticalSection()
 {

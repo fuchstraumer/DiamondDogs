@@ -73,12 +73,15 @@ set(threading_source_files
     "include/threading/concurrent_vector.hpp"
     "include/threading/CriticalSection.hpp"
     "include/threading/ExponentialBackoffSleeper.hpp"
-    "include/threading/FrameLimiter.hpp"
-    "include/threading/PrecisionTimer.hpp"
     "include/threading/SrwLock.hpp"
     "src/threading/atomic128.cpp"
-    "src/threading/ExponentialBackoffSleeper.cpp"
-    "src/threading/FrameLimiter.cpp")
+    "src/threading/ExponentialBackoffSleeper.cpp")
+
+set(timing_source_files
+    "include/timing/FrameLimiter.hpp"
+    "include/timing/HighResolutionWait.hpp"
+    "include/timing/MonotonicClock.hpp"
+    "src/timing/FrameLimiter.cpp")
 
 set(event_source_files
     "include/events/DisplayEvents.hpp"
@@ -88,13 +91,15 @@ set(event_source_files
 if(WIN32)
     set(threading_platform_source_files
         "src/threading/win32/CriticalSectionWin32.cpp"
-        "src/threading/win32/PrecisionTimerWin32.cpp"
         "src/threading/win32/SrwLockWin32.cpp")
+    set(timing_platform_source_files
+        "src/timing/win32/HighResolutionWaitWin32.cpp")
 elseif(UNIX)
     set(threading_platform_source_files
         "src/threading/unix/CriticalSectionUnix.cpp"
-        "src/threading/unix/PrecisionTimerUnix.cpp"
         "src/threading/unix/SrwLockUnix.cpp")
+    set(timing_platform_source_files
+        "src/timing/unix/HighResolutionWaitUnix.cpp")
 endif()
 
 set(utility_source_files
@@ -141,6 +146,7 @@ source_group("net" FILES ${foundation_net_source_files})
 source_group("reflect" FILES ${foundation_reflect_source_files})
 source_group("containers" FILES ${foundation_containers_source_files})
 source_group("threading" FILES ${threading_source_files} ${threading_platform_source_files})
+source_group("timing" FILES ${timing_source_files} ${timing_platform_source_files})
 source_group("utility" FILES ${utility_source_files})
 source_group("reactors" FILES ${reactors_source_files})
 source_group("maths" FILES ${maths_source_files})
@@ -156,6 +162,8 @@ add_library(foundation STATIC
     ${threading_source_files}
     ${event_source_files}
     ${threading_platform_source_files}
+    ${timing_source_files}
+    ${timing_platform_source_files}
     ${utility_source_files}
     ${reactors_source_files}
     ${maths_source_files})

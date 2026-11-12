@@ -1,11 +1,11 @@
 #include <gtest/gtest.h>
-#include "threading/FrameLimiter.hpp"
+#include "timing/FrameLimiter.hpp"
 #include <chrono>
 
-TEST(FrameLimiterTest, DefaultFramerate)
+TEST(FrameLimiterTest, TakesTheGivenFramerate)
 {
-    foundation::FrameLimiter limiter;
-    EXPECT_DOUBLE_EQ(limiter.TargetFramerate(), 60.0);
+    foundation::FrameLimiter limiter(165.0);
+    EXPECT_DOUBLE_EQ(limiter.TargetFramerate(), 165.0);
 }
 
 TEST(FrameLimiterTest, InvalidFramerateFallback)

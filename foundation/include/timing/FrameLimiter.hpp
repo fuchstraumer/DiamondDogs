@@ -1,9 +1,8 @@
 #pragma once
-#ifndef FOUNDATION_THREADING_FRAME_LIMITER_HPP
-#define FOUNDATION_THREADING_FRAME_LIMITER_HPP
-
+#ifndef FOUNDATION_TIMING_FRAME_LIMITER_HPP
+#define FOUNDATION_TIMING_FRAME_LIMITER_HPP
+#include "timing/HighResolutionWait.hpp"
 #include <chrono>
-#include "threading/PrecisionTimer.hpp"
 
 namespace foundation
 {
@@ -11,9 +10,10 @@ namespace foundation
 class FrameLimiter
 {
 public:
+
     using Clock = std::chrono::steady_clock;
 
-    explicit FrameLimiter(double target_fps = 60.0) noexcept;
+    explicit FrameLimiter(double target_fps) noexcept;
 
     void SetTargetFramerate(double fps) noexcept;
     [[nodiscard]] double TargetFramerate() const noexcept;
@@ -24,14 +24,16 @@ public:
     void WaitNextFrame() noexcept;
 
 private:
+
     std::chrono::steady_clock::duration targetInterval{};
     std::chrono::steady_clock::time_point nextDeadline{};
     double targetFps{ 60.0 };
     bool initialized{ false };
-    PrecisionTimer precisionTimer{};
+    HighResolutionWait highResolutionWait;
     std::chrono::microseconds spinMargin{ 300 };
+
 };
 
 } // namespace foundation
 
-#endif // FOUNDATION_THREADING_FRAME_LIMITER_HPP
+#endif // !FOUNDATION_TIMING_FRAME_LIMITER_HPP

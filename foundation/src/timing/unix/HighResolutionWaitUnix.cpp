@@ -1,11 +1,9 @@
-#include "threading/PrecisionTimer.hpp"
+#include "timing/HighResolutionWait.hpp"
+#include <cerrno>
 #include <chrono>
 #include <memory>
 #include <time.h>
 #include <unistd.h>
-#include <cerrno>
-#include <algorithm>
-#include <thread>
 
 #if __has_include(<sys/prctl.h>)
 #include <sys/prctl.h>
@@ -14,39 +12,41 @@
 namespace foundation
 {
 
-struct PlatformTimerImpl
+struct HighResolutionWaitImpl
 {
     bool HighResolutionActive{ true };
 };
 
-PrecisionTimer::PrecisionTimer()
-    : impl(std::make_unique<PlatformTimerImpl>())
+HighResolutionWait::HighResolutionWait() : impl(std::make_unique<HighResolutionWaitImpl>())
 {
 #if defined(PR_SET_TIMERSLACK)
     prctl(PR_SET_TIMERSLACK, 1);
 #endif
 }
 
-PrecisionTimer::~PrecisionTimer() = default;
+HighResolutionWait::~HighResolutionWait() = default;
 
-PrecisionTimer::PrecisionTimer(PrecisionTimer&& other) noexcept = default;
-PrecisionTimer& PrecisionTimer::operator=(PrecisionTimer&& other) noexcept = default;
+HighResolutionWait::HighResolutionWait(HighResolutionWait&& other) noexcept = default;
+HighResolutionWait& HighResolutionWait::operator=(HighResolutionWait&& other) noexcept = default;
 
-bool PrecisionTimer::HasHighResolutionSupport() const noexcept
+bool HighResolutionWait::HasHighResolutionSupport() const noexcept
 {
     return true;
 }
 
-void PrecisionTimer::SleepUntil(const std::chrono::steady_clock::time_point& deadline) noexcept
+void HighResolutionWait::SleepUntil(const std::chrono::steady_clock::time_point& deadline) noexcept
 {
-    const auto now = std::chrono::steady_clock::now();
+    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+
     if (deadline <= now)
     {
         return;
     }
 
+    // libstdc++ and libc++ build steady_clock on CLOCK_MONOTONIC, so the deadline is an absolute CLOCK_MONOTONIC time
     const auto totalNsec = std::chrono::duration_cast<std::chrono::nanoseconds>(deadline.time_since_epoch()).count();
     struct timespec ts;
+
     ts.tv_sec = static_cast<time_t>(totalNsec / 1'000'000'000LL);
     ts.tv_nsec = static_cast<long>(totalNsec % 1'000'000'000LL);
 
@@ -55,7 +55,7 @@ void PrecisionTimer::SleepUntil(const std::chrono::steady_clock::time_point& dea
     }
 }
 
-void PrecisionTimer::SleepFor(const std::chrono::steady_clock::duration& duration) noexcept
+void HighResolutionWait::SleepFor(const std::chrono::steady_clock::duration& duration) noexcept
 {
     if (duration <= std::chrono::steady_clock::duration::zero())
     {
@@ -64,6 +64,7 @@ void PrecisionTimer::SleepFor(const std::chrono::steady_clock::duration& duratio
 
     const auto totalNsec = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
     struct timespec req;
+
     req.tv_sec = static_cast<time_t>(totalNsec / 1'000'000'000LL);
     req.tv_nsec = static_cast<long>(totalNsec % 1'000'000'000LL);
 

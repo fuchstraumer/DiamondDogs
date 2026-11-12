@@ -80,7 +80,7 @@ VMA asserts this way when a mapped allocation is destroyed.
 
 | Target | Proves |
 |---|---|
-| `foundation_tests` | Containers (the MWSR queue, including IDs that cross 2^31, 2^32 and 2^62), math, threading primitives, delegates. |
+| `foundation_tests` | Containers (the MWSR queue, including IDs that cross 2^31, 2^32 and 2^62), math, threading primitives, timing (the monotonic clock, `HighResolutionWait`, `FrameLimiter`), delegates. |
 | `rhi_system_tests` | Instance and device creation per API version, extension resolution, shader objects. |
 | `platform_system_tests` | Displays, windows, swapchain creation, JSON configuration. |
 | `resource_context_tests` | `ResourceContext` on a real device: every create path, uploads read back word for word, fills, copies, maps, samplers, four threads at once, and shutdown with queued work. |
@@ -107,7 +107,7 @@ VMA asserts this way when a mapped allocation is destroyed.
 
 | Path | Holds |
 |---|---|
-| `foundation/` | Containers, math, threading, delegates, image formats. No graphics API. |
+| `foundation/` | Containers, math, threading, delegates, image formats. No graphics API. `timing/`: `MonotonicNanoseconds` and `Stopwatch` read the time (header-only, so `bootstrap` uses them without linking `foundation`); `HighResolutionWait` and `FrameLimiter` sleep. |
 | `modules/ShaderBundle/` | `rhi::ShaderBundle`: reads a cooked Lodestone bundle with no device, so code that runs before the device exists can open bundles without the RHI. `rhi_system` links it. |
 | `modules/Bootstrap/` | `bootstrap`: the boot stages that need no RHI (`LaunchStage`, `CoreStage`), module descriptors and profiles, `BootResult`, and the boot timings. `README.md` explains it. `bootstrap_assert_no_rhi` fails the configure when a target reaches `rhi_system`. |
 | `modules/RhiSystem/` | Instance, device, extensions, command pools, fences, semaphores, shader objects, and `ShaderLibrary` (the Lodestone client). `GenerateExtensionAndFeatureHeaders.py` writes the extension tables from `vk.xml`. |
@@ -200,8 +200,8 @@ She reads and audits every line, so code must not look dense. Whitespace is free
 - **Between chunks:** separate chunks of straight-line code where the work changes step, for example a result
   variable declared at the top, then the setup below it.
 - **No padding inside braces:** no blank line right after `{` or right before `}`. `else` stays attached to its `if`.
-  Inside a `switch`, no blank lines between cases. Only a case that returns a value stays on one line; every other
-  case puts its label, statement and `break` on separate lines (the style file shows it).
+  Inside a `switch`, no blank lines between cases. Never put a case on one line, not even one that only returns a
+  value: the label, each statement, and the `break` or `return` go on separate lines (the style file shows it).
 - **Private member functions are camelCase**, like private member variables (`applyButtonDown`). The style file has
   the rule.
 - **Comments:** a comment line can take the place of a blank line.

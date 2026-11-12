@@ -1,7 +1,13 @@
-#include "threading/FrameLimiter.hpp"
+#include "timing/FrameLimiter.hpp"
 #include <chrono>
 #include <ratio>
 #include <immintrin.h>
+
+namespace
+{
+    // a rate of 1 Hz or less is a caller error, not a frame rate
+    constexpr double k_FallbackFramerate{ 60.0 };
+}
 
 namespace foundation
 {
@@ -17,16 +23,11 @@ void FrameLimiter::SetTargetFramerate(double fps) noexcept
 {
     if (fps <= 1.0)
     {
-        fps = 60.0;
+        fps = k_FallbackFramerate;
     }
 
     targetFps = fps;
-
-    targetInterval = std::chrono::duration_cast<Clock::duration>
-    (
-        std::chrono::duration<double, std::ratio<1, 1>>(1.0 / targetFps)
-    );
-    
+    targetInterval = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double, std::ratio<1, 1>>(1.0 / targetFps));
     initialized = false;
 }
 
@@ -57,8 +58,8 @@ void FrameLimiter::Reset() noexcept
 
 void FrameLimiter::WaitNextFrame() noexcept
 {
-    const auto now = Clock::now();
-    
+    const Clock::time_point now = Clock::now();
+
     if (!initialized)
     {
         nextDeadline = now + targetInterval;
@@ -72,17 +73,17 @@ void FrameLimiter::WaitNextFrame() noexcept
         return;
     }
 
+    // sleep to within the spin margin, then spin: a sleep can overshoot, a spin cannot
     while (Clock::now() + spinMargin < nextDeadline)
     {
-        const auto remaining = nextDeadline - Clock::now();
-        if (remaining > spinMargin)
-        {
-            precisionTimer.SleepFor(remaining - spinMargin);
-        }
-        else
+        const Clock::duration remaining = nextDeadline - Clock::now();
+
+        if (remaining <= spinMargin)
         {
             break;
         }
+
+        highResolutionWait.SleepFor(remaining - spinMargin);
     }
 
     while (Clock::now() < nextDeadline)
