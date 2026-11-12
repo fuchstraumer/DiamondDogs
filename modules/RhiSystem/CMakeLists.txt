@@ -55,14 +55,12 @@ set(RHI_OBJECT_SOURCES
 
 set(RHI_SHADER_SYSTEM_HEADERS
     "include/shaders/ExecutableStatistics.hpp"
-    "include/shaders/ShaderBundle.hpp"
     "include/shaders/ShaderLibrary.hpp"
     "include/shaders/ShaderProgram.hpp"
     "include/shaders/ShaderTypes.hpp")
 
 set(RHI_SHADER_SYSTEM_SOURCES
     "src/shaders/ExecutableStatistics.cpp"
-    "src/shaders/ShaderBundle.cpp"
     "src/shaders/ShaderLibrary.cpp"
     "src/shaders/ShaderProgram.cpp")
 
@@ -93,7 +91,7 @@ else()
     message(FATAL_ERROR "Unknown RHI_SYSTEM_GRAPHICS_API: ${RHI_SYSTEM_GRAPHICS_API}. Supported values are Vulkan and DirectX12.")
 endif()
 
-TARGET_LINK_LIBRARIES(rhi_system PUBLIC ${Vulkan_LIBRARY} lodestone::client_library lodestone::client_interface)
+TARGET_LINK_LIBRARIES(rhi_system PUBLIC ${Vulkan_LIBRARY} shader_bundle lodestone::client_library lodestone::client_interface)
 TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC
     "../../third_party/json/include"
     ${Vulkan_INCLUDE_DIR}

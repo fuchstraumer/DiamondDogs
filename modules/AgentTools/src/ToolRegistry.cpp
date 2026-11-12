@@ -3,6 +3,7 @@
 #include "content/EncodeErased.hpp"
 #include "content/JsonWriter.hpp"
 #include "reflect/ValueAccess.hpp"
+#include "utility/NearestNames.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
@@ -35,9 +36,6 @@ namespace
     [[nodiscard]] bool PathsOverlap(std::string_view shorter, std::string_view longer) noexcept;
     // the first path step of an argument, without its index or its child fields
     [[nodiscard]] std::string_view FirstStep(std::string_view path) noexcept;
-    [[nodiscard]] int32_t EditDistance(std::string_view first, std::string_view second);
-    [[nodiscard]] std::vector<std::string> NearestNames(std::string_view word,
-                                                        std::span<const std::string_view> names);
     // the leading part of a path with as many dots as the name, so that a wrong object name compares equal in
     // length
     [[nodiscard]] std::string_view LeadingStepsLike(std::string_view path, std::string_view name) noexcept;
@@ -248,7 +246,7 @@ namespace agent
             .Code = ToolResultCode::UnknownCommand,
             .Message = std::format("no command has the name '{}'", name),
             .Path = std::string{ name },
-            .Suggestions = NearestNames(name, names),
+            .Suggestions = foundation::NearestNames(name, names, k_MaxSuggestions),
         });
     }
 
@@ -340,9 +338,8 @@ namespace agent
         {
             const std::string_view leading = LeadingStepsLike(path, object.Path);
             const std::string_view name{ object.Path };
-            std::vector<std::string> nearest = NearestNames(leading,
-                                                            std::span<const std::string_view>{ &name,
-                                                            1u });
+            const std::span<const std::string_view> candidates{ &name, 1u };
+            std::vector<std::string> nearest = foundation::NearestNames(leading, candidates, k_MaxSuggestions);
 
             suggestions.insert(suggestions.end(),
                                std::make_move_iterator(nearest.begin()),
@@ -377,74 +374,6 @@ namespace
     std::string_view FirstStep(std::string_view path) noexcept
     {
         return path.substr(0u, path.find_first_of(".["));
-    }
-
-    int32_t EditDistance(std::string_view first, std::string_view second)
-    {
-        std::vector<int32_t> previous(second.size() + 1u);
-        std::vector<int32_t> current(second.size() + 1u);
-
-        for (size_t column = 0u; column < previous.size(); ++column)
-        {
-            previous[column] = static_cast<int32_t>(column);
-        }
-
-        for (size_t row = 0u; row < first.size(); ++row)
-        {
-            current[0] = static_cast<int32_t>(row) + 1;
-
-            for (size_t column = 0u; column < second.size(); ++column)
-            {
-                const unsigned char firstChar = static_cast<unsigned char>(first[row]);
-                const unsigned char secondChar = static_cast<unsigned char>(second[column]);
-                const bool same = std::tolower(firstChar) == std::tolower(secondChar);
-                const int32_t replaced = previous[column] + (same ? 0 : 1);
-                const int32_t removed = previous[column + 1u] + 1;
-                const int32_t inserted = current[column] + 1;
-
-                current[column + 1u] = std::min({ replaced, removed, inserted });
-            }
-
-            std::swap(previous, current);
-        }
-
-        return previous.back();
-    }
-
-    std::vector<std::string> NearestNames(std::string_view word, std::span<const std::string_view> names)
-    {
-        struct Candidate
-        {
-            int32_t Distance{ 0 };
-            std::string_view Name;
-        };
-
-        const int32_t limit = std::max(2, static_cast<int32_t>(word.size()) / 4);
-        std::vector<Candidate> candidates;
-
-        for (const std::string_view name : names)
-        {
-            const int32_t distance = EditDistance(word, name);
-
-            if (distance <= limit)
-            {
-                candidates.push_back(Candidate{ .Distance = distance, .Name = name });
-            }
-        }
-
-        std::ranges::stable_sort(candidates, {}, &Candidate::Distance);
-
-        const int64_t keptCount = std::min<int64_t>(std::ssize(candidates), k_MaxSuggestions);
-        std::vector<std::string> nearest;
-
-        nearest.reserve(static_cast<size_t>(keptCount));
-
-        for (const Candidate& candidate : candidates | std::views::take(keptCount))
-        {
-            nearest.emplace_back(candidate.Name);
-        }
-
-        return nearest;
     }
 
     std::string_view LeadingStepsLike(std::string_view path, std::string_view name) noexcept
@@ -510,7 +439,7 @@ namespace
 
         const std::string_view word = FirstStep(rest);
 
-        return NearestNames(word, names);
+        return foundation::NearestNames(word, names, k_MaxSuggestions);
     }
 
     std::string DescribeValueError(const TypeInfo& root,

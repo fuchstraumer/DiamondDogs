@@ -102,10 +102,11 @@ namespace rhi
         ShaderLibrary(ShaderLibrary&& other) noexcept = default;
         ShaderLibrary& operator=(ShaderLibrary&& other) noexcept = default;
 
-        /** @brief Reads the bundle at `manifest_path` and validates it. */
+        /** @brief Reads the bundle at `manifest_path` and validates it. Native callers pass `k_SpirvProfileName`
+         *  (ShaderBundle.hpp). */
         [[nodiscard]] static ShaderLibraryResult<std::unique_ptr<ShaderLibrary>> Open(
             const std::filesystem::path& manifest_path,
-            std::string_view profile_name = "spirv");
+            std::string_view profile_name);
 
         /** @brief Returns the query surface of one module, used to pick a variant by its axis values.
          *  The returned index lives as long as this library. */

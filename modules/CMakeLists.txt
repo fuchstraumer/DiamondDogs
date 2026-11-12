@@ -29,6 +29,10 @@ function(add_module NAME)
     diamond_dogs_add_pch(${NAME} LIBRARY)
 endfunction()
 
+# reads cooked Lodestone bundles with no graphics device; rhi_system links it
+add_subdirectory(ShaderBundle)
+# the boot stages that need no RHI: launch, core, content; bootstrap_vulkan will add the device stages
+add_subdirectory(Bootstrap)
 add_subdirectory(RhiSystem)
 add_subdirectory(PlatformSystem)
 add_subdirectory(RhiResources)

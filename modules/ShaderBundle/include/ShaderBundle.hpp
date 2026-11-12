@@ -1,6 +1,6 @@
 #pragma once
-#ifndef DIAMOND_DOGS_RHI_SYSTEM_SHADER_BUNDLE_HPP
-#define DIAMOND_DOGS_RHI_SYSTEM_SHADER_BUNDLE_HPP
+#ifndef DIAMOND_DOGS_SHADER_BUNDLE_HPP
+#define DIAMOND_DOGS_SHADER_BUNDLE_HPP
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -35,6 +35,9 @@ namespace rhi
 
     template<typename T>
     using ShaderBundleResult = std::expected<T, ShaderBundleError>;
+
+    // the profile that Lodestone cooks for Vulkan. Every native caller opens bundles with it
+    inline constexpr std::string_view k_SpirvProfileName{ "spirv" };
 
     [[nodiscard]] std::string_view ToString(ShaderBundleError error) noexcept;
 
@@ -78,4 +81,4 @@ namespace rhi
 
 }
 
-#endif // !DIAMOND_DOGS_RHI_SYSTEM_SHADER_BUNDLE_HPP
+#endif // !DIAMOND_DOGS_SHADER_BUNDLE_HPP
