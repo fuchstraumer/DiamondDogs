@@ -102,8 +102,10 @@ set(utility_source_files
     "include/utility/EnumFlagUtils.hpp"
     "include/utility/MulticastDelegate.hpp"
     "include/utility/MurmurHash.hpp"
+    "include/utility/NearestNames.hpp"
     "include/utility/TaggedBool.hpp"
-    "src/utility/MurmurHash.cpp")
+    "src/utility/MurmurHash.cpp"
+    "src/utility/NearestNames.cpp")
 
 set(reactors_source_files
     "include/reactors/casReactor.hpp"
