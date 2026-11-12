@@ -18,6 +18,7 @@
 #include "RhiHandle.hpp"
 #include "RhiSystem.hpp"
 #include "RhiTypes.hpp"
+#include "ShaderBundle.hpp"
 #include "ShaderLibrary.hpp"
 #include "TransferFunctions.hpp"
 #include <algorithm>
@@ -210,7 +211,7 @@ int main()
     createInfo.RequiredDeviceExtensions = { "VK_EXT_shader_object" };
     auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
 
-    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(COLOR_PIPE_TEST_MANIFEST);
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(COLOR_PIPE_TEST_MANIFEST, rhi::k_SpirvProfileName);
 
     if (!library.has_value())
     {

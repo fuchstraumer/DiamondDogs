@@ -39,6 +39,7 @@
 #include "RhiResult.hpp"
 #include "RhiSystem.hpp"
 #include "RhiTypes.hpp"
+#include "ShaderBundle.hpp"
 #include "ShaderLibrary.hpp"
 #include "ShaderManifestIndex.hpp"
 #include "ShaderObjectState.hpp"
@@ -389,7 +390,7 @@ void OceanScene::Initialize(void* user_data)
         Fail(std::format("OceanScene: ResourceContext::Initialize failed: {}", ToString(resourcesResult)));
     }
 
-    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> opened = rhi::ShaderLibrary::Open(settings.ManifestPath);
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> opened = rhi::ShaderLibrary::Open(settings.ManifestPath, rhi::k_SpirvProfileName);
     if (!opened.has_value())
     {
         Fail(std::format("OceanScene: opening {} failed: {}", settings.ManifestPath.string(), rhi::ToString(opened.error())));
@@ -465,7 +466,7 @@ void OceanScene::Initialize(void* user_data)
     startup.Mark("OceanFoam::Create");
 
     // ColorPipe library and pipeline
-    auto libResult = rhi::ShaderLibrary::Open(settings.ColorPipeManifestPath);
+    auto libResult = rhi::ShaderLibrary::Open(settings.ColorPipeManifestPath, rhi::k_SpirvProfileName);
     if (!libResult.has_value())
     {
         Fail(std::format("OceanScene: loading ColorPipe manifest {}: {}", settings.ColorPipeManifestPath.string(), rhi::ToString(libResult.error())));

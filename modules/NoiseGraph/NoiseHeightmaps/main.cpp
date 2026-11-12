@@ -17,6 +17,7 @@
 #include "ShaderManifest.hpp"
 #include "ShaderManifestFormat.hpp"
 #include "ShaderManifestIndex.hpp"
+#include "ShaderBundle.hpp"
 #include "ShaderLibrary.hpp"
 #include "ShaderManifestLayout.hpp"
 #include "ShaderProgram.hpp"
@@ -278,7 +279,7 @@ int main(int argc, char** argv)
     createInfo.RequiredDeviceExtensions = { "VK_EXT_shader_object" };
     auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
 
-    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(NOISE_HEIGHTMAPS_MANIFEST);
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(NOISE_HEIGHTMAPS_MANIFEST, rhi::k_SpirvProfileName);
 
     if (!library.has_value())
     {

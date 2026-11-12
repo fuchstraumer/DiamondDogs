@@ -8,6 +8,7 @@
 #include "ResourceContext.hpp"
 #include "RhiAssert.hpp"
 #include "RhiSystem.hpp"
+#include "ShaderBundle.hpp"
 #include "ShaderLibrary.hpp"
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
@@ -477,7 +478,7 @@ int main()
     createInfo.RequiredDeviceExtensions = { "VK_EXT_shader_object" };
     auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
 
-    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(GPU_PYRAMID_TEST_MANIFEST);
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(GPU_PYRAMID_TEST_MANIFEST, rhi::k_SpirvProfileName);
     if (!library.has_value())
     {
         std::cerr << std::format("Failed to open {}: {}\n", GPU_PYRAMID_TEST_MANIFEST, rhi::ToString(library.error()));

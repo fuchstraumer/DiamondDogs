@@ -7,7 +7,6 @@
 #include <string>
 #include <vector>
 #include <vulkan/vulkan_core.h>
-#include <nlohmann/json_fwd.hpp>
 
 #ifdef RHI_SYSTEM_USE_DEBUG_INFO_CONF
 constexpr static bool RHI_SYSTEM_USE_DEBUG_INFO = true;
@@ -74,7 +73,6 @@ class RhiSystem
 {
 public:
 
-    RhiSystem(const char* cfg_file_path);
     RhiSystem(const RhiSystemCreateInfo& create_info);
     ~RhiSystem();
     RhiSystem(const RhiSystem&) = delete;
@@ -91,11 +89,8 @@ public:
 
 private:
 
-    void gatherAndResolveInstanceExtensions(const nlohmann::json& json_file);
-    void createInstance(const nlohmann::json& rhi_config, const nlohmann::json& engine_config);
     void createInstance(const RhiSystemCreateInfo& create_info);
     void createDebugUtilsMessenger();
-    void gatherDeviceExtensions(const nlohmann::json& all_config, const nlohmann::json& rhi_config);
     void createLogicalDevice();
     void setupObjectNaming();
 
@@ -107,12 +102,6 @@ private:
     PFN_vkDestroyDebugUtilsMessengerEXT destroyDebugUtilsMessenger{ nullptr };
 
 };
-
-namespace detail
-{
-    /** @brief Parses "major[.minor[.patch]]". A missing or non-numeric component reads as 0. Exposed for tests. */
-    void SplitVersionString(const std::string& version_string, uint32_t& major_version, uint32_t& minor_version, uint32_t& patch_version);
-}
 
 } // namespace rhi
 

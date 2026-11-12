@@ -6,7 +6,6 @@ set(RENDERING_CONTEXT_TEST_SOURCES
     TestGpuTimeline.cpp
     TestGpuTimers.cpp
     TestExecutableStatistics.cpp
-    TestJsonConfig.cpp
     TestMain.cpp
     TestRhiSystem.cpp
     TestShaderBundle.cpp

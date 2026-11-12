@@ -360,29 +360,3 @@ TEST_F(RhiSystemTest, DestroyTwiceIsSafe)
     EXPECT_NO_THROW(rhiSystem->Destroy());
     EXPECT_NO_THROW(rhiSystem.reset());
 }
-
-// "1.2" used to parse as 1.0.0, and every patch component as 0
-TEST(SplitVersionString, ParsesEveryComponent)
-{
-    struct Case { const char* Text; uint32_t Major, Minor, Patch; };
-    constexpr Case k_Cases[]
-    {
-        { "1", 1, 0, 0 },
-        { "1.2", 1, 2, 0 },
-        { "1.2.3", 1, 2, 3 },
-        { "10.20.30", 10, 20, 30 },
-        { "2.", 2, 0, 0 },
-        { "", 0, 0, 0 },
-        { "x.y", 0, 0, 0 },
-    };
-    for (const Case& c : k_Cases)
-    {
-        uint32_t major = 99u;
-        uint32_t minor = 99u;
-        uint32_t patch = 99u;
-        rhi::detail::SplitVersionString(c.Text, major, minor, patch);
-        EXPECT_EQ(major, c.Major) << c.Text;
-        EXPECT_EQ(minor, c.Minor) << c.Text;
-        EXPECT_EQ(patch, c.Patch) << c.Text;
-    }
-}

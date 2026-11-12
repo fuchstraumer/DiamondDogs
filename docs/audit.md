@@ -647,3 +647,8 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
 ### 2026-11-10 (Opus: render graph)
 
 - Resolve plumbing and its test bundle, the Freeze graph-pin fix (LM108), and the engine boot brief (`docs/engine-boot-brief.md`). Details in `docs/rendergraph-agent.md`.
+
+### 2026-11-11 (Opus: RhiSystem and bootstrap)
+
+- New role and handbook (`docs/rhi-agent.md`). Bootstrap module designed (`docs/bootstrap-api-draft.md`); step 1 done: JSON RhiSystem constructor removed, `ShaderBundle` moved to its own target, no default argument on `ShaderLibrary::Open`. Details in `docs/rhi-agent.md`.
+- Step 2: `modules/Bootstrap` (`LaunchStage`, `CoreStage`, profiles, boot timings), `bootstrap_tests` (35), the `ContentCooker` stub with a configure-time no-RHI check. Item 6 deferred to `DeviceStage`. Details in `docs/rhi-agent.md`.

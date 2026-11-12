@@ -11,6 +11,7 @@
 #include "RhiSystem.hpp"
 #include "RhiTypes.hpp"
 #include "SeaState.hpp"
+#include "ShaderBundle.hpp"
 #include "ShaderLibrary.hpp"
 #include <algorithm>
 #include <array>
@@ -165,7 +166,7 @@ int main()
     auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
     rhi::Device& device = *rhiSystem->GetDevice();
 
-    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(OCEAN_FFT_MANIFEST);
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(OCEAN_FFT_MANIFEST, rhi::k_SpirvProfileName);
 
     if (!library.has_value())
     {
