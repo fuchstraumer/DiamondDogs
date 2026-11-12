@@ -1,14 +1,25 @@
 #include "LaunchStage.hpp"
+#include "BootResult.hpp"
+#include "BootTimings.hpp"
 #include "ModuleDescriptor.hpp"
 #include "ModuleSelection.hpp"
+#include "nlohmann/json_fwd.hpp"
 #include "utility/NearestNames.hpp"
+#include <cstdint>
+#include <filesystem>
+#include <ios>
 #include <nlohmann/json.hpp>
 #include <array>
 #include <format>
 #include <fstream>
 #include <ranges>
+#include <span>
 #include <sstream>
+#include <string>
+#include <string_view>
 #include <system_error>
+#include <utility>
+#include <vector>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -200,9 +211,9 @@ namespace bootstrap
 
         if (profileName.empty())
         {
-            const std::vector<std::string_view> everyName =
-                linked_modules | std::views::transform(&ModuleDescriptor::Name)
-                               | std::ranges::to<std::vector<std::string_view>>();
+            const std::vector<std::string_view> everyName = linked_modules |
+                                                            std::views::transform(&ModuleDescriptor::Name) |
+                                                            std::ranges::to<std::vector<std::string_view>>();
 
             return SelectModules(linked_modules, everyName, "every linked module", lastStage, selected);
         }

@@ -16,20 +16,19 @@ namespace bootstrap
         Invalid = 0,
         InstanceExtension,
         DeviceExtension,
-        // a name in Lodestone's vocabulary: a SPIR-V capability or extension name, or a WGSL enable name
+        // SPIR-V capability or extension name, or a WGSL enable name
         Capability,
     };
 
     enum class NeedLevel : uint8_t
     {
         Invalid = 0,
-        // the device must have it, or boot fails
-        Required,
-        // the device stage enables it when the device has it
-        Wanted,
+        Required, // the device must have it, or boot fails
+        Wanted, // the device stage enables it when the device has it: optional, but optimal
     };
 
-    /** Where one need came from, so that a boot failure names the module, the bundle and the entry point. */
+    /** @brief Describes the origin of a single device requirement, so that a boot failure can accurately
+      * report the module, the bundle, and the entry point responsible for the need. */
     struct NeedSource
     {
         // the descriptor name of the module that asked, or empty for the executable's own bundles and the spine

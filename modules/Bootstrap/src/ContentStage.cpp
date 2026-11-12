@@ -76,11 +76,8 @@ namespace bootstrap
 
     void ContentStage::Stop() noexcept
     {
-        while (!bundles.empty())
-        {
-            bundles.pop_back();
-        }
-
+        bundles.clear();
+        bundles.shrink_to_fit();
         core = nullptr;
     }
 
@@ -155,6 +152,7 @@ namespace bootstrap
         }
 
         // without code facts, the bundle cannot say what the device needs
+        // this means we can't get caps from the bundle, so we can't use it!
         const std::string_view blindModule = FindModuleWithoutCodeFacts(*bundle);
 
         if (!blindModule.empty())

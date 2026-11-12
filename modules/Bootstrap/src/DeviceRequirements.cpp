@@ -7,10 +7,13 @@
 #include "ShaderBundle.hpp"
 #include "ShaderLibraryTypes.hpp"
 #include "ShaderManifest.hpp"
+#include "ShaderManifestDevice.hpp"
+#include "ShaderManifestFormat.hpp"
 #include "ShaderManifestLayout.hpp"
 #include <algorithm>
 #include <bit>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <limits>
@@ -72,9 +75,12 @@ namespace bootstrap
     {
         switch (kind)
         {
-        case NeedKind::InstanceExtension: return "InstanceExtension";
-        case NeedKind::DeviceExtension: return "DeviceExtension";
-        case NeedKind::Capability: return "Capability";
+        case NeedKind::InstanceExtension:
+            return "InstanceExtension";
+        case NeedKind::DeviceExtension:
+            return "DeviceExtension";
+        case NeedKind::Capability:
+            return "Capability";
         default: return "Invalid";
         }
     }
@@ -83,9 +89,12 @@ namespace bootstrap
     {
         switch (level)
         {
-        case NeedLevel::Required: return "Required";
-        case NeedLevel::Wanted: return "Wanted";
-        default: return "Invalid";
+        case NeedLevel::Required:
+            return "Required";
+        case NeedLevel::Wanted:
+            return "Wanted";
+        default:
+            return "Invalid";
         }
     }
 }
@@ -96,9 +105,12 @@ namespace
     {
         switch (kind)
         {
-        case bootstrap::NeedKind::InstanceExtension: return requirements.InstanceExtensions;
-        case bootstrap::NeedKind::DeviceExtension: return requirements.DeviceExtensions;
-        default: return requirements.Capabilities;
+        case bootstrap::NeedKind::InstanceExtension:
+            return requirements.InstanceExtensions;
+        case bootstrap::NeedKind::DeviceExtension:
+            return requirements.DeviceExtensions;
+        default:
+            return requirements.Capabilities;
         }
     }
 
