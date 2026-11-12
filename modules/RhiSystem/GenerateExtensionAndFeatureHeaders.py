@@ -5,6 +5,7 @@
 
 from xml.etree import ElementTree
 import argparse
+import re
 import pathlib
 from lark import Lark, Transformer
 
@@ -555,6 +556,8 @@ def WriteDeviceOrInstanceExtensionTable(extensionObjects, fileStream, extensionT
     Writes out a table of extensions that are instance extensions.
     '''
     extensionIndices = []
+    typeByIndex = {extensionObject.nameIndex: extensionObject.xmlObject.get('type') for extensionObject in extensionObjects}
+
     for extensionObject in extensionObjects:
         extensionType = extensionObject.xmlObject.get('type')
         correctExtensionType = extensionType == extensionTypeToWrite
@@ -562,7 +565,10 @@ def WriteDeviceOrInstanceExtensionTable(extensionObjects, fileStream, extensionT
         isAliased = extensionObject.aliasedTo is not None
         if correctExtensionType and validNameIndex and not isAliased:
             extensionIndices.append(extensionObject.nameIndex)
-        elif correctExtensionType and validNameIndex and isAliased:
+        # the target of an alias can be of the other type: VK_EXT_debug_marker (device) was promoted to
+        # VK_EXT_debug_utils (instance). Writing the target under the alias's type put VK_EXT_debug_utils in the
+        # device table, and IsExtensionSupported then asked the physical device for it
+        elif correctExtensionType and validNameIndex and isAliased and typeByIndex.get(extensionObject.aliasedTo) == extensionTypeToWrite:
             extensionIndices.append(extensionObject.aliasedTo)
 
     # ExtensionWrangler binary-searches this table, so it must be sorted and unique. Aliases append the index of
@@ -956,6 +962,202 @@ def WriteExtensionFeatureStructPointerTable(extensionObjects, fileStream):
 
     print('};\n', file=fileStream)
 
+def WriteFeatureMemberTable(tree, headerText, outputPath):
+    """
+    Writes GeneratedFeatureTable.hpp: every VkBool32 member of every feature struct, and every VkBool32 or flags
+    member of every property struct, with the struct's sType, size and member offset. Device creation uses it to set
+    one member in a zeroed struct, and to read one member of a queried struct, by the names that Lodestone's
+    capability table and the spine's feature needs use. A struct is written only when vulkan_core.h defines it, so
+    platform and provisional structs stay out.
+    """
+    # names inside these blocks exist only when a build defines VK_ENABLE_BETA_EXTENSIONS, and ours does not
+    headerText = re.sub(r'#ifdef VK_ENABLE_BETA_EXTENSIONS.*?#endif', '', headerText, flags=re.DOTALL)
+    structNamePattern = re.compile(r'typedef struct (\w+) \{')
+    definedStructs = set(structNamePattern.findall(headerText))
+
+    aliases = {}
+    structElements = {}
+
+    for typeElement in tree.findall('./types/type[@category="struct"]'):
+        name = typeElement.get('name')
+        alias = typeElement.get('alias')
+
+        if alias:
+            aliases[name] = alias
+            continue
+
+        structElements[name] = typeElement
+
+    # the versions and extensions that make each struct (or an alias of it) available
+    requires = {}
+
+    def addRequires(owner, element):
+        for requiredType in element.findall('./require/type'):
+            typeName = requiredType.get('name')
+            canonical = aliases.get(typeName, typeName)
+            requires.setdefault(canonical, [])
+
+            if owner not in requires[canonical]:
+                requires[canonical].append(owner)
+
+    # vk.xml splits each version into internal blocks (VK_BASE_VERSION_1_2 and so on), so name each block by its
+    # version number, as Lodestone's capability table does
+    for featureElement in tree.findall('./feature'):
+        if 'vulkan' in featureElement.get('api', 'vulkan').split(','):
+            versionName = 'VK_VERSION_' + featureElement.get('number').replace('.', '_')
+            addRequires(versionName, featureElement)
+
+    for extensionElement in tree.findall('./extensions/extension'):
+        if 'vulkan' in extensionElement.get('supported', '').split(','):
+            addRequires(extensionElement.get('name'), extensionElement)
+
+    def extendsOf(element):
+        return (element.get('structextends') or '').split(',')
+
+    featureStructs = []
+    propertyStructs = []
+
+    for name, element in sorted(structElements.items()):
+        if name not in definedStructs:
+            continue
+
+        if 'VkPhysicalDeviceFeatures2' in extendsOf(element):
+            featureStructs.append(name)
+        elif 'VkPhysicalDeviceProperties2' in extendsOf(element):
+            propertyStructs.append(name)
+
+    def stypeOf(element):
+        for member in element.findall('./member'):
+            memberType = member.find('type')
+
+            if memberType is not None and memberType.text == 'VkStructureType':
+                return member.get('values')
+
+        return None
+
+    flagBitsTypes = {}
+
+    for typeElement in tree.findall('./types/type[@category="bitmask"]'):
+        nameElement = typeElement.find('name')
+        bits = typeElement.get('requires') or typeElement.get('bitvalues')
+
+        if nameElement is not None and bits:
+            flagBitsTypes[nameElement.text] = bits
+
+    def membersOf(structName, allowFlags):
+        element = structElements[structName]
+        members = []
+
+        for member in element.findall('./member'):
+            # vk.xml can list a member once per API (vulkan, vulkansc)
+            if 'vulkan' not in member.get('api', 'vulkan').split(','):
+                continue
+
+            memberType = member.find('type')
+            memberName = member.find('name')
+
+            if memberType is None or memberName is None or member.find('enum') is not None:
+                continue
+
+            # an array member has [N] after its name, and is not one switch
+            if memberName.tail and '[' in memberName.tail:
+                continue
+
+            if memberType.text == 'VkBool32':
+                members.append((memberName.text, 'Bool32', None))
+            elif allowFlags and memberType.text in flagBitsTypes:
+                members.append((memberName.text, 'Flags32', flagBitsTypes[memberType.text]))
+
+        return members
+
+    rows = []
+    structRows = []
+    usedBitEnums = set()
+
+    # the 1.0 features live inside VkPhysicalDeviceFeatures2, so their struct is VkPhysicalDeviceFeatures2
+    for memberName, kind, _ in membersOf('VkPhysicalDeviceFeatures', False):
+        rows.append(('VkPhysicalDeviceFeatures', memberName, kind,
+                     f'offsetof(VkPhysicalDeviceFeatures2, features) + offsetof(VkPhysicalDeviceFeatures, {memberName})'))
+
+    structRows.append(('VkPhysicalDeviceFeatures', 'StructKind::Feature', 'VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2',
+                       'sizeof(VkPhysicalDeviceFeatures2)', 'VK_VERSION_1_0'))
+
+    for kindName, structNames, allowFlags in (('StructKind::Feature', featureStructs, False),
+                                              ('StructKind::Property', propertyStructs, True)):
+        for structName in structNames:
+            stype = stypeOf(structElements[structName])
+
+            if stype is None:
+                continue
+
+            structRows.append((structName, kindName, stype, f'sizeof({structName})',
+                               ','.join(requires.get(structName, []))))
+
+            for memberName, kind, bitsType in membersOf(structName, allowFlags):
+                rows.append((structName, memberName, kind, f'offsetof({structName}, {memberName})'))
+
+                if bitsType:
+                    usedBitEnums.add(bitsType)
+
+    # the bits of every flags member: the enum's own values and the values that extensions add
+    bitRows = []
+
+    for enumsElement in tree.findall('./enums[@type="bitmask"]'):
+        if enumsElement.get('name') in usedBitEnums:
+            for enum in enumsElement.findall('./enum'):
+                if enum.get('bitpos') is not None or enum.get('value') is not None:
+                    bitRows.append(enum.get('name'))
+
+    for extendingEnum in tree.findall('.//require/enum[@extends]'):
+        if extendingEnum.get('extends') in usedBitEnums and extendingEnum.get('bitpos') is not None:
+            bitRows.append(extendingEnum.get('name'))
+
+    definedNames = set(re.findall(r'\b(VK_\w+)\s*=', headerText))
+    bitRows = sorted(set(name for name in bitRows if name in definedNames))
+    tableStructs = set(featureStructs) | set(propertyStructs)
+    definedAliases = set(re.findall(r'typedef (\w+) (\w+);', headerText))
+    aliasRows = sorted((alias, target) for alias, target in aliases.items()
+                       if target in tableStructs and (target, alias) in definedAliases)
+
+    rows.sort(key=lambda row: (row[0], row[1]))
+    structRows.sort(key=lambda row: row[0])
+
+    with open(outputPath, 'w', encoding='utf-8') as out:
+        print('// Generated by GenerateExtensionAndFeatureHeaders.py from vk.xml. Do not edit.', file=out)
+        print('#pragma once', file=out)
+        print('#include <array>\n#include <cstddef>\n#include <cstdint>\n#include <string_view>\n#include <vulkan/vulkan_core.h>\n', file=out)
+        print('namespace rhi::generated\n{', file=out)
+        print('    enum class StructKind : uint8_t\n    {\n        Feature,\n        Property,\n    };\n', file=out)
+        print('    enum class MemberKind : uint8_t\n    {\n        Bool32,\n        Flags32,\n    };\n', file=out)
+        print('    struct StructInfo\n    {\n        std::string_view Name;\n        StructKind Kind;\n        VkStructureType SType;\n        uint32_t Size;\n        // the versions and extensions that make the struct available, separated by commas\n        std::string_view Requires;\n    };\n', file=out)
+        print('    struct MemberInfo\n    {\n        std::string_view Struct;\n        std::string_view Member;\n        MemberKind Kind;\n        uint32_t Offset;\n    };\n', file=out)
+        print('    struct StructAlias\n    {\n        std::string_view Alias;\n        std::string_view Name;\n    };\n', file=out)
+        print('    struct FlagBit\n    {\n        std::string_view Name;\n        uint32_t Value;\n    };\n', file=out)
+
+        print(f'    // sorted by Name\n    inline constexpr std::array<StructInfo, {len(structRows)}> k_Structs\n    {{ {{', file=out)
+        for name, kind, stype, size, req in structRows:
+            print(f'        {{ "{name}", {kind}, {stype}, static_cast<uint32_t>({size}), "{req}" }},', file=out)
+        print('    } };\n', file=out)
+
+        print(f'    // sorted by Struct, then Member\n    inline constexpr std::array<MemberInfo, {len(rows)}> k_Members\n    {{ {{', file=out)
+        for struct, member, kind, offset in rows:
+            print(f'        {{ "{struct}", "{member}", MemberKind::{kind}, static_cast<uint32_t>({offset}) }},', file=out)
+        print('    } };\n', file=out)
+
+        print(f'    // sorted by Alias\n    inline constexpr std::array<StructAlias, {len(aliasRows)}> k_StructAliases\n    {{ {{', file=out)
+        for alias, target in aliasRows:
+            print(f'        {{ "{alias}", "{target}" }},', file=out)
+        print('    } };\n', file=out)
+
+        print(f'    // sorted by Name\n    inline constexpr std::array<FlagBit, {len(bitRows)}> k_FlagBits\n    {{ {{', file=out)
+        for name in bitRows:
+            print(f'        {{ "{name}", static_cast<uint32_t>({name}) }},', file=out)
+        print('    } };', file=out)
+        print('}', file=out)
+
+    print(f"Generated {len(structRows)} structs, {len(rows)} members, {len(aliasRows)} aliases, {len(bitRows)} flag bits")
+
+
 def FinalizeFile(fileStream):
     '''
     Adds end of header guard and closes the file
@@ -1029,6 +1231,10 @@ if __name__ == '__main__':
         WriteExtensionFeatureStructPointerTable(extensionObjects, fileStream)
 
         FinalizeFile(fileStream)
+
+        vulkanCorePath = specDirPath / 'Include/vulkan/vulkan_core.h'
+        headerText = vulkanCorePath.read_text(encoding='utf-8')
+        WriteFeatureMemberTable(tree, headerText, pathlib.Path(args.outputDir) / 'GeneratedFeatureTable.hpp')
         print("Successfully generated header file")
         
     except Exception as e:
