@@ -7,15 +7,18 @@
 #include "DeviceRequirements.hpp"
 #include "LaunchStage.hpp"
 #include "PlatformSystem.hpp"
+#include "RhiFlags.hpp"
 #include "RhiSystem.hpp"
 #include "RhiSystemStart.hpp"
 #include "WindowStage.hpp"
 #include <algorithm>
+#include <cstdint>
 #include <format>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace

@@ -1,6 +1,8 @@
 #include "DeviceConfig.hpp"
 #include "BootResult.hpp"
 #include "LaunchStage.hpp"
+#include "RhiFlags.hpp"
+#include "nlohmann/json_fwd.hpp"
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
@@ -164,7 +166,7 @@ namespace
 
             if (!version.has_value())
             {
-                return ConfigFailure(key, "not \"1.0\" to \"1.4\" or \"Latest\"");
+                return ConfigFailure(key, R"(not "1.0" to "1.4" or "Latest")");
             }
 
             config.ApiVersion = *version;
