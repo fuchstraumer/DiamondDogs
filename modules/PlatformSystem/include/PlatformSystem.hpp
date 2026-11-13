@@ -4,7 +4,9 @@
 #include "events/PlatformEvents.hpp"
 #include "utility/delegate.hpp"
 #include "PlatformTypes.hpp"
+#include <cstdint>
 #include <memory>
+#include <span>
 #include <vector>
 
 
@@ -37,6 +39,18 @@ public:
     ~PlatformWindowSystem();
 
     void Destroy();
+
+    /** @brief The instance extensions that a window surface needs on this platform, from
+     * glfwGetRequiredInstanceExtensions. The names stay valid while this system exists. */
+    [[nodiscard]] std::span<const char* const> RequiredInstanceExtensions() const noexcept;
+    /** @brief Creates the window surface, before the physical device is chosen, so that device selection can check
+     * present support. Returns false when the surface could not be created. Does nothing when a surface exists.
+     * `rhi_instance` is an rhi::Instance. */
+    [[nodiscard]] bool CreateSurface(void* rhi_instance);
+    /** @brief Destroys the swapchain, then the surface. Call it before the instance is destroyed. */
+    void DestroySurface();
+    /** @brief The VkSurfaceKHR handle as an integer, or 0 when no surface exists. */
+    [[nodiscard]] uint64_t GetSurfaceHandle() const noexcept;
 
     // Default swapchain just uses display info that we got from window creation as creation parameters. Also creates a surface using display parameters
     void CreateDefaultSwapchain(void* rhi_instance, void* rhi_device);

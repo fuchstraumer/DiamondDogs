@@ -18,14 +18,19 @@ Nothing throws. `RhiSystemResult` has a code, the need that failed, and the reas
 
 ### The needs
 
-`DeviceStartInfo` (`RhiSystemStart.hpp`) has four lists. Each need is `Required` or `Wanted`.
+`DeviceStartInfo` (`RhiSystemStart.hpp`) has four lists, the required limits and the present surface. Each need is
+`Required` or `Wanted`.
 
 | List | Names | Example |
 |---|---|---|
 | `Extensions` | device extension names | `VK_KHR_swapchain` |
 | `Features` | API features, as `Struct.member` | `VkPhysicalDeviceVulkan13Features.synchronization2` |
 | `Capabilities` | SPIR-V capability and extension names, Lodestone's vocabulary | `GroupNonUniformArithmetic` |
-| `Declined` | Wanted capabilities to leave off, to test the fallback variants | `Int64` |
+| `Declined` | Wanted needs of any kind to leave off, to test the fallback paths | `Int64`, `VK_EXT_memory_budget` |
+
+`RequiredLimits` is the smallest compute and push constant limit set that every entry point can run at (bootstrap's
+`DeviceRequirements::RequiredLimits`). `PresentSurface` is the window's `VkSurfaceKHR` as an integer, or 0 for a
+headless device.
 
 Features are the needs of spine code (sync2, timeline semaphores, dynamic rendering, shader objects). Capabilities
 come from the shader bundles, through bootstrap's `GatherDeviceRequirements`.
@@ -35,10 +40,13 @@ come from the shader bundles, through bootstrap's `GatherDeviceRequirements`.
 `PlanDevice` (`src/core/DevicePlanner`) runs once per physical device. It reads the device and creates nothing:
 
 1. The device's API version must be at least the instance's.
-2. Each extension must be supported, or the device fails a Required need.
-3. Each feature: the struct must be available (a version the device has, or a supported extension), and the member
+2. With a `PresentSurface`, the first queue family with graphics (the family that `Device` uses) must present to it.
+   Each limit must be at least `RequiredLimits`. A failure names the limit by its Vulkan name, or `present`.
+3. A Wanted need in `Declined` is skipped. A Required need ignores `Declined`.
+4. Each extension must be supported, or the device fails a Required need.
+5. Each feature: the struct must be available (a version the device has, or a supported extension), and the member
    must be supported. A member of an extension struct also enables its extension.
-4. Each capability: Lodestone's `VulkanCapabilityTable.hpp` lists its enables, and any one is enough. The planner
+6. Each capability: Lodestone's `VulkanCapabilityTable.hpp` lists its enables, and any one is enough. The planner
    tries them in this order: a Vulkan version, a feature of a core struct, a feature of an extension struct, an
    extension, a property. A property (a subgroup operation bit, for example) enables nothing; it only tests.
 

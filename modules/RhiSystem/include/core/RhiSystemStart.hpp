@@ -2,6 +2,7 @@
 #ifndef DIAMOND_DOGS_RHI_SYSTEM_START_HPP
 #define DIAMOND_DOGS_RHI_SYSTEM_START_HPP
 #include "RhiFlags.hpp"
+#include "ShaderManifestDevice.hpp"
 #include <cstdint>
 #include <span>
 #include <string>
@@ -48,8 +49,14 @@ namespace rhi
         // SPIR-V capability and extension names, in Lodestone's vocabulary. Lodestone's Vulkan capability table maps
         // each one to the versions, extensions, features and properties that enable it
         std::span<const DeviceNeed> Capabilities;
-        // Wanted capabilities to leave off, so that the fallback variants run on a device that has them
+        // Wanted needs of any kind to leave off, so that the fallback paths run on a device that has them. A name
+        // here does not stop an enable that another need pulls in, and it has no effect on a Required need
         std::span<const std::string_view> Declined;
+        // a device below one of these limits cannot run some entry point at all, so the planner refuses it
+        lodestone::manifest::DeviceLimits RequiredLimits;
+        // the VkSurfaceKHR handle as an integer. Not zero: the device's graphics queue family must present to it.
+        // Zero: headless, with no present check
+        uint64_t PresentSurface{ 0u };
     };
 
     enum class RhiSystemResultCode : uint8_t

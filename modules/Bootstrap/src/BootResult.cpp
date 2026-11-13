@@ -63,6 +63,8 @@ namespace bootstrap
             return "BundleInvalid";
         case BootResultCode::BundleNameConflict:
             return "BundleNameConflict";
+        case BootResultCode::WindowCreateFailed:
+            return "WindowCreateFailed";
         case BootResultCode::InstanceCreateFailed:
             return "InstanceCreateFailed";
         case BootResultCode::SurfaceCreateFailed:
@@ -110,6 +112,7 @@ namespace bootstrap
         AppendDetailLine(output, "module:", failure.Module);
         AppendDetailLine(output, "subject:", failure.Subject);
         AppendDetailLine(output, "source:", failure.Source);
+        AppendDetailLine(output, "detail:", failure.Detail);
 
         for (const std::string& suggestion : failure.Suggestions)
         {

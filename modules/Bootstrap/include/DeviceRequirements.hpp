@@ -16,6 +16,8 @@ namespace bootstrap
         Invalid = 0,
         InstanceExtension,
         DeviceExtension,
+        // an API feature as "Struct.member", for example "VkPhysicalDeviceVulkan13Features.synchronization2"
+        DeviceFeature,
         // SPIR-V capability or extension name, or a WGSL enable name
         Capability,
     };
@@ -53,6 +55,7 @@ namespace bootstrap
     {
         std::vector<Need> InstanceExtensions;
         std::vector<Need> DeviceExtensions;
+        std::vector<Need> DeviceFeatures;
         std::vector<Need> Capabilities;
         // for each entry point the smallest limit over its variants, then the largest over the entry points. A device
         // below one of these cannot run any variant of some entry point

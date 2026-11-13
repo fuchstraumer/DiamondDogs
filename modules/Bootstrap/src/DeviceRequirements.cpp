@@ -79,9 +79,12 @@ namespace bootstrap
             return "InstanceExtension";
         case NeedKind::DeviceExtension:
             return "DeviceExtension";
+        case NeedKind::DeviceFeature:
+            return "DeviceFeature";
         case NeedKind::Capability:
             return "Capability";
-        default: return "Invalid";
+        default:
+            return "Invalid";
         }
     }
 
@@ -109,6 +112,8 @@ namespace
             return requirements.InstanceExtensions;
         case bootstrap::NeedKind::DeviceExtension:
             return requirements.DeviceExtensions;
+        case bootstrap::NeedKind::DeviceFeature:
+            return requirements.DeviceFeatures;
         default:
             return requirements.Capabilities;
         }

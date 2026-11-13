@@ -5,6 +5,7 @@
 #include "VulkanCapabilityTable.hpp"
 #include <algorithm>
 #include <charconv>
+#include <format>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -76,13 +77,24 @@ namespace
                                  const vulkan::CapabilityEnable& enable,
                                  EnablePass pass);
     [[nodiscard]] bool PropertyHolds(const DeviceFacts& facts, const vulkan::CapabilityEnable& enable) noexcept;
-    [[nodiscard]] bool PlanExtensions(rhi::DevicePlan& plan, const DeviceFacts& facts, std::span<const rhi::DeviceNeed> needs);
-    [[nodiscard]] bool PlanFeatures(rhi::DevicePlan& plan, const DeviceFacts& facts, std::span<const rhi::DeviceNeed> needs);
+    [[nodiscard]] bool PlanExtensions(rhi::DevicePlan& plan,
+                                      const DeviceFacts& facts,
+                                      std::span<const rhi::DeviceNeed> needs,
+                                      std::span<const std::string_view> declined);
+    [[nodiscard]] bool PlanFeatures(rhi::DevicePlan& plan,
+                                    const DeviceFacts& facts,
+                                    std::span<const rhi::DeviceNeed> needs,
+                                    std::span<const std::string_view> declined);
     [[nodiscard]] bool PlanCapabilities(rhi::DevicePlan& plan,
                                         const DeviceFacts& facts,
                                         std::span<const rhi::DeviceNeed> needs,
                                         std::span<const std::string_view> declined);
     [[nodiscard]] bool PlanCapability(rhi::DevicePlan& plan, const DeviceFacts& facts, std::string_view primary_name);
+    // a Wanted need that the start info declines is left off
+    [[nodiscard]] bool IsDeclined(const rhi::DeviceNeed& need, std::span<const std::string_view> declined) noexcept;
+    // the first queue family with graphics, the same family that Device chooses, must present to the surface
+    [[nodiscard]] bool PlanPresent(rhi::DevicePlan& plan, VkPhysicalDevice physical_device, uint64_t present_surface);
+    [[nodiscard]] bool PlanLimits(rhi::DevicePlan& plan, const lodestone::manifest::DeviceLimits& required);
     // records the first Required need that is not met, and returns false
     [[nodiscard]] bool Unmet(rhi::DevicePlan& plan, std::string_view need, std::string reason);
     void SortUnique(std::vector<std::string>& names);
@@ -117,10 +129,16 @@ namespace rhi
             return plan;
         }
 
+        if (!PlanPresent(plan, physical_device, start_info.PresentSurface) ||
+            !PlanLimits(plan, start_info.RequiredLimits))
+        {
+            return plan;
+        }
+
         const DeviceFacts facts = ReadFacts(physical_device, plan.ApiVersion, start_info);
 
-        if (!PlanExtensions(plan, facts, start_info.Extensions) ||
-            !PlanFeatures(plan, facts, start_info.Features) ||
+        if (!PlanExtensions(plan, facts, start_info.Extensions, start_info.Declined) ||
+            !PlanFeatures(plan, facts, start_info.Features, start_info.Declined) ||
             !PlanCapabilities(plan, facts, start_info.Capabilities, start_info.Declined))
         {
             return plan;
@@ -456,10 +474,18 @@ namespace
         return bit.has_value() && (value & *bit) != 0u;
     }
 
-    bool PlanExtensions(rhi::DevicePlan& plan, const DeviceFacts& facts, std::span<const rhi::DeviceNeed> needs)
+    bool PlanExtensions(rhi::DevicePlan& plan,
+                        const DeviceFacts& facts,
+                        std::span<const rhi::DeviceNeed> needs,
+                        std::span<const std::string_view> declined)
     {
         for (const rhi::DeviceNeed& need : needs)
         {
+            if (IsDeclined(need, declined))
+            {
+                continue;
+            }
+
             if (Contains(facts.Extensions, need.Name))
             {
                 plan.Extensions.emplace_back(need.Name);
@@ -475,10 +501,18 @@ namespace
         return true;
     }
 
-    bool PlanFeatures(rhi::DevicePlan& plan, const DeviceFacts& facts, std::span<const rhi::DeviceNeed> needs)
+    bool PlanFeatures(rhi::DevicePlan& plan,
+                      const DeviceFacts& facts,
+                      std::span<const rhi::DeviceNeed> needs,
+                      std::span<const std::string_view> declined)
     {
         for (const rhi::DeviceNeed& need : needs)
         {
+            if (IsDeclined(need, declined))
+            {
+                continue;
+            }
+
             const size_t dot = need.Name.find('.');
             const generated::StructInfo* info = dot != std::string_view::npos ? FindStruct(need.Name.substr(0u, dot)) : nullptr;
             const generated::MemberInfo* member =
@@ -572,6 +606,82 @@ namespace
         }
 
         return false;
+    }
+
+    bool IsDeclined(const rhi::DeviceNeed& need, std::span<const std::string_view> declined) noexcept
+    {
+        return need.Level == rhi::DeviceNeedLevel::Wanted && std::ranges::contains(declined, need.Name);
+    }
+
+    bool PlanPresent(rhi::DevicePlan& plan, VkPhysicalDevice physical_device, uint64_t present_surface)
+    {
+        if (present_surface == 0u)
+        {
+            return true;
+        }
+
+        uint32_t familyCount = 0u;
+
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &familyCount, nullptr);
+
+        std::vector<VkQueueFamilyProperties> families(familyCount);
+
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &familyCount, families.data());
+
+        const auto hasGraphics = [](const VkQueueFamilyProperties& family) noexcept
+        {
+            return (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0u;
+        };
+        const auto graphics = std::ranges::find_if(families, hasGraphics);
+
+        if (graphics == families.end())
+        {
+            return Unmet(plan, "present", "the device has no graphics queue family");
+        }
+
+        const uint32_t graphicsFamily = static_cast<uint32_t>(graphics - families.begin());
+        VkBool32 presents = VK_FALSE;
+        const VkResult queried = vkGetPhysicalDeviceSurfaceSupportKHR(physical_device,
+                                                                      graphicsFamily,
+                                                                      reinterpret_cast<VkSurfaceKHR>(present_surface),
+                                                                      &presents);
+
+        if (queried != VK_SUCCESS || presents != VK_TRUE)
+        {
+            return Unmet(plan, "present", "the graphics queue family cannot present to the window surface");
+        }
+
+        return true;
+    }
+
+    bool PlanLimits(rhi::DevicePlan& plan, const lodestone::manifest::DeviceLimits& required)
+    {
+        struct LimitCheck
+        {
+            std::string_view Name;
+            uint32_t Required;
+            uint32_t Device;
+        };
+
+        const LimitCheck checks[]
+        {
+            { "maxComputeSharedMemorySize", required.MaxWorkgroupMemoryBytes, plan.Limits.MaxWorkgroupMemoryBytes },
+            { "maxComputeWorkGroupInvocations", required.MaxInvocationsPerWorkgroup, plan.Limits.MaxInvocationsPerWorkgroup },
+            { "maxComputeWorkGroupSize[0]", required.MaxWorkgroupSizeX, plan.Limits.MaxWorkgroupSizeX },
+            { "maxComputeWorkGroupSize[1]", required.MaxWorkgroupSizeY, plan.Limits.MaxWorkgroupSizeY },
+            { "maxComputeWorkGroupSize[2]", required.MaxWorkgroupSizeZ, plan.Limits.MaxWorkgroupSizeZ },
+            { "maxPushConstantsSize", required.MaxPushConstantBytes, plan.Limits.MaxPushConstantBytes },
+        };
+
+        for (const LimitCheck& check : checks)
+        {
+            if (check.Device < check.Required)
+            {
+                return Unmet(plan, check.Name, std::format("the device limit is {}, and an entry point needs {}", check.Device, check.Required));
+            }
+        }
+
+        return true;
     }
 
     bool Unmet(rhi::DevicePlan& plan, std::string_view need, std::string reason)

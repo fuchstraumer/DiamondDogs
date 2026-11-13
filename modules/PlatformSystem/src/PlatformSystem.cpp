@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <unordered_map>
 #include <string>
@@ -198,16 +199,9 @@ PlatformWindowSystem::PlatformWindowSystem(const char* json_path, void* rhi_inst
     // Create the platform window system
     impl = std::make_unique<PlatformSystemImpl>(createInfo);
 
-    rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(rhi_instance);
-    const uint64_t vkInstanceHandle = instance->Handle().As<uint64_t>();
-    rhi::Device* device = reinterpret_cast<rhi::Device*>(rhi_device);
-    const uint64_t physicalDeviceHandle = device->GetPhysicalDevice().As<uint64_t>();
-
     // Now continue to create default surface + swapchain, since we have all the info we need and I don't see a situation in which we wouldn't do this together (yet)
     impl->ActiveDisplay = PlatformWindowSystem::GetPrimaryDisplayInfo(); // for now, just use primary display. In future could allow config of this
-    impl->ActiveSurface = std::make_unique<PlatformSurface>(vkInstanceHandle,
-                                                            physicalDeviceHandle,
-                                                            impl->Window);
+    EnsureSurface(*impl, rhi_instance, rhi_device);
 
     SwapchainCreateInfo swapchainInfo{};
     swapchainInfo.RhiDevice = rhi_device;
@@ -462,16 +456,70 @@ DisplayInfo PlatformWindowSystem::GetPrimaryDisplayInfo() noexcept
     return RetrievePlatformPrimaryDisplayInfo();
 }
 
-static void EnsureSurface(PlatformSystemImpl& impl, void* rhi_instance, void* rhi_device)
+std::span<const char* const> PlatformWindowSystem::RequiredInstanceExtensions() const noexcept
+{
+    uint32_t extensionCount = 0u;
+    const char** extensions = glfwGetRequiredInstanceExtensions(&extensionCount);
+
+    if (extensions == nullptr)
+    {
+        return {};
+    }
+
+    return std::span<const char* const>{ extensions, extensionCount };
+}
+
+bool PlatformWindowSystem::CreateSurface(void* rhi_instance)
+{
+    if (impl->ActiveSurface)
+    {
+        return impl->ActiveSurface->IsValid();
+    }
+
+    const rhi::Instance* instance = static_cast<const rhi::Instance*>(rhi_instance);
+    std::unique_ptr<PlatformSurface> surface = std::make_unique<PlatformSurface>(instance->Handle().Get(), impl->Window);
+
+    if (!surface->IsValid())
+    {
+        return false;
+    }
+
+    impl->ActiveSurface = std::move(surface);
+    return true;
+}
+
+void PlatformWindowSystem::DestroySurface()
+{
+    // the swapchain must go before its surface
+    impl->ActiveSwapchain.reset();
+    impl->ActiveSurface.reset();
+}
+
+uint64_t PlatformWindowSystem::GetSurfaceHandle() const noexcept
+{
+    if (!impl->ActiveSurface)
+    {
+        return 0u;
+    }
+
+    return impl->ActiveSurface->GetVkSurface();
+}
+
+// the old path: the device exists already, and a failure throws, as it did before the start path
+static void EnsureSurface(PlatformSystemImpl& impl, void* rhi_instance, void* /*rhi_device*/)
 {
     if (impl.ActiveSurface)
     {
         return;
     }
 
-    rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(rhi_instance);
-    const uint64_t vkInstanceHandle = instance->Handle().Get();
-    rhi::Device* device = reinterpret_cast<rhi::Device*>(rhi_device);
-    const uint64_t vkPhysicalDeviceHandle = device->GetPhysicalDevice().Get();
-    impl.ActiveSurface = std::make_unique<PlatformSurface>(vkInstanceHandle, vkPhysicalDeviceHandle, impl.Window);
+    const rhi::Instance* instance = static_cast<const rhi::Instance*>(rhi_instance);
+    std::unique_ptr<PlatformSurface> surface = std::make_unique<PlatformSurface>(instance->Handle().Get(), impl.Window);
+
+    if (!surface->IsValid())
+    {
+        throw std::runtime_error("Failed to create window surface!");
+    }
+
+    impl.ActiveSurface = std::move(surface);
 }

@@ -2,7 +2,8 @@
 
 `bootstrap` builds an executable's systems in a fixed order of typed stages, and starts the optional modules that a
 profile selects. It replaces the hand-written start-up code in each `main`. This target needs no RHI: a cooker
-console links it alone. A later target, `bootstrap_vulkan`, adds the window, device and GPU stages.
+console links it alone. A second target, `bootstrap_vulkan` (`modules/BootstrapVulkan`), adds the window, device and
+GPU stages. This file explains both.
 
 ## The stages
 
@@ -10,7 +11,8 @@ console links it alone. A later target, `bootstrap_vulkan`, adds the window, dev
 LaunchStage ──> CoreStage ──> ContentStage ──> WindowStage? ──> DeviceRequirements ──> DeviceStage ──> GpuStage
 ```
 
-`LaunchStage`, `CoreStage`, `ContentStage` and the `DeviceRequirements` function exist today. Each stage:
+`bootstrap` has `LaunchStage`, `CoreStage`, `ContentStage` and the `DeviceRequirements` function. `bootstrap_vulkan`
+has `WindowStage`, `DeviceStage` and `GpuStage`. Each stage:
 
 - is constructed empty, and `Start` returns a `BootResult`, because a constructor cannot fail without an exception;
 - takes the earlier stages as `const&` in `Start`, so the compiler enforces the order;
@@ -19,6 +21,28 @@ LaunchStage ──> CoreStage ──> ContentStage ──> WindowStage? ──> 
 
 `main` declares the stages as locals, so C++ scope gives the reverse destruction. `Stop` and then `Start` again is the
 recovery path.
+
+### The spine
+
+The spine is the fixed chain of systems that every executable gets, whatever modules it selects: the scheduler, the
+bundles, the window, the device, `ResourceContext` and the swapchain. Each stage owns its part of the spine as a typed
+member with a typed getter (`CoreStage::Scheduler()`, `GpuStage::Resources()`), so the order is plain in the code and
+nothing looks a spine part up by name. A module is the opposite: optional, selected by a profile, and found with
+`Require`. The spine stays explicit on purpose: UE makes even its renderer a plugin, and that is one reason its start
+order is hard to read.
+
+The spine's own code needs device features too. These are the **spine needs**, the `spine_needs` argument of
+`GatherDeviceRequirements`. They are named beside the code that uses them, not in each app:
+
+- `GpuSpineNeeds()`: `ResourceContext` needs timeline semaphores and synchronization2 (Required), and
+  `VK_EXT_memory_budget` (Wanted, for VMA's budget data).
+- `WindowStage::Needs()`: the surface instance extensions from GLFW, `VK_KHR_get_surface_capabilities2` and
+  `VK_KHR_swapchain` (Required), and the HDR extensions `VK_EXT_swapchain_colorspace` and `VK_EXT_hdr_metadata`
+  (Wanted).
+
+`SpineNeeds(window)` and `HeadlessSpineNeeds()` return the lists. An app appends its own needs (dynamic rendering,
+shader objects) and passes the result to `GatherDeviceRequirements`. So a feature that you did not expect comes from
+spine or app code, and a capability that you did not expect comes from a shader.
 
 ### LaunchStage
 
@@ -91,7 +115,8 @@ that was opened, and the `rhi::ShaderBundle`. `ContentStage.hpp` only forward-de
 
 `GatherDeviceRequirements(content, spine_needs)` is a pure function. It reads no device. It returns the union of three
 sources, in this order: the spine needs (each one sets its `NeedKind`), the `ModuleNeeds` of each selected module, and
-every entry point of every open bundle.
+every entry point of every open bundle. The needs go in four lists by kind: instance extensions, device extensions,
+device features (`Struct.member`, for example `VkPhysicalDeviceVulkan13Features.synchronization2`) and capabilities.
 
 For one entry point, the rule comes from the capability masks in the manifest:
 
@@ -118,6 +143,75 @@ Two sets of limits:
 
 Push constant bytes count only for an entry point whose constants are push constants. The workgroup size and the
 invocations count only for compute.
+
+## The device stages (`bootstrap_vulkan`)
+
+```cpp
+bootstrap::WindowStage window;
+ReturnOnFailure(window.Start(content, windowInfo));
+
+const std::vector<bootstrap::Need> spine = bootstrap::SpineNeeds(window);
+const bootstrap::DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(content, spine);
+bootstrap::DeviceConfig config;
+ReturnOnFailure(bootstrap::ReadDeviceConfig(launch, config));
+
+bootstrap::DeviceStage device;
+ReturnOnFailure(device.Start(content, requirements, config, window));
+
+bootstrap::GpuStage gpu;
+ReturnOnFailure(gpu.Start(device, window));
+```
+
+`ReturnOnFailure` stands for the `if (!result.Succeeded())` block. A headless executable skips `WindowStage`, and
+calls `HeadlessSpineNeeds()`, `DeviceStage::StartHeadless` and `GpuStage::StartHeadless`. The headless calls have
+their own names, so a call never hides the headless path behind a null pointer.
+
+**The order that presentation needs.** Device selection checks present support, which needs a surface. The surface
+needs the instance and the window. So the chain is: window, instance, surface, physical device, device, swapchain.
+
+- `WindowStage` creates the GLFW window, with no surface and no swapchain, and records the window's needs.
+- `DeviceStage` creates the instance (`RhiSystem::StartInstance`), then the surface
+  (`PlatformWindowSystem::CreateSurface`), then the device (`RhiSystem::StartDevice`). It passes the surface, so the
+  planner refuses a device whose graphics queue family cannot present to it, and `RequiredLimits`, so the planner
+  refuses a device below them. Each step records a timing span (`instance`, `surface`, `device`).
+- `GpuStage` creates `ResourceContext`, then the swapchain, then starts each selected module that has `StartGpu`.
+
+**Stop order.** `GpuStage::Stop` destroys its modules, the swapchain, then `ResourceContext`. `DeviceStage::Stop`
+destroys the surface, then the device and the instance, because the surface belongs to the instance. Locals in `main`
+stop in that order without help.
+
+**`DeviceConfig`.** `ReadDeviceConfig(launch, config)` reads the config file's `Device` section. A key that the
+section does not name keeps the value in `config`. An unknown key fails with `ConfigInvalid`, so a typo does not
+pass in silence.
+
+```json
+{
+    "Device":
+    {
+        "ApiVersion": "1.3",
+        "Validation": "Full",
+        "ApplicationName": "OceanFft",
+        "Declined": [ "VK_EXT_memory_budget", "GroupNonUniformArithmetic" ]
+    }
+}
+```
+
+`Declined` takes Wanted needs of every kind: extensions, features and capabilities. The device is then created
+without them, so the fallback paths run on a device that has them, for example on the RTX 4080. A declined name has no
+effect on a Required need. It also does not stop an enable that another need pulls in: a capability whose enable is
+the declined extension still enables it.
+
+**`DeviceFilter`.** `DeviceStage::Filter()` returns the supports function, its user pointer and the device limits,
+in the shape that Lodestone's variant filter and Loom's Resolve take. It answers from the enabled set, never from the
+physical device, so a variant choice cannot pick code that needs something the device was created without.
+
+**A failure names the need and where it came from.** `NoDeviceMeetsRequirements` sets `Subject` to the unmet need,
+`Source` to where it came from (`bundle/module/entry point`, a module name, or `spine`) and `Detail` to the closest
+device and the reason. For a limit or present support, `Subject` is the limit's Vulkan name or `present`, and
+`Source` is empty.
+
+`GpuStartContext` gives a GPU module every stage. `Core()` is `const`, as `ContentStage` holds it, so a GPU module does
+not reach the Scheduler. `Require` finds a dependency among the GPU modules first, then among the core modules.
 
 ## Modules
 
@@ -176,8 +270,8 @@ the graph reaches `rhi_system` or the Vulkan loader. `ContentCooker` and `bootst
 
 ## Results
 
-`BootResult` follows `agent::ToolResult`: a code, the stage, the module, the subject and the source of the failure,
-and suggestions. A step fills the fields and never formats text. `FormatFailure` is the sink:
+`BootResult` follows `agent::ToolResult`: a code, the stage, the module, the subject, the source and the detail of the
+failure, and suggestions. A step fills the fields and never formats text. `FormatFailure` is the sink:
 
 ```
 boot failed in Launch: UnknownModule

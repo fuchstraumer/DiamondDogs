@@ -33,6 +33,8 @@ namespace bootstrap
         BundleInvalid,
         // two requests give one file name and profile, with different build-tree paths
         BundleNameConflict,
+        // window
+        WindowCreateFailed,
         // device
         InstanceCreateFailed,
         SurfaceCreateFailed,
@@ -66,6 +68,8 @@ namespace bootstrap
         std::string Subject;
         // where the item came from: "bundle/module/entry point" for a capability, a module name for an extension
         std::string Source;
+        // why it failed, when the code alone does not say: the device and the reason, for a device that falls short
+        std::string Detail;
         // the nearest valid names, for UnknownModule and UnknownProfile
         std::vector<std::string> Suggestions;
 

@@ -1,7 +1,10 @@
 #include "resolve/ResolvedGraph.hpp"
+#include "Records.hpp"
+#include "VariantKey.hpp"
 #include "resolve/ResolveContext.hpp"
 #include "LoomDiagnostic.hpp"
 #include "freeze/FrozenGraph.hpp"
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <vector>

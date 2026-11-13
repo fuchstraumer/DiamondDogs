@@ -128,6 +128,65 @@ TEST(RhiSystemStart, ADeclinedWantedCapabilityStaysOff)
     EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceFeatures", "shaderInt64")), 0u);
 }
 
+TEST(RhiSystemStart, DeclinedWantedExtensionsAndFeaturesStayOff)
+{
+    const std::array<DeviceNeed, 1> extensions
+    {
+        DeviceNeed{ .Name = "VK_EXT_shader_object", .Level = DeviceNeedLevel::Wanted },
+    };
+    const std::array<DeviceNeed, 1> features
+    {
+        DeviceNeed{ .Name = "VkPhysicalDeviceFeatures.shaderInt64", .Level = DeviceNeedLevel::Wanted },
+    };
+    const std::array<std::string_view, 2> declined{ "VK_EXT_shader_object", "VkPhysicalDeviceFeatures.shaderInt64" };
+    rhi::RhiSystem system;
+
+    ASSERT_TRUE(StartTestInstance(system));
+
+    DevicePlan plan = rhi::PlanDevice(FirstPhysicalDevice(system),
+                                      system.GetVulkanApiVersion(),
+                                      DeviceStartInfo{ .Extensions = extensions, .Features = features, .Declined = declined });
+
+    EXPECT_TRUE(plan.UnmetNeed.empty());
+    EXPECT_FALSE(Contains(plan.Extensions, "VK_EXT_shader_object"));
+    EXPECT_TRUE(plan.EnabledFeatures.empty());
+    EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceFeatures", "shaderInt64")), 0u);
+}
+
+TEST(RhiSystemStart, DeclinedHasNoEffectOnARequiredNeed)
+{
+    const std::array<DeviceNeed, 1> features
+    {
+        DeviceNeed{ .Name = "VkPhysicalDeviceFeatures.shaderInt64", .Level = DeviceNeedLevel::Required },
+    };
+    const std::array<std::string_view, 1> declined{ "VkPhysicalDeviceFeatures.shaderInt64" };
+    rhi::RhiSystem system;
+
+    ASSERT_TRUE(StartTestInstance(system));
+
+    DevicePlan plan = rhi::PlanDevice(FirstPhysicalDevice(system),
+                                      system.GetVulkanApiVersion(),
+                                      DeviceStartInfo{ .Features = features, .Declined = declined });
+
+    ASSERT_TRUE(plan.UnmetNeed.empty()) << plan.UnmetNeed << ": " << plan.UnmetReason;
+    EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceFeatures", "shaderInt64")), 1u);
+}
+
+TEST(RhiSystemStart, ARequiredLimitAboveTheDeviceIsNamed)
+{
+    rhi::RhiSystem system;
+
+    ASSERT_TRUE(StartTestInstance(system));
+
+    const lodestone::manifest::DeviceLimits limits{ .MaxWorkgroupSizeY = 1u << 30u };
+    DevicePlan plan = rhi::PlanDevice(FirstPhysicalDevice(system),
+                                      system.GetVulkanApiVersion(),
+                                      DeviceStartInfo{ .RequiredLimits = limits });
+
+    EXPECT_EQ(plan.UnmetNeed, "maxComputeWorkGroupSize[1]");
+    EXPECT_FALSE(plan.UnmetReason.empty());
+}
+
 TEST(RhiSystemStart, AnUnknownRequiredNeedIsNamed)
 {
     const std::array<DeviceNeed, 1> capabilities

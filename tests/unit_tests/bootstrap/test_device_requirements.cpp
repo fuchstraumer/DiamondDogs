@@ -190,6 +190,25 @@ TEST(DeviceRequirements, ARequiredSpineNeedKeepsItsSource)
     EXPECT_TRUE(wave->Source.BundleFile.empty());
 }
 
+TEST(DeviceRequirements, AFeatureNeedGoesToTheFeatureList)
+{
+    constexpr std::string_view k_Feature{ "VkPhysicalDeviceVulkan13Features.synchronization2" };
+    const std::array<Need, 2> spine
+    {
+        Need{ .Name = k_Feature, .Kind = NeedKind::DeviceFeature, .Level = NeedLevel::Wanted },
+        Need{ .Name = k_Feature, .Kind = NeedKind::DeviceFeature, .Level = NeedLevel::Required },
+    };
+    const BootedContent booted(std::span<const ModuleDescriptor>{}, std::span<const BundleRequest>{});
+    const DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(booted.content, spine);
+
+    ASSERT_EQ(requirements.DeviceFeatures.size(), 1u);
+    EXPECT_EQ(requirements.DeviceFeatures[0].Name, k_Feature);
+    EXPECT_EQ(requirements.DeviceFeatures[0].Kind, NeedKind::DeviceFeature);
+    EXPECT_EQ(requirements.DeviceFeatures[0].Level, NeedLevel::Required);
+    EXPECT_EQ(FindNeed(requirements.DeviceExtensions, k_Feature), nullptr);
+    EXPECT_EQ(FindNeed(requirements.Capabilities, k_Feature), nullptr);
+}
+
 TEST(DeviceRequirements, LimitsComeFromTheEntryPoints)
 {
     const BootedContent booted(std::span<const ModuleDescriptor>{}, k_AppBundles);

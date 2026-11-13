@@ -31,11 +31,13 @@ endfunction()
 
 # reads cooked Lodestone bundles with no graphics device; rhi_system links it
 add_subdirectory(ShaderBundle)
-# the boot stages that need no RHI: launch, core, content; bootstrap_vulkan will add the device stages
+# the boot stages that need no RHI: launch, core, content; bootstrap_vulkan adds the device stages
 add_subdirectory(Bootstrap)
 add_subdirectory(RhiSystem)
 add_subdirectory(PlatformSystem)
 add_subdirectory(RhiResources)
+# the device stages on Vulkan: window, device, GPU
+add_subdirectory(BootstrapVulkan)
 add_subdirectory(RenderGraph)
 # copies rendered images out to PNG files
 add_subdirectory(FrameCapture)

@@ -11,7 +11,7 @@ Write your text in ASD-STE100 (Simplified Technical English), as the style file 
 
 DiamondDogs is a Vulkan engine that the author uses for research. Its current job is to host the noise graph and
 planet generator (the plan is in `C:\SoftwareDev\CUDA_Noise\noise-audit-and-slang-plan.md`). The live modules are
-`foundation`, `ShaderBundle`, `Bootstrap`, `RhiSystem`, `PlatformSystem`, `RhiResources`, `RenderGraph` (Loom), `FrameCapture`, `GpuPyramid`,
+`foundation`, `ShaderBundle`, `Bootstrap`, `BootstrapVulkan`, `RhiSystem`, `PlatformSystem`, `RhiResources`, `RenderGraph` (Loom), `FrameCapture`, `GpuPyramid`,
 `ColorPipe`, `NoiseGraph`, `ImGuiModule`, `InputSystem`, `ContentCompiler` and `AgentTools`. `TerrainModule`,
 `VtfModule` and `modules/old` are out of the build; `docs/audit.md` section 6 says which to keep. OceanFft
 (`applications/OceanFft`) is the main application, and the test bed for the agent tools.
@@ -33,7 +33,7 @@ cmake --preset ninja-msvc
 ```
 
 ```bat
-cmake --build build/ninja-msvc --config Debug --target foundation_tests rhi_system_tests platform_system_tests resource_context_tests loom_tests color_pipe_tests frame_capture_tests input_system_tests ocean_camera_tests sea_state_tests content_compiler_tests agent_tools_tests bootstrap_tests ContentCooker TriangleTest ComputeManifestTest ImGuiTest OceanFft
+cmake --build build/ninja-msvc --config Debug --target foundation_tests rhi_system_tests platform_system_tests resource_context_tests loom_tests color_pipe_tests frame_capture_tests input_system_tests ocean_camera_tests sea_state_tests content_compiler_tests agent_tools_tests bootstrap_tests bootstrap_vulkan_tests ContentCooker TriangleTest ComputeManifestTest ImGuiTest OceanFft
 ```
 
 For a build that runs on another machine, build `OceanFft_package` in Release on `ninja-msvc`. It writes
@@ -90,6 +90,7 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `ocean_camera_tests` | The OceanFft camera and its controller: the view basis, picking, pan and smoothed zoom. |
 | `sea_state_tests` | The sea state descriptor and the sea command that reads it. |
 | `bootstrap_tests` | The boot stages with no GPU: arguments, the config file, profiles, module selection and its refusals, module start and stop order, `Require`, the content stage against cooked test bundles, the device requirements (Required and Wanted capabilities, limits), and the boot timings. Its CMake file checks that it links no RHI. |
+| `bootstrap_vulkan_tests` | The window, device and GPU stages on a real device: headless and windowed boot, the spine needs at work (a device-local upload), `Declined`, a limit and a module need that no device meets, a GPU module that requires a core module, stop and start again, and `ReadDeviceConfig`. One test opens a small window. |
 | `agent_tools_tests` | AgentTools with no GPU: the registry, its schemas and text form, and the transport (`ToolServer`, `ToolRpc`) over real loopback sockets. |
 | `frame_capture_tests` | FrameCapture's conversions with no GPU (the decode of every captured format and encoding, the sRGB encode, the downsample), against the double reference in `color_math`. Also `CaptureSchedule`. |
 | `ComputeManifestTest` | The cook-to-dispatch path. Lodestone cooks `HashFill.slang`, `rhi::ShaderLibrary` selects each variant, `ResourceContext` creates every buffer, and every output word matches the CPU. |
@@ -110,6 +111,7 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `foundation/` | Containers, math, threading, delegates, image formats. No graphics API. `timing/`: `MonotonicNanoseconds` and `Stopwatch` read the time (header-only, so `bootstrap` uses them without linking `foundation`); `HighResolutionWait` and `FrameLimiter` sleep. |
 | `modules/ShaderBundle/` | `rhi::ShaderBundle`: reads a cooked Lodestone bundle with no device, so code that runs before the device exists can open bundles without the RHI. `rhi_system` links it. |
 | `modules/Bootstrap/` | `bootstrap`: the boot stages that need no RHI (`LaunchStage`, `CoreStage`), module descriptors and profiles, `BootResult`, and the boot timings. `README.md` explains it. `bootstrap_assert_no_rhi` fails the configure when a target reaches `rhi_system`. |
+| `modules/BootstrapVulkan/` | `bootstrap_vulkan`: the Vulkan boot stages (`WindowStage`, `DeviceStage`, `GpuStage`), `DeviceConfig`, and the spine needs. `modules/Bootstrap/README.md` explains it. |
 | `modules/RhiSystem/` | Instance, device, extensions, command pools, fences, semaphores, shader objects, and `ShaderLibrary` (the Lodestone client). `GenerateExtensionAndFeatureHeaders.py` writes the extension tables from `vk.xml`. |
 | `modules/PlatformSystem/` | GLFW windows, displays, the swapchain. |
 | `modules/RhiResources/` | `ResourceContext`: buffers, images, samplers, uploads, through messages to a worker thread and a transfer thread. Also `WriteManifestDescriptors`, which writes a descriptor set from the names, bindings and array counts that the cook reflected. |
