@@ -257,7 +257,16 @@ namespace bootstrap
             return gpuObject;
         }
 
-        return Core().FindModuleObject(name);
+        void* coreObject = Core().FindModuleObject(name);
+
+        if (coreObject == nullptr)
+        {
+            result = GpuFailure(BootResultCode::ModuleStartFailed, module.Name, name, "");
+            result.Source = "DependsOn";
+            return nullptr;
+        }
+
+        return coreObject;
     }
 }
 
