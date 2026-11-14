@@ -1,8 +1,10 @@
 #include "ExtensionWrangler.hpp"
 #include "vulkan/vulkan_core.h"
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -78,15 +80,26 @@
 // generator must fail the build rather than misclassify extensions at runtime
 static_assert(std::ranges::is_sorted(deviceExtensionTable), "deviceExtensionTable must be sorted for binary search");
 static_assert(std::ranges::is_sorted(instanceExtensionTable), "instanceExtensionTable must be sorted for binary search");
+static_assert(std::ranges::is_sorted(extensionIndexLookupTable, {}, &ExtensionIndexEntry::Name),
+              "extensionIndexLookupTable must be sorted by Name for binary search");
+static_assert(std::ranges::is_sorted(extensionDependencyTable, {}, &VersionDependencySlice::ApiVersion),
+              "extensionDependencyTable must be sorted by ApiVersion for binary search");
+static_assert(std::ranges::is_sorted(promotedExtensionsTable, {}, &PromotedVersionSlice::ApiVersion),
+              "promotedExtensionsTable must be sorted by ApiVersion");
 
 namespace
 {
     std::string_view ExtensionNameOf(const VkExtensionProperties& properties) noexcept;
     const char* StringViewData(std::string_view view) noexcept;
+    [[nodiscard]] const size_t* FindExtensionIndex(std::string_view extension_name) noexcept;
+    [[nodiscard]] const VersionDependencySlice* FindVersionDependencySlice(uint32_t api_version) noexcept;
+    [[nodiscard]] const ExtensionDependencyRange* FindExtensionDependencyRange(
+        const VersionDependencySlice& slice,
+        size_t extension_index) noexcept;
 }
 
 //NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
-static const std::set<uint32_t> k_BuiltInVkVersions
+constexpr std::array<uint32_t, 5> k_BuiltInVkVersions
 {
     VK_API_VERSION_1_0,
     VK_API_VERSION_1_1,
@@ -94,6 +107,7 @@ static const std::set<uint32_t> k_BuiltInVkVersions
     VK_API_VERSION_1_3,
     VK_API_VERSION_1_4
 };
+static_assert(std::ranges::is_sorted(k_BuiltInVkVersions));
 
 struct DependencyCache
 {
@@ -116,85 +130,22 @@ struct DependencyCache
     std::vector<VkExtensionProperties> InstanceExtensionDependencies;
 };
 
-ExtensionDependencies::ExtensionDependencies(
-    uint32_t num_instance_extension_deps,
-    uint32_t num_device_extension_deps) :
-    VersionDep{ 0 },
-    NumInstanceExtensionDeps{ num_instance_extension_deps },
-    InstanceExtensionDeps{ nullptr },
-    NumDeviceExtensionDeps{ num_device_extension_deps },
-    DeviceExtensionDeps{ nullptr }
+bool ExtensionDependencies::IsOnlyVersionDependent() const noexcept
 {
-
-    if (NumInstanceExtensionDeps > 0)
-    {
-        InstanceExtensionDeps = new const char*[NumInstanceExtensionDeps];
-    }
-
-    if (NumDeviceExtensionDeps > 0)
-    {
-        DeviceExtensionDeps = new const char*[NumDeviceExtensionDeps];
-    }
-
-}
-
-ExtensionDependencies::~ExtensionDependencies()
-{
-    if (NumInstanceExtensionDeps > 0 && InstanceExtensionDeps != nullptr)
-    {
-        delete[] InstanceExtensionDeps;
-    }
-    if (NumDeviceExtensionDeps > 0 && DeviceExtensionDeps != nullptr)
-    {
-        delete[] DeviceExtensionDeps;
-    }
-}
-
-ExtensionDependencies::ExtensionDependencies(ExtensionDependencies&& other) noexcept :
-    VersionDep{ other.VersionDep },
-    NumInstanceExtensionDeps{ other.NumInstanceExtensionDeps },
-    InstanceExtensionDeps{ other.InstanceExtensionDeps },
-    NumDeviceExtensionDeps{ other.NumDeviceExtensionDeps },
-    DeviceExtensionDeps{ other.DeviceExtensionDeps }
-{
-    other.InstanceExtensionDeps = nullptr;
-    other.DeviceExtensionDeps = nullptr;
-    other.NumInstanceExtensionDeps = 0;
-    other.NumDeviceExtensionDeps = 0;
-}
-
-ExtensionDependencies& ExtensionDependencies::operator=(ExtensionDependencies&& other) noexcept
-{
-    if (this != &other)
-    {
-        delete[] InstanceExtensionDeps;
-        delete[] DeviceExtensionDeps;
-
-        VersionDep = other.VersionDep;
-        InstanceExtensionDeps = other.InstanceExtensionDeps;
-        DeviceExtensionDeps = other.DeviceExtensionDeps;
-        NumInstanceExtensionDeps = other.NumInstanceExtensionDeps;
-        NumDeviceExtensionDeps = other.NumDeviceExtensionDeps;
-
-        other.InstanceExtensionDeps = nullptr;
-        other.DeviceExtensionDeps = nullptr;
-        other.NumInstanceExtensionDeps = 0;
-        other.NumDeviceExtensionDeps = 0;
-    }
-    return *this;
+    return InstanceExtensionDeps.empty() && DeviceExtensionDeps.empty() && VersionDep != 0;
 }
 
 ExtensionWrangler::ExtensionWrangler(
-    const uint32_t _apiVersion,
-    VkPhysicalDevice _physicalDevice) :
-    apiVersion(_apiVersion),
-    physicalDevice(_physicalDevice),
-    dependencyCache(std::make_unique<DependencyCache>(_physicalDevice))
+    const uint32_t api_version,
+    VkPhysicalDevice physical_device) :
+    apiVersion(api_version),
+    physicalDevice(physical_device),
+    dependencyCache(std::make_unique<DependencyCache>(physical_device))
 {
     // Find the highest API version that is <= the input API version
     // upper_bound returns iterator to first element > apiVersion, so we want the element before that
-    auto upperBoundIt = k_BuiltInVkVersions.upper_bound(apiVersion);
-    
+    auto upperBoundIt = std::ranges::upper_bound(k_BuiltInVkVersions, apiVersion);
+
     // If upper_bound points to begin(), then apiVersion is less than all built-in versions, use the first one
     if (upperBoundIt == k_BuiltInVkVersions.begin())
     {
@@ -261,81 +212,101 @@ bool ExtensionWrangler::AreExtensionsSupported(const size_t num_extensions, cons
 
 bool ExtensionWrangler::ExtensionIsDeviceExtension(const std::string_view extension_name) const
 {
-    auto extensionNameIter = extensionIndexLookupMap.find(extension_name);
-    if (extensionNameIter == extensionIndexLookupMap.end())
+    const size_t* const extensionIndex = FindExtensionIndex(extension_name);
+
+    if (extensionIndex == nullptr)
     {
         return false;
     }
-    
-    size_t extensionIndex = extensionNameIter->second;
 
-    return std::ranges::binary_search(deviceExtensionTable, extensionIndex);
+    return std::ranges::binary_search(deviceExtensionTable, *extensionIndex);
 }
 
 bool ExtensionWrangler::ExtensionIsInstanceExtension(const std::string_view extension_name) const
 {
-    auto extensionNameIter = extensionIndexLookupMap.find(extension_name);
-    if (extensionNameIter == extensionIndexLookupMap.end())
+    const size_t* const extensionIndex = FindExtensionIndex(extension_name);
+
+    if (extensionIndex == nullptr)
     {
         return false;
     }
-    
-    size_t extensionIndex = extensionNameIter->second;
 
-    return std::ranges::binary_search(instanceExtensionTable, extensionIndex);
+    return std::ranges::binary_search(instanceExtensionTable, *extensionIndex);
 }
 
 bool ExtensionWrangler::ExtensionCoreInActiveVersion(const std::string_view extension_name) const
 {
-    auto extensionNameIter = extensionIndexLookupMap.find(extension_name);
-    if (extensionNameIter == extensionIndexLookupMap.end())
+    const size_t* const extensionIndex = FindExtensionIndex(extension_name);
+
+    if (extensionIndex == nullptr)
     {
         return false;
     }
-    
-    size_t extensionIndex = extensionNameIter->second;
 
-    // an extension promoted in any version up to the active one is core. fixed: this only checked the row of the
-    // active version, so an extension promoted in 1.1 read as "not core" on 1.4
-    auto promotedFilter = [&](const auto& promoted_entry)
+    for (const auto& slice : promotedExtensionsTable)
     {
-        const auto& [promotedInVersion, promotedExtensions] = promoted_entry;
-        return promotedInVersion <= apiVersion && std::ranges::contains(promotedExtensions, extensionIndex);
-    };
-    return std::ranges::any_of(promotedExtensionsMap, promotedFilter);
+        if (slice.ApiVersion > apiVersion)
+        {
+            break;
+        }
+
+        const std::span<const size_t> subspan{
+            promotedExtensionIndices.data() + slice.Offset,
+            slice.Count
+        };
+
+        if (std::ranges::binary_search(subspan, *extensionIndex))
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> ExtensionWrangler::GetExtensionDependencies(const std::string_view extension_name) const
 {
     if (ExtensionCoreInActiveVersion(extension_name))
     {
-        ExtensionDependencies dependencies(0, 0);
-        dependencies.VersionDep = apiVersion;
-        return std::move(dependencies);
+        return ExtensionDependencies{ .VersionDep = apiVersion };
     }
     else if (ExtensionIsInstanceExtension(extension_name))
     {
         auto& supportedInstanceExtensions = dependencyCache->InstanceExtensionDependencies;
+
         if (!std::ranges::contains(supportedInstanceExtensions, extension_name, ExtensionNameOf))
         {
             return std::unexpected<DependencyError>(DependencyError::ExtensionNotSupported);
         }
 
         // found the extension, now get its dependencies
-        const size_t extensionIndex = extensionIndexLookupMap.find(extension_name)->second;
-        return getExtensionDependenciesInternal(extension_name, extensionIndex);
+        const size_t* const extensionIndex = FindExtensionIndex(extension_name);
+
+        if (extensionIndex == nullptr)
+        {
+            return std::unexpected<DependencyError>(DependencyError::ExtensionNotInstanceOrDeviceExtension);
+        }
+
+        return getExtensionDependenciesInternal(extension_name, *extensionIndex);
     }
     else if (physicalDevice != VK_NULL_HANDLE && ExtensionIsDeviceExtension(extension_name))
     {
         // if extension is device extension, we need to check if the physical device supports it
         auto& supportedDeviceExtensions = dependencyCache->DeviceExtensionDependencies;
+
         if (!std::ranges::contains(supportedDeviceExtensions, extension_name, ExtensionNameOf))
         {
             return std::unexpected<DependencyError>(DependencyError::ExtensionNotSupported);
         }
 
-        const size_t extensionIndex = extensionIndexLookupMap.find(extension_name)->second;
-        return getExtensionDependenciesInternal(extension_name, extensionIndex);
+        const size_t* const extensionIndex = FindExtensionIndex(extension_name);
+
+        if (extensionIndex == nullptr)
+        {
+            return std::unexpected<DependencyError>(DependencyError::ExtensionNotInstanceOrDeviceExtension);
+        }
+
+        return getExtensionDependenciesInternal(extension_name, *extensionIndex);
     }
     else
     {
@@ -369,96 +340,78 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
         }
 
         // Collect unique dependencies
-        const std::span<const char* const> instanceDependencyNames{ dependencies->InstanceExtensionDeps, dependencies->NumInstanceExtensionDeps };
-        const std::span<const char* const> deviceDependencyNames{ dependencies->DeviceExtensionDeps, dependencies->NumDeviceExtensionDeps };
-        uniqueInstanceDependencies.insert_range(instanceDependencyNames);
-        uniqueDeviceDependencies.insert_range(deviceDependencyNames);
+        uniqueInstanceDependencies.insert_range(dependencies->InstanceExtensionDeps);
+        uniqueDeviceDependencies.insert_range(dependencies->DeviceExtensionDeps);
     }
 
-    // Create a new ExtensionDependencies instance with the collected unique dependencies
-    ExtensionDependencies combinedDependencies(
-        static_cast<uint32_t>(uniqueInstanceDependencies.size()),
-        static_cast<uint32_t>(uniqueDeviceDependencies.size()));
-    
-    // set the version dependency to the API version
-    combinedDependencies.VersionDep = apiVersion;
-    if (uniqueDeviceDependencies.empty() && uniqueInstanceDependencies.empty())
+    return ExtensionDependencies
     {
-        // if no dependencies, just return the API version
-        return std::move(combinedDependencies);
-    }
-
-    // Move unique dependencies into the combined instance
-    std::ranges::copy(uniqueInstanceDependencies | std::views::transform(StringViewData), combinedDependencies.InstanceExtensionDeps);
-    std::ranges::copy(uniqueDeviceDependencies | std::views::transform(StringViewData), combinedDependencies.DeviceExtensionDeps);
-
-    return std::move(combinedDependencies);
+        .VersionDep = apiVersion,
+        .InstanceExtensionDeps = uniqueInstanceDependencies | std::views::transform(StringViewData) | std::ranges::to<std::vector>(),
+        .DeviceExtensionDeps = uniqueDeviceDependencies | std::views::transform(StringViewData) | std::ranges::to<std::vector>(),
+    };
 }
 
 std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> ExtensionWrangler::getExtensionDependenciesInternal(
     const std::string_view extension_name,
     const size_t extension_index) const
 {
-    // Now use API version + extension index to find the dependencies in the dependency table
-    auto extensionDepMapIter = extensionDependencyTable.find(apiVersion);
-    if (extensionDepMapIter == extensionDependencyTable.end())
+    const VersionDependencySlice* versionSlice = FindVersionDependencySlice(apiVersion);
+
+    if (versionSlice == nullptr)
     {
-        // failing here suggests apiVersion is not in the table, which is odd
         return std::unexpected<DependencyError>(DependencyError::ApiVersionNotValid);
     }
 
-    const ExtensionDependencyMap& extensionDepMap = extensionDepMapIter->second;
-    auto depIter = extensionDepMap.find(extension_index);
-    if (depIter == extensionDepMap.end() && apiVersion != 0)
+    const ExtensionDependencyRange* range = FindExtensionDependencyRange(*versionSlice, extension_index);
+
+    if (range == nullptr && apiVersion != 0u)
     {
-        // We first try to find the extension in the dependency map for this version, but now we'll try to find it in the any version map (which is totally fine!)
-        extensionDepMapIter = extensionDependencyTable.find(0);
-        const ExtensionDependencyMap& extensionDepMapTakeTwo = extensionDepMapIter->second;
-        depIter = extensionDepMapTakeTwo.find(extension_index);
-        // now if we're still at the end of the map, then we have a problem
-        if (depIter == extensionDepMapTakeTwo.end())
+        const VersionDependencySlice* anyVersionSlice = FindVersionDependencySlice(0u);
+
+        if (anyVersionSlice != nullptr)
         {
-            return std::unexpected<DependencyError>(DependencyError::ExtensionNotInDependencyTableForVersion);
+            range = FindExtensionDependencyRange(*anyVersionSlice, extension_index);
         }
     }
-    else if (depIter == extensionDepMap.end())
+
+    if (range == nullptr)
     {
-        return std::unexpected<DependencyError>(DependencyError::ExtensionNotInDependencyTableForVersion);
+        return std::unexpected<DependencyError>(
+            DependencyError::ExtensionNotInDependencyTableForVersion);
     }
 
-    // Now we have the list of indices this extension depends on, build the ExtensionDependencies object
-    const std::vector<size_t>& deps = depIter->second;
-
-    if (deps.empty())
+    if (range->Count == 0u)
     {
-        // No dependencies for this extension, woo!
         return std::unexpected<DependencyError>(DependencyError::NoDependenciesForExtension);
     }
-    
-    // Now need to iterate each extension and count how many instance and device extensions there are, and collect the name strings
-    // Realized a bit late that I'm not certain if instance deps can or cannot have device deps, and vice versa.....
+
     std::vector<std::string_view> instanceDeps;
     std::vector<std::string_view> deviceDeps;
 
-    for (const size_t dependencyIndex : deps)
+    const std::span<const size_t> targets{
+        extensionDependencyTargets.data() + range->Offset,
+        range->Count
+    };
+
+    for (const size_t dependencyIndex : targets)
     {
-        // First check - is this dependency index an extension or version dep?
-        if (k_BuiltInVkVersions.contains(static_cast<uint32_t>(dependencyIndex)))
+        if (std::ranges::binary_search(k_BuiltInVkVersions, static_cast<uint32_t>(dependencyIndex)))
         {
-            // It is a version dependency, so check that against API version
             if (apiVersion >= dependencyIndex)
             {
-                continue; // we are already using a compatible API version, nothing to do here
+                continue;
             }
             else
             {
-                return std::unexpected<DependencyError>(DependencyError::CurrentApiVersionDoesNotSupportExtension);
+                return std::unexpected<DependencyError>(
+                    DependencyError::CurrentApiVersionDoesNotSupportExtension);
             }
         }
         else
         {
-            // extension index is just a regular dependency index
-            std::string_view dependencyName = masterExtensionNameTable[dependencyIndex];
+            const std::string_view dependencyName = masterExtensionNameTable[dependencyIndex];
+
             if (ExtensionIsInstanceExtension(dependencyName.data()))
             {
                 instanceDeps.push_back(dependencyName);
@@ -469,19 +422,18 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
             }
             else
             {
-                // This is a problem, we have an extension dependency that is neither instance nor device extension
-                return std::unexpected<DependencyError>(DependencyError::ExtensionNotInstanceOrDeviceExtension);
+                return std::unexpected<DependencyError>(
+                    DependencyError::ExtensionNotInstanceOrDeviceExtension);
             }
         }
     }
 
-    ExtensionDependencies dependencies(static_cast<uint32_t>(instanceDeps.size()), static_cast<uint32_t>(deviceDeps.size()));
-    dependencies.VersionDep = apiVersion;
-    
-    std::ranges::copy(instanceDeps | std::views::transform(StringViewData), dependencies.InstanceExtensionDeps);
-    std::ranges::copy(deviceDeps | std::views::transform(StringViewData), dependencies.DeviceExtensionDeps);
-
-    return std::move(dependencies);
+    return ExtensionDependencies
+    {
+        .VersionDep = apiVersion,
+        .InstanceExtensionDeps = instanceDeps | std::views::transform(StringViewData) | std::ranges::to<std::vector>(),
+        .DeviceExtensionDeps = deviceDeps | std::views::transform(StringViewData) | std::ranges::to<std::vector>(),
+    };
 }
 
 namespace
@@ -495,6 +447,60 @@ namespace
     const char* StringViewData(const std::string_view view) noexcept
     {
         return view.data();
+    }
+
+    const size_t* FindExtensionIndex(std::string_view extension_name) noexcept
+    {
+        const auto found = std::ranges::lower_bound(
+            extensionIndexLookupTable,
+            extension_name,
+            {},
+            &ExtensionIndexEntry::Name);
+
+        if (found != extensionIndexLookupTable.end() && found->Name == extension_name)
+        {
+            return &found->Index;
+        }
+
+        return nullptr;
+    }
+
+    const VersionDependencySlice* FindVersionDependencySlice(uint32_t api_version) noexcept
+    {
+        const auto found = std::ranges::lower_bound(
+            extensionDependencyTable,
+            api_version,
+            {},
+            &VersionDependencySlice::ApiVersion);
+
+        if (found != extensionDependencyTable.end() && found->ApiVersion == api_version)
+        {
+            return &*found;
+        }
+
+        return nullptr;
+    }
+
+    const ExtensionDependencyRange* FindExtensionDependencyRange(
+        const VersionDependencySlice& slice,
+        size_t extension_index) noexcept
+    {
+        const std::span<const ExtensionDependencyRange> subspan{
+            extensionDependencyEntries.data() + slice.EntryOffset,
+            slice.EntryCount
+        };
+        const auto found = std::ranges::lower_bound(
+            subspan,
+            extension_index,
+            {},
+            &ExtensionDependencyRange::ExtensionIndex);
+
+        if (found != subspan.end() && found->ExtensionIndex == extension_index)
+        {
+            return &*found;
+        }
+
+        return nullptr;
     }
 
 }

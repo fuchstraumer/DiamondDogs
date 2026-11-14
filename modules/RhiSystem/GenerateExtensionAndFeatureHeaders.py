@@ -36,17 +36,6 @@ class ExtensionDependencyTransformer(Transformer):
     def EXTENSION(self, token):
         return {'type': 'EXTENSION', 'name': token.value}
     
-class ExtensionFeatureStruct:
-    '''
-    Holds the key information we will need to generate the feature structs for each extension,
-    namely the name of the struct followed by the string STYPE value we'll use when generating
-    the type in the final header output. Also tracks the boolean feature toggle names for
-    documentation purposes.
-    '''
-    name = None
-    stype = None
-    featureToggles = []  # List of boolean feature toggle names in this struct
-        
 class ExtensionWithDependencies:
     '''
     Holds all the information we need to know about an extension when doing this processing, primarily for partitioning 
@@ -87,9 +76,6 @@ class ExtensionWithDependencies:
 
     # If this extension was obsoleted by a new extension, this will be the new extension it was obsoleted by
     obsoletedOrDeprecatedBy = None
-    
-    # Feature struct information for this extension (if any)
-    featureStruct = None
 
 def ConstructExtensionObjects(extensionXmlObjects):
     '''
@@ -143,9 +129,6 @@ def ConstructExtensionObjects(extensionXmlObjects):
         # Not sure why some of the spec extensions have an empty string for the obsoletedby attribute?
         if extensionObject.obsoletedOrDeprecatedBy == '':
             extensionObject.obsoletedOrDeprecatedBy = None
-
-        # Initialize feature struct to None - will be populated later
-        extensionObject.featureStruct = None
 
         extensionObjects.append(extensionObject)
     
@@ -462,8 +445,8 @@ def CreateFileHeader(tree, fileStream):
     includeUuid = hashlib.sha256(ElementTree.tostring (tree)).hexdigest().upper ()
     print(f'#ifndef VK_EXTENSION_WRANGLER_LOOKUPS_{includeUuid}', file=fileStream)
     print(f'#define VK_EXTENSION_WRANGLER_LOOKUPS_{includeUuid}', file=fileStream)
-    print('#include <cstdint>\n#include <array>\n#include <string_view>\n#include <vector>', file=fileStream)
-    print('#include <unordered_map>\n#include <limits>', file=fileStream)
+    print('#include <cstdint>\n#include <array>\n#include <string_view>\n#include <cstddef>', file=fileStream)
+    print('#include <limits>', file=fileStream)
     print('#include <vulkan/vulkan_core.h>\n', file=fileStream)
 
 def WriteMasterExtensionNameTable(extensionObjects, versions, fileStream):
@@ -519,37 +502,32 @@ def WriteExtensionIndexLookupTable(extensionObjects, fileStream):
         aliasedExtensions: dict mapping old extension names to new extension names
         aliasedNameToIndexDict: mapping of aliased extension names to their index in the aliasedExtensionNameTable
     '''
-    print('static const std::unordered_map<std::string_view, size_t> extensionIndexLookupMap', file=fileStream)
-    print('{', file=fileStream)
-
+    entries = []
     for extensionObject in extensionObjects:
-        extensionName = extensionObject.name
-        if extensionObject.nameIndex is not None and extensionObject.aliasedTo is None:
-            print(
-                '    { masterExtensionNameTable[' + str(extensionObject.nameIndex) + '], ' +
-                       str(extensionObject.nameIndex) + ' }, //' + extensionName, file=fileStream)
-        elif extensionObject.nameIndex is not None and extensionObject.aliasedTo is not None:
-            print('    // Aliased extension, remapped to: ' + extensionObject.promotedTo, file=fileStream)
-            print(
-                '    { masterExtensionNameTable[' + str(extensionObject.nameIndex) + '], ' +
-                       str(extensionObject.aliasedTo) + ' }, //' + extensionName, file=fileStream)
-        else:
-            print(f"Warning: Extension {extensionName} not found in master name to index dictionary")
+        if extensionObject.nameIndex is None:
+            continue
+        targetIndex = (
+            extensionObject.aliasedTo
+            if extensionObject.aliasedTo is not None
+            else extensionObject.nameIndex
+        )
+        entries.append((extensionObject.name, extensionObject.nameIndex, targetIndex))
 
+    entries.sort(key=lambda x: x[0])
+
+    print('struct ExtensionIndexEntry', file=fileStream)
+    print('{', file=fileStream)
+    print('    std::string_view Name;', file=fileStream)
+    print('    size_t Index;', file=fileStream)
     print('};\n', file=fileStream)
+    print(f'constexpr static std::array<ExtensionIndexEntry, {len(entries)}> extensionIndexLookupTable', file=fileStream)
+    print('{{', file=fileStream)
 
-def WriteExtensionHasVersionDependencyTable(versionedExtensionDependencies, extensionIdxDict, fileStream):
-    '''
-    Writes out a table of extensions that have a version dependency
-    Args:
-        versionedExtensionDependencies: dict mapping version names to a dict of extension names to lists of dependencies
-        extensionIdxDict: mapping of extension names to their index in the masterExtensionNameTable
-        fileStream: file stream to write to
-    '''
-    for version, extensionsAndDeps in versionedExtensionDependencies.items():
-        for extensionName, dependencies in extensionsAndDeps.items():
-            if "0x55555555" in dependencies:
-                print(f"Extension {extensionName} has a version dependency")
+    for extensionName, nameIndex, targetIndex in entries:
+        print(f'    {{ masterExtensionNameTable[{nameIndex}], {targetIndex} }}, // {extensionName}', file=fileStream)
+
+    print('}};\n', file=fileStream)
+
 
 def WriteDeviceOrInstanceExtensionTable(extensionObjects, fileStream, extensionTypeToWrite):
     '''
@@ -588,27 +566,7 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
     Creates a two-level table that first maps versions to a dependency table for that version, and then within that maps each
     extension index to a list of dependencies. This way we can do a minimal amount of lookups to retrieve dependencies,
     but still keep the dependency table partitioned by version.
-
-    Now uses std::vector instead of fixed-size arrays to save space and improve readability.
-
-    Args:
-        extensionObjects: list of ExtensionWithDependencies objects
-        versions: list of version elements from vk.xml
-        fileStream: file stream to write to
     '''
-
-    # could make this uint32_t but we also are using size_t everywhere else, so let's keep it consistent
-    # will need to define this type at a higher level if we want to use it like this
-    dependencyIndexType = 'size_t'
-
-    # Get list of macros for each version
-    versionedDependencyTables = {}
-    for version in versions:
-        if version == 'ANY_VERSION':
-            continue
-        versionedDependencyTables[version] = {}
-    
-
     # Built a local dict of extension name to extension indices for quick lookup
     extensionNameToIndexDict = {}
     for extensionObject in extensionObjects:
@@ -617,34 +575,6 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
         elif extensionObject.nameIndex is not None and extensionObject.aliasedTo is not None:
             extensionNameToIndexDict[extensionObject.name] = extensionObject.aliasedTo
 
-    # Helper function to get dependency names for comment generation
-    def GetDependencyNames(dependencies, extensionObjects):
-        dependencyNames = []
-        for dep in dependencies:
-            if dep == "PromotedToCore":
-                dependencyNames.append("PromotedToCore")
-            else:
-                # Find the extension name by searching for the dependency
-                for ext in extensionObjects:
-                    if ext.name == dep:
-                        dependencyNames.append(dep)
-                        break
-        return dependencyNames
-
-    # Build a list of VK_API_VERSION macros for each version in versions
-    versionMacros = {}
-    for version in versions:
-        if version == 'ANY_VERSION':
-            continue
-        versionMacros[version] = MakeVersionStrVersionNumber(version)
-
-    dependencyVectorStr = 'std::vector<' + dependencyIndexType + '>'
-    print('// Extension dependency table - hierarchical map: version -> extension index -> dependencies', file=fileStream)
-    print('// This allows direct lookup from extension index to its dependency vector for any given version', file=fileStream)
-    print('using ExtensionDependencyMap = std::unordered_map<size_t, ' + dependencyVectorStr + '>;', file=fileStream)
-    print('static const std::unordered_map<uint32_t, ExtensionDependencyMap> extensionDependencyTable', file=fileStream)
-    print('{', file=fileStream)
-    
     # Collect extensions by version
     anyVersionExtensions = {}  # extension_index -> dependencies
     versionedExtensions = {}   # version -> {extension_index -> dependencies}
@@ -699,268 +629,112 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
                         dependencyIndices.append(extensionNameToIndexDict[dependency])
             
             anyVersionExtensions[extensionIndex] = dependencyIndices
-    
-    # Generate ANY_VERSION map
+
+    dependencyTargets = []
+    dependencyEntries = []
+    versionSlices = []
+
+    # 18. Order version slices with 0 first if anyVersionExtensions is non-empty.
     if anyVersionExtensions:
-        print('    // ANY_VERSION extensions (no version-specific dependencies)', file=fileStream)
-        print('    { 0, {', file=fileStream)
-        
-        for extensionIndex, dependencyIndices in anyVersionExtensions.items():
-            extensionName = next(ext.name for ext in extensionObjects if ext.nameIndex == extensionIndex)
-            dependencyNames = []
-            
-            if dependencyIndices:
-                for depIdx in dependencyIndices:
-                    depName = next((ext.name for ext in extensionObjects if ext.nameIndex == depIdx), f"Index_{depIdx}")
-                    dependencyNames.append(depName)
-                depStr = ', '.join(dependencyNames)
-                print(f'        // Extension: {extensionName} (depends on: {depStr})', file=fileStream)
-            else:
-                print(f'        // Extension: {extensionName} (no dependencies)', file=fileStream)
-            
-            if dependencyIndices:
-                dependencyIdxString = ', '.join(map(str, dependencyIndices))
-                print(f'        {{ {extensionIndex}, {dependencyVectorStr}{{ {dependencyIdxString} }} }},', file=fileStream)
-            else:
-                print(f'        {{ {extensionIndex}, {dependencyVectorStr}{{}} }},', file=fileStream)
-        
-        print('    }},', file=fileStream)
-    
-    # Generate versioned maps
-    for version in versions:
-        if version in versionedExtensions:
-            print(f'    // Version: {version} extensions', file=fileStream)
-            print(f'    {{ {versionMacros[version]}, {{', file=fileStream)
-            
-            for extensionIndex, dependencyIndices in versionedExtensions[version].items():
-                extensionName = next(ext.name for ext in extensionObjects if ext.nameIndex == extensionIndex)
-                dependencyNames = []
-                
-                if dependencyIndices:
-                    for depIdx in dependencyIndices:
-                        if isinstance(depIdx, str):
-                            dependencyNames.append(f"requires {depIdx}")
-                        else:
-                            depName = next((ext.name for ext in extensionObjects if ext.nameIndex == depIdx), f"Index_{depIdx}")
-                            dependencyNames.append(depName)
-                    depStr = ', '.join(dependencyNames)
-                    print(f'        // Extension: {extensionName} for {version} (depends on: {depStr})', file=fileStream)
-                else:
-                    print(f'        // Extension: {extensionName} for {version} (no dependencies)', file=fileStream)
-                
-                if dependencyIndices:
-                    # a version dependency must be written as VK_API_VERSION_X_Y. VK_VERSION_X_Y is a feature guard
-                    # macro defined to 1, so it read as "depends on extension index 1" (VK_KHR_swapchain), and every
-                    # extension that required a core version silently pulled in the swapchain extension
-                    dependencyIdxString = ', '.join(MakeVersionStrVersionNumber(dep) if isinstance(dep, str) else str(dep) for dep in dependencyIndices)
-                    print(f'        {{ {extensionIndex}, {dependencyVectorStr}{{ {dependencyIdxString} }} }},', file=fileStream)
-                else:
-                    print(f'        {{ {extensionIndex}, {dependencyVectorStr}{{}} }},', file=fileStream)
+        entryOffset = len(dependencyEntries)
+        for extIndex in sorted(anyVersionExtensions.keys()):
+            depIndices = anyVersionExtensions[extIndex]
+            offset = len(dependencyTargets)
+            count = len(depIndices)
+            for dep in depIndices:
+                depVal = MakeVersionStrVersionNumber(dep) if isinstance(dep, str) else str(dep)
+                dependencyTargets.append(depVal)
+            dependencyEntries.append((extIndex, offset, count))
+        entryCount = len(dependencyEntries) - entryOffset
+        versionSlices.append(('0', entryOffset, entryCount))
 
-            print('    }},', file=fileStream)
+    # 19. Append each key present in versionedExtensions sorted by VersionNameSortKey ascending.
+    for version in sorted(versionedExtensions.keys(), key=VersionNameSortKey):
+        extMap = versionedExtensions[version]
+        entryOffset = len(dependencyEntries)
+        for extIndex in sorted(extMap.keys()):
+            depIndices = extMap[extIndex]
+            offset = len(dependencyTargets)
+            count = len(depIndices)
+            for dep in depIndices:
+                depVal = MakeVersionStrVersionNumber(dep) if isinstance(dep, str) else str(dep)
+                dependencyTargets.append(depVal)
+            dependencyEntries.append((extIndex, offset, count))
+        entryCount = len(dependencyEntries) - entryOffset
+        versionSlices.append((MakeVersionStrVersionNumber(version), entryOffset, entryCount))
 
+    print('struct ExtensionDependencyRange', file=fileStream)
+    print('{', file=fileStream)
+    print('    size_t ExtensionIndex;', file=fileStream)
+    print('    uint32_t Offset;', file=fileStream)
+    print('    uint32_t Count;', file=fileStream)
     print('};\n', file=fileStream)
+
+    print('struct VersionDependencySlice', file=fileStream)
+    print('{', file=fileStream)
+    print('    uint32_t ApiVersion;', file=fileStream)
+    print('    uint32_t EntryOffset;', file=fileStream)
+    print('    uint32_t EntryCount;', file=fileStream)
+    print('};\n', file=fileStream)
+
+    print(f'constexpr static std::array<size_t, {len(dependencyTargets)}> extensionDependencyTargets', file=fileStream)
+    print('{', file=fileStream)
+    for target in dependencyTargets:
+        print(f'    {target},', file=fileStream)
+    print('};\n', file=fileStream)
+
+    print(f'constexpr static std::array<ExtensionDependencyRange, {len(dependencyEntries)}> extensionDependencyEntries', file=fileStream)
+    print('{{', file=fileStream)
+    for extIndex, offset, count in dependencyEntries:
+        print(f'    {{ {extIndex}, {offset}, {count} }},', file=fileStream)
+    print('}};\n', file=fileStream)
+
+    print(f'constexpr static std::array<VersionDependencySlice, {len(versionSlices)}> extensionDependencyTable', file=fileStream)
+    print('{{', file=fileStream)
+    for apiVersion, entryOffset, entryCount in versionSlices:
+        print(f'    {{ {apiVersion}, {entryOffset}, {entryCount} }},', file=fileStream)
+    print('}};\n', file=fileStream)
+
 
 def PrintPromotedVersionedExtensions(promotedVersionedExtensions, extensionIdxDict, fileStream):
-    print('// Table of versioned extensions, indexed by version name->version number macro. If an extension index is in this map for a\n// version, it means that extension is core in that version (meaning it does not need to enabled)', file=fileStream)
-    versionedExtensionVecStr = 'std::vector<size_t>'
-    print('static const std::unordered_map<size_t, ' + versionedExtensionVecStr + '> promotedExtensionsMap', file=fileStream)
-    print('{', file=fileStream)
+    def GetExtensionIdx(extension, extensionIdxDict):
+        if extension in extensionIdxDict:
+            return extensionIdxDict[extension]
+        print(f"Warning: Extension {extension} not found in extension index dictionary")
+        return 0
 
-    for version, versionedExtensions in promotedVersionedExtensions.items():
-        if not versionedExtensions:  # Skip empty lists
+    promotedTargets = []
+    promotedSlices = []
+
+    sorted_items = sorted(promotedVersionedExtensions.items(), key=lambda item: VersionNameSortKey(item[0]))
+    for version, versionedExtensions in sorted_items:
+        if not versionedExtensions:
             continue
+        indices = sorted(set(GetExtensionIdx(ext, extensionIdxDict) for ext in versionedExtensions))
+        offset = len(promotedTargets)
+        count = len(indices)
+        promotedTargets.extend(indices)
+        promotedSlices.append((MakeVersionStrVersionNumber(version), offset, count))
 
-        print('    // Version: ' + version, file=fileStream)
-        
-        def GetExtensionIdx(extension, extensionIdxDict):
-            if extension in extensionIdxDict:
-                return extensionIdxDict[extension]
-            print(f"Warning: Extension {extension} not found in extension index dictionary")
-            return 0  # Default to 0 if not found
-
-        indexList = [GetExtensionIdx(ext, extensionIdxDict) for ext in versionedExtensions]
-        if indexList:  # Only print if we have valid indices
-            indexStr = ', '.join(map(str, indexList))
-            # keyed by VK_API_VERSION_X_Y: VK_VERSION_X_Y is defined to 1, so every key collided and only the 1.1 row survived
-            print('    { ' + MakeVersionStrVersionNumber(version) + ', ' + '{ ' + indexStr + ' } }, ', file=fileStream)
-
+    print('struct PromotedVersionSlice', file=fileStream)
+    print('{', file=fileStream)
+    print('    uint32_t ApiVersion;', file=fileStream)
+    print('    uint32_t Offset;', file=fileStream)
+    print('    uint32_t Count;', file=fileStream)
     print('};\n', file=fileStream)
 
-def ExtractFeatureStructsFromExtensions(extensionObjects, tree):
-    '''
-    Extension-driven approach to finding feature structs. Iterates through extensions
-    and looks for feature struct declarations within them, then finds the corresponding
-    struct definitions in the XML to extract the sType information.
-    '''
-    processed_count = 0
-    found_count = 0
-    
-    for extensionObject in extensionObjects:
-        processed_count += 1
-        
-        # Skip extensions that explicitly have no features
-        if extensionObject.noFeatures:
-            continue
-            
-        extension = extensionObject.xmlObject
-        
-        # Look for feature structs in the extension's require sections
-        feature_elements = extension.findall('.//require/feature')
-        
-        for feature_element in feature_elements:
-            struct_name = feature_element.get('struct')
-            if struct_name and 'Features' in struct_name:
-                # Found a feature struct, now find its definition in the XML
-                struct_def = tree.find(f'.//type[@name="{struct_name}"]')
-                
-                if struct_def is not None:
-                    # Find the sType value from the struct definition
-                    stype_value = None
-                    feature_toggles = []
-                    
-                    for member in struct_def.findall('.//member'):
-                        type_elem = member.find('type')
-                        if type_elem is not None and type_elem.text == 'VkStructureType':
-                            stype_value = member.get('values')
-                        elif type_elem is not None and type_elem.text == 'VkBool32':
-                            # This is a boolean feature toggle
-                            name_elem = member.find('name')
-                            if name_elem is not None and name_elem.text:
-                                feature_toggles.append(name_elem.text)
-                    
-                    if stype_value:
-                        # Create the feature struct object
-                        feature_struct = ExtensionFeatureStruct()
-                        feature_struct.name = struct_name
-                        feature_struct.stype = stype_value
-                        feature_struct.featureToggles = feature_toggles
-                        
-                        extensionObject.featureStruct = feature_struct
-                        found_count += 1
-                        break  # Only expect one feature struct per extension
-    
-    print(f"Processed {processed_count} extensions, found {found_count} feature structs")
-    return found_count
-
-def GroupStructsByExtension(structs, extensions, struct_type):
-    """
-    Iterates through list of feature structs, and groups them by the extension they are associated with.
-    Returns a dictionary where the keys are extension names and the values are lists of feature structs
-    associated with that extension. Should only ever be one struct per extension, however
-    Args:
-        structs: list of feature structs
-        extensions: list of extension elements from vk.xml
-        versions: list of version elements from vk.xml
-        struct_type: "Features" or "Properties"
-    Returns:
-        dict: mapping extension names to their feature struct
-    """
-    grouped_structs = {}
-    # unfortunate issue: we're just going to have to manually update this list of version extensions
-    # as new core versions are released.
-    version_feature_structs = {
-        'VK_VERSION_1_1': 'VkPhysicalDeviceVulkan11Features',
-        'VK_VERSION_1_2': 'VkPhysicalDeviceVulkan12Features', 
-        'VK_VERSION_1_3': 'VkPhysicalDeviceVulkan13Features',
-        'VK_VERSION_1_4': 'VkPhysicalDeviceVulkan14Features'
-    }
-    version_property_structs = {
-        'VK_VERSION_1_1': 'VkPhysicalDeviceVulkan11Properties',
-        'VK_VERSION_1_2': 'VkPhysicalDeviceVulkan12Properties',
-        'VK_VERSION_1_3': 'VkPhysicalDeviceVulkan13Properties',
-        'VK_VERSION_1_4': 'VkPhysicalDeviceVulkan14Properties'
-    }
-
-    if struct_type == "Features":
-        # Add version feature structs to grouped_structs
-        for version_name, struct_name in version_feature_structs.items():
-            # Find the struct in the list of structs
-            matching_structs = [s for s in structs if s['name'] == struct_name]
-            if matching_structs:
-                grouped_structs[version_name] = matching_structs[0]
-                # Remove from structs list so we don't process it again
-                structs.remove(matching_structs[0])
-    elif struct_type == "Properties":
-        # Add version property structs to grouped_structs
-        for version_name, struct_name in version_property_structs.items():
-            # Find the struct in the list of structs
-            matching_structs = [s for s in structs if s['name'] == struct_name]
-            if matching_structs:
-                grouped_structs[version_name] = matching_structs[0]
-                # Remove from structs list so we don't process it again
-                structs.remove(matching_structs[0])
-    
-    
-    for extension in extensions:
-        extension_types = []
-        if struct_type == "Features":
-            extension_types = extension.findall('.//feature')
-        elif struct_type == "Properties":
-            extension_types = extension.findall('.//type')
-        extension_feature_structs = []
-        for extension_type in extension_types:
-            extension_type_name = ''
-            if struct_type == "Features":
-                extension_type_name = extension_type.get('struct')
-            elif struct_type == "Properties":
-                extension_type_name = extension_type.get('name')
-            # Check if this type is a feature struct by looking for struct_type in the name
-            if struct_type in extension_type_name:
-                extension_feature_structs.append(extension_type_name)
-    
-        for extension_feature_struct in extension_feature_structs:
-            for feature_struct in structs:
-                if feature_struct['name'] == extension_feature_struct:
-                    grouped_structs[extension.get('name')] = feature_struct
-                    # Remove the feature struct from the list so we don't process it again
-                    structs.remove(feature_struct)
-                    extension_feature_structs.remove(extension_feature_struct)
-                    break
-
-    return grouped_structs
-
-def WriteExtensionFeatureStructsFromExtensions(extensionObjects, fileStream):
-    """
-    Write out static instances of all the extension feature structs, with their sType
-    filled out and pNext set to nullptr. Uses the extension-driven approach where
-    feature struct information is already extracted and stored in the extension objects.
-    All boolean feature toggles are initialized to VK_FALSE with comments showing feature names.
-    """
-    struct_count = 0
-    
-    for extensionObject in extensionObjects:
-        if extensionObject.featureStruct is not None:
-            featureStruct = extensionObject.featureStruct
-            printedStructName = f'cowpoke_{extensionObject.name}_FeatureStruct'
-            
-            print(f'// Extension: {extensionObject.name}', file=fileStream)
-            print(f'static {featureStruct.name} {printedStructName} =\n{{', file=fileStream)
-            print(f'    {featureStruct.stype},', file=fileStream)
-            print(f'    nullptr,', file=fileStream)
-            
-            # Initialize all boolean feature toggles to VK_FALSE with comments
-            for feature_toggle in featureStruct.featureToggles:
-                print(f'    VK_FALSE, // {feature_toggle}', file=fileStream)
-            
-            print(f'}};\n', file=fileStream)
-            struct_count += 1
-    
-    print(f"Generated {struct_count} feature struct declarations")
-
-def WriteExtensionFeatureStructPointerTable(extensionObjects, fileStream):
-    print('// Extension feature struct pointer table', file=fileStream)
-    print('const static std::unordered_map<size_t, const void*> extensionFeatureStructMap', file=fileStream)
+    print(f'constexpr static std::array<size_t, {len(promotedTargets)}> promotedExtensionIndices', file=fileStream)
     print('{', file=fileStream)
-    for extensionObject in extensionObjects:
-        # Don't need to handle case where we don't have one of these, since in those cases the C++ side can handle that
-        if extensionObject.featureStruct is not None:
-            featureStructName = f'cowpoke_{extensionObject.name}_FeatureStruct' 
-            # Now print nameIndex and pointer to the feature struct
-            if extensionObject.nameIndex is not None:
-                print(f'    {{ {extensionObject.nameIndex}, &{featureStructName} }}, // Extension: {extensionObject.name}', file=fileStream)
-
+    for idx in promotedTargets:
+        print(f'    {idx},', file=fileStream)
     print('};\n', file=fileStream)
+
+    print(f'constexpr static std::array<PromotedVersionSlice, {len(promotedSlices)}> promotedExtensionsTable', file=fileStream)
+    print('{{', file=fileStream)
+    for apiVersion, offset, count in promotedSlices:
+        print(f'    {{ {apiVersion}, {offset}, {count} }},', file=fileStream)
+    print('}};\n', file=fileStream)
+
 
 def WriteFeatureMemberTable(tree, headerText, outputPath):
     """
@@ -1220,15 +994,6 @@ if __name__ == '__main__':
         WriteExtensionDependencyTable(extensionObjects, versions, fileStream)
 
         PrintPromotedVersionedExtensions(promotedVersionedExtensions, {ext.name: ext.nameIndex for ext in extensionObjects}, fileStream)
-
-        # Extract feature structs from extensions using the new extension-driven approach
-        ExtractFeatureStructsFromExtensions(extensionObjects, tree)
-        
-        # Generate feature struct declarations
-        WriteExtensionFeatureStructsFromExtensions(extensionObjects, fileStream)
-
-        # Use newly printed feature structs to write out the extension feature struct pointer table
-        WriteExtensionFeatureStructPointerTable(extensionObjects, fileStream)
 
         FinalizeFile(fileStream)
 

@@ -133,8 +133,8 @@ namespace rhi
 
         // instance dependency failures were ignored before this change too: a required extension the
         // loader doesn't know still fails at vkCreateInstance, with a clearer message than ours
-        const uint32_t dependencyCount = deps.has_value() ? deps->NumInstanceExtensionDeps : 0u;
-        const char* const* dependencies = deps.has_value() ? deps->InstanceExtensionDeps : nullptr;
+        const uint32_t dependencyCount = deps.has_value() ? static_cast<uint32_t>(deps->InstanceExtensionDeps.size()) : 0u;
+        const char* const* dependencies = deps.has_value() ? deps->InstanceExtensionDeps.data() : nullptr;
         enabledInstanceExtNames = MergeExtensionsWithDependencies(requested, dependencyCount, dependencies);
         instanceExtensions = PointersToNames(enabledInstanceExtNames);
         instanceExtensionsResolved = true;
@@ -192,8 +192,8 @@ namespace rhi
                 throw std::runtime_error("Failed to resolve device extension dependencies: " + std::to_string(static_cast<int>(deps.error())));
             }
 
-            const uint32_t dependencyCount = deps.has_value() ? deps->NumDeviceExtensionDeps : 0u;
-            const char* const* dependencies = deps.has_value() ? deps->DeviceExtensionDeps : nullptr;
+            const uint32_t dependencyCount = deps.has_value() ? static_cast<uint32_t>(deps->DeviceExtensionDeps.size()) : 0u;
+            const char* const* dependencies = deps.has_value() ? deps->DeviceExtensionDeps.data() : nullptr;
             std::vector<std::string> nextNames = MergeExtensionsWithDependencies(currentNames, dependencyCount, dependencies);
             const bool reachedFixedPoint = nextNames.size() == mergedNames.size();
             mergedNames = std::move(nextNames);

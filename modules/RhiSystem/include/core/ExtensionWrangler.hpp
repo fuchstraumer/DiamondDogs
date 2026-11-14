@@ -10,30 +10,15 @@
 #include <vector>
 #include <span>
 
-// Will have to allocate room for the extension deps, so need the whole rule of 5
+// Every extension name pointer below points into a program-lifetime table (either a string literal in
+// GeneratedExtensionHeader.hpp, or the generator's own output), so this struct only owns the pointer
+// arrays themselves. A plain aggregate is enough: no destructor, no hand-written move.
 struct ExtensionDependencies
 {
-private:
-    friend class ExtensionWrangler;
-    ExtensionDependencies(uint32_t num_instance_extension_deps, uint32_t num_device_extension_deps);
-public:
-    ~ExtensionDependencies();
-    ExtensionDependencies(const ExtensionDependencies&) = delete;
-    ExtensionDependencies& operator=(const ExtensionDependencies&) = delete;
-    ExtensionDependencies(ExtensionDependencies&&) noexcept;
-    ExtensionDependencies& operator=(ExtensionDependencies&&) noexcept;
-
-    bool IsOnlyVersionDependent() const
-    {
-        return NumInstanceExtensionDeps == 0 && NumDeviceExtensionDeps == 0 && VersionDep != 0;
-    }
-
-    uint32_t VersionDep;
-
-    uint32_t NumInstanceExtensionDeps;
-    const char** InstanceExtensionDeps;
-    uint32_t NumDeviceExtensionDeps;
-    const char** DeviceExtensionDeps;
+    [[nodiscard]] bool IsOnlyVersionDependent() const noexcept;
+    uint32_t VersionDep{ 0 };
+    std::vector<const char*> InstanceExtensionDeps;
+    std::vector<const char*> DeviceExtensionDeps;
 };
 
 class ExtensionWrangler
@@ -57,13 +42,13 @@ public:
 
     /**
      * @brief Constructs an ExtensionWrangler instance. Can be used before the Vulkan instance or a physical device is created by passing VK_NULL_HANDLE for the _physicalDevice parameter.
-     * @param _apiVersion The Vulkan API version to use.
-     * @param _physicalDevice The physical device to use for device extensions. If VK_NULL_HANDLE, only instance extensions will be considered.
+     * @param api_version The Vulkan API version to use.
+     * @param physical_device The physical device to use for device extensions. If VK_NULL_HANDLE, only instance extensions will be considered.
      * @note Expect to construct two instances of this, one for pre-instance extension wrangling and one for post-instance pre-logical device extension wrangling.
      */
     ExtensionWrangler(
-        const uint32_t _apiVersion,
-        VkPhysicalDevice _physicalDevice);
+        const uint32_t api_version,
+        VkPhysicalDevice physical_device);
     ~ExtensionWrangler() noexcept;
 
     /** @brief Useful to know if a physical device has been attached already, or if it's not and we need it that we need to handle that. */
