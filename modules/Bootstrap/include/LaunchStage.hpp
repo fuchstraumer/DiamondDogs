@@ -65,8 +65,6 @@ namespace bootstrap
 
     private:
         [[nodiscard]] BootResult readArguments();
-        [[nodiscard]] BootResult readConfig();
-        [[nodiscard]] BootResult selectModules(std::span<const ModuleDescriptor> linked_modules);
 
         std::vector<std::string_view> arguments;
         std::string_view configArgument;

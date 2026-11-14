@@ -50,6 +50,16 @@ namespace
                                                          std::string_view profile_name,
                                                          std::vector<std::string>& profile_modules);
     [[nodiscard]] std::vector<std::string_view> ProfileNamesIn(const json& profiles);
+    [[nodiscard]] bootstrap::BootResult ReadConfig(std::string_view config_argument,
+                                                   bootstrap::ConfigDocument& config,
+                                                   json& document);
+    [[nodiscard]] bootstrap::BootResult SelectLaunchModules(
+        std::span<const bootstrap::ModuleDescriptor> linked_modules,
+        std::string_view profile_name,
+        const bootstrap::ConfigDocument& config,
+        const json& document,
+        bootstrap::Stage last_stage,
+        std::vector<const bootstrap::ModuleDescriptor*>& selected);
 }
 
 namespace bootstrap
@@ -82,14 +92,16 @@ namespace bootstrap
             return result;
         }
 
-        result = readConfig();
+        json document;
+
+        result = ReadConfig(configArgument, config, document);
 
         if (!result.Succeeded())
         {
             return result;
         }
 
-        return selectModules(linked_modules);
+        return SelectLaunchModules(linked_modules, profileName, config, document, lastStage, selected);
     }
 
     std::span<const std::string_view> LaunchStage::Arguments() const noexcept
@@ -167,77 +179,6 @@ namespace bootstrap
         }
 
         return SuccessIn(Stage::Launch);
-    }
-
-    BootResult LaunchStage::readConfig()
-    {
-        if (configArgument.empty())
-        {
-            return SuccessIn(Stage::Launch);
-        }
-
-        config.Path = std::filesystem::path{ configArgument };
-
-        std::ifstream file(config.Path, std::ios::binary);
-
-        if (!file)
-        {
-            return LaunchFailure(BootResultCode::ConfigUnreadable, config.Path.string(), k_ConfigFlag);
-        }
-
-        std::ostringstream text;
-
-        text << file.rdbuf();
-        config.Text = std::move(text).str();
-
-        const json document = json::parse(config.Text, nullptr, false);
-
-        if (document.is_discarded() || !document.is_object())
-        {
-            return LaunchFailure(BootResultCode::ConfigInvalid, config.Path.string(), "not a JSON object");
-        }
-
-        return SuccessIn(Stage::Launch);
-    }
-
-    BootResult LaunchStage::selectModules(std::span<const ModuleDescriptor> linked_modules)
-    {
-        BootResult result = CheckLinkedModules(linked_modules);
-
-        if (!result.Succeeded())
-        {
-            return result;
-        }
-
-        if (profileName.empty())
-        {
-            const std::vector<std::string_view> everyName = linked_modules |
-                                                            std::views::transform(&ModuleDescriptor::Name) |
-                                                            std::ranges::to<std::vector<std::string_view>>();
-
-            return SelectModules(linked_modules, everyName, "every linked module", lastStage, selected);
-        }
-
-        if (config.Path.empty())
-        {
-            return LaunchFailure(BootResultCode::ProfileWithoutConfig, profileName, k_ProfileFlag);
-        }
-
-        // the config text was parsed once in readConfig; a second parse here keeps the JSON type out of the header
-        const json document = json::parse(config.Text, nullptr, false);
-        std::vector<std::string> profileModules;
-
-        result = ReadProfileNames(document, profileName, profileModules);
-
-        if (!result.Succeeded())
-        {
-            return result;
-        }
-
-        const std::vector<std::string_view> wantedNames = profileModules | std::ranges::to<std::vector<std::string_view>>();
-        const std::string wantedSource = std::format("profile {}", profileName);
-
-        return SelectModules(linked_modules, wantedNames, wantedSource, lastStage, selected);
     }
 }
 
@@ -352,5 +293,91 @@ namespace
         }
 
         return names;
+    }
+
+    bootstrap::BootResult ReadConfig(std::string_view config_argument,
+                                     bootstrap::ConfigDocument& config,
+                                     json& document)
+    {
+        if (config_argument.empty())
+        {
+            return bootstrap::SuccessIn(bootstrap::Stage::Launch);
+        }
+
+        config.Path = std::filesystem::path{ config_argument };
+
+        std::ifstream file(config.Path, std::ios::binary);
+
+        if (!file)
+        {
+            return LaunchFailure(bootstrap::BootResultCode::ConfigUnreadable,
+                                 config.Path.string(),
+                                 k_ConfigFlag);
+        }
+
+        std::ostringstream text;
+
+        text << file.rdbuf();
+        config.Text = std::move(text).str();
+
+        document = json::parse(config.Text, nullptr, false);
+
+        if (document.is_discarded() || !document.is_object())
+        {
+            return LaunchFailure(bootstrap::BootResultCode::ConfigInvalid,
+                                 config.Path.string(),
+                                 "not a JSON object");
+        }
+
+        return bootstrap::SuccessIn(bootstrap::Stage::Launch);
+    }
+
+    bootstrap::BootResult SelectLaunchModules(
+        std::span<const bootstrap::ModuleDescriptor> linked_modules,
+        std::string_view profile_name,
+        const bootstrap::ConfigDocument& config,
+        const json& document,
+        bootstrap::Stage last_stage,
+        std::vector<const bootstrap::ModuleDescriptor*>& selected)
+    {
+        bootstrap::BootResult result = CheckLinkedModules(linked_modules);
+
+        if (!result.Succeeded())
+        {
+            return result;
+        }
+
+        if (profile_name.empty())
+        {
+            const std::vector<std::string_view> everyName =
+                linked_modules |
+                std::views::transform(&bootstrap::ModuleDescriptor::Name) |
+                std::ranges::to<std::vector<std::string_view>>();
+
+            return SelectModules(linked_modules, everyName, "every linked module", last_stage, selected);
+        }
+
+        if (config.Path.empty())
+        {
+            return LaunchFailure(
+                bootstrap::BootResultCode::ProfileWithoutConfig,
+                profile_name,
+                k_ProfileFlag);
+        }
+
+        std::vector<std::string> profileModules;
+
+        result = ReadProfileNames(document, profile_name, profileModules);
+
+        if (!result.Succeeded())
+        {
+            return result;
+        }
+
+        const std::vector<std::string_view> wantedNames = profileModules |
+                                                          std::ranges::to<std::vector<std::string_view>>();
+        const std::string wantedSource = std::format("profile {}", profile_name);
+
+        return SelectModules(linked_modules, wantedNames, wantedSource, last_stage, selected);
     }
 }
