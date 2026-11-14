@@ -15,6 +15,8 @@ set(RESOURCE_CONTEXT_TEST_SOURCES
     test_waits.cpp
     test_staging_ring.cpp
     test_memory_budget.cpp
+    ../fixtures/StartTestRhi.hpp
+    ../fixtures/StartTestRhi.cpp
 )
 
 set(resource_context_test_link_targets
@@ -25,3 +27,5 @@ set(resource_context_test_link_targets
 add_unit_test_target(resource_context_tests
     "${RESOURCE_CONTEXT_TEST_SOURCES}"
     "${resource_context_test_link_targets}")
+
+target_include_directories(resource_context_tests PRIVATE "${CMAKE_SOURCE_DIR}/tests/unit_tests/fixtures")

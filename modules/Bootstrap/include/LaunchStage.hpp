@@ -13,8 +13,7 @@ namespace bootstrap
 {
     struct ModuleDescriptor;
 
-    /** The config file that `--config=PATH` points to. Path is empty when the arguments name no config file.
-     *  LaunchStage checks that Text is valid JSON, and each stage parses its own section from Text. */
+    /** The config file that `--config=PATH` points to. Empty path is valid (no config) */
     struct ConfigDocument
     {
         std::filesystem::path Path;
@@ -23,6 +22,9 @@ namespace bootstrap
 
     /** The first stage. It reads the arguments and the config file, chooses the profile, and selects the modules
      *  that later stages start. It also owns the boot timings, which every later stage records into. */
+
+    /** @brief The very first stage - reads arguments, config files, choose a profile, and selects 
+      * the modules that all child stages will start. It also creates the boot timings recorder. */
     class LaunchStage
     {
     public:

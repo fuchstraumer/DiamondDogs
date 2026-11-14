@@ -90,7 +90,7 @@ void VulkanScene::createFrameSyncObjects()
         throw std::runtime_error("Failed to create the frame synchronization objects");
     }
 
-    RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, frameTimeline->Handle().Get(), "FrameTimeline");
+    device->SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, frameTimeline->Handle().Get(), "FrameTimeline");
     frameValue = 1u;
 
     for (uint32_t i = 0; i < numFramebuffers; ++i)
@@ -100,14 +100,14 @@ void VulkanScene::createFrameSyncObjects()
         {
             throw std::runtime_error("Failed to create the frame synchronization objects");
         }
-        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, imageAvailable.Handle().Get(), std::format("ImageAvailableSemaphore_{}", i).c_str());
+        device->SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, imageAvailable.Handle().Get(), std::format("ImageAvailableSemaphore_{}", i).c_str());
 
         const BinarySemaphore& renderFinished = renderFinishedSemaphores.emplace_back(device->Handle());
         if (!renderFinished.Handle().IsValid())
         {
             throw std::runtime_error("Failed to create the frame synchronization objects");
         }
-        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, renderFinished.Handle().Get(), std::format("RenderFinishedSemaphore_{}", i).c_str());
+        device->SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, renderFinished.Handle().Get(), std::format("RenderFinishedSemaphore_{}", i).c_str());
     }
 
     firstFrame.resize(numFramebuffers, true);

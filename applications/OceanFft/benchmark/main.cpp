@@ -1,9 +1,20 @@
+#include "BootResult.hpp"
 #include "CommandBuffer.hpp"
 #include "CommandPool.hpp"
+#include "ContentStage.hpp"
+#include "CoreStage.hpp"
 #include "Device.hpp"
+#include "DeviceConfig.hpp"
+#include "DeviceRequirements.hpp"
+#include "DeviceStage.hpp"
 #include "Fence.hpp"
+#include "GpuStage.hpp"
 #include "GpuTimers.hpp"
+#include "LaunchStage.hpp"
+#include "LoadedBundle.hpp"
+#include "ModuleDescriptor.hpp"
 #include "OceanSimulation.hpp"
+#include "SpineNeeds.hpp"
 #include "Queue.hpp"
 #include "ResourceContext.hpp"
 #include "RhiAssert.hpp"
@@ -16,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <format>
 #include <iostream>
 #include <memory>
@@ -43,6 +55,36 @@ namespace
     {
         "Tick", "Tick + IFFT rows", "IFFT columns + Resolve", "Spectrum tick", "IFFT", "Resolve", "Mips"
     };
+
+    constexpr bootstrap::BundleRequest k_Bundles[]
+    {
+        bootstrap::BundleRequest
+        {
+            .FileName = "OceanFft.ldmanifest",
+            .BuildTreePath = OCEAN_FFT_MANIFEST,
+            .Profile = rhi::k_SpirvProfileName,
+        },
+    };
+
+    // the bundle lists UniformAndStorageBuffer16BitAccess, which implicitly declares this one, and the cook does not
+    // list implied capabilities yet
+    constexpr bootstrap::Need k_StorageBuffer16BitNeed
+    {
+        .Name = "StorageBuffer16BitAccess",
+        .Kind = bootstrap::NeedKind::Capability,
+        .Level = bootstrap::NeedLevel::Required,
+    };
+
+    // prints a boot failure to stderr
+    [[nodiscard]] bool Booted(const bootstrap::BootResult& result)
+    {
+        if (!result.Succeeded())
+        {
+            std::cerr << bootstrap::FormatFailure(result) << "\n";
+        }
+
+        return result.Succeeded();
+    }
 
     struct Percentiles
     {
@@ -150,27 +192,73 @@ namespace
     }
 }
 
-int main()
+int main(int argc, char* argv[])
 {
 #if !RHI_GPU_TIMERS_ENABLED
+    static_cast<void>(argc);
+    static_cast<void>(argv);
     std::cerr << "OceanFftBenchmark: GPU timers are compiled out of Release builds. Build RelWithDebInfo\n";
     return 1;
 #else
-    rhi::RhiSystemCreateInfo createInfo{};
-    createInfo.ApplicationName = "OceanFftBenchmark";
-    createInfo.VkVersion = rhi::ApiVersion::Latest;
-    // the validation layer instruments and slows the passes it would be measuring
-    createInfo.ValidationLevel = rhi::ValidationLayers::None;
-    createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils" };
-    createInfo.RequiredDeviceExtensions = { "VK_EXT_shader_object" };
-    auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-    rhi::Device& device = *rhiSystem->GetDevice();
+    // headless boot: no window and no modules
+    bootstrap::LaunchStage launch;
 
-    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(OCEAN_FFT_MANIFEST, rhi::k_SpirvProfileName);
+    if (!Booted(launch.Start(std::span{ argv, static_cast<size_t>(argc) }, std::span<const bootstrap::ModuleDescriptor>{}, bootstrap::Stage::Gpu)))
+    {
+        return 1;
+    }
+
+    bootstrap::CoreStage core;
+
+    if (!Booted(core.Start(launch)))
+    {
+        return 1;
+    }
+
+    bootstrap::ContentStage content;
+
+    if (!Booted(content.Start(core, k_Bundles)))
+    {
+        return 1;
+    }
+
+    std::vector<bootstrap::Need> needs = bootstrap::HeadlessSpineNeeds();
+
+    needs.append_range(bootstrap::ShaderObjectNeeds());
+    needs.append_range(bootstrap::QueryPoolNeeds());
+    needs.append_range(bootstrap::FeatureNeeds(ocean::k_WaveOpFeatures, bootstrap::NeedLevel::Wanted));
+    needs.push_back(k_StorageBuffer16BitNeed);
+
+    const bootstrap::DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(content, needs);
+    // the validation layer instruments and slows the passes it would be measuring
+    const bootstrap::DeviceConfig config
+    {
+        .ApiVersion = rhi::ApiVersion::Latest,
+        .Validation = rhi::ValidationLayers::None,
+        .ApplicationName = "OceanFftBenchmark",
+    };
+    bootstrap::DeviceStage deviceStage;
+
+    if (!Booted(deviceStage.StartHeadless(content, requirements, config)))
+    {
+        return 1;
+    }
+
+    bootstrap::GpuStage gpu;
+
+    if (!Booted(gpu.StartHeadless(deviceStage)))
+    {
+        return 1;
+    }
+
+    rhi::Device& device = *deviceStage.Rhi().GetDevice();
+    // the content stage found the bundle, so the library opens that same file
+    const std::filesystem::path& bundlePath = content.Bundles().front().Path;
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(bundlePath, rhi::k_SpirvProfileName);
 
     if (!library.has_value())
     {
-        std::cerr << std::format("Failed to open {}: {}\n", OCEAN_FFT_MANIFEST, rhi::ToString(library.error()));
+        std::cerr << std::format("Failed to open {}: {}\n", bundlePath.string(), rhi::ToString(library.error()));
         return 1;
     }
 
@@ -190,13 +278,7 @@ int main()
     std::cout << header << "\n";
 
     {
-        ResourceContext resources;
-        const ResourceContextError resourcesResult = resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), false });
-        if (resourcesResult != ResourceContextError::Success)
-        {
-            std::cerr << std::format("OceanFftBenchmark: ResourceContext::Initialize failed: {}\n", ToString(resourcesResult));
-            return 1;
-        }
+        ResourceContext& resources = gpu.Resources();
 
         rhi::CommandPool pool(device.Handle(), rhi::CommandPool::Type::Compute, device.GetQueueFamilyIndices().Graphics);
         RhiAssert(pool.AllocateCommandBuffers(1));

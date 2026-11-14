@@ -6,9 +6,12 @@ lodestone_add_shader_cook(gpu_pyramid_test_shaders
     MODULES "${GPU_PYRAMID_SHADER_MODULE}")
 set_target_properties(gpu_pyramid_test_shaders PROPERTIES FOLDER "Tests/Integration Tests")
 
-ADD_INTEGRATION_TEST(GpuPyramidTest "main.cpp")
+ADD_INTEGRATION_TEST(GpuPyramidTest
+    "main.cpp"
+    "../fixtures/HeadlessBoot.hpp"
+    "../fixtures/HeadlessBoot.cpp")
 add_dependencies(GpuPyramidTest gpu_pyramid_test_shaders)
-target_link_libraries(GpuPyramidTest PRIVATE gpu_pyramid rhi_resources)
+target_link_libraries(GpuPyramidTest PRIVATE gpu_pyramid bootstrap_vulkan)
 target_compile_definitions(GpuPyramidTest PRIVATE
     "GPU_PYRAMID_TEST_MANIFEST=\"$<TARGET_PROPERTY:gpu_pyramid_test_shaders,LODESTONE_MANIFEST>\"")
 

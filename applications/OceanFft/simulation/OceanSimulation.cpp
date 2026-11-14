@@ -247,6 +247,16 @@ namespace ocean
         }
     }
 
+    bool WaveOpFeaturesEnabled(const rhi::Device& device) noexcept
+    {
+        const auto enabled = [&device](std::string_view feature)
+        {
+            return device.IsFeatureEnabled(feature);
+        };
+
+        return std::ranges::all_of(k_WaveOpFeatures, enabled);
+    }
+
     uint32_t PickWaveSize(const rhi::Device& device) noexcept
     {
         const VkPhysicalDevice physicalDevice = device.GetPhysicalDevice().As<VkPhysicalDevice>();
@@ -254,10 +264,6 @@ namespace ocean
         VkPhysicalDeviceSubgroupProperties subgroupProperties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES, &properties13 };
         VkPhysicalDeviceProperties2 properties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &subgroupProperties };
         vkGetPhysicalDeviceProperties2(physicalDevice, &properties);
-
-        VkPhysicalDeviceVulkan13Features features13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
-        VkPhysicalDeviceFeatures2 features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &features13 };
-        vkGetPhysicalDeviceFeatures2(physicalDevice, &features);
 
         // WaveReadLaneAt with a lane that is not uniform is a shuffle
         constexpr VkSubgroupFeatureFlags k_RequiredOperations = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT;
@@ -267,8 +273,7 @@ namespace ocean
             sizeIsAnAxisValue &&
             (subgroupProperties.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u &&
             (subgroupProperties.supportedOperations & k_RequiredOperations) == k_RequiredOperations &&
-            features13.subgroupSizeControl == VK_TRUE &&
-            features13.computeFullSubgroups == VK_TRUE &&
+            WaveOpFeaturesEnabled(device) &&
             (properties13.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u &&
             properties13.minSubgroupSize <= waveSize && waveSize <= properties13.maxSubgroupSize;
         return supported ? waveSize : 0u;
@@ -627,15 +632,15 @@ namespace ocean
 
         impl->WhitecapsMipTarget = std::move(*whitecapTarget);
 
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl->DisplacementImage.VkHandle, "Ocean_Displacement_Image");
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl->DisplacementImage.VkViewHandle, "Ocean_Displacement_View");
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl->DerivativesImage.VkHandle, "Ocean_Derivatives_Image");
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl->DerivativesImage.VkViewHandle, "Ocean_Derivatives_View");
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl->WhitecapsImage.VkHandle, "Ocean_Whitecaps_Image");
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl->WhitecapsImage.VkViewHandle, "Ocean_Whitecaps_View");
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl->NormalizationLut.VkHandle, "Ocean_NormalizationLut_Image");
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl->NormalizationLut.VkViewHandle, "Ocean_NormalizationLut_View");
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_SAMPLER, impl->NormalizationLut.VkSamplerHandle, "Ocean_NormalizationLut_Sampler");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_IMAGE, impl->DisplacementImage.VkHandle, "Ocean_Displacement_Image");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl->DisplacementImage.VkViewHandle, "Ocean_Displacement_View");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_IMAGE, impl->DerivativesImage.VkHandle, "Ocean_Derivatives_Image");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl->DerivativesImage.VkViewHandle, "Ocean_Derivatives_View");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_IMAGE, impl->WhitecapsImage.VkHandle, "Ocean_Whitecaps_Image");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl->WhitecapsImage.VkViewHandle, "Ocean_Whitecaps_View");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_IMAGE, impl->NormalizationLut.VkHandle, "Ocean_NormalizationLut_Image");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl->NormalizationLut.VkViewHandle, "Ocean_NormalizationLut_View");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_SAMPLER, impl->NormalizationLut.VkSamplerHandle, "Ocean_NormalizationLut_Sampler");
 
         // every pass has one descriptor set, set 0, with only the resources it reads
         constexpr std::array<VkDescriptorPoolSize, 5> k_PoolSizes
@@ -653,7 +658,7 @@ namespace ocean
         {
             return std::unexpected(std::string{ "descriptor pool creation failed" });
         }
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(impl->DescriptorPool), "OceanSimulation_DescriptorPool");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(impl->DescriptorPool), "OceanSimulation_DescriptorPool");
 
         const BoundResources resourcesByName
         {
@@ -696,7 +701,7 @@ namespace ocean
 
             PassProgram& passProgram = impl->Programs[passIndex];
             passProgram.Program = std::move(*program);
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT, passProgram.Program->PipelineLayout().Get(), std::format("OceanSimulation_PipelineLayout_{}", entryPoint).c_str());
+            impl->Device->SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT, passProgram.Program->PipelineLayout().Get(), std::format("OceanSimulation_PipelineLayout_{}", entryPoint).c_str());
             std::span<const rhi::DescriptorSetLayoutHandle> setLayouts = passProgram.Program->SetLayouts();
             const VkDescriptorSetLayout setLayout = setLayouts[0].As<VkDescriptorSetLayout>();
             const VkDescriptorSetAllocateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, impl->DescriptorPool, 1, &setLayout };
@@ -705,7 +710,7 @@ namespace ocean
             {
                 return std::unexpected(std::format("{}: descriptor set allocation failed", entryPoint));
             }
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(passProgram.Set), std::format("OceanSimulation_DescriptorSet_{}", entryPoint).c_str());
+            impl->Device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(passProgram.Set), std::format("OceanSimulation_DescriptorSet_{}", entryPoint).c_str());
 
             if (std::optional<std::string> error = WriteManifestDescriptors(vkDevice, passProgram.Set, **index, *variant, entryPoints, resourcesByName); error.has_value())
             {

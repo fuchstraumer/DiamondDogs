@@ -15,13 +15,12 @@ namespace bootstrap
     struct BootResult;
     struct BundleRequest;
     class CoreStage;
-    // LoadedBundle.hpp defines it. It holds a ShaderBundle by value, so this header does not include it
+    // this holds lodestone bundles by value, so forward decl it to avoid lodestone includes in this header
     struct LoadedBundle;
 
     /** @brief The content stage is responsible for loading binary content that doesn't need to use the GPU
       * in any way - think decoding textures, reading shader bundles, localization data, etc.
-      *
-      * Primarily,it is intended currently to open shader bundles and parse the features and capabilities
+      * @details Primarily, it is intended currently to open shader bundles and parse the features and capabilities
       * they declare, so that we can select and enable as many supported features, extensions, and properties
       * as possible. This is even more important on WebGPU, where we also need to actually manage and set 
       * limits on things like thread counts, binding layouts, and resource sizes explicitly!

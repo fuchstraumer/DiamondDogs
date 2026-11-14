@@ -1,7 +1,13 @@
+#include "BootResult.hpp"
 #include "CommandBuffer.hpp"
 #include "CommandPool.hpp"
 #include "Device.hpp"
+#include "DeviceConfig.hpp"
+#include "DeviceRequirements.hpp"
 #include "Fence.hpp"
+#include "HeadlessBoot.hpp"
+#include "LoadedBundle.hpp"
+#include "ModuleDescriptor.hpp"
 #include "Queue.hpp"
 #include "QueryPool.hpp"
 #include "RhiAssert.hpp"
@@ -16,6 +22,7 @@
 #include <array>
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <format>
 #include <functional>
 #include <iostream>
@@ -35,6 +42,40 @@
 
 namespace
 {
+    constexpr bootstrap::BundleRequest k_Bundles[]
+    {
+        bootstrap::BundleRequest
+        {
+            .FileName = "ShaderLibrary.ldmanifest",
+            .BuildTreePath = SHARING_BENCHMARK_MANIFEST,
+            .Profile = rhi::k_SpirvProfileName,
+        },
+    };
+
+    // the raster pass draws with vkCmdBeginRendering, the passes are shader objects, and the timestamps reset from the
+    // host
+    constexpr bootstrap::Need k_AppNeeds[]
+    {
+        bootstrap::Need
+        {
+            .Name = "VkPhysicalDeviceVulkan13Features.dynamicRendering",
+            .Kind = bootstrap::NeedKind::DeviceFeature,
+            .Level = bootstrap::NeedLevel::Required,
+        },
+        bootstrap::Need
+        {
+            .Name = rhi::k_ShaderObjectFeature,
+            .Kind = bootstrap::NeedKind::DeviceFeature,
+            .Level = bootstrap::NeedLevel::Required,
+        },
+        bootstrap::Need
+        {
+            .Name = rhi::k_QueryPoolFeature,
+            .Kind = bootstrap::NeedKind::DeviceFeature,
+            .Level = bootstrap::NeedLevel::Required,
+        },
+    };
+
     // 8K, so that every target is at least twice the 64 MB L2 of an RTX 4080 and the passes reach DRAM, where compression
     // matters. at 4K, the RGBA8 and D32 targets fit in L2 and the passes measure only L2
     constexpr uint32_t k_Width = 7680u;
@@ -210,22 +251,30 @@ int main(int argc, char** argv)
         }
     }
 
-    rhi::RhiSystemCreateInfo createInfo{};
-    createInfo.ApplicationName = "SharingBenchmark";
-    createInfo.VkVersion = rhi::ApiVersion::Latest;
-    createInfo.ValidationLevel = validation ? rhi::ValidationLayers::Full : rhi::ValidationLayers::None;
-    createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils" };
-    createInfo.RequiredDeviceExtensions = { "VK_EXT_shader_object" };
-    auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-
-    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(SHARING_BENCHMARK_MANIFEST, rhi::k_SpirvProfileName);
-    if (!library.has_value())
+    const bootstrap::DeviceConfig config
     {
-        std::cerr << std::format("SharingBenchmark: failed to open {}: {}\n", SHARING_BENCHMARK_MANIFEST, rhi::ToString(library.error()));
+        .ApiVersion = rhi::ApiVersion::Latest,
+        .Validation = validation ? rhi::ValidationLayers::Full : rhi::ValidationLayers::None,
+        .ApplicationName = "SharingBenchmark",
+    };
+    HeadlessBoot boot;
+
+    if (!StartHeadlessBoot(boot, std::span{ argv, static_cast<size_t>(argc) }, k_Bundles, k_AppNeeds, config))
+    {
         return 1;
     }
 
-    return RunBenchmark(*rhiSystem, **library, validation);
+    // the content stage found the bundle, so the library opens that same file
+    const std::filesystem::path& bundlePath = boot.Content.Bundles().front().Path;
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(bundlePath, rhi::k_SpirvProfileName);
+
+    if (!library.has_value())
+    {
+        std::cerr << std::format("SharingBenchmark: failed to open {}: {}\n", bundlePath.string(), rhi::ToString(library.error()));
+        return 1;
+    }
+
+    return RunBenchmark(boot.Device.Rhi(), **library, validation);
 }
 
 namespace

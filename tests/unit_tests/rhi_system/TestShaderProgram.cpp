@@ -2,6 +2,8 @@
 #include <gmock/gmock.h>
 #include "RhiAssert.hpp"
 #include "RhiSystem.hpp"
+#include "RhiSystemStart.hpp"
+#include "StartTestRhi.hpp"
 #include "RhiTypes.hpp"
 #include "Instance.hpp"
 #include "Device.hpp"
@@ -86,28 +88,16 @@ public:
     VkDescriptorSetLayout TestSetLayout;
 
 
-    static rhi::RhiSystemCreateInfo GetDefaultCreateInfo()
-    {
-        // Setup RHI system first
-        rhi::RhiSystemCreateInfo createInfo{};
-        createInfo.ApplicationName = "ShaderObjectTest";
-        createInfo.EngineName = "DiamondDogsTestEngine";
-        createInfo.AppVersion = VK_MAKE_VERSION(1, 0, 0);
-        createInfo.EngineVersion = VK_MAKE_VERSION(0, 1, 0);
-        createInfo.VkVersion = rhi::ApiVersion::Vulkan13;
-        createInfo.ValidationLevel = rhi::ValidationLayers::BaseOnly;
-        createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils", "VK_KHR_surface" };
-        createInfo.RequestedDeviceExtensions = { "VK_EXT_shader_object" };
-        const auto shaderCacheDir = std::filesystem::temp_directory_path() / "DiamondDogsUnitTesting" / "ShaderCache";
-        createInfo.ShaderCacheDir = shaderCacheDir.string();
-        return createInfo;
-    }
-
     void SetUp() override
     {
-        auto createInfo = GetDefaultCreateInfo();
-        RhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        ASSERT_NE(RhiSystem, nullptr);
+        const test_rhi::Needs needs{ .Features = test_rhi::k_ShaderObjectFeatures };
+
+        RhiSystem = std::make_unique<rhi::RhiSystem>();
+
+        const rhi::RhiSystemResult started = test_rhi::StartTestRhi(*RhiSystem, "ShaderObjectTest", rhi::ApiVersion::Vulkan13, rhi::ValidationLayers::BaseOnly, needs);
+
+        ASSERT_TRUE(started.Succeeded()) << started.Subject << ": " << started.Detail;
+
         auto device = RhiSystem->GetDevice();
         ASSERT_NE(device, nullptr);
         TestDevice = device->Handle();

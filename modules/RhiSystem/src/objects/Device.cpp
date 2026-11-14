@@ -1,7 +1,7 @@
 #include "Device.hpp"
 #include "DebugUtilFns.hpp"
+#include "RhiSystem.hpp"
 #include "Instance.hpp"
-#include "ExtensionPack.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
 #include "RhiResult.hpp"
@@ -17,7 +17,9 @@
 #include <set>
 #include <algorithm>
 #include <format>
+#include <functional>
 #include <iostream>
+#include <thread>
 #include <vulkan/vulkan_core.h>
 
 namespace rhi
@@ -190,7 +192,7 @@ namespace rhi
 
     struct DeviceImpl
     {
-        // the start path: RhiSystem::StartDevice chose the physical device from the needs
+        // RhiSystem::StartDevice chose the physical device from the needs
         DeviceImpl(const Instance* instance, uint32_t api_version, VkPhysicalDevice physical_device) :
             ParentInstance{ instance },
             ApiVersion{ api_version },
@@ -202,85 +204,6 @@ namespace rhi
         {
             RetrievePhysicalDeviceProperties();
             QueryQueueProperties();
-        }
-
-        DeviceImpl(const Instance* instance, uint32_t api_version) :
-            ParentInstance{ instance },
-            ApiVersion{ api_version },
-            PhysicalDevice{ VK_NULL_HANDLE },
-            NumGraphicsQueues{ 0u },
-            NumComputeQueues{ 0u },
-            NumTransferQueues{ 0u },
-            NumSparseBindingQueues{ 0u }
-        {
-            // perform this step first, so that we have the physical device handle for later steps and device creation
-            SelectBestPhysicalDevice();
-            RetrievePhysicalDeviceProperties();
-            QueryQueueProperties();
-        }
-
-        void SelectBestPhysicalDevice()
-        {
-            uint32_t deviceCount = 0;
-            vkEnumeratePhysicalDevices(ParentInstance->Handle().As<VkInstance>(), &deviceCount, nullptr);
-            
-            if (deviceCount == 0)
-            {
-                throw std::runtime_error("No Vulkan-compatible physical devices found");
-            }
-            
-            std::vector<VkPhysicalDevice> devices(deviceCount);
-            vkEnumeratePhysicalDevices(ParentInstance->Handle().As<VkInstance>(), &deviceCount, devices.data());
-            
-            // Simple scoring system - prefer discrete GPUs
-            VkPhysicalDevice bestDevice = VK_NULL_HANDLE;
-            int bestScore = -1;
-            
-            for (VkPhysicalDevice device : devices)
-            {
-                VkPhysicalDeviceProperties deviceProps;
-                vkGetPhysicalDeviceProperties(device, &deviceProps);
-
-                int score = 0;
-                
-                // Prefer discrete GPUs
-                if (deviceProps.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-                {
-                    score += 1000;
-                }
-                else if (deviceProps.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
-                {
-                    score += 100;
-                }
-                
-                // Add points for more memory
-                VkPhysicalDeviceMemoryProperties memProps;
-                vkGetPhysicalDeviceMemoryProperties(device, &memProps);
-                
-                VkDeviceSize totalMemory = 0;
-                for (uint32_t i = 0; i < memProps.memoryHeapCount; ++i)
-                {
-                    if (memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
-                    {
-                        totalMemory += memProps.memoryHeaps[i].size;
-                    }
-                }
-                
-                score += static_cast<int>(totalMemory / (1024 * 1024 * 1024)); // GB of memory
-                
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    bestDevice = device;
-                }
-            }
-            
-            if (bestDevice == VK_NULL_HANDLE)
-            {
-                throw std::runtime_error("No suitable physical device found");
-            }
-            
-            PhysicalDevice = bestDevice;
         }
 
         void RetrievePhysicalDeviceProperties()
@@ -506,6 +429,7 @@ namespace rhi
         
         std::vector<std::string> EnabledExtensions;
         std::vector<std::string> CoreExtensions;
+        std::vector<std::string> EnabledFeatures;
         VkDebugUtilsFunctions DebugUtilsHandler;
 
         VkPhysicalDeviceProperties2 Properties;
@@ -515,23 +439,17 @@ namespace rhi
     };
 
     Device::Device(const Instance* instance,
-                   ExtensionPack& extensions) :
-        impl{ std::make_unique<DeviceImpl>(instance, extensions.GetVulkanApiVersion()) },
-        handle{ 0u }
-    {
-        createDevice(extensions);
-    }
-
-    Device::Device(const Instance* instance,
                    uint32_t api_version,
                    PhysicalDeviceHandle physical_device,
                    std::span<const char* const> extension_names,
                    std::vector<std::string> core_extensions,
-                   const void* feature_chain) :
+                   const void* feature_chain,
+                   std::vector<std::string> enabled_features) :
         impl{ std::make_unique<DeviceImpl>(instance, api_version, physical_device.As<VkPhysicalDevice>()) },
         handle{ 0u }
     {
         impl->CoreExtensions = std::move(core_extensions);
+        impl->EnabledFeatures = std::move(enabled_features);
         // on failure the handle stays invalid, and RhiSystem::StartDevice reports it
         (void)createLogicalDevice(extension_names, feature_chain);
     }
@@ -588,6 +506,16 @@ namespace rhi
                std::find(impl->CoreExtensions.begin(), impl->CoreExtensions.end(), extension_name) != impl->CoreExtensions.end();
     }
 
+    bool Device::IsFeatureEnabled(std::string_view feature_name) const noexcept
+    {
+        return std::ranges::binary_search(impl->EnabledFeatures, feature_name, std::less<>{});
+    }
+
+    std::span<const std::string> Device::EnabledFeatures() const noexcept
+    {
+        return impl->EnabledFeatures;
+    }
+
     void Device::WaitDeviceIdle() const
     {
         vkDeviceWaitIdle(handle.As<VkDevice>());
@@ -596,6 +524,40 @@ namespace rhi
     const VkDebugUtilsFunctions& Device::GetDebugUtilFns() const noexcept
     {
         return impl->DebugUtilsHandler;
+    }
+
+    VkResult Device::SetObjectName(VkObjectType object_type, uint64_t object_handle, const char* name) const
+    {
+        if constexpr (RHI_SYSTEM_VALIDATION_ENABLED && RHI_SYSTEM_USE_DEBUG_INFO)
+        {
+            const PFN_vkSetDebugUtilsObjectNameEXT setName = impl->DebugUtilsHandler.vkSetDebugUtilsObjectName;
+
+            if (setName == nullptr)
+            {
+                return VK_ERROR_FEATURE_NOT_PRESENT;
+            }
+
+            std::string objectName{ name };
+
+            if constexpr (RHI_SYSTEM_DEBUG_INFO_THREAD_ID)
+            {
+                objectName += std::format("_ThreadID:{}", std::this_thread::get_id());
+            }
+
+            const VkDebugUtilsObjectNameInfoEXT nameInfo
+            {
+                .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+                .objectType = object_type,
+                .objectHandle = object_handle,
+                .pObjectName = objectName.c_str(),
+            };
+
+            return setName(handle.As<VkDevice>(), &nameInfo);
+        }
+        else
+        {
+            return VK_SUCCESS;
+        }
     }
 
     uint32_t Device::GetMemoryTypeIndex(const uint32_t type_bitfield, const uint32_t property_flags) const
@@ -658,21 +620,6 @@ namespace rhi
     const std::vector<std::string>& Device::GetEnabledExtensions() const noexcept
     {
         return impl->EnabledExtensions;
-    }
-
-    void Device::createDevice(ExtensionPack& extensions)
-    {
-        extensions.SetPhysicalDevice(impl->PhysicalDevice);
-        extensions.AddAllSupportedMaintenanceExtensions();
-        // optional, so that a device without it still creates. ResourceContext asks HasExtension for it
-        extensions.AddOptionalDeviceExtension("VK_EXT_memory_budget");
-        extensions.ResolveDeviceDependencies();
-        impl->CoreExtensions = extensions.GetCoreDeviceExtensions();
-
-        const std::vector<const char*>& deviceExtensions = extensions.GetDeviceExtensions();
-        const VkResult result = createLogicalDevice(deviceExtensions, extensions.GetDeviceFeatures());
-
-        RhiAssert(result);
     }
 
     VkResult Device::createLogicalDevice(std::span<const char* const> extension_names, const void* feature_chain)

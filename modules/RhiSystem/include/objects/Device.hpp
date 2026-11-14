@@ -15,23 +15,21 @@ namespace rhi
 
     class Instance;
     class PhysicalDevice;
-    class ExtensionPack;
     struct DeviceImpl;
 
     class Device 
     {
     public:
-        Device(const Instance* instance,
-               ExtensionPack& extensions);
-        /** @brief The start path: creates the device on a physical device that RhiSystem::StartDevice chose, with
-         *  exactly these extensions and this feature chain (a VkPhysicalDeviceFeatures2). On failure, Handle() is
-         *  invalid. */
+        /** @brief Creates the device on a physical device that RhiSystem::StartDevice chose, with
+         *  exactly these extensions and this feature chain (a VkPhysicalDeviceFeatures2). `enabled_features` names
+         *  the members that the chain sets ("Struct.member"), sorted. On failure, Handle() is invalid. */
         Device(const Instance* instance,
                uint32_t api_version,
                PhysicalDeviceHandle physical_device,
                std::span<const char* const> extension_names,
                std::vector<std::string> core_extensions,
-               const void* feature_chain);
+               const void* feature_chain,
+               std::vector<std::string> enabled_features);
 
         ~Device();
         
@@ -64,15 +62,25 @@ namespace rhi
         // Extension queries
         bool HasExtension(std::string_view extension_name) const noexcept;
         const std::vector<std::string>& GetEnabledExtensions() const noexcept;
+        /** @brief Returns true when a need named this "Struct.member" feature and the device was created with it, for
+         *  example "VkPhysicalDeviceVulkan13Features.subgroupSizeControl". Answers from the enabled set, never from
+         *  the physical device. The name must match the need's name: an alias struct and its core struct are two
+         *  names. */
+        [[nodiscard]] bool IsFeatureEnabled(std::string_view feature_name) const noexcept;
+        /** @brief The "Struct.member" features that the device was created with, sorted. */
+        [[nodiscard]] std::span<const std::string> EnabledFeatures() const noexcept;
         
         void WaitDeviceIdle() const;
 
         const VkDebugUtilsFunctions& GetDebugUtilFns() const noexcept;
+        /** @brief Names a Vulkan object of this device for validation messages and capture tools. Does nothing, and
+         *  returns VK_ERROR_FEATURE_NOT_PRESENT, when the instance has no VK_EXT_debug_utils. Compiles to
+         *  VK_SUCCESS without RHI_SYSTEM_VALIDATION_ENABLED and RHI_SYSTEM_USE_DEBUG_INFO. */
+        VkResult SetObjectName(VkObjectType object_type, uint64_t object_handle, const char* name) const;
 
         uint32_t GetMemoryTypeIndex(const uint32_t type_bitfield, const uint32_t property_flags) const;
 
     private:
-        void createDevice(ExtensionPack& extensions);
         [[nodiscard]] VkResult createLogicalDevice(std::span<const char* const> extension_names, const void* feature_chain);
         void setupQueues();
         void setupDebugUtils();

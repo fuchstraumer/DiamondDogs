@@ -23,6 +23,8 @@
 
 namespace
 {
+    constexpr std::string_view k_DebugUtilsExtension{ "VK_EXT_debug_utils" };
+
     // the requirements in the RHI's vocabulary. The names view into the requirements
     struct RhiNeeds
     {
@@ -219,6 +221,17 @@ namespace
         };
 
         std::erase_if(needs.InstanceExtensions, declined);
+
+        // validation reports through our messenger, and objects get names for capture tools, only with debug
+        // utils. Nsight runs have no validation and still want the names
+        const bool listsDebugUtils = std::ranges::contains(needs.InstanceExtensions,
+                                                           std::string_view{ k_DebugUtilsExtension },
+                                                           &rhi::DeviceNeed::Name);
+
+        if (!listsDebugUtils)
+        {
+            needs.InstanceExtensions.push_back(rhi::DeviceNeed{ .Name = k_DebugUtilsExtension, .Level = rhi::DeviceNeedLevel::Wanted });
+        }
 
         for (const std::string& name : config.Declined)
         {

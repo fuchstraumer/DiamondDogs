@@ -41,7 +41,8 @@ namespace bootstrap
     inline constexpr int32_t k_MaxBootSpans = 64;
 
 #if BOOTSTRAP_TIMINGS_ENABLED
-    /** A fixed array of spans, in the order they began. Boot runs on one thread, so this has no synchronization. */
+    /** @brief Fixed array of timing spans, in order that they're created/begun. There is no synchronization as we
+      * run bootstrap on a single thread (currently). */
     class BootTimings
     {
     public:

@@ -28,6 +28,14 @@ namespace pyramid
     /** @brief The module that NvproPyramid.slang declares */
     constexpr std::string_view k_ModuleName{ "NvproPyramid" };
 
+    // the device features of the fast pipeline (full subgroups of a required size). An app asks for them as Wanted
+    // needs. On a device created without them, every level takes the general pipeline
+    inline constexpr std::string_view k_FastPipelineFeatures[]
+    {
+        "VkPhysicalDeviceVulkan13Features.subgroupSizeControl",
+        "VkPhysicalDeviceVulkan13Features.computeFullSubgroups",
+    };
+
     /** @brief The PYRAMID_REDUCTION axis: how each block of a level becomes one texel of the next */
     enum class Reduction : uint8_t
     {

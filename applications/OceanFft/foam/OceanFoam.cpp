@@ -198,8 +198,8 @@ namespace ocean
         }
 
         impl->ClipmapImage = imageReply.Get();
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl->ClipmapImage.VkHandle, "Ocean_FoamClipmap_Image");
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl->ClipmapImage.VkViewHandle, "Ocean_FoamClipmap_View");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_IMAGE, impl->ClipmapImage.VkHandle, "Ocean_FoamClipmap_Image");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl->ClipmapImage.VkViewHandle, "Ocean_FoamClipmap_View");
 
         rhi::ShaderLibraryResult<const lodestone::ManifestIndex*> index = library.ModuleIndex(k_RenderModule);
 
@@ -225,7 +225,7 @@ namespace ocean
         }
 
         impl->Program = std::move(*program);
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT, impl->Program->PipelineLayout().Get(), "OceanFoam_PipelineLayout");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT, impl->Program->PipelineLayout().Get(), "OceanFoam_PipelineLayout");
 
         // per set: the view uniform, Displacement, Derivatives and Whitecaps, the sampler, and the clipmap as a storage image
         const uint32_t setCount = static_cast<uint32_t>(view_buffers.size());
@@ -243,7 +243,7 @@ namespace ocean
         {
             return std::unexpected(std::string{ "foam descriptor pool creation failed" });
         }
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(impl->DescriptorPool), "OceanFoam_DescriptorPool");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(impl->DescriptorPool), "OceanFoam_DescriptorPool");
 
         const VkDescriptorSetLayout setLayout = impl->Program->SetLayouts()[0].As<VkDescriptorSetLayout>();
 
@@ -256,7 +256,7 @@ namespace ocean
             {
                 return std::unexpected(std::string{ "foam descriptor set allocation failed" });
             }
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(set), std::format("OceanFoam_DescriptorSet_{}", impl->Sets.size() - 1u).c_str());
+            impl->Device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(set), std::format("OceanFoam_DescriptorSet_{}", impl->Sets.size() - 1u).c_str());
 
             // the compute passes keep every texture in General
             const BoundResources bound

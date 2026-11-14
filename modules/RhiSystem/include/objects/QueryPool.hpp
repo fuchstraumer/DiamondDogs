@@ -4,9 +4,13 @@
 #include "RhiHandle.hpp"
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 namespace rhi
 {
+    // the device feature that QueryPool needs: it resets its queries from the host. GpuTimers uses QueryPool
+    inline constexpr std::string_view k_QueryPoolFeature{ "VkPhysicalDeviceVulkan12Features.hostQueryReset" };
+
     enum class QueryType : uint8_t
     {
         Timestamp,

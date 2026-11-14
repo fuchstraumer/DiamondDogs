@@ -110,7 +110,9 @@ struct OceanSceneSettings
 class OceanScene : public VulkanScene
 {
 public:
-    OceanScene(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platform_system, OceanSceneSettings settings);
+    /** @brief `resource_context` is the GPU stage's. The scene destroys what it created in Destroy, and the stage
+     *  destroys the context after that. */
+    OceanScene(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platform_system, ResourceContext& resource_context, OceanSceneSettings settings);
     ~OceanScene();
 
     void Initialize(void* user_data) final;
@@ -205,7 +207,7 @@ private:
     OceanSceneSettings settings;
     // the window's input events collect here between two update() calls
     input::FrameAssembler inputAssembler;
-    std::unique_ptr<ResourceContext> resources;
+    ResourceContext* resources{ nullptr };
     std::unique_ptr<rhi::ShaderLibrary> library;
     std::unique_ptr<ocean::OceanSimulation> simulation;
     std::unique_ptr<ocean::OceanFoam> foam;

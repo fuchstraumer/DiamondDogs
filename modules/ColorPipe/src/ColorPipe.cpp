@@ -275,7 +275,7 @@ namespace color
         {
             return std::unexpected(ColorPipeError::ResourceCreationFailed);
         }
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_SAMPLER, impl->LinearSampler.VkSamplerHandle, "ColorPipe_LinearSampler");
+        impl->Device->SetObjectName(VK_OBJECT_TYPE_SAMPLER, impl->LinearSampler.VkSamplerHandle, "ColorPipe_LinearSampler");
 
         if (const ColorPipeError error = CreateExposureBuffer(*impl); error != ColorPipeError::Success)
         {
@@ -822,7 +822,7 @@ namespace color
                 composite.Program = std::move(*program);
                 composite.Variant = *variant;
 
-                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+                impl.Device->SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT,
                     composite.Program->PipelineLayout().Get(),
                     std::format("ColorPipe_CompositePipelineLayout_{}", TonemapperTypeName(kind)).c_str());
             }
@@ -872,10 +872,10 @@ namespace color
             impl.BloomDownsampleVariant = *downVariant;
             impl.BloomDownsampleKarisProgram = std::move(*downProgramKaris);
             impl.BloomDownsampleKarisVariant = *downVariantKaris;
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+            impl.Device->SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT,
                 impl.BloomDownsampleProgram->PipelineLayout().Get(),
                 "ColorPipe_BloomDownsamplePipelineLayout");
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+            impl.Device->SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT,
                 impl.BloomDownsampleKarisProgram->PipelineLayout().Get(),
                 "ColorPipe_BloomDownsampleKarisPipelineLayout");
 
@@ -900,7 +900,7 @@ namespace color
             }
             impl.BloomUpsampleProgram = std::move(*upProgram);
             impl.BloomUpsampleVariant = *upVariant;
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+            impl.Device->SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT,
                 impl.BloomUpsampleProgram->PipelineLayout().Get(),
                 "ColorPipe_BloomUpsamplePipelineLayout");
 
@@ -925,7 +925,7 @@ namespace color
             {
                 return ColorPipeError::DescriptorSetupFailed;
             }
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(impl.DescriptorPool), "ColorPipe_DescriptorPool");
+            impl.Device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(impl.DescriptorPool), "ColorPipe_DescriptorPool");
 
             for (const TonemapperKind kind : k_WrittenTonemappers)
             {
@@ -939,7 +939,7 @@ namespace color
                 }
 
                 const std::string name = std::format("ColorPipe_CompositeSet_{}", TonemapperTypeName(kind));
-                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(composite.Set), name.c_str());
+                impl.Device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(composite.Set), name.c_str());
             }
 
             constexpr uint32_t bloomSetCount = static_cast<uint32_t>(k_BloomMipCount + (k_BloomMipCount - 1u));
@@ -956,7 +956,7 @@ namespace color
             {
                 return ColorPipeError::DescriptorSetupFailed;
             }
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(impl.BloomDescriptorPool), "ColorPipe_BloomDescriptorPool");
+            impl.Device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(impl.BloomDescriptorPool), "ColorPipe_BloomDescriptorPool");
 
             const VkDescriptorSetLayout downLayout = impl.BloomDownsampleProgram->SetLayouts()[0].As<VkDescriptorSetLayout>();
             for (size_t i = 0; i < k_BloomMipCount; ++i)
@@ -967,7 +967,7 @@ namespace color
                     return ColorPipeError::DescriptorSetupFailed;
                 }
                 const std::string name = std::format("ColorPipe_BloomDownsampleSet_{}", i);
-                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(impl.BloomDownsampleSets[i]), name.c_str());
+                impl.Device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(impl.BloomDownsampleSets[i]), name.c_str());
             }
 
             const VkDescriptorSetLayout upLayout = impl.BloomUpsampleProgram->SetLayouts()[0].As<VkDescriptorSetLayout>();
@@ -979,7 +979,7 @@ namespace color
                     return ColorPipeError::DescriptorSetupFailed;
                 }
                 const std::string name = std::format("ColorPipe_BloomUpsampleSet_{}", i);
-                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(impl.BloomUpsampleSets[i]), name.c_str());
+                impl.Device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(impl.BloomUpsampleSets[i]), name.c_str());
             }
 
             return ColorPipeError::Success;
@@ -1069,7 +1069,7 @@ namespace color
                 return ColorPipeError::ResourceCreationFailed;
             }
 
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_BUFFER, impl.ExposureBuffer.VkHandle, "ColorPipe_ExposureBuffer");
+            impl.Device->SetObjectName(VK_OBJECT_TYPE_BUFFER, impl.ExposureBuffer.VkHandle, "ColorPipe_ExposureBuffer");
             return ColorPipeError::Success;
         }
 
@@ -1085,10 +1085,10 @@ namespace color
                 return ColorPipeError::ResourceCreationFailed;
             }
 
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl.Scene.VkHandle, "ColorPipe_Scene");
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl.Scene.VkViewHandle, "ColorPipe_Scene_View");
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl.Ui.VkHandle, "ColorPipe_Ui");
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl.Ui.VkViewHandle, "ColorPipe_Ui_View");
+            impl.Device->SetObjectName(VK_OBJECT_TYPE_IMAGE, impl.Scene.VkHandle, "ColorPipe_Scene");
+            impl.Device->SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl.Scene.VkViewHandle, "ColorPipe_Scene_View");
+            impl.Device->SetObjectName(VK_OBJECT_TYPE_IMAGE, impl.Ui.VkHandle, "ColorPipe_Ui");
+            impl.Device->SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl.Ui.VkViewHandle, "ColorPipe_Ui_View");
 
             for (size_t i = 0; i < k_BloomMipCount; ++i)
             {
@@ -1104,8 +1104,8 @@ namespace color
                     return ColorPipeError::ResourceCreationFailed;
                 }
 
-                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl.BloomDownsample[i].VkHandle, name.c_str());
-                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl.BloomDownsample[i].VkViewHandle, viewName.c_str());
+                impl.Device->SetObjectName(VK_OBJECT_TYPE_IMAGE, impl.BloomDownsample[i].VkHandle, name.c_str());
+                impl.Device->SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl.BloomDownsample[i].VkViewHandle, viewName.c_str());
             }
 
             for (size_t i = 0; i < k_BloomMipCount - 1u; ++i)
@@ -1122,8 +1122,8 @@ namespace color
                     return ColorPipeError::ResourceCreationFailed;
                 }
 
-                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl.BloomUpsample[i].VkHandle, name.c_str());
-                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl.BloomUpsample[i].VkViewHandle, viewName.c_str());
+                impl.Device->SetObjectName(VK_OBJECT_TYPE_IMAGE, impl.BloomUpsample[i].VkHandle, name.c_str());
+                impl.Device->SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl.BloomUpsample[i].VkViewHandle, viewName.c_str());
             }
 
             impl.Width = width;

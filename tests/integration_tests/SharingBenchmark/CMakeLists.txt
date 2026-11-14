@@ -8,7 +8,10 @@ set_target_properties(sharing_benchmark_shaders PROPERTIES FOLDER "Tests/Integra
 
 ADD_INTEGRATION_TEST(SharingBenchmark
     "main.cpp"
-    "SharingBenchmark.slang")
+    "SharingBenchmark.slang"
+    "../fixtures/HeadlessBoot.hpp"
+    "../fixtures/HeadlessBoot.cpp")
+target_link_libraries(SharingBenchmark PRIVATE bootstrap_vulkan)
 add_dependencies(SharingBenchmark sharing_benchmark_shaders)
 target_compile_definitions(SharingBenchmark PRIVATE
     "SHARING_BENCHMARK_MANIFEST=\"$<TARGET_PROPERTY:sharing_benchmark_shaders,LODESTONE_MANIFEST>\"")

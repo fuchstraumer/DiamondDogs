@@ -95,30 +95,6 @@ static const std::set<uint32_t> k_BuiltInVkVersions
     VK_API_VERSION_1_4
 };
 
-static VkPhysicalDeviceVulkan11Features k_LocalVulkan11Features
-{
-    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
-    nullptr
-};
-
-static VkPhysicalDeviceVulkan12Features k_LocalVulkan12Features
-{
-    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-    nullptr
-};
-
-static VkPhysicalDeviceVulkan13Features k_LocalVulkan13Features
-{
-    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-    nullptr
-};
-
-static VkPhysicalDeviceVulkan14Features k_LocalVulkan14Features
-{
-    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
-    nullptr
-};
-
 struct DependencyCache
 {
     DependencyCache(VkPhysicalDevice _physicalDevice)
@@ -329,22 +305,6 @@ bool ExtensionWrangler::ExtensionCoreInActiveVersion(const std::string_view exte
     return std::ranges::any_of(promotedExtensionsMap, promotedFilter);
 }
 
-std::vector<std::string_view> ExtensionWrangler::GetSupportedExtensionsByPrefix(std::string_view prefix) const
-{
-    const auto isSupportedDeviceExtensionWithPrefix = [&](const std::string_view extension_name)
-    {
-        return extension_name.starts_with(prefix) &&
-            ExtensionIsDeviceExtension(extension_name) &&
-            !ExtensionCoreInActiveVersion(extension_name) &&
-            IsExtensionSupported(extension_name);
-    };
-
-    return masterExtensionNameTable |
-        std::views::transform([](const char* extension_name) { return std::string_view{ extension_name }; }) |
-        std::views::filter(isSupportedDeviceExtensionWithPrefix) |
-        std::ranges::to<std::vector>();
-}
-
 std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> ExtensionWrangler::GetExtensionDependencies(const std::string_view extension_name) const
 {
     if (ExtensionCoreInActiveVersion(extension_name))
@@ -433,146 +393,6 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
     std::ranges::copy(uniqueDeviceDependencies | std::views::transform(StringViewData), combinedDependencies.DeviceExtensionDeps);
 
     return std::move(combinedDependencies);
-}
-
-std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> ExtensionWrangler::GetExtensionFeatures(
-    std::span<std::string_view> extension_names,
-    GetVersionFeatures get_version_features,
-    CollectDependencies collect_dependencies) const
-{
-    VkPhysicalDeviceFeatures2 features2 = {};
-    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    features2.pNext = nullptr;
-
-    if (extension_names.empty() && get_version_features == GetVersionFeatures::False)
-    {
-        // No extensions, return empty features
-        return features2;
-    }
-
-    // little bit of reinterpret_cast magic, and bam every features struct can be accessed through this
-    // this is totally safe, since we're not ever storing actual objects, just pointers to these structs
-    struct FeaturesStructAlias
-    {
-        VkStructureType SType;
-        void* PNext;
-    };
-
-    auto castToFeaturesStructAlias = [](void* ptr) -> FeaturesStructAlias*
-    {
-        return reinterpret_cast<FeaturesStructAlias*>(ptr);
-    };
-
-    std::vector<FeaturesStructAlias*> featuresVec;
-    featuresVec.emplace_back(castToFeaturesStructAlias(&features2));
-
-    // We're going to want to use a stack of sorts to build the pNext chain, so we start with the base features
-    if (get_version_features == GetVersionFeatures::True)
-    {
-
-        // Cumulatively add feature structs for all versions up to and including apiVersion
-        if (apiVersion >= VK_API_VERSION_1_1)
-        {
-            FeaturesStructAlias* currentBack = featuresVec.back();
-            FeaturesStructAlias* features11Alias = castToFeaturesStructAlias(&k_LocalVulkan11Features);
-            currentBack->PNext = features11Alias;
-            featuresVec.push_back(features11Alias);
-        }
-
-        if (apiVersion >= VK_API_VERSION_1_2)
-        {
-            FeaturesStructAlias* currentBack = featuresVec.back();
-            FeaturesStructAlias* features12Alias = castToFeaturesStructAlias(&k_LocalVulkan12Features);
-            currentBack->PNext = features12Alias;
-            featuresVec.push_back(features12Alias);
-        }
-
-        if (apiVersion >= VK_API_VERSION_1_3)
-        {
-            FeaturesStructAlias* currentBack = featuresVec.back();
-            FeaturesStructAlias* features13Alias = castToFeaturesStructAlias(&k_LocalVulkan13Features);
-            currentBack->PNext = features13Alias;
-            featuresVec.push_back(features13Alias);
-        }
-
-        if (apiVersion >= VK_API_VERSION_1_4)
-        {
-            FeaturesStructAlias* currentBack = featuresVec.back();
-            FeaturesStructAlias* features14Alias = castToFeaturesStructAlias(&k_LocalVulkan14Features);
-            currentBack->PNext = features14Alias;
-            featuresVec.push_back(features14Alias);
-        }
-    }
-
-    // unfortunately need a duplicate list of the names, since we may need to add to it for dependencies (I expect this to be a common case)
-    std::vector<std::string_view> extensionNamesVec{ extension_names.begin(), extension_names.end() };
-    if (collect_dependencies == CollectDependencies::True)
-    {
-        // Collect dependencies for the extensions
-        auto extensionDeps = GetExtensionDependencies(extension_names);
-        if (!extensionDeps.has_value())
-        {
-            // If we couldn't collect dependencies, forward the error
-            return std::unexpected<DependencyError>(extensionDeps.error());
-        }
-        else
-        {
-            // Only care about the device extensions here, since instance extensions don't have features
-            const std::span<const char* const> deviceDependencyNames{ extensionDeps->DeviceExtensionDeps, extensionDeps->NumDeviceExtensionDeps };
-            extensionNamesVec.append_range(deviceDependencyNames);
-        }
-    }
-
-
-    // Iterate through the extensions and populate the features
-    for (const std::string_view extensionName : extensionNamesVec)
-    {
-        if (ExtensionCoreInActiveVersion(extensionName) || ExtensionIsInstanceExtension(extensionName))
-        {
-            // If the extension is core in the active version or an instance extension, we don't need to query features for it
-            continue;
-        }
-
-        auto extensionNameIdxIter = extensionIndexLookupMap.find(extensionName);
-        if (extensionNameIdxIter == extensionIndexLookupMap.end())
-        {
-            // Extension not found in the lookup map, skip it
-            continue;
-        }
-
-        const size_t extensionIndex = extensionNameIdxIter->second;
-
-        // Now query for the feature struct, to see if this extension requires it
-        // (main reason we even need this map: static storage for the feature structs, so they persist through call to create device)
-        auto extensionFeatureIter = extensionFeatureStructMap.find(extensionIndex);
-        if (extensionFeatureIter == extensionFeatureStructMap.end())
-        {
-            // Extension does not have a feature struct, skip it
-            continue;
-        }
-
-        const void* featureStructPtr = extensionFeatureIter->second;
-        // oops, bad const_cast but I swear it's fine this time....
-        FeaturesStructAlias* currentFeatureAlias = castToFeaturesStructAlias(const_cast<void*>(featureStructPtr));
-        // Now we need to add this to the pNext chain
-        FeaturesStructAlias* lastFeatureAlias = featuresVec.back();
-        lastFeatureAlias->PNext = currentFeatureAlias;
-        featuresVec.emplace_back(currentFeatureAlias);
-    }
-
-    // vkGetPhysicalDeviceFeatures2 is core from 1.1. A 1.0 device can't take extension feature structs without
-    // VK_KHR_get_physical_device_properties2, which we don't require, so it gets the 1.0 features and no chain
-    if (apiVersion < VK_API_VERSION_1_1)
-    {
-        features2.pNext = nullptr;
-        vkGetPhysicalDeviceFeatures(physicalDevice, &features2.features);
-        return features2;
-    }
-
-    // last step: call vkGetPhysicalDeviceFeatures2 to populate the features
-    vkGetPhysicalDeviceFeatures2(physicalDevice, &features2);
-
-    return features2;
 }
 
 std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> ExtensionWrangler::getExtensionDependenciesInternal(

@@ -17,6 +17,10 @@ namespace rhi
     class Device;
     struct ShaderProgramImpl;
 
+    // the device feature that ShaderProgram and ManifestProgram need: they create shader objects. The device planner
+    // enables VK_EXT_shader_object for it
+    inline constexpr std::string_view k_ShaderObjectFeature{ "VkPhysicalDeviceShaderObjectFeaturesEXT.shaderObject" };
+
     /**
      * @brief ShaderPrograms represent a either a single compiled shader entry point,
      * or a set of entry points designed to be used together in a pipeline (e.g.,

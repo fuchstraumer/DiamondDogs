@@ -71,6 +71,20 @@ namespace bootstrap
         return requirements;
     }
 
+    std::vector<Need> FeatureNeeds(std::span<const std::string_view> features, NeedLevel level)
+    {
+        std::vector<Need> needs;
+
+        needs.reserve(features.size());
+
+        for (const std::string_view feature : features)
+        {
+            needs.push_back(Need{ .Name = feature, .Kind = NeedKind::DeviceFeature, .Level = level });
+        }
+
+        return needs;
+    }
+
     std::string_view ToString(NeedKind kind) noexcept
     {
         switch (kind)

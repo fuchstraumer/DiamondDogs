@@ -8,9 +8,12 @@ lodestone_add_shader_cook(color_pipe_test_shaders
 add_dependencies(color_pipe_test_shaders color_pipe_shader_data)
 set_target_properties(color_pipe_test_shaders PROPERTIES FOLDER "Tests/Integration Tests")
 
-ADD_INTEGRATION_TEST(ColorPipeTest "main.cpp")
+ADD_INTEGRATION_TEST(ColorPipeTest
+    "main.cpp"
+    "../fixtures/HeadlessBoot.hpp"
+    "../fixtures/HeadlessBoot.cpp")
 add_dependencies(ColorPipeTest color_pipe_test_shaders)
-target_link_libraries(ColorPipeTest PRIVATE color_pipe rhi_resources)
+target_link_libraries(ColorPipeTest PRIVATE color_pipe bootstrap_vulkan)
 target_compile_definitions(ColorPipeTest PRIVATE
     "COLOR_PIPE_TEST_MANIFEST=\"$<TARGET_PROPERTY:color_pipe_test_shaders,LODESTONE_MANIFEST>\"")
 

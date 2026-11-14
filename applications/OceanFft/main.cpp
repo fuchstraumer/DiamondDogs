@@ -1,11 +1,30 @@
 #include "ArcballCamera.hpp"
+#include "BootResult.hpp"
+#include "ColorPipe.hpp"
+#include "ContentStage.hpp"
+#include "CoreStage.hpp"
 #include "Device.hpp"
+#include "DeviceConfig.hpp"
+#include "DeviceRequirements.hpp"
+#include "DeviceStage.hpp"
 #include "FrameLimit.hpp"
+#include "GpuPyramid.hpp"
+#include "GpuStage.hpp"
+#include "ImGuiModule.hpp"
+#include "LaunchStage.hpp"
+#include "LoadedBundle.hpp"
+#include "ModuleDescriptor.hpp"
 #include "OceanScene.hpp"
+#include "ResourceTypes.hpp"
+#include "OceanSimulation.hpp"
 #include "PlatformSystem.hpp"
+#include "PlatformTypes.hpp"
 #include "RhiSystem.hpp"
 #include "SceneCommands.hpp"
+#include "ShaderBundle.hpp"
+#include "SpineNeeds.hpp"
 #include "ToolServer.hpp"
+#include "WindowStage.hpp"
 #define WIN32_LEAN_AND_MEAN
 // Windows.h first: libloaderapi.h and minwindef.h need the target architecture macros it sets
 #include <Windows.h>
@@ -23,6 +42,7 @@
 #include <memory>
 #include <numbers>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -94,36 +114,79 @@ namespace
         return rhi::ValidationLayers::Full;
     }
 
-    // The build copies the cooked shader bundle next to the executable, so the folder runs on another machine. A
-    // build-tree executable without the copy falls back to the bundle in the build directory
-    std::filesystem::path FindManifest()
+    // The build copies the cooked shader bundles next to the executable, so the folder runs on another machine. A
+    // build-tree executable without the copies falls back to the bundles in the build directory
+    constexpr std::string_view k_OceanBundle{ "OceanFft.ldmanifest" };
+    constexpr std::string_view k_ColorPipeBundle{ "ColorPipe.ldmanifest" };
+    constexpr bootstrap::BundleRequest k_Bundles[]
     {
-        std::array<wchar_t, 32768> modulePath{};
-        const DWORD length = GetModuleFileNameW(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
-        const std::filesystem::path beside = std::filesystem::path{ std::wstring_view{ modulePath.data(), length } }.parent_path() / "OceanFft.ldmanifest";
-        std::error_code error;
-
-        if (length != 0u && std::filesystem::exists(beside, error))
+        bootstrap::BundleRequest
         {
-            return beside;
+            .FileName = k_OceanBundle,
+            .BuildTreePath = OCEAN_FFT_MANIFEST,
+            .Profile = rhi::k_SpirvProfileName,
+        },
+        bootstrap::BundleRequest
+        {
+            .FileName = k_ColorPipeBundle,
+            .BuildTreePath = OCEAN_FFT_COLOR_PIPE_MANIFEST,
+            .Profile = rhi::k_SpirvProfileName,
+        },
+    };
+
+    // the ocean and seabed samplers filter anisotropically when the device has it
+    constexpr bootstrap::Need k_AnisotropyNeed
+    {
+        .Name = k_SamplerAnisotropyFeature,
+        .Kind = bootstrap::NeedKind::DeviceFeature,
+        .Level = bootstrap::NeedLevel::Wanted,
+    };
+
+    // the OceanFft bundle lists UniformAndStorageBuffer16BitAccess, which implicitly declares this one, and the cook
+    // does not list implied capabilities yet
+    constexpr bootstrap::Need k_StorageBuffer16BitNeed
+    {
+        .Name = "StorageBuffer16BitAccess",
+        .Kind = bootstrap::NeedKind::Capability,
+        .Level = bootstrap::NeedLevel::Required,
+    };
+
+    // prints a boot failure to stderr
+    [[nodiscard]] bool Booted(const bootstrap::BootResult& result)
+    {
+        if (!result.Succeeded())
+        {
+            std::cerr << bootstrap::FormatFailure(result) << "\n";
         }
 
-        return std::filesystem::path{ OCEAN_FFT_MANIFEST };
+        return result.Succeeded();
     }
 
-    std::filesystem::path FindColorPipeManifest()
+    // where the content stage found the bundle that k_Bundles names `file_name`. ContentStage::Start fails unless it
+    // opened every request
+    [[nodiscard]] std::filesystem::path BundlePath(const bootstrap::ContentStage& content, std::string_view file_name)
     {
-        std::array<wchar_t, 32768> modulePath{};
-        const DWORD length = GetModuleFileNameW(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
-        const std::filesystem::path beside = std::filesystem::path{ std::wstring_view{ modulePath.data(), length } }.parent_path() / "ColorPipe.ldmanifest";
-        std::error_code error;
+        const auto found = std::ranges::find(content.Bundles(), file_name, &bootstrap::LoadedBundle::FileName);
 
-        if (length != 0u && std::filesystem::exists(beside, error))
-        {
-            return beside;
-        }
+        return found->Path;
+    }
 
-        return std::filesystem::path{ OCEAN_FFT_COLOR_PIPE_MANIFEST };
+    // the spine needs, then what the demo's own code uses: shader objects, GPU timers, dynamic rendering for the
+    // scene, the color pipe and ImGui, and the wave-op variants, the fast mip pipeline and anisotropic filtering when
+    // the device has them
+    [[nodiscard]] std::vector<bootstrap::Need> AppNeeds(const bootstrap::WindowStage& window_stage)
+    {
+        std::vector<bootstrap::Need> needs = bootstrap::SpineNeeds(window_stage);
+
+        needs.append_range(bootstrap::ShaderObjectNeeds());
+        needs.append_range(bootstrap::QueryPoolNeeds());
+        needs.append_range(bootstrap::FeatureNeeds(color::k_ColorPipeFeatures, bootstrap::NeedLevel::Required));
+        needs.append_range(bootstrap::FeatureNeeds(k_ImGuiModuleFeatures, bootstrap::NeedLevel::Required));
+        needs.append_range(bootstrap::FeatureNeeds(ocean::k_WaveOpFeatures, bootstrap::NeedLevel::Wanted));
+        needs.append_range(bootstrap::FeatureNeeds(pyramid::k_FastPipelineFeatures, bootstrap::NeedLevel::Wanted));
+        needs.push_back(k_AnisotropyNeed);
+        needs.push_back(k_StorageBuffer16BitNeed);
+        return needs;
     }
 
     std::filesystem::path FindFonts()
@@ -364,27 +427,27 @@ namespace
 
 int main(int argc, char* argv[])
 {
-    rhi::RhiSystemCreateInfo rhiCreateInfo{};
-    rhiCreateInfo.ApplicationName = "OceanFft";
-    rhiCreateInfo.VkVersion = rhi::ApiVersion::Latest;
-    // the instance comes before the other arguments are parsed, so this one is looked for here
-    const bool validationOff = std::ranges::contains(std::span{ argv, static_cast<size_t>(argc) }, std::string_view{ "--validation=off" },
-        [](const char* argument) { return std::string_view{ argument }; });
-    rhiCreateInfo.ValidationLevel = validationOff ? rhi::ValidationLayers::None : PickValidationLayers();
-    rhiCreateInfo.RequiredInstanceExtensions =
+    bootstrap::LaunchStage launch;
+
+    if (!Booted(launch.Start(std::span{ argv, static_cast<size_t>(argc) }, std::span<const bootstrap::ModuleDescriptor>{}, bootstrap::Stage::Gpu)))
     {
-        "VK_EXT_debug_utils",
-        "VK_KHR_surface",
-        "VK_KHR_win32_surface",
-        "VK_KHR_get_surface_capabilities2",
-        "VK_EXT_swapchain_colorspace"
-    };
-    rhiCreateInfo.RequiredDeviceExtensions =
+        return 1;
+    }
+
+    bootstrap::CoreStage core;
+
+    if (!Booted(core.Start(launch)))
     {
-        "VK_KHR_swapchain",
-        "VK_EXT_shader_object"
-    };
-    std::unique_ptr<rhi::RhiSystem> rhiSystem = std::make_unique<rhi::RhiSystem>(rhiCreateInfo);
+        return 1;
+    }
+
+    // each bundle is looked for beside the executable first, so the package folder runs on another machine
+    bootstrap::ContentStage content;
+
+    if (!Booted(content.Start(core, k_Bundles)))
+    {
+        return 1;
+    }
 
     const WindowArguments window = ParseWindowArguments(argc, argv);
 
@@ -406,21 +469,57 @@ int main(int argc, char* argv[])
         60.0f,
         PlatformWindowBehaviorFlags{ true, true, true, false, false }
     };
-    std::unique_ptr<PlatformWindowSystem> platformSystem = std::make_unique<PlatformWindowSystem>(platformCreateInfo);
-    platformSystem->CreateDefaultSwapchain(rhiSystem->GetInstance(), rhiSystem->GetDevice());
+    bootstrap::WindowStage windowStage;
 
+    if (!Booted(windowStage.Start(content, platformCreateInfo)))
+    {
+        return 1;
+    }
+
+    const std::vector<bootstrap::Need> needs = AppNeeds(windowStage);
+    const bootstrap::DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(content, needs);
+    // a config file's Device section can change these, for example to decline a Wanted need
+    const bool validationOff = std::ranges::contains(launch.Arguments(), std::string_view{ "--validation=off" });
+    bootstrap::DeviceConfig config
+    {
+        .ApiVersion = rhi::ApiVersion::Latest,
+        .Validation = validationOff ? rhi::ValidationLayers::None : PickValidationLayers(),
+        .ApplicationName = "OceanFft",
+    };
+
+    if (!Booted(bootstrap::ReadDeviceConfig(launch, config)))
+    {
+        return 1;
+    }
+
+    bootstrap::DeviceStage deviceStage;
+
+    if (!Booted(deviceStage.Start(content, requirements, config, windowStage)))
+    {
+        return 1;
+    }
+
+    bootstrap::GpuStage gpu;
+
+    if (!Booted(gpu.Start(deviceStage, windowStage)))
+    {
+        return 1;
+    }
+
+    rhi::RhiSystem& rhiSystem = deviceStage.Rhi();
+    PlatformWindowSystem& platformSystem = windowStage.Platform();
     OceanSceneSettings settings{};
-    settings.ManifestPath = FindManifest();
-    settings.ColorPipeManifestPath = FindColorPipeManifest();
+    settings.ManifestPath = BundlePath(content, k_OceanBundle);
+    settings.ColorPipeManifestPath = BundlePath(content, k_ColorPipeBundle);
     settings.FontDirectory = FindFonts();
     settings.FoamMaterialDirectory = FindFoamMaterialDirectory();
     settings.FoamMaterialName = OCEAN_FFT_FOAM_NAME;
     settings.SeabedMaterialDirectory = FindSeabedMaterialDirectory();
     settings.SeabedMaterialName = OCEAN_FFT_SEABED_NAME;
-    settings.ValidationEnabled = rhiCreateInfo.ValidationLevel != rhi::ValidationLayers::None;
+    settings.ValidationEnabled = config.Validation != rhi::ValidationLayers::None;
     CommandLine commandLine{};
     ParseArguments(argc, argv, settings, commandLine);
-    settings.Simulation.WaveSize = commandLine.NoWaveOps ? 0u : ocean::PickWaveSize(*rhiSystem->GetDevice());
+    settings.Simulation.WaveSize = commandLine.NoWaveOps ? 0u : ocean::PickWaveSize(*rhiSystem.GetDevice());
     settings.Simulation.FusedKernels = !commandLine.Unfused;
 
     SceneCommands commands;
@@ -463,7 +562,7 @@ int main(int argc, char* argv[])
 
     int exitCode = 0;
     {
-        OceanScene scene(rhiSystem.get(), platformSystem.get(), settings);
+        OceanScene scene(&rhiSystem, &platformSystem, gpu.Resources(), settings);
         scene.Initialize(nullptr);
         int32_t frameLimit = ParseFrameLimit(argc, argv);
         // a capture schedule without a frame limit ends with its last capture
@@ -472,16 +571,15 @@ int main(int argc, char* argv[])
             frameLimit = static_cast<int32_t>(settings.Capture.LastFrame() + 1u);
         }
         int32_t framesRendered = 0;
-        while (!platformSystem->ShouldWindowClose() && !scene.QuitRequested() && (frameLimit < 0 || framesRendered < frameLimit))
+        while (!platformSystem.ShouldWindowClose() && !scene.QuitRequested() && (frameLimit < 0 || framesRendered < frameLimit))
         {
-            platformSystem->Update();
+            platformSystem.Update();
             scene.Render(nullptr);
             ++framesRendered;
         }
         scene.Destroy();
     }
 
-    platformSystem->DestroySwapchain();
-
+    // the stages stop in reverse: the swapchain, the surface and the device, then the window
     return exitCode;
 }

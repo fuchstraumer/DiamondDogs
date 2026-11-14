@@ -19,8 +19,8 @@ namespace bootstrap
 
     /** @brief The stage that every executable starts, the cooker included.
      *
-     *  It constructs the async Scheduler on the calling thread, which then owns it, and starts every
-     *  selected module that has StartCore, in list order. */
+     *  It constructs the async Scheduler on the calling thread, which then owns it. It then starts
+     *  the rest of the core modules in the order they are defined. */
     class CoreStage
     {
     public:
@@ -33,8 +33,8 @@ namespace bootstrap
         CoreStage(CoreStage&&) = delete;
         CoreStage& operator=(CoreStage&&) = delete;
 
-        /** @brief Constructs the Scheduler, then starts the core modules. When a module fails, stops what started
-         *  and returns that failure. `launch` must outlive this stage. */
+        /** @brief When a module fails, stops what started and returns that failure. 
+          * @note `Launch` must outlive this stage. */
         [[nodiscard]] BootResult Start(const LaunchStage& launch);
         /** @brief Destroys the started modules in the reverse order of start, then the Scheduler. */
         void Stop() noexcept;

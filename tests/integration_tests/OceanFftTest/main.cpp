@@ -21,6 +21,15 @@
 #include "ResourceFlags.hpp"
 #include "ResourceTypes.hpp"
 #include "ResourceFuture.hpp"
+#include "BootResult.hpp"
+#include "DeviceConfig.hpp"
+#include "HeadlessBoot.hpp"
+#include "LoadedBundle.hpp"
+#include "ModuleDescriptor.hpp"
+#include "SpineNeeds.hpp"
+#include "QueryPool.hpp"
+#include "ShaderProgram.hpp"
+#include <filesystem>
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
 #include <array>
@@ -1823,20 +1832,85 @@ namespace
     }
 }
 
-int main()
+namespace
 {
-    rhi::RhiSystemCreateInfo createInfo{};
-    createInfo.ApplicationName = "OceanFftTest";
-    createInfo.VkVersion = rhi::ApiVersion::Latest;
-    createInfo.ValidationLevel = rhi::ValidationLayers::Full;
-    createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils" };
-    createInfo.RequiredDeviceExtensions = { "VK_EXT_shader_object" };
-    auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
+    constexpr bootstrap::BundleRequest k_Bundles[]
+    {
+        bootstrap::BundleRequest
+        {
+            .FileName = "ShaderLibrary.ldmanifest",
+            .BuildTreePath = OCEAN_FFT_MANIFEST,
+            .Profile = rhi::k_SpirvProfileName,
+        },
+    };
 
-    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(OCEAN_FFT_MANIFEST, rhi::k_SpirvProfileName);
+    // shader objects and GPU timers, and the wave-op variants and the fast mip pipeline when the device has their
+    // features (k_WaveOpFeatures holds both of pyramid::k_FastPipelineFeatures)
+    constexpr bootstrap::Need k_AppNeeds[]
+    {
+        bootstrap::Need
+        {
+            .Name = rhi::k_ShaderObjectFeature,
+            .Kind = bootstrap::NeedKind::DeviceFeature,
+            .Level = bootstrap::NeedLevel::Required,
+        },
+        bootstrap::Need
+        {
+            .Name = rhi::k_QueryPoolFeature,
+            .Kind = bootstrap::NeedKind::DeviceFeature,
+            .Level = bootstrap::NeedLevel::Required,
+        },
+        bootstrap::Need
+        {
+            .Name = ocean::k_WaveOpFeatures[0],
+            .Kind = bootstrap::NeedKind::DeviceFeature,
+            .Level = bootstrap::NeedLevel::Wanted,
+        },
+        bootstrap::Need
+        {
+            .Name = ocean::k_WaveOpFeatures[1],
+            .Kind = bootstrap::NeedKind::DeviceFeature,
+            .Level = bootstrap::NeedLevel::Wanted,
+        },
+        bootstrap::Need
+        {
+            .Name = ocean::k_WaveOpFeatures[2],
+            .Kind = bootstrap::NeedKind::DeviceFeature,
+            .Level = bootstrap::NeedLevel::Wanted,
+        },
+        // the bundle lists UniformAndStorageBuffer16BitAccess, which implicitly declares this one, and the cook does
+        // not list implied capabilities yet
+        bootstrap::Need
+        {
+            .Name = "StorageBuffer16BitAccess",
+            .Kind = bootstrap::NeedKind::Capability,
+            .Level = bootstrap::NeedLevel::Required,
+        },
+    };
+}
+
+int main(int argc, char* argv[])
+{
+    const bootstrap::DeviceConfig config
+    {
+        .ApiVersion = rhi::ApiVersion::Latest,
+        .Validation = rhi::ValidationLayers::Full,
+        .ApplicationName = "OceanFftTest",
+    };
+    HeadlessBoot boot;
+
+    if (!StartHeadlessBoot(boot, std::span{ argv, static_cast<size_t>(argc) }, k_Bundles, k_AppNeeds, config))
+    {
+        return 1;
+    }
+
+    // the content stage found the bundle, so the library opens that same file
+    const std::filesystem::path& bundlePath = boot.Content.Bundles().front().Path;
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(bundlePath, rhi::k_SpirvProfileName);
+
     if (!library.has_value())
     {
-        std::cerr << std::format("Failed to open {}: {}\n", OCEAN_FFT_MANIFEST, rhi::ToString(library.error()));
+        std::cerr << std::format("Failed to open {}: {}\n", bundlePath.string(), rhi::ToString(library.error()));
         return 1;
     }
 
@@ -1846,15 +1920,9 @@ int main()
     failures += TestComputeCdlodMaxLevel();
     failures += TestExrLoader();
     {
-        ResourceContext resources;
-        const ResourceContextError resourcesResult = resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
-        if (resourcesResult != ResourceContextError::Success)
-        {
-            std::cerr << std::format("OceanFftTest: ResourceContext::Initialize failed: {}\n", ToString(resourcesResult));
-            return 1;
-        }
+        ResourceContext& resources = boot.Gpu.Resources();
 
-        const TestContext context{ *rhiSystem->GetDevice(), resources, **library, ocean::PickWaveSize(*rhiSystem->GetDevice()) };
+        const TestContext context{ *boot.Device.Rhi().GetDevice(), resources, **library, ocean::PickWaveSize(*boot.Device.Rhi().GetDevice()) };
         failures += TestShaderVariants(context);
         failures += TestOceanCdlod(context);
         failures += TestDeferredAndAtmosphere(context);

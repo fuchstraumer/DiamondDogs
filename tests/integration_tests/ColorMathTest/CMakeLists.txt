@@ -13,9 +13,11 @@ set_target_properties(color_math_test_shaders PROPERTIES FOLDER "Tests/Integrati
 
 ADD_INTEGRATION_TEST(ColorMathTest
     "main.cpp"
-    "ColorMathKernels.slang")
+    "ColorMathKernels.slang"
+    "../fixtures/HeadlessBoot.hpp"
+    "../fixtures/HeadlessBoot.cpp")
 add_dependencies(ColorMathTest color_math_test_shaders)
-target_link_libraries(ColorMathTest PRIVATE color_math rhi_resources)
+target_link_libraries(ColorMathTest PRIVATE color_math bootstrap_vulkan)
 target_compile_definitions(ColorMathTest PRIVATE
     "COLOR_MATH_TEST_MANIFEST=\"$<TARGET_PROPERTY:color_math_test_shaders,LODESTONE_MANIFEST>\"")
 

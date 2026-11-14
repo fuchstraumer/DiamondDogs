@@ -76,18 +76,7 @@ namespace
             return;
         }
 
-        const auto& debugFns = device.GetDebugUtilFns();
-        if (debugFns.vkSetDebugUtilsObjectName != nullptr)
-        {
-            VkDebugUtilsObjectNameInfoEXT info{};
-            info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
-            info.objectType = type;
-            info.objectHandle = handle;
-            info.pObjectName = name;
-            debugFns.vkSetDebugUtilsObjectName(device.Handle().As<VkDevice>(), &info);
-        }
-
-        (void)rhi::RhiSystem::SetObjectName(type, handle, name);
+        (void)device.SetObjectName(type, handle, name);
     }
 
     std::filesystem::path ResolveHdriPath(ocean::OceanSkyPreset preset)

@@ -7,6 +7,8 @@
 #include "RhiFlags.hpp"
 #include "RhiResult.hpp"
 #include "RhiSystem.hpp"
+#include "RhiSystemStart.hpp"
+#include "StartTestRhi.hpp"
 #include "RhiTypes.hpp"
 #include "Semaphore.hpp"
 #include <array>
@@ -44,14 +46,13 @@ class CommandBufferTest : public ::testing::Test
 protected:
     void SetUp() override
     {
-        rhi::RhiSystemCreateInfo createInfo{};
-        createInfo.ApplicationName = "CommandBufferTest";
-        createInfo.EngineName = "DiamondDogsTestEngine";
-        createInfo.VkVersion = rhi::ApiVersion::Vulkan13;
-        createInfo.ValidationLevel = rhi::ValidationLayers::WithSynchronization;
-        createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils" };
-        createInfo.ShaderCacheDir = (std::filesystem::temp_directory_path() / "DiamondDogsUnitTesting" / "ShaderCache").string();
-        rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
+        const test_rhi::Needs needs{ .Features = test_rhi::k_RenderingFeatures };
+
+        rhiSystem = std::make_unique<rhi::RhiSystem>();
+
+        const rhi::RhiSystemResult started = test_rhi::StartTestRhi(*rhiSystem, "CommandBufferTest", rhi::ApiVersion::Vulkan13, rhi::ValidationLayers::WithSynchronization, needs);
+
+        ASSERT_TRUE(started.Succeeded()) << started.Subject << ": " << started.Detail;
         device = rhiSystem->GetDevice();
         ASSERT_NE(device, nullptr);
         vkDevice = device->Handle().As<VkDevice>();

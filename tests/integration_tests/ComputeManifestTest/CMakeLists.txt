@@ -9,10 +9,13 @@ set_target_properties(compute_manifest_test_shaders PROPERTIES FOLDER "Tests/Int
 
 ADD_INTEGRATION_TEST(ComputeManifestTest
     "main.cpp"
-    "HashFill.slang")
+    "HashFill.slang"
+    "../fixtures/HeadlessBoot.hpp"
+    "../fixtures/HeadlessBoot.cpp")
 add_dependencies(ComputeManifestTest compute_manifest_test_shaders)
-# the buffers come from ResourceContext, so this test is also the integration proof for RhiResources
-target_link_libraries(ComputeManifestTest PRIVATE rhi_resources)
+# the boot stages create the device and ResourceContext, and the bundle's needs reach the device. The buffers come
+# from ResourceContext, so this test is also the integration proof for RhiResources
+target_link_libraries(ComputeManifestTest PRIVATE bootstrap_vulkan)
 target_compile_definitions(ComputeManifestTest PRIVATE
     "COMPUTE_MANIFEST_TEST_MANIFEST=\"$<TARGET_PROPERTY:compute_manifest_test_shaders,LODESTONE_MANIFEST>\"")
 

@@ -10,6 +10,13 @@
 #include "RhiSystem.hpp"
 #include "ShaderBundle.hpp"
 #include "ShaderLibrary.hpp"
+#include "BootResult.hpp"
+#include "DeviceConfig.hpp"
+#include "HeadlessBoot.hpp"
+#include "LoadedBundle.hpp"
+#include "ModuleDescriptor.hpp"
+#include "SpineNeeds.hpp"
+#include <filesystem>
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
 #include <array>
@@ -468,20 +475,45 @@ namespace
     }
 }
 
-int main()
+namespace
 {
-    rhi::RhiSystemCreateInfo createInfo{};
-    createInfo.ApplicationName = "GpuPyramidTest";
-    createInfo.VkVersion = rhi::ApiVersion::Latest;
-    createInfo.ValidationLevel = rhi::ValidationLayers::Full;
-    createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils" };
-    createInfo.RequiredDeviceExtensions = { "VK_EXT_shader_object" };
-    auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
+    constexpr bootstrap::BundleRequest k_Bundles[]
+    {
+        bootstrap::BundleRequest
+        {
+            .FileName = "ShaderLibrary.ldmanifest",
+            .BuildTreePath = GPU_PYRAMID_TEST_MANIFEST,
+            .Profile = rhi::k_SpirvProfileName,
+        },
+    };
+}
 
-    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(GPU_PYRAMID_TEST_MANIFEST, rhi::k_SpirvProfileName);
+int main(int argc, char* argv[])
+{
+    const bootstrap::DeviceConfig config
+    {
+        .ApiVersion = rhi::ApiVersion::Latest,
+        .Validation = rhi::ValidationLayers::Full,
+        .ApplicationName = "GpuPyramidTest",
+    };
+    // Wanted: without the fast pipeline's features, every level takes the general pipeline
+    std::vector<bootstrap::Need> appNeeds = bootstrap::FeatureNeeds(pyramid::k_FastPipelineFeatures, bootstrap::NeedLevel::Wanted);
+    HeadlessBoot boot;
+
+    appNeeds.append_range(bootstrap::ShaderObjectNeeds());
+
+    if (!StartHeadlessBoot(boot, std::span{ argv, static_cast<size_t>(argc) }, k_Bundles, appNeeds, config))
+    {
+        return 1;
+    }
+
+    // the content stage found the bundle, so the library opens that same file
+    const std::filesystem::path& bundlePath = boot.Content.Bundles().front().Path;
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(bundlePath, rhi::k_SpirvProfileName);
+
     if (!library.has_value())
     {
-        std::cerr << std::format("Failed to open {}: {}\n", GPU_PYRAMID_TEST_MANIFEST, rhi::ToString(library.error()));
+        std::cerr << std::format("Failed to open {}: {}\n", bundlePath.string(), rhi::ToString(library.error()));
         return 1;
     }
 
@@ -512,15 +544,9 @@ int main()
     int32_t failures = 0;
 
     {
-        ResourceContext resources;
-        const ResourceContextError resourcesResult = resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
-        if (resourcesResult != ResourceContextError::Success)
-        {
-            std::cerr << std::format("GpuPyramidTest: ResourceContext::Initialize failed: {}\n", ToString(resourcesResult));
-            return 1;
-        }
+        ResourceContext& resources = boot.Gpu.Resources();
 
-        rhi::Device& device = *rhiSystem->GetDevice();
+        rhi::Device& device = *boot.Device.Rhi().GetDevice();
 
         for (const TestCase& test : k_Cases)
         {

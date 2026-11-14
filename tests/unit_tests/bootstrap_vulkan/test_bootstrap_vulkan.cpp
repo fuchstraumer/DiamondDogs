@@ -6,6 +6,7 @@
 #include "DeviceRequirements.hpp"
 #include "DeviceStage.hpp"
 #include "GpuStage.hpp"
+#include "Instance.hpp"
 #include "LaunchStage.hpp"
 #include "ModuleDescriptor.hpp"
 #include "PlatformSystem.hpp"
@@ -16,6 +17,7 @@
 #include "ResourceTypes.hpp"
 #include "RhiSystem.hpp"
 #include "SpineNeeds.hpp"
+#include "Swapchain.hpp"
 #include "WindowStage.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -191,6 +193,8 @@ TEST(BootstrapVulkan, HeadlessBootEnablesOnlyTheSpineAndUploads)
     EXPECT_EQ(features.size(), 2u);
     EXPECT_TRUE(Contains(features, k_TimelineFeature));
     EXPECT_TRUE(Contains(features, k_Sync2Feature));
+    // no need names it: the device stage asks for it, so validation reaches our messenger and objects get names
+    EXPECT_TRUE(device.Rhi().GetInstance()->HasExtension("VK_EXT_debug_utils"));
 
     GpuStage gpu;
     const BootResult gpuStarted = gpu.StartHeadless(device);
@@ -347,6 +351,43 @@ TEST(BootstrapVulkan, WindowedBootCreatesTheSurfaceBeforeTheDevice)
     gpu.Stop();
     device.Stop();
     EXPECT_EQ(window.Platform().GetSurfaceHandle(), 0u);
+}
+
+// an HDR color space needs VK_EXT_swapchain_colorspace. Declined, the swapchain must be SDR even when the system has
+// HDR on, or swapchain creation is a validation error
+TEST(BootstrapVulkan, WithoutTheColorSpaceExtensionTheSwapchainIsSdr)
+{
+    const BootedContent booted(std::span<const ModuleDescriptor>{}, {});
+    const PlatformWindowCreateInfo windowInfo
+    {
+        .WindowName = "BootstrapVulkanTest",
+        .DisplayToUse = nullptr,
+        .InitialWidth = 320u,
+        .InitialHeight = 240u,
+    };
+    bootstrap::WindowStage window;
+    const BootResult windowStarted = window.Start(booted.content, windowInfo);
+
+    ASSERT_TRUE(windowStarted.Succeeded()) << bootstrap::FormatFailure(windowStarted);
+
+    const std::vector<Need> spine = bootstrap::SpineNeeds(window);
+    const DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(booted.content, spine);
+    DeviceConfig config = ValidatedConfig();
+
+    config.Declined.emplace_back("VK_EXT_swapchain_colorspace");
+
+    DeviceStage device;
+    const BootResult deviceStarted = device.Start(booted.content, requirements, config, window);
+
+    ASSERT_TRUE(deviceStarted.Succeeded()) << bootstrap::FormatFailure(deviceStarted);
+    EXPECT_FALSE(device.Rhi().GetInstance()->HasExtension("VK_EXT_swapchain_colorspace"));
+
+    GpuStage gpu;
+    const BootResult gpuStarted = gpu.Start(device, window);
+
+    ASSERT_TRUE(gpuStarted.Succeeded()) << bootstrap::FormatFailure(gpuStarted);
+    ASSERT_NE(window.Platform().GetActiveSwapchain(), nullptr);
+    EXPECT_EQ(window.Platform().GetActiveSwapchain()->ColorSpace(), ColorSpace::sRGB_Nonlinear);
 }
 
 namespace

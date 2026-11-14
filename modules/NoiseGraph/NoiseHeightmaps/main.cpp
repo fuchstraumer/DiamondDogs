@@ -1,7 +1,17 @@
+#include "BootResult.hpp"
 #include "CommandBuffer.hpp"
+#include "ContentStage.hpp"
+#include "CoreStage.hpp"
 #include "CommandPool.hpp"
 #include "Device.hpp"
+#include "DeviceConfig.hpp"
+#include "DeviceRequirements.hpp"
+#include "DeviceStage.hpp"
 #include "Fence.hpp"
+#include "GpuStage.hpp"
+#include "LaunchStage.hpp"
+#include "LoadedBundle.hpp"
+#include "ModuleDescriptor.hpp"
 #include "Queue.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
@@ -21,6 +31,7 @@
 #include "ShaderLibrary.hpp"
 #include "ShaderManifestLayout.hpp"
 #include "ShaderProgram.hpp"
+#include "SpineNeeds.hpp"
 #include "VariantKey.hpp"
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
@@ -251,6 +262,18 @@ namespace
     [[nodiscard]] bool WriteShadedPng(const std::filesystem::path& path, std::span<const Element> elements, int32_t size, Palette palette);
     [[nodiscard]] std::array<float, 3> TerrainColor(float height, Palette palette);
     [[nodiscard]] GradientCheck CheckGradient(std::span<const Element> elements, float spacing);
+    // prints a boot failure to stderr
+    [[nodiscard]] bool Booted(const bootstrap::BootResult& result);
+
+    constexpr bootstrap::BundleRequest k_Bundles[]
+    {
+        bootstrap::BundleRequest
+        {
+            .FileName = "ShaderLibrary.ldmanifest",
+            .BuildTreePath = NOISE_HEIGHTMAPS_MANIFEST,
+            .Profile = rhi::k_SpirvProfileName,
+        },
+    };
 }
 
 int main(int argc, char** argv)
@@ -271,34 +294,68 @@ int main(int argc, char** argv)
     const std::filesystem::path outputFolder{ argv[1] };
     std::filesystem::create_directories(outputFolder);
 
-    rhi::RhiSystemCreateInfo createInfo{};
-    createInfo.ApplicationName = "NoiseHeightmaps";
-    createInfo.VkVersion = rhi::ApiVersion::Latest;
-    createInfo.ValidationLevel = rhi::ValidationLayers::Full;
-    createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils" };
-    createInfo.RequiredDeviceExtensions = { "VK_EXT_shader_object" };
-    auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
+    // headless boot: no window and no modules. The device gets the bundle's needs and shader objects
+    bootstrap::LaunchStage launch;
 
-    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(NOISE_HEIGHTMAPS_MANIFEST, rhi::k_SpirvProfileName);
-
-    if (!library.has_value())
+    if (!Booted(launch.Start(std::span{ argv, static_cast<size_t>(argc) }, std::span<const bootstrap::ModuleDescriptor>{}, bootstrap::Stage::Gpu)))
     {
-        std::cerr << std::format("Failed to open {}: {}\n", NOISE_HEIGHTMAPS_MANIFEST, rhi::ToString(library.error()));
         return 1;
     }
 
+    bootstrap::CoreStage core;
+
+    if (!Booted(core.Start(launch)))
+    {
+        return 1;
+    }
+
+    bootstrap::ContentStage content;
+
+    if (!Booted(content.Start(core, k_Bundles)))
+    {
+        return 1;
+    }
+
+    std::vector<bootstrap::Need> needs = bootstrap::HeadlessSpineNeeds();
+
+    needs.append_range(bootstrap::ShaderObjectNeeds());
+
+    const bootstrap::DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(content, needs);
+    const bootstrap::DeviceConfig config
+    {
+        .ApiVersion = rhi::ApiVersion::Latest,
+        .Validation = rhi::ValidationLayers::Full,
+        .ApplicationName = "NoiseHeightmaps",
+    };
+    bootstrap::DeviceStage deviceStage;
+
+    if (!Booted(deviceStage.StartHeadless(content, requirements, config)))
+    {
+        return 1;
+    }
+
+    bootstrap::GpuStage gpu;
+
+    if (!Booted(gpu.StartHeadless(deviceStage)))
+    {
+        return 1;
+    }
+
+    // the content stage found the bundle, so the library opens that same file
+    const std::filesystem::path& bundlePath = content.Bundles().front().Path;
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(bundlePath, rhi::k_SpirvProfileName);
+
+    if (!library.has_value())
+    {
+        std::cerr << std::format("Failed to open {}: {}\n", bundlePath.string(), rhi::ToString(library.error()));
+        return 1;
+    }
+
+    rhi::RhiSystem& rhiSystem = deviceStage.Rhi();
     int32_t failures = 0;
 
     {
-        ResourceContext resources;
-        const ResourceContextError resourcesResult = resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
-
-        if (resourcesResult != ResourceContextError::Success)
-        {
-            std::cerr << std::format("NoiseHeightmaps: ResourceContext::Initialize failed: {}\n", ToString(resourcesResult));
-            return 1;
-        }
-
+        ResourceContext& resources = gpu.Resources();
         const float renderSpacing = k_RenderExtent / static_cast<float>(k_RenderSize);
         const GridArea renderArea{ { 0.0f, 0.0f }, renderSpacing, k_RenderSize };
         const GridArea checkArea{ k_CheckOrigin, k_CheckSpacing, k_CheckSize };
@@ -308,12 +365,12 @@ int main(int argc, char** argv)
             const int32_t centerX = std::stoi(argv[3]);
             const int32_t centerY = std::stoi(argv[4]);
             const int32_t size = std::stoi(argv[5]);
-            failures += RunRegionStudy(*rhiSystem, resources, **library, outputFolder, centerX, centerY, size);
+            failures += RunRegionStudy(rhiSystem, resources, **library, outputFolder, centerX, centerY, size);
         }
 
         if (cellular)
         {
-            failures += RenderCellularSamples(*rhiSystem, resources, **library, outputFolder);
+            failures += RenderCellularSamples(rhiSystem, resources, **library, outputFolder);
         }
 
         const bool fractalSamples = !regionStudy && !cellular;
@@ -343,8 +400,8 @@ int main(int argc, char** argv)
                 sample.RuleParameters[k_SwissSmoothClampParameter].Value = 1.0f;
             }
 
-            std::optional<std::vector<Element>> rendered = RenderArea(*rhiSystem, resources, k_FractalKernel, **library, sample, renderArea);
-            std::optional<std::vector<Element>> checked = RenderArea(*rhiSystem, resources, k_FractalKernel, **library, sample, checkArea);
+            std::optional<std::vector<Element>> rendered = RenderArea(rhiSystem, resources, k_FractalKernel, **library, sample, renderArea);
+            std::optional<std::vector<Element>> checked = RenderArea(rhiSystem, resources, k_FractalKernel, **library, sample, checkArea);
 
             if (!rendered.has_value() || !checked.has_value())
             {
@@ -381,6 +438,16 @@ int main(int argc, char** argv)
 
 namespace
 {
+    bool Booted(const bootstrap::BootResult& result)
+    {
+        if (!result.Succeeded())
+        {
+            std::cerr << bootstrap::FormatFailure(result) << "\n";
+        }
+
+        return result.Succeeded();
+    }
+
     std::optional<std::vector<Element>> RenderArea(rhi::RhiSystem& rhi_system,
                                                    ResourceContext& resources,
                                                    const KernelName& kernel,

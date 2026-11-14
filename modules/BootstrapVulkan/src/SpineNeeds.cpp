@@ -1,4 +1,6 @@
 #include "SpineNeeds.hpp"
+#include "QueryPool.hpp"
+#include "ShaderProgram.hpp"
 #include "WindowStage.hpp"
 #include <span>
 #include <vector>
@@ -31,6 +33,26 @@ namespace
             .Level = NeedLevel::Wanted,
         },
     };
+
+    constexpr Need k_ShaderObjectNeeds[]
+    {
+        Need
+        {
+            .Name = rhi::k_ShaderObjectFeature,
+            .Kind = NeedKind::DeviceFeature,
+            .Level = NeedLevel::Required,
+        },
+    };
+
+    constexpr Need k_QueryPoolNeeds[]
+    {
+        Need
+        {
+            .Name = rhi::k_QueryPoolFeature,
+            .Kind = NeedKind::DeviceFeature,
+            .Level = NeedLevel::Required,
+        },
+    };
 }
 
 namespace bootstrap
@@ -53,5 +75,15 @@ namespace bootstrap
         const std::span<const Need> gpuNeeds = GpuSpineNeeds();
 
         return std::vector<Need>(gpuNeeds.begin(), gpuNeeds.end());
+    }
+
+    std::span<const Need> ShaderObjectNeeds() noexcept
+    {
+        return k_ShaderObjectNeeds;
+    }
+
+    std::span<const Need> QueryPoolNeeds() noexcept
+    {
+        return k_QueryPoolNeeds;
     }
 }

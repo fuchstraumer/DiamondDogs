@@ -1,7 +1,12 @@
+#include "BootResult.hpp"
 #include "CommandBuffer.hpp"
 #include "CommandPool.hpp"
 #include "Device.hpp"
+#include "DeviceConfig.hpp"
 #include "Fence.hpp"
+#include "HeadlessBoot.hpp"
+#include "LoadedBundle.hpp"
+#include "ModuleDescriptor.hpp"
 #include "Queue.hpp"
 #include "ResourceContext.hpp"
 #include "RhiAssert.hpp"
@@ -11,6 +16,7 @@
 #include "ShaderManifest.hpp"
 #include "ShaderManifestIndex.hpp"
 #include "ShaderProgram.hpp"
+#include "SpineNeeds.hpp"
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
 #include <array>
@@ -18,6 +24,7 @@
 #include <cstdint>
 #include <cstring>
 #include <expected>
+#include <filesystem>
 #include <format>
 #include <iostream>
 #include <memory>
@@ -62,39 +69,48 @@ namespace
     [[nodiscard]] int32_t RunVariant(rhi::RhiSystem& rhi_system, ResourceContext& resources, const rhi::ShaderLibrary& library, bool hash_twice);
 
     constexpr uint64_t k_TimeoutNs = 5'000'000'000ull;
+
+    constexpr bootstrap::BundleRequest k_Bundles[]
+    {
+        bootstrap::BundleRequest
+        {
+            .FileName = "ShaderLibrary.ldmanifest",
+            .BuildTreePath = COMPUTE_MANIFEST_TEST_MANIFEST,
+            .Profile = rhi::k_SpirvProfileName,
+        },
+    };
 }
 
-int main()
+int main(int argc, char* argv[])
 {
-    rhi::RhiSystemCreateInfo createInfo{};
-    createInfo.ApplicationName = "ComputeManifestTest";
-    createInfo.VkVersion = rhi::ApiVersion::Latest;
-    createInfo.ValidationLevel = rhi::ValidationLayers::Full;
-    createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils" };
-    createInfo.RequiredDeviceExtensions = { "VK_EXT_shader_object" };
-    auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
+    const bootstrap::DeviceConfig config
+    {
+        .ApiVersion = rhi::ApiVersion::Latest,
+        .Validation = rhi::ValidationLayers::Full,
+        .ApplicationName = "ComputeManifestTest",
+    };
+    HeadlessBoot boot;
 
-    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(COMPUTE_MANIFEST_TEST_MANIFEST, rhi::k_SpirvProfileName);
+    if (!StartHeadlessBoot(boot, std::span{ argv, static_cast<size_t>(argc) }, k_Bundles, bootstrap::ShaderObjectNeeds(), config))
+    {
+        return 1;
+    }
+
+    // the content stage found the bundle, so the library opens that same file
+    const std::filesystem::path& bundlePath = boot.Content.Bundles().front().Path;
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(bundlePath, rhi::k_SpirvProfileName);
+
     if (!library.has_value())
     {
-        std::cerr << std::format("Failed to open {}: {}\n", COMPUTE_MANIFEST_TEST_MANIFEST, rhi::ToString(library.error()));
+        std::cerr << std::format("Failed to open {}: {}\n", bundlePath.string(), rhi::ToString(library.error()));
         return 1;
     }
 
     int32_t failures = 0;
-    {
-        ResourceContext resources;
-        const ResourceContextError resourcesResult = resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
-        if (resourcesResult != ResourceContextError::Success)
-        {
-            std::cerr << std::format("ComputeManifestTest: ResourceContext::Initialize failed: {}\n", ToString(resourcesResult));
-            return 1;
-        }
 
-        for (const bool hashTwice : { false, true })
-        {
-            failures += RunVariant(*rhiSystem, resources, **library, hashTwice);
-        }
+    for (const bool hashTwice : { false, true })
+    {
+        failures += RunVariant(boot.Device.Rhi(), boot.Gpu.Resources(), **library, hashTwice);
     }
 
     if (failures != 0)

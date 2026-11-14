@@ -4,6 +4,8 @@
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
 #include "RhiSystem.hpp"
+#include "RhiSystemStart.hpp"
+#include "StartTestRhi.hpp"
 #include "RhiTypes.hpp"
 #include "ShaderTypes.hpp"
 #include <cstdint>
@@ -248,26 +250,28 @@ public:
     std::unique_ptr<rhi::RhiSystem> RhiSystem;
     VkDescriptorSetLayout ProbeSetLayout{ VK_NULL_HANDLE };
 
-    static rhi::RhiSystemCreateInfo GetCreateInfo()
+    // the probe reads statistics from a compute pipeline, and one test asks for a subgroup size
+    static constexpr rhi::DeviceNeed k_StatisticsFeatures[]
     {
-        rhi::RhiSystemCreateInfo createInfo{};
-        createInfo.ApplicationName = "ExecutableStatisticsTest";
-        createInfo.EngineName = "DiamondDogsTestEngine";
-        createInfo.AppVersion = VK_MAKE_VERSION(1, 0, 0);
-        createInfo.EngineVersion = VK_MAKE_VERSION(0, 1, 0);
-        createInfo.VkVersion = rhi::ApiVersion::Vulkan13;
-        createInfo.ValidationLevel = rhi::ValidationLayers::Full;
-        createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils", "VK_KHR_surface" };
-        createInfo.RequestedDeviceExtensions = { "VK_EXT_shader_object", "VK_KHR_pipeline_executable_properties" };
-        const auto shaderCacheDir = std::filesystem::temp_directory_path() / "DiamondDogsUnitTesting" / "ShaderCache";
-        createInfo.ShaderCacheDir = shaderCacheDir.string();
-        return createInfo;
+        rhi::DeviceNeed{ .Name = "VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR.pipelineExecutableInfo", .Level = rhi::DeviceNeedLevel::Wanted },
+        rhi::DeviceNeed{ .Name = "VkPhysicalDeviceVulkan13Features.subgroupSizeControl", .Level = rhi::DeviceNeedLevel::Wanted },
+        rhi::DeviceNeed{ .Name = "VkPhysicalDeviceVulkan13Features.computeFullSubgroups", .Level = rhi::DeviceNeedLevel::Wanted },
+    };
+
+    [[nodiscard]] static rhi::RhiSystemResult StartSystem(rhi::RhiSystem& system, std::span<const rhi::DeviceNeed> features)
+    {
+        const test_rhi::Needs needs{ .Features = features };
+
+        return test_rhi::StartTestRhi(system, "ExecutableStatisticsTest", rhi::ApiVersion::Vulkan13, rhi::ValidationLayers::Full, needs);
     }
 
     void SetUp() override
     {
-        RhiSystem = std::make_unique<rhi::RhiSystem>(GetCreateInfo());
-        ASSERT_NE(RhiSystem->GetDevice(), nullptr);
+        RhiSystem = std::make_unique<rhi::RhiSystem>();
+
+        const rhi::RhiSystemResult started = StartSystem(*RhiSystem, k_StatisticsFeatures);
+
+        ASSERT_TRUE(started.Succeeded()) << started.Subject << ": " << started.Detail;
 
         if (!RhiSystem->GetDevice()->HasExtension(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME))
         {
@@ -323,6 +327,14 @@ TEST_F(ExecutableStatisticsTest, CapturesComputeStatistics)
 TEST_F(ExecutableStatisticsTest, HonorsRequiredSubgroupSize)
 {
     constexpr uint32_t requiredSize = 32u;
+    const rhi::Device& device = *RhiSystem->GetDevice();
+    const bool sizeControl = device.IsFeatureEnabled("VkPhysicalDeviceVulkan13Features.subgroupSizeControl") &&
+                             device.IsFeatureEnabled("VkPhysicalDeviceVulkan13Features.computeFullSubgroups");
+
+    if (!sizeControl)
+    {
+        GTEST_SKIP() << "the device was created without subgroupSizeControl and computeFullSubgroups";
+    }
 
     VkPhysicalDeviceVulkan13Properties properties13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES };
     VkPhysicalDeviceProperties2 properties2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &properties13 };
@@ -420,15 +432,12 @@ TEST_F(ExecutableStatisticsTest, RejectsNonComputeStage)
 
 TEST_F(ExecutableStatisticsTest, ReportsMissingExtension)
 {
-    rhi::RhiSystemCreateInfo createInfo = GetCreateInfo();
-    createInfo.RequestedDeviceExtensions = { "VK_EXT_shader_object" };
-    rhi::RhiSystem bareSystem(createInfo);
-    ASSERT_NE(bareSystem.GetDevice(), nullptr);
+    // the start path enables only what a need names, so a device with no needs lacks the extension
+    rhi::RhiSystem bareSystem;
+    const rhi::RhiSystemResult started = StartSystem(bareSystem, std::span<const rhi::DeviceNeed>{});
 
-    if (bareSystem.GetDevice()->HasExtension(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME))
-    {
-        GTEST_SKIP() << "the device enables VK_KHR_pipeline_executable_properties without a request";
-    }
+    ASSERT_TRUE(started.Succeeded()) << started.Subject << ": " << started.Detail;
+    ASSERT_FALSE(bareSystem.GetDevice()->HasExtension(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME));
 
     const rhi::ShaderBinaryOptions computeOptions
     {

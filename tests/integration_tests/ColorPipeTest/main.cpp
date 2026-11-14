@@ -21,6 +21,13 @@
 #include "ShaderBundle.hpp"
 #include "ShaderLibrary.hpp"
 #include "TransferFunctions.hpp"
+#include "BootResult.hpp"
+#include "DeviceConfig.hpp"
+#include "HeadlessBoot.hpp"
+#include "LoadedBundle.hpp"
+#include "ModuleDescriptor.hpp"
+#include "SpineNeeds.hpp"
+#include <filesystem>
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -201,21 +208,44 @@ namespace
     [[nodiscard]] int32_t PrintReports(std::span<const CaseReport> reports);
 }
 
-int main()
+namespace
 {
-    rhi::RhiSystemCreateInfo createInfo{};
-    createInfo.ApplicationName = "ColorPipeTest";
-    createInfo.VkVersion = rhi::ApiVersion::Latest;
-    createInfo.ValidationLevel = rhi::ValidationLayers::Full;
-    createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils" };
-    createInfo.RequiredDeviceExtensions = { "VK_EXT_shader_object" };
-    auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
+    constexpr bootstrap::BundleRequest k_Bundles[]
+    {
+        bootstrap::BundleRequest
+        {
+            .FileName = "ShaderLibrary.ldmanifest",
+            .BuildTreePath = COLOR_PIPE_TEST_MANIFEST,
+            .Profile = rhi::k_SpirvProfileName,
+        },
+    };
+}
 
-    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(COLOR_PIPE_TEST_MANIFEST, rhi::k_SpirvProfileName);
+int main(int argc, char* argv[])
+{
+    const bootstrap::DeviceConfig config
+    {
+        .ApiVersion = rhi::ApiVersion::Latest,
+        .Validation = rhi::ValidationLayers::Full,
+        .ApplicationName = "ColorPipeTest",
+    };
+    std::vector<bootstrap::Need> appNeeds = bootstrap::FeatureNeeds(color::k_ColorPipeFeatures, bootstrap::NeedLevel::Required);
+    HeadlessBoot boot;
+
+    appNeeds.append_range(bootstrap::ShaderObjectNeeds());
+
+    if (!StartHeadlessBoot(boot, std::span{ argv, static_cast<size_t>(argc) }, k_Bundles, appNeeds, config))
+    {
+        return 1;
+    }
+
+    // the content stage found the bundle, so the library opens that same file
+    const std::filesystem::path& bundlePath = boot.Content.Bundles().front().Path;
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(bundlePath, rhi::k_SpirvProfileName);
 
     if (!library.has_value())
     {
-        std::cerr << std::format("Failed to open {}: {}\n", COLOR_PIPE_TEST_MANIFEST, rhi::ToString(library.error()));
+        std::cerr << std::format("Failed to open {}: {}\n", bundlePath.string(), rhi::ToString(library.error()));
         return 1;
     }
 
@@ -226,15 +256,9 @@ int main()
     std::vector<CaseReport> reports;
 
     {
-        ResourceContext resources;
-        const ResourceContextError resourcesResult = resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
-        if (resourcesResult != ResourceContextError::Success)
-        {
-            std::cerr << std::format("ColorPipeTest: ResourceContext::Initialize failed: {}\n", ToString(resourcesResult));
-            return 1;
-        }
+        ResourceContext& resources = boot.Gpu.Resources();
 
-        const TestContext context{ *rhiSystem->GetDevice(), resources, **library, pattern };
+        const TestContext context{ *boot.Device.Rhi().GetDevice(), resources, **library, pattern };
 
         for (const EncodingCase& encoding : k_Encodings)
         {

@@ -32,7 +32,6 @@ namespace rhi
 
     ExtensionPack::ExtensionPack(ApiVersion preferred_version) noexcept :
         apiVersion{ preferred_version },
-        deviceFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, nullptr },
         extensionWrangler{ nullptr }
     {
     }
@@ -50,12 +49,10 @@ namespace rhi
         coreDeviceExtNames{ std::move(other.coreDeviceExtNames) },
         instanceExtensions{ std::move(other.instanceExtensions) },
         deviceExtensions{ std::move(other.deviceExtensions) },
-        deviceFeatures{ other.deviceFeatures },
         extensionWrangler{ std::move(other.extensionWrangler) },
         instanceExtensionsResolved{ other.instanceExtensionsResolved },
         deviceExtensionsResolved{ other.deviceExtensionsResolved }
     {
-        other.deviceFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, nullptr };
         other.instanceExtensionsResolved = false;
         other.deviceExtensionsResolved = false;
     }
@@ -74,12 +71,10 @@ namespace rhi
             coreDeviceExtNames = std::move(other.coreDeviceExtNames);
             instanceExtensions = std::move(other.instanceExtensions);
             deviceExtensions = std::move(other.deviceExtensions);
-            deviceFeatures = other.deviceFeatures;
             extensionWrangler = std::move(other.extensionWrangler);
             instanceExtensionsResolved = other.instanceExtensionsResolved;
             deviceExtensionsResolved = other.deviceExtensionsResolved;
 
-            other.deviceFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, nullptr };
             other.instanceExtensionsResolved = false;
             other.deviceExtensionsResolved = false;
         }
@@ -166,62 +161,6 @@ namespace rhi
         optionalDeviceExts = std::move(extensions);
     }
 
-    void ExtensionPack::AddOptionalDeviceExtension(std::string extension_name)
-    {
-        if (!std::ranges::contains(optionalDeviceExts, extension_name))
-        {
-            optionalDeviceExts.emplace_back(std::move(extension_name));
-        }
-    }
-
-    void ExtensionPack::AddAllSupportedMaintenanceExtensions()
-    {
-        // maintenance1 to 3 are core in 1.1, and every later one needs 1.1. The generated dependency table does not
-        // model a version requirement above the table's own version (see docs/audit.md), so check it here
-        if (!extensionWrangler || !extensionWrangler->HasValidPhysicalDevice() || GetVulkanApiVersion() < VK_API_VERSION_1_1)
-        {
-            return;
-        }
-
-        const std::vector<std::string_view> maintenanceExts =
-            extensionWrangler->GetSupportedExtensionsByPrefix("VK_KHR_maintenance");
-
-        for (const std::string_view ext : maintenanceExts)
-        {
-            const bool alreadyRequired = std::ranges::contains(requiredDeviceExts, ext);
-            const bool alreadyOptional = std::ranges::contains(optionalDeviceExts, ext);
-
-            if (!alreadyRequired && !alreadyOptional && maintenanceDependenciesSatisfied(ext))
-            {
-                optionalDeviceExts.emplace_back(ext);
-            }
-        }
-    }
-
-    bool ExtensionPack::maintenanceDependenciesSatisfied(std::string_view extension_name) const
-    {
-        // the instance already exists when maintenance extensions are gathered, so an extension that needs an
-        // instance extension we didn't enable, or a newer API version, can't be enabled. A 1.0 instance hit both:
-        // maintenance9 to 11 need VK_KHR_get_physical_device_properties2, and maintenance5 needs 1.1
-        std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> deps =
-            extensionWrangler->GetExtensionDependencies(extension_name);
-        if (!deps.has_value())
-        {
-            return deps.error() == ExtensionWrangler::DependencyError::NoDependenciesForExtension;
-        }
-
-        for (uint32_t i = 0; i < deps->NumInstanceExtensionDeps; ++i)
-        {
-            const std::string_view instanceDependency{ deps->InstanceExtensionDeps[i] };
-            if (std::ranges::find(enabledInstanceExtNames, instanceDependency) == enabledInstanceExtNames.end())
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     void ExtensionPack::ResolveDeviceDependencies()
     {
         if (!extensionWrangler)
@@ -237,8 +176,6 @@ namespace rhi
         {
             return;
         }
-
-        std::span<std::string_view> requestedSpan(requested);
 
         // the dependency table lists direct dependencies only, so resolve to a fixed point: maintenance5 pulls in
         // VK_KHR_dynamic_rendering on 1.1, and that needs VK_KHR_depth_stencil_resolve in turn. The pass limit
@@ -284,19 +221,6 @@ namespace rhi
             }
         }
         deviceExtensions = PointersToNames(enabledDeviceExtNames);
-
-        // the feature chain is built from the same filtered list: chaining the feature struct of an extension
-        // we don't enable is a validation error
-        std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> features =
-            extensionWrangler->GetExtensionFeatures(requestedSpan,
-                                                    ExtensionWrangler::GetVersionFeatures::True,
-                                                    ExtensionWrangler::CollectDependencies::False);
-
-        if (features.has_value())
-        {
-            deviceFeatures = *features;
-        }
-
         deviceExtensionsResolved = true;
     }
 
@@ -313,11 +237,6 @@ namespace rhi
     const std::vector<std::string>& ExtensionPack::GetCoreDeviceExtensions() const noexcept
     {
         return coreDeviceExtNames;
-    }
-
-    const VkPhysicalDeviceFeatures2* ExtensionPack::GetDeviceFeatures() const noexcept
-    {
-        return &deviceFeatures;
     }
 
     ApiVersion ExtensionPack::GetApiVersion() const noexcept

@@ -261,7 +261,9 @@ void PlatformWindowSystem::CreateDefaultSwapchain(void* rhi_instance, void* rhi_
     }
 
     const DisplayInfo& displayInfo = impl->ActiveDisplay;
-    const bool enableHDR = displayInfo.ColorCapabilities.hdrEnabled;
+    // an HDR color space needs VK_EXT_swapchain_colorspace, which the boot asks for as Wanted. Without it, SDR
+    const bool hasColorSpaces = static_cast<const rhi::Instance*>(rhi_instance)->HasExtension(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+    const bool enableHDR = displayInfo.ColorCapabilities.hdrEnabled && hasColorSpaces;
 
     SwapchainCreateInfo createInfo{};
     createInfo.RhiDevice = rhi_device;

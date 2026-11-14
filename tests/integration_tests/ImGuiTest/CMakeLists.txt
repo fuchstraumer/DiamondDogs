@@ -9,5 +9,7 @@ ADD_INTEGRATION_TEST(ImGuiTest
     "../fixtures/FrameLimit.cpp"
     "../fixtures/ResizeTest.hpp"
     "../fixtures/ResizeTest.cpp"
+    "../fixtures/WindowedBoot.hpp"
+    "../fixtures/WindowedBoot.cpp"
 )
-target_link_libraries(ImGuiTest PRIVATE imgui_module)
+target_link_libraries(ImGuiTest PRIVATE imgui_module bootstrap_vulkan)

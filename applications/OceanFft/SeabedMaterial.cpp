@@ -126,18 +126,7 @@ namespace
             return;
         }
 
-        const auto& debugFns = device.GetDebugUtilFns();
-        if (debugFns.vkSetDebugUtilsObjectName != nullptr)
-        {
-            VkDebugUtilsObjectNameInfoEXT info{};
-            info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
-            info.objectType = object_type;
-            info.objectHandle = handle;
-            info.pObjectName = name;
-            debugFns.vkSetDebugUtilsObjectName(device.Handle().As<VkDevice>(), &info);
-        }
-
-        (void)rhi::RhiSystem::SetObjectName(object_type, handle, name);
+        (void)device.SetObjectName(object_type, handle, name);
     }
 }
 
@@ -219,18 +208,13 @@ namespace ocean
         samplerInfo.AddressV = SamplerCreateInfo::AddressMode::Repeat;
         samplerInfo.AddressW = SamplerCreateInfo::AddressMode::Repeat;
 
-        VkPhysicalDevice physicalDevice = device.GetPhysicalDevice().As<VkPhysicalDevice>();
-        if (physicalDevice != VK_NULL_HANDLE)
+        // the feature comes from the enabled set, so a device created without it gets a trilinear sampler
+        if (device.IsFeatureEnabled(k_SamplerAnisotropyFeature))
         {
-            VkPhysicalDeviceFeatures features{};
-            vkGetPhysicalDeviceFeatures(physicalDevice, &features);
-            if (features.samplerAnisotropy == VK_TRUE)
-            {
-                VkPhysicalDeviceProperties properties{};
-                vkGetPhysicalDeviceProperties(physicalDevice, &properties);
-                samplerInfo.AnisotropyEnabled = true;
-                samplerInfo.MaxAnisotropy = std::min(8.0f, properties.limits.maxSamplerAnisotropy);
-            }
+            VkPhysicalDeviceProperties properties{};
+            vkGetPhysicalDeviceProperties(device.GetPhysicalDevice().As<VkPhysicalDevice>(), &properties);
+            samplerInfo.AnisotropyEnabled = true;
+            samplerInfo.MaxAnisotropy = std::min(8.0f, properties.limits.maxSamplerAnisotropy);
         }
 
         samplerInfo.Name = "Ocean_SeabedSampler";

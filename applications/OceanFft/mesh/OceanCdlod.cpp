@@ -1,4 +1,5 @@
 #include "OceanCdlod.hpp"
+#include "OceanSimulation.hpp"
 #include "CommandBuffer.hpp"
 #include "Device.hpp"
 #include "GpuTimers.hpp"
@@ -66,17 +67,13 @@ namespace ocean
             }
         }
 
-        [[nodiscard]] uint32_t PickWaveSize(const rhi::Device& device) noexcept
+        [[nodiscard]] uint32_t PickQuadtreeWaveSize(const rhi::Device& device) noexcept
         {
             const VkPhysicalDevice physicalDevice = device.GetPhysicalDevice().As<VkPhysicalDevice>();
             VkPhysicalDeviceVulkan13Properties properties13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES };
             VkPhysicalDeviceSubgroupProperties subgroupProperties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES, &properties13 };
             VkPhysicalDeviceProperties2 properties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &subgroupProperties };
             vkGetPhysicalDeviceProperties2(physicalDevice, &properties);
-
-            VkPhysicalDeviceVulkan13Features features13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
-            VkPhysicalDeviceFeatures2 features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &features13 };
-            vkGetPhysicalDeviceFeatures2(physicalDevice, &features);
 
             constexpr VkSubgroupFeatureFlags k_RequiredOperations = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT;
             const uint32_t waveSize = subgroupProperties.subgroupSize;
@@ -85,8 +82,7 @@ namespace ocean
                 sizeIsAnAxisValue &&
                 (subgroupProperties.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u &&
                 (subgroupProperties.supportedOperations & k_RequiredOperations) == k_RequiredOperations &&
-                features13.subgroupSizeControl == VK_TRUE &&
-                features13.computeFullSubgroups == VK_TRUE &&
+                WaveOpFeaturesEnabled(device) &&
                 (properties13.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u &&
                 properties13.minSubgroupSize <= waveSize && waveSize <= properties13.maxSubgroupSize;
             return supported ? waveSize : 0u;
@@ -392,7 +388,7 @@ namespace ocean
 
         impl->ManifestIndexPtr = *index;
 
-        const uint32_t waveSize = PickWaveSize(device);
+        const uint32_t waveSize = PickQuadtreeWaveSize(device);
 
         const std::array<std::string_view, 1> updateEntryPoints{ k_UpdateEntryPoint };
         const std::array<std::string_view, 1> buildEntryPoints{ k_BuildEntryPoint };
@@ -467,12 +463,12 @@ namespace ocean
 
         impl->BuildProgram = std::move(*buildProgram);
 
-        (void)rhi::RhiSystem::SetObjectName(
+        (void)device.SetObjectName(
             VK_OBJECT_TYPE_PIPELINE_LAYOUT,
             impl->UpdateProgram->PipelineLayout().As<uint64_t>(),
             "Ocean_CdlodUpdatePipelineLayout");
 
-        (void)rhi::RhiSystem::SetObjectName(
+        (void)device.SetObjectName(
             VK_OBJECT_TYPE_PIPELINE_LAYOUT,
             impl->BuildProgram->PipelineLayout().As<uint64_t>(),
             "Ocean_CdlodBuildPipelineLayout");
@@ -498,7 +494,7 @@ namespace ocean
             return std::unexpected(std::string{ "CDLOD descriptor pool creation failed" });
         }
 
-        (void)rhi::RhiSystem::SetObjectName(
+        (void)device.SetObjectName(
             VK_OBJECT_TYPE_DESCRIPTOR_POOL,
             reinterpret_cast<uint64_t>(impl->DescriptorPool),
             "Ocean_CdlodDescriptorPool");
@@ -535,7 +531,7 @@ namespace ocean
             }
 
             const std::string pingName = std::format("Ocean_CdlodUpdateSetPing_{}", frame);
-            (void)rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(setPing), pingName.c_str());
+            (void)device.SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(setPing), pingName.c_str());
             impl->UpdateSetsPing.push_back(setPing);
 
             VkDescriptorSet setPong{ VK_NULL_HANDLE };
@@ -561,7 +557,7 @@ namespace ocean
             }
 
             const std::string pongName = std::format("Ocean_CdlodUpdateSetPong_{}", frame);
-            (void)rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(setPong), pongName.c_str());
+            (void)device.SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(setPong), pongName.c_str());
             impl->UpdateSetsPong.push_back(setPong);
 
             VkDescriptorSet setBuild{ VK_NULL_HANDLE };
@@ -586,7 +582,7 @@ namespace ocean
             }
 
             const std::string buildName = std::format("Ocean_CdlodBuildSet_{}", frame);
-            (void)rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(setBuild), buildName.c_str());
+            (void)device.SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(setBuild), buildName.c_str());
             impl->BuildSets.push_back(setBuild);
         }
 

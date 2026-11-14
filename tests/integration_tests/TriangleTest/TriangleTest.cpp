@@ -279,7 +279,7 @@ void VulkanTriangle::prepareVertices()  {
         vkUnmapMemory(vkDevice, Vertices.memory);
         result = vkBindBufferMemory(vkDevice, Vertices.buffer, Vertices.memory, 0);
         RhiAssert(result);
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(Vertices.buffer), "VertexBuffer");
+        device->SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(Vertices.buffer), "VertexBuffer");
 
     }
 
@@ -310,7 +310,7 @@ void VulkanTriangle::prepareVertices()  {
         vkUnmapMemory(vkDevice, Indices.memory);
         result = vkBindBufferMemory(vkDevice, Indices.buffer, Indices.memory, 0);
         RhiAssert(result);
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(Indices.buffer), "IndexBuffer");
+        device->SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(Indices.buffer), "IndexBuffer");
     }
 }
 
@@ -331,7 +331,7 @@ void VulkanTriangle::setupUniformBuffer()
 
     rhi::Result result = vkCreateBuffer(vkDevice, &bufferInfo, nullptr, &uniformBufferVS.buffer);
     RhiAssert(result);
-    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(uniformBufferVS.buffer), "UniformBufferVS");
+    device->SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(uniformBufferVS.buffer), "UniformBufferVS");
 
     VkMemoryRequirements memreqs;
     vkGetBufferMemoryRequirements(vkDevice, uniformBufferVS.buffer, &memreqs);
@@ -359,7 +359,7 @@ void VulkanTriangle::setupCommandPool()
         Result result = framePool->AllocateCommandBuffers(1);
         RhiAssert(result);
         const std::string poolName = std::format("CommandPool_Frame{}", i);
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_COMMAND_POOL, framePool->Handle().As<uint64_t>(), poolName.c_str());
+        device->SetObjectName(VK_OBJECT_TYPE_COMMAND_POOL, framePool->Handle().As<uint64_t>(), poolName.c_str());
     }
 }
 
@@ -383,7 +383,7 @@ void VulkanTriangle::setupDescriptorPool()
 
     rhi::Result result = vkCreateDescriptorPool(vkDevice, &k_PoolInfo, nullptr, &descriptorPool);
     RhiAssert(result);
-    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(descriptorPool), "DescriptorPool");
+    device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(descriptorPool), "DescriptorPool");
     
 }
 
@@ -410,7 +410,7 @@ void VulkanTriangle::setupLayouts()
 
     rhi::Result result = vkCreateDescriptorSetLayout(vkDevice, &k_LayoutInfo, nullptr, &setLayout);
     RhiAssert(result);
-    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, reinterpret_cast<uint64_t>(setLayout), "DescriptorSetLayout");
+    device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, reinterpret_cast<uint64_t>(setLayout), "DescriptorSetLayout");
 
     const VkPipelineLayoutCreateInfo pipelineLayoutInfo
     {
@@ -425,7 +425,7 @@ void VulkanTriangle::setupLayouts()
 
     result = vkCreatePipelineLayout(vkDevice, &pipelineLayoutInfo, nullptr, &pipelineLayout);
     RhiAssert(result);
-    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT, reinterpret_cast<uint64_t>(pipelineLayout), "PipelineLayout");
+    device->SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT, reinterpret_cast<uint64_t>(pipelineLayout), "PipelineLayout");
     
 }
 
@@ -443,7 +443,7 @@ void VulkanTriangle::setupDescriptorSet()
 
     rhi::Result result = vkAllocateDescriptorSets(vkDevice, &allocInfo, &descriptorSet);
     RhiAssert(result);
-    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(descriptorSet), "DescriptorSet");
+    device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(descriptorSet), "DescriptorSet");
 
     const VkWriteDescriptorSet writeDescriptor
     {
@@ -490,8 +490,8 @@ void VulkanTriangle::setupDepthStencil()
         auto& depthStencil = depthStencils.back();
         const std::string imageName = "DepthStencilImage_Frame" + std::to_string(i);
         const std::string imageViewName = "DepthStencilImageView_Frame" + std::to_string(i);
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(depthStencil.Image), imageName.c_str());
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t>(depthStencil.View), imageViewName.c_str());
+        device->SetObjectName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(depthStencil.Image), imageName.c_str());
+        device->SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t>(depthStencil.View), imageViewName.c_str());
     }
 }
 

@@ -10,7 +10,9 @@ set(RENDERING_CONTEXT_TEST_SOURCES
     TestRhiSystem.cpp
     TestRhiSystemStart.cpp
     TestShaderBundle.cpp
-    TestShaderProgram.cpp)
+    TestShaderProgram.cpp
+    ../fixtures/StartTestRhi.hpp
+    ../fixtures/StartTestRhi.cpp)
 
 # Create test target
 add_unit_test_target(rhi_system_tests 
@@ -24,6 +26,7 @@ target_include_directories(rhi_system_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/Modules/RhiSystem/shaders/include"
     # TestRhiSystemStart tests the device planner, which is internal to rhi_system
     "${CMAKE_SOURCE_DIR}/modules/RhiSystem/src/core"
+    "${CMAKE_SOURCE_DIR}/tests/unit_tests/fixtures"
     "${CMAKE_SOURCE_DIR}/foundation/include"
     "${CMAKE_SOURCE_DIR}/third_party"
     "${CMAKE_SOURCE_DIR}/third_party/json/include"

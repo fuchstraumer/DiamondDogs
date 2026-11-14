@@ -150,23 +150,24 @@ namespace pyramid
             return dispatches;
         }
 
-        // full subgroups of exactly k_FastSubgroupSize lanes in compute, with shuffles
-        [[nodiscard]] bool DeviceRunsFastPipeline(VkPhysicalDevice physical_device) noexcept
+        // full subgroups of exactly k_FastSubgroupSize lanes in compute, with shuffles. The features come from the
+        // enabled set, so a device created without them takes the general pipeline
+        [[nodiscard]] bool DeviceRunsFastPipeline(const rhi::Device& device) noexcept
         {
             VkPhysicalDeviceVulkan13Properties properties13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES };
             VkPhysicalDeviceSubgroupProperties subgroupProperties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES, &properties13 };
             VkPhysicalDeviceProperties2 properties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &subgroupProperties };
-            vkGetPhysicalDeviceProperties2(physical_device, &properties);
+            vkGetPhysicalDeviceProperties2(device.GetPhysicalDevice().As<VkPhysicalDevice>(), &properties);
 
-            VkPhysicalDeviceVulkan13Features features13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
-            VkPhysicalDeviceFeatures2 features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &features13 };
-            vkGetPhysicalDeviceFeatures2(physical_device, &features);
+            const auto enabled = [&device](std::string_view feature)
+            {
+                return device.IsFeatureEnabled(feature);
+            };
 
             constexpr VkSubgroupFeatureFlags k_RequiredOperations = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT;
             return (subgroupProperties.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u &&
                 (subgroupProperties.supportedOperations & k_RequiredOperations) == k_RequiredOperations &&
-                features13.subgroupSizeControl == VK_TRUE &&
-                features13.computeFullSubgroups == VK_TRUE &&
+                std::ranges::all_of(k_FastPipelineFeatures, enabled) &&
                 (properties13.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u &&
                 properties13.minSubgroupSize <= k_FastSubgroupSize && k_FastSubgroupSize <= properties13.maxSubgroupSize;
         }
@@ -308,7 +309,7 @@ namespace pyramid
         }
 
         impl->Variant = *variant;
-        const bool fast = DeviceRunsFastPipeline(physicalDevice);
+        const bool fast = DeviceRunsFastPipeline(device);
 
         for (size_t pipeline = 0; pipeline < impl->Programs.size(); ++pipeline)
         {

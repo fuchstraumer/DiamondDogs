@@ -79,38 +79,11 @@ public:
     /** @brief If an extension is core in the current Vulkan API version in use in this environment, then it does not need to be explicitly enabled at all. */
     [[nodiscard]] bool ExtensionCoreInActiveVersion(const std::string_view extension_name) const;
 
-    /** @brief Returns all device extensions whose names start with the given prefix that are supported by the current physical device and not already promoted to core.
-     * Useful for bulk-enabling a family of related extensions (e.g. prefix "VK_KHR_maintenance").
-     */
-    [[nodiscard]] std::vector<std::string_view> GetSupportedExtensionsByPrefix(std::string_view prefix) const;
 
     /** @brief Returns an instance of the ExtensionDependencies struct containing all required dependencies for the specified extension. */
     [[nodiscard]] Result<ExtensionDependencies> GetExtensionDependencies(const std::string_view extension_name) const;
     /** @brief Returns a deduplicated instance of ExtensionDependencies with all required dependencies for the specified set of extensions (i.e, the common set of required dependencies) */
     [[nodiscard]] Result<ExtensionDependencies> GetExtensionDependencies(std::span<std::string_view> extension_names) const;
-
-    enum class GetVersionFeatures : uint8_t
-    {
-        True,
-        False
-    };
-
-    enum class CollectDependencies : uint8_t
-    {
-        True,
-        False
-    };
-
-    /** @brief Returns a VkPhysicalDeviceFeatures2 struct with the pNext chain fully populated for the given set of input extensions, which can be used to create a device.
-     * @param extensionNames A span of strings representing the names of the extensions to get features for.
-     * @param getVersionFeatures Whether to include the version features in the pNext chain (default: false)
-     * @param collectDependencies Whether to collect dependencies for the extensions (default: false)
-     * @return A VkPhysicalDeviceFeatures2 struct with the pNext chain populated with the features for the given extensions
-     */
-    [[nodiscard]] Result<VkPhysicalDeviceFeatures2> GetExtensionFeatures(
-        std::span<std::string_view> extension_names,
-        GetVersionFeatures get_version_features = GetVersionFeatures::False,
-        CollectDependencies collect_dependencies = CollectDependencies::False) const;
 
 private:
 

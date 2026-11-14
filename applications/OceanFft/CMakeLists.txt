@@ -216,7 +216,7 @@ target_compile_definitions(OceanFft PRIVATE
     "OCEAN_FFT_SEABED_DIR=\"${OCEAN_FFT_SEABED_DIR}\""
     "OCEAN_FFT_SEABED_NAME=\"${OCEAN_FFT_SEABED_MATERIAL_NAME}\""
     "OCEAN_FFT_COLOR_PIPE_MANIFEST=\"$<TARGET_PROPERTY:color_pipe_shaders,LODESTONE_MANIFEST>\"")
-target_link_libraries(OceanFft PRIVATE agent_tools ocean_simulation ocean_foam color_pipe frame_capture imgui_module platform_system input_system glfw gli ${Vulkan_LIBRARY})
+target_link_libraries(OceanFft PRIVATE agent_tools bootstrap_vulkan ocean_simulation ocean_foam color_pipe frame_capture imgui_module platform_system input_system glfw gli ${Vulkan_LIBRARY})
 set_target_properties(OceanFft PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(OceanFft LIBRARY)
 if (DIAMOND_DOGS_COMPILER_IS_CL)
@@ -226,7 +226,7 @@ endif()
 # OceanFftBenchmark: GPU time per compute pass, for every IFFT size, radix and wave-op setting. Headless and
 # unvalidated; it measures only where GPU timers are compiled in (Debug, RelWithDebInfo)
 add_executable(OceanFftBenchmark "benchmark/main.cpp")
-target_link_libraries(OceanFftBenchmark PRIVATE ocean_simulation rhi_resources)
+target_link_libraries(OceanFftBenchmark PRIVATE ocean_simulation bootstrap_vulkan)
 set_target_properties(OceanFftBenchmark PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(OceanFftBenchmark LIBRARY)
 

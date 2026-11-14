@@ -1,7 +1,6 @@
 #include "UploadBuffer.hpp"
 #include "ImageDataFormats.hpp"
 #include "ResourceMessageTypesInternal.hpp"
-#include "RhiSystem.hpp"
 #include "vulkan/vulkan_core.h"
 #include <cassert>
 #include <cstddef>
@@ -194,15 +193,6 @@ bool UploadBuffer::Create(VkDeviceSize size)
     Mapped = std::span<std::byte>{ mappedPtr, static_cast<size_t>(size) };
 
     Size = size;
-
-    if constexpr (RHI_SYSTEM_USE_DEBUG_INFO && RHI_SYSTEM_VALIDATION_ENABLED)
-    {
-        rhi::RhiSystem::SetObjectName(
-            VK_OBJECT_TYPE_BUFFER,
-            reinterpret_cast<uint64_t>(Buffer),
-            "TransferSystem_UploadBuffer");
-    }
-
     return true;
 }
 

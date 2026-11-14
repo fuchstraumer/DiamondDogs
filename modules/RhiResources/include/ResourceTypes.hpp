@@ -82,6 +82,10 @@ struct ImageViewCreateInfo
     std::optional<ImageFormat> FormatOverride{ std::nullopt };
 };
 
+// the device feature that SamplerCreateInfo::AnisotropyEnabled needs. A caller asks for it as a need, and checks
+// rhi::Device::IsFeatureEnabled before it sets AnisotropyEnabled
+inline constexpr std::string_view k_SamplerAnisotropyFeature{ "VkPhysicalDeviceFeatures.samplerAnisotropy" };
+
 struct SamplerCreateInfo
 {
     enum class AddressMode : uint8_t

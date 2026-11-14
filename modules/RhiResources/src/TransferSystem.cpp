@@ -159,7 +159,7 @@ ResourceContextError ResourceTransferSystem::Initialize(
         return ResourceContextError::TransferSetupFailed;
     }
 
-    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(timeline), "ResourceContext_TransferTimeline");
+    (void)device->SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(timeline), "ResourceContext_TransferTimeline");
 
     freeBatches.reserve(k_BatchCount);
     inflightBatches.reserve(k_BatchCount);
@@ -250,7 +250,7 @@ ResourceContextError ResourceTransferSystem::createStagingRing(uint64_t size)
 
     ringMapped = std::span<std::byte>(mappedPtr, mappedSize);
     ring.emplace(size, k_MaxRingRanges);
-    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(ringBuffer), "ResourceContext_StagingRing");
+    (void)device->SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(ringBuffer), "ResourceContext_StagingRing");
     return ResourceContextError::Success;
 }
 
@@ -418,6 +418,7 @@ std::optional<ResourceTransferSystem::StagingGrant> ResourceTransferSystem::crea
         return std::nullopt;
     }
 
+    (void)device->SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(grant.Dedicated->Buffer), "TransferSystem_UploadBuffer");
     grant.Destination = grant.Dedicated->Destination();
     grant.Size = size;
     dedicatedUploads.fetch_add(1, std::memory_order_relaxed);

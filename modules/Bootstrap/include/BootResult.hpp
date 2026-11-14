@@ -56,8 +56,11 @@ namespace bootstrap
         Gpu,        // The GPU is fully initialized and ready for work: all other engine systems online
     };
 
-    /** The status of one boot step. A step that yields no value returns this record, with Code set to Success when
-     *  the step succeeded. The step fills the fields, and FormatFailure turns them into succinct printable text. */
+    /** @brief Packaged outcome of a boot step.
+      * @details If a step doesn't return an object or packaged result itself, it'll just return this with
+      * the code code set to Success if it succeeded. Steps fill the other field to provide richer information
+      * about failures and where they occurred. `FormatFailure` then converts this structured info into a more
+      * succinct human-readable string for logging or display purposes. */
     struct BootResult
     {
         BootResultCode Code{ BootResultCode::Invalid };
@@ -76,7 +79,7 @@ namespace bootstrap
         [[nodiscard]] bool Succeeded() const noexcept;
     };
 
-    /** @brief Returns a result with Code set to Success, for the step that finished in `stage`. */
+    /** @brief For stages/steps that can only return status codes, this packages a success result for the given stage */
     [[nodiscard]] BootResult SuccessIn(Stage stage);
     [[nodiscard]] std::string_view ToString(BootResultCode code) noexcept;
     [[nodiscard]] std::string_view ToString(Stage stage) noexcept;

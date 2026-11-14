@@ -17,6 +17,12 @@ namespace bootstrap
     [[nodiscard]] std::vector<Need> SpineNeeds(const WindowStage& window);
     /** @brief The needs of a headless spine: GpuSpineNeeds. */
     [[nodiscard]] std::vector<Need> HeadlessSpineNeeds();
+    /** @brief The needs of rhi::ShaderProgram and rhi::ManifestProgram, which create shader objects
+     *  (rhi::k_ShaderObjectFeature). Not part of the spine: an app that builds programs appends them. */
+    [[nodiscard]] std::span<const Need> ShaderObjectNeeds() noexcept;
+    /** @brief The needs of rhi::QueryPool, which resets its queries from the host (rhi::k_QueryPoolFeature).
+     *  rhi::GpuTimers uses QueryPool. An app that times GPU work appends them. */
+    [[nodiscard]] std::span<const Need> QueryPoolNeeds() noexcept;
 }
 
 #endif // !DIAMOND_DOGS_BOOTSTRAP_SPINE_NEEDS_HPP

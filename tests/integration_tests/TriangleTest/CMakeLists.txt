@@ -9,7 +9,10 @@ ADD_INTEGRATION_TEST(TriangleTest
     "../fixtures/FrameLimit.cpp"
     "../fixtures/ResizeTest.hpp"
     "../fixtures/ResizeTest.cpp"
+    "../fixtures/WindowedBoot.hpp"
+    "../fixtures/WindowedBoot.cpp"
     "TriangleTest.cpp"
     "TriangleTest.hpp"
 )
+target_link_libraries(TriangleTest PRIVATE bootstrap_vulkan)
 

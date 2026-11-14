@@ -58,47 +58,6 @@ namespace
 
 namespace rhi
 {
-    // static instance of object name function, so that we can use it for static debug callbacks
-    static PFN_vkSetDebugUtilsObjectNameEXT k_SetObjectNameFn{ nullptr };
-    // set by first context to create, currently because we assume we'll only have one context
-    static VkDevice k_DebugLogicalDeviceHandle{ VK_NULL_HANDLE };
-
-    RhiSystem::RhiSystem(const RhiSystemCreateInfo& create_info)
-    {
-        extensionPack = std::make_unique<ExtensionPack>(create_info.VkVersion);
-
-        if (!create_info.RequiredInstanceExtensions.empty())
-        {
-            extensionPack->AddRequiredInstanceExtensions(create_info.RequiredInstanceExtensions);
-        }
-
-        if (!create_info.RequestedInstanceExtensions.empty())
-        {
-            extensionPack->AddOptionalInstanceExtensions(create_info.RequestedInstanceExtensions);
-        }
-
-        extensionPack->ResolveInstanceDependencies();
-
-        createInstance(create_info);
-        // before the device, so that device creation messages reach our callback
-        createDebugUtilsMessenger();
-
-        if (!create_info.RequiredDeviceExtensions.empty())
-        {
-            extensionPack->AddRequiredDeviceExtensions(create_info.RequiredDeviceExtensions);
-        }
-
-        if (!create_info.RequestedDeviceExtensions.empty())
-        {
-            extensionPack->AddOptionalDeviceExtensions(create_info.RequestedDeviceExtensions);
-        }
-
-        createLogicalDevice();
-        setupObjectNaming();
-
-        shaderCacheDir = create_info.ShaderCacheDir;
-    }
-
     RhiSystem::RhiSystem() noexcept = default;
 
     RhiSystem::~RhiSystem()
@@ -230,7 +189,8 @@ namespace rhi
                                                  physicalDevice,
                                                  extensionPack->GetDeviceExtensions(),
                                                  extensionPack->GetCoreDeviceExtensions(),
-                                                 plan.Enabled.Head());
+                                                 plan.Enabled.Head(),
+                                                 std::move(plan.EnabledFeatures));
 
         if (!logicalDevice->Handle().IsValid())
         {
@@ -238,9 +198,7 @@ namespace rhi
             return StartResult(RhiSystemResultCode::DeviceCreateFailed, "", std::format("vkCreateDevice failed on {}", plan.DeviceName));
         }
 
-        setupObjectNaming();
         enabledCapabilities = std::move(plan.EnabledCapabilities);
-        enabledFeatures = std::move(plan.EnabledFeatures);
         deviceLimits = plan.Limits;
         return StartResult(RhiSystemResultCode::Success, "", "");
     }
@@ -264,7 +222,12 @@ namespace rhi
 
     std::span<const std::string> RhiSystem::EnabledFeatures() const noexcept
     {
-        return enabledFeatures;
+        if (!logicalDevice)
+        {
+            return {};
+        }
+
+        return logicalDevice->EnabledFeatures();
     }
 
     const lodestone::manifest::DeviceLimits& RhiSystem::Limits() const noexcept
@@ -281,15 +244,24 @@ namespace rhi
     {
         switch (code)
         {
-        case RhiSystemResultCode::Success: return "Success";
-        case RhiSystemResultCode::AlreadyStarted: return "AlreadyStarted";
-        case RhiSystemResultCode::InstanceNotStarted: return "InstanceNotStarted";
-        case RhiSystemResultCode::InstanceExtensionMissing: return "InstanceExtensionMissing";
-        case RhiSystemResultCode::InstanceCreateFailed: return "InstanceCreateFailed";
-        case RhiSystemResultCode::NoPhysicalDevice: return "NoPhysicalDevice";
-        case RhiSystemResultCode::NoDeviceMeetsRequirements: return "NoDeviceMeetsRequirements";
-        case RhiSystemResultCode::DeviceCreateFailed: return "DeviceCreateFailed";
-        default: return "Invalid";
+        case RhiSystemResultCode::Success:
+            return "Success";
+        case RhiSystemResultCode::AlreadyStarted:
+            return "AlreadyStarted";
+        case RhiSystemResultCode::InstanceNotStarted:
+            return "InstanceNotStarted";
+        case RhiSystemResultCode::InstanceExtensionMissing:
+            return "InstanceExtensionMissing";
+        case RhiSystemResultCode::InstanceCreateFailed:
+            return "InstanceCreateFailed";
+        case RhiSystemResultCode::NoPhysicalDevice:
+            return "NoPhysicalDevice";
+        case RhiSystemResultCode::NoDeviceMeetsRequirements:
+            return "NoDeviceMeetsRequirements";
+        case RhiSystemResultCode::DeviceCreateFailed:
+            return "DeviceCreateFailed";
+        default:
+            return "Invalid";
         }
     }
 
@@ -301,11 +273,6 @@ namespace rhi
     void RhiSystem::Destroy()
     {
         // safe to call twice: the destructor calls it after an explicit Destroy
-        if (logicalDevice && k_DebugLogicalDeviceHandle == logicalDevice->Handle().As<VkDevice>())
-        {
-            k_SetObjectNameFn = nullptr;
-            k_DebugLogicalDeviceHandle = VK_NULL_HANDLE;
-        }
         logicalDevice.reset();
         // after the device, so that device destruction messages still reach our callback
         if (debugUtilsMessenger != VK_NULL_HANDLE && vulkanInstance && destroyDebugUtilsMessenger != nullptr)
@@ -317,7 +284,6 @@ namespace rhi
         vulkanInstance.reset();
         extensionPack.reset();
         enabledCapabilities.clear();
-        enabledFeatures.clear();
         deviceLimits = lodestone::manifest::DeviceLimits{};
     }
 
@@ -334,75 +300,6 @@ namespace rhi
     uint32_t RhiSystem::GetVulkanApiVersion() const noexcept
     {
         return extensionPack->GetVulkanApiVersion();
-    }
-
-    VkResult RhiSystem::SetObjectName(VkObjectType object_type, uint64_t handle, const char* name)
-    {
-        if constexpr (RHI_SYSTEM_VALIDATION_ENABLED && RHI_SYSTEM_USE_DEBUG_INFO)
-        {
-
-            if (!k_SetObjectNameFn)
-            {
-                // unlikely we'll introspect on this, but this error value is the only one that makes sense
-                return VK_ERROR_FEATURE_NOT_PRESENT;
-            }
-
-            if constexpr (RHI_SYSTEM_DEBUG_INFO_THREAD_ID || RHI_SYSTEM_DEBUG_INFO_TIMESTAMPS)
-            {
-
-                std::string objectNameStr{ name };
-
-                if constexpr (RHI_SYSTEM_DEBUG_INFO_THREAD_ID)
-                {
-                    std::string threadInfoStr = std::format("_ThreadID:{}", std::this_thread::get_id());
-                    objectNameStr += threadInfoStr;
-                }
-
-                const VkDebugUtilsObjectNameInfoEXT nameInfo
-                {
-                    VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-                    nullptr,
-                    object_type,
-                    handle,
-                    objectNameStr.c_str()
-                };
-
-                return k_SetObjectNameFn(k_DebugLogicalDeviceHandle, &nameInfo);
-            }
-            else
-            {
-                const VkDebugUtilsObjectNameInfoEXT nameInfo
-                {
-                    VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-                    nullptr,
-                    object_type,
-                    handle,
-                    name
-                };
-                return k_SetObjectNameFn(k_DebugLogicalDeviceHandle, &nameInfo);
-            }
-        }
-        else
-        {
-            return VK_SUCCESS;
-        }
-    }
-
-    void RhiSystem::createInstance(const RhiSystemCreateInfo& create_info)
-    {
-        const VkDebugUtilsMessengerCreateInfoEXT messengerInfo = MessengerCreateInfo();
-        vulkanInstance = std::make_unique<Instance>(create_info.ApplicationName,
-                                                    create_info.EngineName,
-                                                    create_info.AppVersion,
-                                                    create_info.EngineVersion,
-                                                    create_info.ValidationLevel,
-                                                    *extensionPack,
-                                                    RHI_SYSTEM_VALIDATION_ENABLED ? &messengerInfo : nullptr);
-    }
-
-    void RhiSystem::createLogicalDevice()
-    {
-        logicalDevice = std::make_unique<Device>(vulkanInstance.get(), *extensionPack);
     }
 
     void RhiSystem::createDebugUtilsMessenger()
@@ -429,20 +326,6 @@ namespace rhi
             {
                 throw std::runtime_error("Failed to create debug utils messenger.");
             }
-        }
-    }
-
-    void RhiSystem::setupObjectNaming()
-    {
-        if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
-        {
-            if (debugUtilsMessenger == VK_NULL_HANDLE)
-            {
-                return;
-            }
-            const VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
-            k_SetObjectNameFn = debugUtilsFns.vkSetDebugUtilsObjectName;
-            k_DebugLogicalDeviceHandle = logicalDevice->Handle().As<VkDevice>();
         }
     }
 

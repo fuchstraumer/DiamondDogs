@@ -1,14 +1,21 @@
+#include "BootResult.hpp"
+#include "DeviceConfig.hpp"
+#include "DeviceRequirements.hpp"
 #include "FrameLimit.hpp"
-#include "ResizeTest.hpp"
-#include "TriangleTest.hpp"
-#include "RhiSystem.hpp"
+#include "ModuleDescriptor.hpp"
 #include "PlatformSystem.hpp"
 #include "PlatformTypes.hpp"
+#include "ResizeTest.hpp"
+#include "RhiSystem.hpp"
+#include "ShaderProgram.hpp"
 #include "Swapchain.hpp"
+#include "TriangleTest.hpp"
+#include "WindowedBoot.hpp"
 #include <cstdint>
 #include <cstring>
 #include <format>
 #include <iostream>
+#include <span>
 #include <vector>
 
 namespace
@@ -51,6 +58,29 @@ namespace
         return failures;
     }
 
+    // the triangle is drawn with shader objects and dynamic rendering. Device fault reports help after a device loss
+    constexpr bootstrap::Need k_AppNeeds[]
+    {
+        bootstrap::Need
+        {
+            .Name = rhi::k_ShaderObjectFeature,
+            .Kind = bootstrap::NeedKind::DeviceFeature,
+            .Level = bootstrap::NeedLevel::Required,
+        },
+        bootstrap::Need
+        {
+            .Name = "VkPhysicalDeviceVulkan13Features.dynamicRendering",
+            .Kind = bootstrap::NeedKind::DeviceFeature,
+            .Level = bootstrap::NeedLevel::Required,
+        },
+        bootstrap::Need
+        {
+            .Name = "VK_KHR_device_fault",
+            .Kind = bootstrap::NeedKind::DeviceExtension,
+            .Level = bootstrap::NeedLevel::Wanted,
+        },
+    };
+
     [[nodiscard]] bool HasFlag(int argc, char* argv[], const char* flag) noexcept
     {
         for (int32_t index = 1; index < argc; ++index)
@@ -67,32 +97,7 @@ namespace
 
 int main(int argc, char* argv[])
 {
-    // Initialize RHI system
-    rhi::RhiSystemCreateInfo rhiCreateInfo{};
-    rhiCreateInfo.ApplicationName = "TriangleTest";
-    rhiCreateInfo.VkVersion = rhi::ApiVersion::Latest;
-    rhiCreateInfo.ValidationLevel = rhi::ValidationLayers::Full;
-
-    rhiCreateInfo.RequiredInstanceExtensions =
-    { 
-        "VK_EXT_debug_utils",
-        "VK_KHR_surface",
-        "VK_KHR_win32_surface",
-        "VK_KHR_get_surface_capabilities2",
-        "VK_EXT_swapchain_colorspace"
-    };
-
-    rhiCreateInfo.RequiredDeviceExtensions =
-    {
-        "VK_KHR_swapchain",
-        "VK_EXT_shader_object",
-        "VK_KHR_device_fault"
-    };
-
-    auto rhiSystem = std::make_unique<rhi::RhiSystem>(rhiCreateInfo);
-
-    // Initialize platform window system with swapchain
-    PlatformWindowCreateInfo platformCreateInfo
+    const PlatformWindowCreateInfo windowInfo
     {
         "DiamondDogs - Triangle Test",
         nullptr, // use primary display
@@ -104,21 +109,30 @@ int main(int argc, char* argv[])
         60.0f,
         PlatformWindowBehaviorFlags{ true, true, true, false, false }
     };
+    const bootstrap::DeviceConfig config
+    {
+        .ApiVersion = rhi::ApiVersion::Latest,
+        .Validation = rhi::ValidationLayers::Full,
+        .ApplicationName = "TriangleTest",
+    };
+    WindowedBoot boot;
 
-    auto platformSystem = std::make_unique<PlatformWindowSystem>(platformCreateInfo);
-    
-    // Create swapchain after window is created
-    platformSystem->CreateDefaultSwapchain(rhiSystem->GetInstance(), rhiSystem->GetDevice());
+    if (!StartWindowedBoot(boot, std::span{ argv, static_cast<size_t>(argc) }, std::span<const bootstrap::BundleRequest>{}, k_AppNeeds, config, windowInfo))
+    {
+        return 1;
+    }
+
+    rhi::RhiSystem* rhiSystem = &boot.Device.Rhi();
+    PlatformWindowSystem* platformSystem = &boot.Window.Platform();
 
     if (HasFlag(argc, argv, "--surface-pairs") && CheckSurfacePairs(*rhiSystem, *platformSystem) != 0)
     {
         std::cerr << "TriangleTest: a surface pair did not give a swapchain with that pair\n";
-        platformSystem->DestroySwapchain();
         return 1;
     }
 
     // Create triangle renderer
-    VulkanTriangle triangle(rhiSystem.get(), platformSystem.get());
+    VulkanTriangle triangle(rhiSystem, platformSystem);
     triangle.Initialize(nullptr);
 
     // --frames=N exits after N frames, so that an unattended run (an agent, or CI) can use this as a smoke test
@@ -143,8 +157,7 @@ int main(int argc, char* argv[])
         exitCode = VerifyScheduledResize(*platformSystem, triangle.SwapchainRecreationCount());
     }
 
-    // Cleanup
+    // the GPU stage destroys the swapchain
     triangle.Destroy();
-    platformSystem->DestroySwapchain();
     return exitCode;
 }

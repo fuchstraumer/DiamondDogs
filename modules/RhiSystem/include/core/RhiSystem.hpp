@@ -60,31 +60,13 @@ struct InstanceStartInfo;
 struct DeviceStartInfo;
 struct RhiSystemResult;
 
-struct RhiSystemCreateInfo
-{
-    ApiVersion VkVersion{ ApiVersion::Latest };
-    uint32_t EngineVersion{ 0u };
-    uint32_t AppVersion{ 0u };
-    ValidationLayers ValidationLevel{ ValidationLayers::BaseOnly };
-    std::string ApplicationName{ "DiamondDogs Application" };
-    std::string EngineName{ "DiamondDogs" };
-    std::vector<std::string> RequiredInstanceExtensions;
-    std::vector<std::string> RequiredDeviceExtensions;
-    std::vector<std::string> RequestedInstanceExtensions;
-    std::vector<std::string> RequestedDeviceExtensions;
-    std::string ShaderCacheDir;
-};
-
 class RhiSystem
 {
 public:
 
-    /** @brief The start path: construct empty, then StartInstance and StartDevice. Nothing throws, and the device
-     *  enables only what DeviceStartInfo asks for. */
+    /** @brief Construct empty, then StartInstance and StartDevice. The device enables only what DeviceStartInfo asks
+     *  for. bootstrap's DeviceStage is the usual caller. */
     RhiSystem() noexcept;
-    /** @brief The old path: enables every supported feature. Step 5 of the boot work moves its callers to the start
-     *  path and deletes it. */
-    RhiSystem(const RhiSystemCreateInfo& create_info);
     ~RhiSystem();
     RhiSystem(const RhiSystem&) = delete;
     RhiSystem& operator=(const RhiSystem&) = delete;
@@ -116,23 +98,16 @@ public:
     [[nodiscard]] Device* GetDevice() noexcept;
     [[nodiscard]] uint32_t GetVulkanApiVersion() const noexcept;
 
-    static VkResult SetObjectName(VkObjectType object_type, uint64_t handle, const char* name);
-
 private:
 
-    void createInstance(const RhiSystemCreateInfo& create_info);
     void createDebugUtilsMessenger();
-    void createLogicalDevice();
-    void setupObjectNaming();
 
     std::unique_ptr<Instance> vulkanInstance;
     std::unique_ptr<Device> logicalDevice;
     std::unique_ptr<ExtensionPack> extensionPack;
-    std::string shaderCacheDir;
     VkDebugUtilsMessengerEXT debugUtilsMessenger{ VK_NULL_HANDLE };
     PFN_vkDestroyDebugUtilsMessengerEXT destroyDebugUtilsMessenger{ nullptr };
     std::vector<std::string> enabledCapabilities;
-    std::vector<std::string> enabledFeatures;
     lodestone::manifest::DeviceLimits deviceLimits;
 
 };

@@ -338,10 +338,11 @@ namespace
     }
 }
 
-OceanScene::OceanScene(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platform_system, OceanSceneSettings _settings) :
+OceanScene::OceanScene(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platform_system, ResourceContext& resource_context, OceanSceneSettings _settings) :
     VulkanScene(rhi_system, platform_system),
     settings{ _settings },
     inputAssembler{ k_InputEventCapacity, k_InputTextCapacity },
+    resources{ &resource_context },
     spectrum{ _settings.Simulation.Spectrum },
     choppiness{ _settings.Simulation.Choppiness }
 {
@@ -383,13 +384,6 @@ void OceanScene::Initialize(void* user_data)
     LoadShaderObjectStateFunctions(vkDevice);
     startup.Mark("frame sync, command pools, GPU timers");
 
-    resources = std::make_unique<ResourceContext>();
-    const ResourceContextError resourcesResult = resources->Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), settings.ValidationEnabled });
-    if (resourcesResult != ResourceContextError::Success)
-    {
-        Fail(std::format("OceanScene: ResourceContext::Initialize failed: {}", ToString(resourcesResult)));
-    }
-
     rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> opened = rhi::ShaderLibrary::Open(settings.ManifestPath, rhi::k_SpirvProfileName);
     if (!opened.has_value())
     {
@@ -397,7 +391,7 @@ void OceanScene::Initialize(void* user_data)
     }
 
     library = std::move(*opened);
-    startup.Mark("ResourceContext, ocean shader library");
+    startup.Mark("ocean shader library");
 
     auto created = ocean::OceanSimulation::Create(*device, *resources, *library, settings.Simulation);
     if (!created.has_value())
@@ -411,10 +405,8 @@ void OceanScene::Initialize(void* user_data)
     // linear and repeating: each cascade tiles with its own patch size. Anisotropic, because most of the water is seen
     // at a grazing angle, where one trilinear lookup blurs the waves away
     SamplerCreateInfo samplerInfo{};
-    VkPhysicalDeviceFeatures features{};
-    vkGetPhysicalDeviceFeatures(vkPhysicalDevice, &features);
 
-    if (features.samplerAnisotropy == VK_TRUE && settings.MaxAnisotropy > 1.0f)
+    if (device->IsFeatureEnabled(k_SamplerAnisotropyFeature) && settings.MaxAnisotropy > 1.0f)
     {
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(vkPhysicalDevice, &properties);
@@ -497,7 +489,7 @@ void OceanScene::Initialize(void* user_data)
     const color::ColorPipeCreateInfo pipeInfo
     {
         .Device = device,
-        .Resources = resources.get(),
+        .Resources = resources,
         .Library = colorPipeLibrary.get(),
         .TargetSwapchain = const_cast<Swapchain*>(swapchain),
         .Width = static_cast<uint32_t>(swapExtent.x),
@@ -576,7 +568,7 @@ void OceanScene::Initialize(void* user_data)
             std::unique_ptr<rhi::CommandPool>& computePool = asyncCommandPools.emplace_back(
                 std::make_unique<rhi::CommandPool>(device->Handle(), rhi::CommandPool::Type::Compute, device->GetQueueFamilyIndices().Compute));
             RhiAssert(computePool->AllocateCommandBuffers(1));
-            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_COMMAND_POOL, reinterpret_cast<uint64_t>(computePool->Handle().As<VkCommandPool>()),
+            device->SetObjectName(VK_OBJECT_TYPE_COMMAND_POOL, reinterpret_cast<uint64_t>(computePool->Handle().As<VkCommandPool>()),
                                           std::format("Ocean_AsyncComputeCommandPool_{}", i).c_str());
         }
 
@@ -598,7 +590,7 @@ void OceanScene::Initialize(void* user_data)
         fcInfo.Usage = BufferUsageBits::VertexShaderUBO | BufferUsageBits::FragmentShaderUBO;
         fcInfo.Size = sizeof(FrameConstants);
         const GraphicsResource& buffer = frameConstantsBuffers.emplace_back(WaitForResource(*resources, resources->CreateBuffer(fcInfo, {}), "a frame constants buffer"));
-        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_BUFFER, buffer.VkHandle, std::format("Ocean_FrameConstantsBuffer_{}", i).c_str());
+        device->SetObjectName(VK_OBJECT_TYPE_BUFFER, buffer.VkHandle, std::format("Ocean_FrameConstantsBuffer_{}", i).c_str());
 
         rhi::ResourceFuture<void*> map = resources->MapBuffer(buffer, sizeof(FrameConstants), 0u);
         if (resources->Wait(map, k_TimeoutNs) != rhi::FutureState::Complete)
@@ -685,7 +677,7 @@ void OceanScene::createRenderPrograms()
     const VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, 0,
         1u * numFramebuffers, static_cast<uint32_t>(poolSizes.size()), poolSizes.data() };
     RhiAssert(rhi::Result(vkCreateDescriptorPool(vkDevice, &poolInfo, nullptr, &descriptorPool)));
-    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(descriptorPool), "Ocean_SceneDescriptorPool");
+    device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(descriptorPool), "Ocean_SceneDescriptorPool");
 
     const bool useWaveOps = settings.Simulation.WaveSize != 0u;
     lodestone::ManifestQueryBuilder renderQuery = (*index)->Query().Where("OCEAN_USE_WAVE_OPS", useWaveOps);
@@ -833,7 +825,7 @@ void OceanScene::setupDeferredDescriptors()
         128u, static_cast<uint32_t>(poolSizes.size()), poolSizes.data()
     };
     RhiAssert(rhi::Result(vkCreateDescriptorPool(vkDevice, &poolInfo, nullptr, &deferredDescriptorPool)));
-    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(deferredDescriptorPool), "Ocean_DeferredDescriptorPool");
+    device->SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(deferredDescriptorPool), "Ocean_DeferredDescriptorPool");
 
     updateDeferredDescriptors();
 }
@@ -1241,7 +1233,7 @@ void OceanScene::Destroy()
         seabedMaterial.reset();
     }
 
-    // the atmosphere frees its LUTs through the resource context, so it must go before resources.reset() below
+    // the atmosphere frees its LUTs through the resource context, so it must go while the context still runs
     environment.reset();
     atmosphere.reset();
     cdlod.reset();
@@ -1290,7 +1282,6 @@ void OceanScene::Destroy()
     (void)resources->Wait(resources->DestroyResource(sampler), k_TimeoutNs);
     simulation.reset();
     library.reset();
-    resources.reset();
     destroyFrameSyncObjects();
     commandPools.clear();
 }

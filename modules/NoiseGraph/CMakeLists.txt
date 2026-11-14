@@ -30,7 +30,8 @@ target_include_directories(NoiseHeightmaps PRIVATE
     "${PROJECT_SOURCE_DIR}/foundation/include"
     "${PROJECT_SOURCE_DIR}/modules/RhiSystem/include"
     "${PROJECT_SOURCE_DIR}/third_party/stb")
-target_link_libraries(NoiseHeightmaps PRIVATE rhi_resources rhi_system foundation)
+# the boot stages create the device from the bundle's needs, and ResourceContext
+target_link_libraries(NoiseHeightmaps PRIVATE bootstrap_vulkan foundation)
 target_compile_definitions(NoiseHeightmaps PRIVATE
     "NOMINMAX"
     "NOISE_HEIGHTMAPS_MANIFEST=\"$<TARGET_PROPERTY:noise_shaders,LODESTONE_MANIFEST>\"")

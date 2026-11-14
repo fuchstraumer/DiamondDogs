@@ -1,17 +1,31 @@
 #include "ResourceContextFixture.hpp"
 #include "Device.hpp"
+#include "RhiSystemStart.hpp"
+#include "StartTestRhi.hpp"
 #include <cstring>
+#include <format>
+#include <iostream>
 
 std::unique_ptr<rhi::RhiSystem> ResourceContextTest::rhiSystem = nullptr;
 
 void ResourceContextTest::SetUpTestSuite()
 {
-    rhi::RhiSystemCreateInfo createInfo{};
-    createInfo.ApplicationName = "ResourceContextTests";
-    createInfo.VkVersion = rhi::ApiVersion::Latest;
-    createInfo.ValidationLevel = rhi::ValidationLayers::Full;
-    createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils" };
-    rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
+    const test_rhi::Needs needs
+    {
+        .DeviceExtensions = test_rhi::k_MemoryBudgetExtension,
+        .Features = test_rhi::k_SyncFeatures,
+    };
+
+    rhiSystem = std::make_unique<rhi::RhiSystem>();
+
+    const rhi::RhiSystemResult started = test_rhi::StartTestRhi(*rhiSystem, "ResourceContextTests", rhi::ApiVersion::Latest, rhi::ValidationLayers::Full, needs);
+
+    // SetUp asserts on a null system, so every test reports the failure
+    if (!started.Succeeded())
+    {
+        std::cerr << std::format("ResourceContextTests: RhiSystem did not start: {}: {}\n", started.Subject, started.Detail);
+        rhiSystem.reset();
+    }
 }
 
 void ResourceContextTest::TearDownTestSuite()

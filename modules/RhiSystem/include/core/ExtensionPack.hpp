@@ -19,7 +19,7 @@ namespace rhi
     class ExtensionPack 
     {
     public:
-        ExtensionPack(ApiVersion preferred_version = ApiVersion::Vulkan13) noexcept;
+        explicit ExtensionPack(ApiVersion preferred_version) noexcept;
         ~ExtensionPack();
         
         // No copy, move only
@@ -38,15 +38,6 @@ namespace rhi
 
         void AddRequiredDeviceExtensions(std::vector<std::string> extensions);
         void AddOptionalDeviceExtensions(std::vector<std::string> extensions);
-        /** @brief Appends one optional device extension to the optional list, unless the list already has it. An
-         * extension that the device does not support is dropped in ResolveDeviceDependencies, as for every optional one.
-         */
-        void AddOptionalDeviceExtension(std::string extension_name);
-        /** @brief Queries the extension wrangler for all VK_KHR_maintenance[N] extensions supported by
-         * the current physical device that are not already promoted to core, then adds them as optional
-         * device extensions. Must be called after SetPhysicalDevice and before ResolveDeviceDependencies.
-         */
-        void AddAllSupportedMaintenanceExtensions();
         void ResolveDeviceDependencies();
 
         // Get finalized extension lists (with dependencies resolved)
@@ -55,14 +46,10 @@ namespace rhi
         /** @brief Returns the requested device extensions that are core in the active API version, which are
          *  therefore not enabled by name. */
         [[nodiscard]] const std::vector<std::string>& GetCoreDeviceExtensions() const noexcept;
-        // Get device features for enabled extensions
-        [[nodiscard]] const VkPhysicalDeviceFeatures2* GetDeviceFeatures() const noexcept;
         [[nodiscard]] ApiVersion GetApiVersion() const noexcept;
         [[nodiscard]] uint32_t GetVulkanApiVersion() const noexcept;
 
     private:
-
-        [[nodiscard]] bool maintenanceDependenciesSatisfied(std::string_view extension_name) const;
 
         ApiVersion apiVersion;
         
@@ -80,9 +67,6 @@ namespace rhi
         // c_str pointers into the enabled name vectors above, in the form Vulkan create infos take
         std::vector<const char*> instanceExtensions;
         std::vector<const char*> deviceExtensions;
-        
-        // Device features for enabled extensions
-        VkPhysicalDeviceFeatures2 deviceFeatures;
         
         // Extension wrangler for dependency resolution
         std::unique_ptr<ExtensionWrangler> extensionWrangler;

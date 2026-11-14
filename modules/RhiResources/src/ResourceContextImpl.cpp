@@ -1829,7 +1829,7 @@ void ResourceContextImpl::setObjectName(VkObjectType object_type, uint64_t handl
         return;
     }
     
-    VkResult result = rhi::RhiSystem::SetObjectName(object_type, handle, name.CString());
+    VkResult result = device->SetObjectName(object_type, handle, name.CString());
     assert(result == VK_SUCCESS);
 }
 

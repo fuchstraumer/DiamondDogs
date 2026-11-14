@@ -1,362 +1,203 @@
-#include <gtest/gtest.h>
-#include <gmock/gmock.h>
-#include "RhiSystem.hpp"
-#include "RhiTypes.hpp"
-#include "Instance.hpp"
 #include "Device.hpp"
-#include <filesystem>
-#include <fstream>
-#include <span>
+#include "Instance.hpp"
+#include "RhiSystem.hpp"
+#include "RhiSystemStart.hpp"
+#include "StartTestRhi.hpp"
+#include <gtest/gtest.h>
+#include <array>
+#include <cstdint>
+#include <string_view>
+#include <vulkan/vulkan_core.h>
 
-class RhiSystemTest : public ::testing::Test
+using rhi::DeviceNeed;
+using rhi::DeviceNeedLevel;
+
+namespace
 {
-protected:
-    void SetUp() override
+    constexpr std::string_view k_ApplicationName{ "RhiSystemTest" };
+}
+
+TEST(RhiSystemTest, StartsAtEachApiVersion)
+{
+    constexpr rhi::ApiVersion k_Versions[]
     {
-        // Create a temporary directory for shader cache
-        tempShaderCacheDir = std::filesystem::temp_directory_path() / "DiamondDogsTest" / "ShaderCache";
-        std::filesystem::create_directories(tempShaderCacheDir);
-    }
-    
-    void TearDown() override
+        rhi::ApiVersion::Vulkan10,
+        rhi::ApiVersion::Vulkan11,
+        rhi::ApiVersion::Vulkan13,
+        rhi::ApiVersion::Latest,
+    };
+
+    for (const rhi::ApiVersion version : k_Versions)
     {
-        // Cleanup temporary directory
-        if (std::filesystem::exists(tempShaderCacheDir))
-        {
-            std::filesystem::remove_all(tempShaderCacheDir);
-        }
+        rhi::RhiSystem system;
+        const rhi::RhiSystemResult started = test_rhi::StartTestRhi(system, k_ApplicationName, version, rhi::ValidationLayers::BaseOnly, test_rhi::Needs{});
+
+        EXPECT_TRUE(started.Succeeded()) << "version " << static_cast<int>(version) << ": " << started.Subject << ": " << started.Detail;
+        EXPECT_NE(system.GetInstance(), nullptr);
+        EXPECT_NE(system.GetDevice(), nullptr);
     }
-
-    rhi::RhiSystemCreateInfo getBaseCreateInfo()
-    {
-        rhi::RhiSystemCreateInfo createInfo{};
-        createInfo.ApplicationName = "RhiSystemTest";
-        createInfo.EngineName = "DiamondDogsTestEngine";
-        createInfo.AppVersion = VK_MAKE_VERSION(1, 0, 0);
-        createInfo.EngineVersion = VK_MAKE_VERSION(0, 1, 0);
-        createInfo.VkVersion = rhi::ApiVersion::Vulkan13;
-        createInfo.ValidationLevel = rhi::ValidationLayers::BaseOnly;
-        createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
-        createInfo.ShaderCacheDir = tempShaderCacheDir.string();
-        return createInfo;
-    }
-
-    std::filesystem::path tempShaderCacheDir;
-};
-
-// Test basic RHI system construction with CreateInfo
-TEST_F(RhiSystemTest, BasicCreateInfoConstruction)
-{
-    auto createInfo = getBaseCreateInfo();
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_NE(rhiSystem, nullptr);
-        EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-        EXPECT_NE(rhiSystem->GetDevice(), nullptr);
-    });
 }
 
-// Test RHI system with minimal configuration
-TEST_F(RhiSystemTest, MinimalConfiguration)
+TEST(RhiSystemTest, ValidationLevelsReachTheInstance)
 {
-    rhi::RhiSystemCreateInfo createInfo{};
-    createInfo.ValidationLevel = rhi::ValidationLayers::None;
-    createInfo.ShaderCacheDir = tempShaderCacheDir.string();
-
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_NE(rhiSystem, nullptr);
-    });
-}
-
-// Test Vulkan 1.0 API version, to see if we can still create an instance of this version
-TEST_F(RhiSystemTest, Vulkan10ApiVersion)
-{
-    auto createInfo = getBaseCreateInfo();
-    createInfo.VkVersion = rhi::ApiVersion::Vulkan10;
-
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_NE(rhiSystem, nullptr);
-        EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-    });
-}
-
-// Test Vulkan 1.1 API version (another key version for use)
-TEST_F(RhiSystemTest, Vulkan11ApiVersion)
-{
-    auto createInfo = getBaseCreateInfo();
-    createInfo.VkVersion = rhi::ApiVersion::Vulkan11;
-
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_NE(rhiSystem, nullptr);
-        EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-    });
-}
-
-// Test Latest API version
-TEST_F(RhiSystemTest, LatestApiVersion) {
-    auto createInfo = getBaseCreateInfo();
-    createInfo.VkVersion = rhi::ApiVersion::Latest;
-
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_NE(rhiSystem, nullptr);
-        EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-    });
-}
-
-// Verify that we can create an instance with different validation layers
-TEST_F(RhiSystemTest, ValidationLayers)
-{
-    std::vector<rhi::ValidationLayers> validationLevels
+    constexpr rhi::ValidationLayers k_Levels[]
     {
         rhi::ValidationLayers::None,
         rhi::ValidationLayers::BaseOnly,
         rhi::ValidationLayers::WithSynchronization,
-        rhi::ValidationLayers::Full
+        rhi::ValidationLayers::Full,
     };
 
-    for (const auto& level : validationLevels)
+    for (const rhi::ValidationLayers level : k_Levels)
     {
-        auto createInfo = getBaseCreateInfo();
-        createInfo.ValidationLevel = level;
+        rhi::RhiSystem system;
+        const rhi::RhiSystemResult started = test_rhi::StartTestRhi(system, k_ApplicationName, rhi::ApiVersion::Vulkan13, level, test_rhi::Needs{});
 
-        EXPECT_NO_THROW({
-            auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-            EXPECT_NE(rhiSystem, nullptr);
-            EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-            EXPECT_EQ(rhiSystem->GetInstance()->GetValidationLevel(), level);
-        }) << "Failed for validation level: " << static_cast<int>(level);
+        ASSERT_TRUE(started.Succeeded()) << "level " << static_cast<int>(level) << ": " << started.Detail;
+        EXPECT_EQ(system.GetInstance()->GetValidationLevel(), level);
     }
 }
 
-
-// Test RHI system with various device extensions
-TEST_F(RhiSystemTest, WithDeviceExtensions)
+TEST(RhiSystemTest, WantedExtensionsAreEnabledOnlyWhenSupported)
 {
-    static const std::vector<std::string> deviceExtensionNames
+    const std::array<DeviceNeed, 2> instanceExtensions
     {
-        "VK_KHR_dedicated_allocation",
-        "VK_KHR_get_memory_requirements2",
+        DeviceNeed{ .Name = "VK_KHR_get_physical_device_properties2", .Level = DeviceNeedLevel::Wanted },
+        DeviceNeed{ .Name = "VK_FAKE_extension_not_real", .Level = DeviceNeedLevel::Wanted },
     };
-
-    auto createInfo = getBaseCreateInfo();
-    createInfo.RequestedDeviceExtensions = deviceExtensionNames;
-    createInfo.ShaderCacheDir = tempShaderCacheDir.string();
-
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_TRUE(rhiSystem->GetInstance()->HasExtension("VK_EXT_debug_utils"));
-        for (const auto& ext : deviceExtensionNames)
-        {
-            EXPECT_TRUE(rhiSystem->GetDevice()->HasExtension(ext)) << "Missing extension: " << ext;
-        }
-        EXPECT_NE(rhiSystem, nullptr);
-    });
-}
-
-// Test object naming functionality
-TEST_F(RhiSystemTest, ObjectNaming)
-{
-    rhi::RhiSystemCreateInfo createInfo{};
-    createInfo.ValidationLevel = rhi::ValidationLayers::BaseOnly;
-    createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
-    createInfo.ShaderCacheDir = tempShaderCacheDir.string();
-
-    auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-    EXPECT_NE(rhiSystem, nullptr);
-
-    // Test object naming (should not throw)
-    VkResult result = rhi::RhiSystem::SetObjectName(
-        VK_OBJECT_TYPE_DEVICE, 
-        reinterpret_cast<uint64_t>(rhiSystem->GetDevice()->Handle().As<VkDevice>()), 
-        "TestDevice");
-    
-    // In debug builds with validation enabled, this should succeed
-    // In release builds or without validation, it returns VK_SUCCESS
-    EXPECT_TRUE(result == VK_SUCCESS || result == VK_ERROR_FEATURE_NOT_PRESENT);
-}
-
-// Test optional instance extensions
-TEST_F(RhiSystemTest, OptionalInstanceExtensions)
-{
-    auto createInfo = getBaseCreateInfo();
-    std::vector<std::string> optionalExtensions
+    const std::array<DeviceNeed, 3> deviceExtensions
     {
-        "VK_EXT_validation_features",  // May or may not be available
-        "VK_KHR_get_physical_device_properties2",
-        "VK_FAKE_extension_not_real"
+        DeviceNeed{ .Name = "VK_KHR_maintenance1", .Level = DeviceNeedLevel::Required },
+        DeviceNeed{ .Name = "VK_KHR_dedicated_allocation", .Level = DeviceNeedLevel::Wanted },
+        DeviceNeed{ .Name = "VK_FAKE_device_extension_not_real", .Level = DeviceNeedLevel::Wanted },
     };
-    createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
-    createInfo.RequestedInstanceExtensions = optionalExtensions;
-
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_NE(rhiSystem, nullptr);
-        EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-        // required extension should always be present
-        EXPECT_TRUE(rhiSystem->GetInstance()->HasExtension("VK_EXT_debug_utils"));
-        EXPECT_FALSE(rhiSystem->GetInstance()->HasExtension("VK_FAKE_extension_not_real"));
-    });
-}
-
-// Test optional device extensions
-TEST_F(RhiSystemTest, OptionalDeviceExtensions)
-{
-    auto createInfo = getBaseCreateInfo();
-    createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
-    createInfo.RequiredDeviceExtensions = { "VK_KHR_maintenance1" };
-    createInfo.RequestedDeviceExtensions = {
-        "VK_KHR_dedicated_allocation",
-        "VK_KHR_get_memory_requirements2",
-        "VK_KHR_pipeline_executable_properties",
-        "VK_EXT_memory_budget",
-        "VK_FAKE_device_extension_not_real"
-    };
-
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_NE(rhiSystem, nullptr);
-        EXPECT_NE(rhiSystem->GetDevice(), nullptr);
-        EXPECT_TRUE(rhiSystem->GetInstance()->HasExtension("VK_EXT_debug_utils"));
-        EXPECT_TRUE(rhiSystem->GetDevice()->HasExtension("VK_KHR_maintenance1"));
-        EXPECT_TRUE(rhiSystem->GetDevice()->HasExtension("VK_KHR_dedicated_allocation"));
-        EXPECT_FALSE(rhiSystem->GetDevice()->HasExtension("VK_FAKE_device_extension_not_real"));
-    });
-}
-
-// Test mixing required and optional extensions
-TEST_F(RhiSystemTest, MixedExtensions)
-{
-    auto createInfo = getBaseCreateInfo();
-    
-    // Instance extensions
-    createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
-    createInfo.RequestedInstanceExtensions = {"VK_FAKE_extension_not_real"};
-    
-    // Device extensions
-    createInfo.RequiredDeviceExtensions = {"VK_KHR_maintenance1"};
-    createInfo.RequestedDeviceExtensions = {
-        "VK_KHR_dedicated_allocation",
-        "VK_KHR_pipeline_executable_properties",
-        "VK_FAKE_device_extension_not_real"
-    };
-
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_NE(rhiSystem, nullptr);
-        EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-        EXPECT_NE(rhiSystem->GetDevice(), nullptr);
-        EXPECT_TRUE(rhiSystem->GetInstance()->HasExtension("VK_EXT_debug_utils"));
-        EXPECT_FALSE(rhiSystem->GetInstance()->HasExtension("VK_FAKE_extension_not_real"));
-        EXPECT_TRUE(rhiSystem->GetDevice()->HasExtension("VK_KHR_maintenance1"));
-        EXPECT_FALSE(rhiSystem->GetDevice()->HasExtension("VK_FAKE_device_extension_not_real"));
-    });
-}
-
-// Test presentation support extensions (platform specific)
-TEST_F(RhiSystemTest, PresentationExtensions)
-{
-    auto createInfo = getBaseCreateInfo();
-    createInfo.RequiredInstanceExtensions =
+    rhi::RhiSystem system;
+    const test_rhi::Needs needs
     {
-        "VK_EXT_debug_utils",
-        "VK_KHR_surface"
+        .InstanceExtensions = instanceExtensions,
+        .DeviceExtensions = deviceExtensions,
     };
-    
+    const rhi::RhiSystemResult started = test_rhi::StartTestRhi(system, k_ApplicationName, rhi::ApiVersion::Vulkan13, rhi::ValidationLayers::BaseOnly, needs);
+
+    ASSERT_TRUE(started.Succeeded()) << started.Subject << ": " << started.Detail;
+    EXPECT_TRUE(system.GetInstance()->HasExtension("VK_EXT_debug_utils"));
+    EXPECT_FALSE(system.GetInstance()->HasExtension("VK_FAKE_extension_not_real"));
+    EXPECT_TRUE(system.GetDevice()->HasExtension("VK_KHR_maintenance1"));
+    EXPECT_TRUE(system.GetDevice()->HasExtension("VK_KHR_dedicated_allocation"));
+    EXPECT_FALSE(system.GetDevice()->HasExtension("VK_FAKE_device_extension_not_real"));
+}
+
+TEST(RhiSystemTest, PresentationInstanceExtensions)
+{
 #ifdef _WIN32
-    const char* requiredExtensionToTest = "VK_KHR_win32_surface";
-    createInfo.RequiredInstanceExtensions.push_back(requiredExtensionToTest);
+    constexpr std::string_view k_PlatformSurface{ "VK_KHR_win32_surface" };
 #elif defined(__linux__)
-    // On Linux, we might be using XCB, Xlib, or Wayland. Here we test XCB as an example.
-    const char* requiredExtensionToTest = "VK_KHR_xcb_surface";
-    createInfo.RequiredInstanceExtensions.push_back(requiredExtensionToTest);
+    constexpr std::string_view k_PlatformSurface{ "VK_KHR_xcb_surface" };
 #endif
-    
-    createInfo.RequiredDeviceExtensions = {"VK_KHR_swapchain"};
 
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_NE(rhiSystem, nullptr);
-        EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-        EXPECT_NE(rhiSystem->GetDevice(), nullptr);
-        EXPECT_TRUE(rhiSystem->GetInstance()->HasExtension("VK_EXT_debug_utils"));
-        EXPECT_TRUE(rhiSystem->GetInstance()->HasExtension("VK_KHR_surface"));
-        EXPECT_TRUE(rhiSystem->GetInstance()->HasExtension(requiredExtensionToTest));
-    });
+    const std::array<DeviceNeed, 2> instanceExtensions
+    {
+        DeviceNeed{ .Name = "VK_KHR_surface", .Level = DeviceNeedLevel::Required },
+        DeviceNeed{ .Name = k_PlatformSurface, .Level = DeviceNeedLevel::Required },
+    };
+    const std::array<DeviceNeed, 1> deviceExtensions
+    {
+        DeviceNeed{ .Name = "VK_KHR_swapchain", .Level = DeviceNeedLevel::Required },
+    };
+    rhi::RhiSystem system;
+    const test_rhi::Needs needs
+    {
+        .InstanceExtensions = instanceExtensions,
+        .DeviceExtensions = deviceExtensions,
+    };
+    const rhi::RhiSystemResult started = test_rhi::StartTestRhi(system, k_ApplicationName, rhi::ApiVersion::Vulkan13, rhi::ValidationLayers::BaseOnly, needs);
+
+    ASSERT_TRUE(started.Succeeded()) << started.Subject << ": " << started.Detail;
+    EXPECT_TRUE(system.GetInstance()->HasExtension("VK_KHR_surface"));
+    EXPECT_TRUE(system.GetInstance()->HasExtension(k_PlatformSurface));
+    EXPECT_TRUE(system.GetDevice()->HasExtension("VK_KHR_swapchain"));
 }
 
-// Test empty extension lists (should still work)
-TEST_F(RhiSystemTest, NoExtensions)
+// an extension that is core in the device's version is available without its name in the enabled list
+TEST(RhiSystemTest, ACoreExtensionCountsAsPresent)
 {
-    auto createInfo = getBaseCreateInfo();
-    createInfo.ValidationLevel = rhi::ValidationLayers::None;
-    // Leave all extension vectors empty
+    const std::array<DeviceNeed, 1> deviceExtensions
+    {
+        DeviceNeed{ .Name = "VK_KHR_dynamic_rendering", .Level = DeviceNeedLevel::Wanted },
+    };
+    rhi::RhiSystem system;
+    const test_rhi::Needs needs{ .DeviceExtensions = deviceExtensions };
+    const rhi::RhiSystemResult started = test_rhi::StartTestRhi(system, k_ApplicationName, rhi::ApiVersion::Vulkan13, rhi::ValidationLayers::BaseOnly, needs);
 
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_NE(rhiSystem, nullptr);
-        EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-        EXPECT_NE(rhiSystem->GetDevice(), nullptr);
-    });
+    ASSERT_TRUE(started.Succeeded()) << started.Subject << ": " << started.Detail;
+    EXPECT_TRUE(system.GetDevice()->HasExtension("VK_KHR_dynamic_rendering"));
 }
 
-// Test Vulkan 1.3+ specific extensions
-TEST_F(RhiSystemTest, Vulkan13Extensions)
+TEST(RhiSystemTest, IsFeatureEnabledAnswersFromTheEnabledSet)
 {
-    auto createInfo = getBaseCreateInfo();
-    createInfo.VkVersion = rhi::ApiVersion::Vulkan13;
-    createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
-    
-    // Extensions that should be core in Vulkan 1.3
-    createInfo.RequestedDeviceExtensions = {
-        "VK_KHR_dynamic_rendering",  // Core in 1.3
-        "VK_EXT_extended_dynamic_state",
-        "VK_EXT_extended_dynamic_state2"
+    const std::array<DeviceNeed, 1> features
+    {
+        DeviceNeed{ .Name = "VkPhysicalDeviceVulkan12Features.timelineSemaphore", .Level = DeviceNeedLevel::Required },
+    };
+    rhi::RhiSystem system;
+    const test_rhi::Needs needs{ .Features = features };
+    const rhi::RhiSystemResult started = test_rhi::StartTestRhi(system, k_ApplicationName, rhi::ApiVersion::Vulkan13, rhi::ValidationLayers::BaseOnly, needs);
+
+    ASSERT_TRUE(started.Succeeded()) << started.Subject << ": " << started.Detail;
+    EXPECT_TRUE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceVulkan12Features.timelineSemaphore"));
+    // every Vulkan 1.3 device supports synchronization2, and no need asked for it
+    EXPECT_FALSE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceVulkan13Features.synchronization2"));
+}
+
+// each device names its own objects: the name function and the device handle are not globals
+TEST(RhiSystemTest, TwoDevicesNameTheirOwnObjects)
+{
+    rhi::RhiSystem first;
+    rhi::RhiSystem second;
+    const rhi::RhiSystemResult firstStarted = test_rhi::StartTestRhi(first, k_ApplicationName, rhi::ApiVersion::Vulkan13, rhi::ValidationLayers::Full, test_rhi::Needs{});
+    const rhi::RhiSystemResult secondStarted = test_rhi::StartTestRhi(second, k_ApplicationName, rhi::ApiVersion::Vulkan13, rhi::ValidationLayers::Full, test_rhi::Needs{});
+
+    ASSERT_TRUE(firstStarted.Succeeded()) << firstStarted.Detail;
+    ASSERT_TRUE(secondStarted.Succeeded()) << secondStarted.Detail;
+
+    const rhi::Device& firstDevice = *first.GetDevice();
+    const rhi::Device& secondDevice = *second.GetDevice();
+
+    // with a global device handle, the last device to start named every object, so naming an object of the first
+    // device was a validation error
+    EXPECT_EQ(firstDevice.SetObjectName(VK_OBJECT_TYPE_DEVICE, firstDevice.Handle().As<uint64_t>(), "FirstDevice"), VK_SUCCESS);
+    EXPECT_EQ(secondDevice.SetObjectName(VK_OBJECT_TYPE_DEVICE, secondDevice.Handle().As<uint64_t>(), "SecondDevice"), VK_SUCCESS);
+}
+
+TEST(RhiSystemTest, NamingWithoutDebugUtilsReportsNotPresent)
+{
+    rhi::RhiSystem system;
+    const rhi::InstanceStartInfo instanceInfo
+    {
+        .VkVersion = rhi::ApiVersion::Vulkan13,
+        .ValidationLevel = rhi::ValidationLayers::None,
+        .ApplicationName = k_ApplicationName,
+        .EngineName = "DiamondDogsTestEngine",
     };
 
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_NE(rhiSystem, nullptr);
-        EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-        EXPECT_NE(rhiSystem->GetDevice(), nullptr);
-        EXPECT_TRUE(rhiSystem->GetDevice()->HasExtension("VK_KHR_dynamic_rendering"));
-    });
-}
+    ASSERT_TRUE(system.StartInstance(instanceInfo).Succeeded());
+    ASSERT_TRUE(system.StartDevice(rhi::DeviceStartInfo{}).Succeeded());
 
-// Test handling of potentially unsupported extensions
-TEST_F(RhiSystemTest, UnsupportedOptionalExtensions)
-{
-    auto createInfo = getBaseCreateInfo();
-    createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
-    
-    // Add some extensions that might not be supported everywhere
-    createInfo.RequestedDeviceExtensions = {
-        "VK_KHR_dedicated_allocation",  // Likely supported
-        "VK_NV_ray_tracing",           // NVIDIA specific, may not be available
-        "VK_AMD_buffer_marker",        // AMD specific, may not be available
-        "VK_ARM_data_graph"         // May not be supported by all drivers
-    };
+    const rhi::Device& device = *system.GetDevice();
 
-    // Should not throw even if some optional extensions aren't available
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_NE(rhiSystem, nullptr);
-        EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-        EXPECT_NE(rhiSystem->GetDevice(), nullptr);
-        EXPECT_FALSE(rhiSystem->GetDevice()->HasExtension("VK_ARM_data_graph"));
-    });
+    EXPECT_EQ(device.SetObjectName(VK_OBJECT_TYPE_DEVICE, device.Handle().As<uint64_t>(), "Unnamed"), VK_ERROR_FEATURE_NOT_PRESENT);
 }
 
 // Destroy used to dereference the device unconditionally, so the destructor crashed after an explicit Destroy
-TEST_F(RhiSystemTest, DestroyTwiceIsSafe)
+TEST(RhiSystemTest, DestroyTwiceIsSafe)
 {
-    auto rhiSystem = std::make_unique<rhi::RhiSystem>(getBaseCreateInfo());
-    rhiSystem->Destroy();
-    EXPECT_EQ(rhiSystem->GetDevice(), nullptr);
-    EXPECT_EQ(rhiSystem->GetInstance(), nullptr);
-    EXPECT_NO_THROW(rhiSystem->Destroy());
-    EXPECT_NO_THROW(rhiSystem.reset());
+    rhi::RhiSystem system;
+
+    ASSERT_TRUE(test_rhi::StartTestRhi(system, k_ApplicationName, rhi::ApiVersion::Vulkan13, rhi::ValidationLayers::BaseOnly, test_rhi::Needs{}).Succeeded());
+
+    system.Destroy();
+
+    EXPECT_EQ(system.GetDevice(), nullptr);
+    EXPECT_EQ(system.GetInstance(), nullptr);
+    EXPECT_NO_THROW(system.Destroy());
 }
