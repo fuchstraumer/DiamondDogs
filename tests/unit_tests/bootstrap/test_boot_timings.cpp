@@ -78,6 +78,8 @@ TEST(BootTimings, FullArrayDropsSpans)
 
     EXPECT_EQ(dropped, -1);
     timings.End(dropped);
+    timings.End(-2);
+    timings.End(bootstrap::k_MaxBootSpans + 5);
     EXPECT_EQ(timings.DroppedSpans(), 1);
     EXPECT_EQ(std::ssize(timings.Spans()), bootstrap::k_MaxBootSpans);
 }

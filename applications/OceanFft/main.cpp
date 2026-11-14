@@ -19,12 +19,14 @@
 #include "OceanSimulation.hpp"
 #include "PlatformSystem.hpp"
 #include "PlatformTypes.hpp"
+#include "RhiFlags.hpp"
 #include "RhiSystem.hpp"
 #include "SceneCommands.hpp"
 #include "ShaderBundle.hpp"
 #include "SpineNeeds.hpp"
 #include "ToolServer.hpp"
 #include "WindowStage.hpp"
+#include <cstddef>
 #define WIN32_LEAN_AND_MEAN
 // Windows.h first: libloaderapi.h and minwindef.h need the target architecture macros it sets
 #include <Windows.h>

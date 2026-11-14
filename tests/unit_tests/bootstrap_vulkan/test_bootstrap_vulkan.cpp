@@ -232,6 +232,22 @@ TEST(BootstrapVulkan, ADeclinedWantedExtensionIsLeftOff)
     EXPECT_FALSE(declined.Rhi().GetDevice()->HasExtension(k_MemoryBudget));
 }
 
+TEST(BootstrapVulkan, DecliningDebugUtilsLeavesItOff)
+{
+    const BootedContent booted(std::span<const ModuleDescriptor>{}, {});
+    const std::vector<Need> spine = bootstrap::HeadlessSpineNeeds();
+    const DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(booted.content, spine);
+    DeviceConfig config = ValidatedConfig();
+
+    config.Declined.emplace_back("VK_EXT_debug_utils");
+
+    DeviceStage device;
+    const BootResult deviceStarted = device.StartHeadless(booted.content, requirements, config);
+
+    ASSERT_TRUE(deviceStarted.Succeeded()) << bootstrap::FormatFailure(deviceStarted);
+    EXPECT_FALSE(device.Rhi().GetInstance()->HasExtension("VK_EXT_debug_utils"));
+}
+
 TEST(BootstrapVulkan, ARequiredLimitAboveEveryDeviceFails)
 {
     const BootedContent booted(std::span<const ModuleDescriptor>{}, {});
