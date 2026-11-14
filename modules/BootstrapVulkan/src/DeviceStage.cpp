@@ -227,10 +227,12 @@ namespace
         const bool listsDebugUtils = std::ranges::contains(needs.InstanceExtensions,
                                                            std::string_view{ k_DebugUtilsExtension },
                                                            &rhi::DeviceNeed::Name);
+        const bool declinesDebugUtils = std::ranges::contains(config.Declined, k_DebugUtilsExtension);
 
-        if (!listsDebugUtils)
+        if (!listsDebugUtils && !declinesDebugUtils)
         {
-            needs.InstanceExtensions.push_back(rhi::DeviceNeed{ .Name = k_DebugUtilsExtension, .Level = rhi::DeviceNeedLevel::Wanted });
+            needs.InstanceExtensions.push_back(
+                rhi::DeviceNeed{ .Name = k_DebugUtilsExtension, .Level = rhi::DeviceNeedLevel::Wanted });
         }
 
         for (const std::string& name : config.Declined)
