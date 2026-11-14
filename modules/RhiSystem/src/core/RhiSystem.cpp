@@ -313,18 +313,26 @@ namespace rhi
             }
 
             const VkInstance instance = vulkanInstance->Handle().As<VkInstance>();
-            const auto createFn = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
-            destroyDebugUtilsMessenger = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT"));
+            const auto createFn = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+                vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
+            destroyDebugUtilsMessenger = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+                vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT"));
+
             if (createFn == nullptr || destroyDebugUtilsMessenger == nullptr)
             {
-                throw std::runtime_error("Failed to create debug utils messenger: function pointer not loaded!");
+                destroyDebugUtilsMessenger = nullptr;
+                debugUtilsMessenger = VK_NULL_HANDLE;
+                return;
             }
 
             const VkDebugUtilsMessengerCreateInfoEXT messengerInfo = MessengerCreateInfo();
             const VkResult result = createFn(instance, &messengerInfo, nullptr, &debugUtilsMessenger);
+
             if (result != VK_SUCCESS)
             {
-                throw std::runtime_error("Failed to create debug utils messenger.");
+                destroyDebugUtilsMessenger = nullptr;
+                debugUtilsMessenger = VK_NULL_HANDLE;
+                return;
             }
         }
     }
