@@ -11,6 +11,7 @@
 #include "ShaderManifestFormat.hpp"
 #include "ShaderManifestLayout.hpp"
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cassert>
 #include <cstddef>
@@ -19,6 +20,7 @@
 #include <limits>
 #include <span>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace
@@ -42,6 +44,7 @@ namespace
                             const manifest::EnvironmentView& environment,
                             int32_t entry_point);
     [[nodiscard]] manifest::DeviceLimits InstanceLimits(const manifest::EntryPointInstanceView& instance) noexcept;
+    // not actually smallest limits: one where each field is set to max, so KeepSmaller() sets values
     [[nodiscard]] manifest::DeviceLimits SmallestLimits() noexcept;
     void KeepSmaller(manifest::DeviceLimits& kept, const manifest::DeviceLimits& limits) noexcept;
     void KeepLarger(manifest::DeviceLimits& kept, const manifest::DeviceLimits& limits) noexcept;
@@ -220,24 +223,48 @@ namespace
             return;
         }
 
-        const int32_t wordCount = static_cast<int32_t>(environment.CapabilityMaskWordCount());
-        // every: the capabilities that each variant needs. any: the capabilities that some variant needs
-        std::vector<uint64_t> every(static_cast<size_t>(wordCount), ~uint64_t{ 0 });
-        std::vector<uint64_t> any(static_cast<size_t>(wordCount), uint64_t{ 0 });
+        // each capability name corresponds to a bit in the capability bitmask, and we set
+        // the word count of that based on how many are used to represent the full set
+        const size_t wordCount = static_cast<size_t>(environment.CapabilityMaskWordCount());
+        constexpr int32_t k_StackMaskWords = 4;
+        // I'm asserting here because this issue should come up in debug builds first: it suggests
+        // we have 256 unique capabilities in our manifest! That's an unusually high number and 
+        // I don't even know if that's strictly *possible*, since so many of the caps are aliases
+        // (a full ~50ish are just OpenCL capabilities!)
+        assert(std::cmp_less(wordCount, k_StackMaskWords));
+        std::array<uint64_t, k_StackMaskWords> stackEvery{ 0u, 0u, 0u, 0u };
+        std::array<uint64_t, k_StackMaskWords> stackAny{ 0u, 0u, 0u, 0u };
+        std::span<uint64_t> every;
+        std::span<uint64_t> any;
+
+        // we have to use two-param construct because wordCount may be less than k_StackMaskWords
+        // (and in most cases it is)
+        every = std::span<uint64_t>{ stackEvery.data(), wordCount };
+        any = std::span<uint64_t>{ stackAny.data(), wordCount };
+        
         manifest::DeviceLimits smallest = SmallestLimits();
 
         for (int32_t variant = 0; variant < variantCount; ++variant)
         {
             const manifest::VariantView variantView = environment.VariantAt(static_cast<uint32_t>(variant));
             const manifest::EntryPointInstanceView instance = variantView.EntryPoint(static_cast<uint32_t>(entry_point));
+            // each entry point instance stores it's caps as a list of bitmasks, where each bit represents
+            // a specific capability in the capabilities table
             const std::span<const uint64_t> required = instance.RequiredCapabilities();
 
-            for (int32_t word = 0; word < wordCount; ++word)
+            // we build the every/any sets separately so that we can track which capabilities are required by all variants
+            // versus any variant: if we don't support `every` we can't run. if we don't support `any`, we can find fallbacks
+            // at bind/graph build time by using the lodestone query selection filters
+            for (int32_t word = 0; std::cmp_less(word, wordCount); ++word)
             {
                 every[static_cast<size_t>(word)] &= required[static_cast<size_t>(word)];
                 any[static_cast<size_t>(word)] |= required[static_cast<size_t>(word)];
             }
 
+            // get the memory footprint and threadgroup sizing of this particular entry point:
+            // then use it to find the smallest and largest req limits across all variants
+            // (this is especially useful on webgpu, where we are expected to set these limits during
+            //  context init!)
             const manifest::DeviceLimits limits = InstanceLimits(instance);
 
             KeepSmaller(smallest, limits);
@@ -256,7 +283,9 @@ namespace
             .EntryPoint = module.Bundle().String(entryPointRecord.NameString),
         };
 
-        for (int32_t word = 0; word < wordCount; ++word)
+        // Now translate the bitsets into actual capability names that we can query and act on 
+        // instead of just the lodestone-local indices into the capability table
+        for (int32_t word = 0; std::cmp_less(word, wordCount); ++word)
         {
             uint64_t remaining = any[static_cast<size_t>(word)];
 
@@ -264,7 +293,7 @@ namespace
             {
                 const int32_t bit = std::countr_zero(remaining);
                 const uint64_t bitMask = uint64_t{ 1 } << bit;
-                const int32_t capability = word * k_MaskWordBits + bit;
+                const int32_t capability = (word * k_MaskWordBits) + bit;
                 const bool everyVariant = (every[static_cast<size_t>(word)] & bitMask) != 0u;
 
                 AddNeed(requirements, bootstrap::Need
