@@ -155,8 +155,15 @@ namespace bootstrap
             return nullptr;
         }
 
-        // LaunchStage checked that every dependency starts earlier, and every started module owns an object
-        return core.FindModuleObject(name);
+        void* object = core.FindModuleObject(name);
+
+        if (object == nullptr)
+        {
+            result = CoreFailure(BootResultCode::ModuleStartFailed, module.Name, name, "DependsOn");
+            return nullptr;
+        }
+
+        return object;
     }
 }
 
