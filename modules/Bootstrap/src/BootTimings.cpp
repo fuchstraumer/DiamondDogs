@@ -50,7 +50,7 @@ namespace bootstrap
 
     void BootTimings::End(int32_t span_index) noexcept
     {
-        if (span_index == -1)
+        if (span_index < 0 || span_index >= spanCount)
         {
             return;
         }
