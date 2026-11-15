@@ -21,6 +21,7 @@ namespace rhi
     class FeatureChain
     {
     public:
+        FeatureChain() noexcept = default;
         // `head_name` is the table name of the head: the 1.0 feature members name VkPhysicalDeviceFeatures
         FeatureChain(std::string_view head_name, VkStructureType head_type, uint32_t head_size);
         ~FeatureChain();
@@ -36,7 +37,9 @@ namespace rhi
         void Set(const generated::MemberInfo& member) noexcept;
         /** @brief Returns the member's value, or 0 when the chain does not contain its struct. */
         [[nodiscard]] uint32_t Read(const generated::MemberInfo& member) const noexcept;
+        [[nodiscard]] bool IsEnabled(std::string_view feature_name) const noexcept;
         [[nodiscard]] void* Head() noexcept;
+        [[nodiscard]] const void* Head() const noexcept;
 
     private:
         struct Block

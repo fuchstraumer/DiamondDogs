@@ -5,24 +5,24 @@
 #include "ExtensionPack.hpp"
 #include "ExtensionWrangler.hpp"
 #include "Instance.hpp"
+#include "RhiHandle.hpp"
 #include "RhiSystemStart.hpp"
+#include "ShaderManifestDevice.hpp"
 #include "VulkanCapabilityTable.hpp"
-#include <algorithm>
-#include <exception>
-#include <functional>
-#include <span>
-#include <string_view>
-#include <utility>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <memory>
-#include <stdexcept>
+#include <print>
+#include <span>
 #include <string>
-#include <thread> // for std::this_thread::get_id() for debug info
+#include <string_view>
 #include <format>
-#include <iostream>
+#include <utility>
 #include <vector>
 
 #include "RhiFlags.hpp"
@@ -150,7 +150,7 @@ namespace rhi
         }
 
         std::vector<DevicePlan> plans;
-
+        plans.reserve(physicalDevices.size());
         for (const VkPhysicalDevice physicalDevice : physicalDevices)
         {
             plans.push_back(PlanDevice(physicalDevice, extensionPack->GetVulkanApiVersion(), start_info));
@@ -180,7 +180,7 @@ namespace rhi
             return StartResult(RhiSystemResultCode::DeviceCreateFailed, "", error.what());
         }
 
-        // the plan is not const: the device reads its feature chain, which Head returns as a mutable pointer
+        // the plan is not const: the device takes its feature chain by move
         DevicePlan& plan = plans[static_cast<size_t>(chosen - plans.data())];
         const PhysicalDeviceHandle physicalDevice{ reinterpret_cast<uint64_t>(plan.PhysicalDevice) };
 
@@ -189,8 +189,7 @@ namespace rhi
                                                  physicalDevice,
                                                  extensionPack->GetDeviceExtensions(),
                                                  extensionPack->GetCoreDeviceExtensions(),
-                                                 plan.Enabled.Head(),
-                                                 std::move(plan.EnabledFeatures));
+                                                 std::move(plan.Enabled));
 
         if (!logicalDevice->Handle().IsValid())
         {
@@ -218,16 +217,6 @@ namespace rhi
     std::span<const std::string> RhiSystem::EnabledCapabilities() const noexcept
     {
         return enabledCapabilities;
-    }
-
-    std::span<const std::string> RhiSystem::EnabledFeatures() const noexcept
-    {
-        if (!logicalDevice)
-        {
-            return {};
-        }
-
-        return logicalDevice->EnabledFeatures();
     }
 
     const lodestone::manifest::DeviceLimits& RhiSystem::Limits() const noexcept
@@ -367,9 +356,9 @@ namespace
     }
 
     VKAPI_ATTR VkBool32 VKAPI_CALL DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
-                                                               VkDebugUtilsMessageTypeFlagBitsEXT message_type,
+                                                               [[maybe_unused]] VkDebugUtilsMessageTypeFlagBitsEXT message_type,
                                                                const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
-                                                               void* user_data)
+                                                               [[maybe_unused]] void* user_data)
     {
         std::string outputMessage;
         
@@ -415,17 +404,17 @@ namespace
             }
         }
 
-        if ((message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0)
+        const bool isError = (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0;
+        const bool isWarning = (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0;
+        const bool isInfo = (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) != 0;
+
+        if (isError || isWarning)
         {
-            std::cerr << outputMessage << "\n";
+            std::println(stderr, "{}", outputMessage);
         }
-        else if ((message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0)
+        else if (isInfo)
         {
-            std::cerr << outputMessage << "\n";
-        }
-        else if ((message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) != 0)
-        {
-            std::cout << outputMessage << "\n";
+            std::println(stdout, "{}", outputMessage);
         }
 
         return VK_FALSE;

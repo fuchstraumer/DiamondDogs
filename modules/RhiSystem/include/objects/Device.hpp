@@ -15,21 +15,20 @@ namespace rhi
 
     class Instance;
     class PhysicalDevice;
+    class FeatureChain;
     struct DeviceImpl;
 
     class Device 
     {
     public:
         /** @brief Creates the device on a physical device that RhiSystem::StartDevice chose, with
-         *  exactly these extensions and this feature chain (a VkPhysicalDeviceFeatures2). `enabled_features` names
-         *  the members that the chain sets ("Struct.member"), sorted. On failure, Handle() is invalid. */
+         *  exactly these extensions and this feature chain. On failure, Handle() is invalid. */
         Device(const Instance* instance,
                uint32_t api_version,
                PhysicalDeviceHandle physical_device,
                std::span<const char* const> extension_names,
                std::vector<std::string> core_extensions,
-               const void* feature_chain,
-               std::vector<std::string> enabled_features);
+               FeatureChain&& enabled_features);
 
         ~Device();
         
@@ -62,13 +61,10 @@ namespace rhi
         // Extension queries
         bool HasExtension(std::string_view extension_name) const noexcept;
         const std::vector<std::string>& GetEnabledExtensions() const noexcept;
-        /** @brief Returns true when a need named this "Struct.member" feature and the device was created with it, for
-         *  example "VkPhysicalDeviceVulkan13Features.subgroupSizeControl". Answers from the enabled set, never from
-         *  the physical device. The name must match the need's name: an alias struct and its core struct are two
-         *  names. */
+        /** @brief Returns true when this "Struct.member" feature is enabled in the device's feature chain, for example
+         *  "VkPhysicalDeviceVulkan13Features.subgroupSizeControl". Resolves struct aliases and features promoted into
+         *  core Vulkan 1.1-1.4 structs. */
         [[nodiscard]] bool IsFeatureEnabled(std::string_view feature_name) const noexcept;
-        /** @brief The "Struct.member" features that the device was created with, sorted. */
-        [[nodiscard]] std::span<const std::string> EnabledFeatures() const noexcept;
         
         void WaitDeviceIdle() const;
 

@@ -2,9 +2,11 @@
 #include "FeatureChain.hpp"
 #include "GeneratedFeatureTable.hpp"
 #include "RhiSystemStart.hpp"
+#include "ShaderManifestDevice.hpp"
 #include "VulkanCapabilityTable.hpp"
 #include <algorithm>
 #include <charconv>
+#include <cstddef>
 #include <format>
 #include <cstdint>
 #include <functional>
@@ -13,6 +15,8 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
@@ -97,6 +101,18 @@ namespace
     [[nodiscard]] bool PlanLimits(rhi::DevicePlan& plan, const lodestone::manifest::DeviceLimits& required);
     // records the first Required need that is not met, and returns false
     [[nodiscard]] bool Unmet(rhi::DevicePlan& plan, std::string_view need, std::string reason);
+    [[nodiscard]] bool IsExcludedFeature(std::string_view struct_name, std::string_view member_name) noexcept;
+    [[nodiscard]] bool IsMemberDeclined(const generated::StructInfo& info,
+                                        const generated::MemberInfo& member,
+                                        std::span<const std::string_view> declined,
+                                        const DeviceFacts& facts) noexcept;
+    void EnableStructFeatures(rhi::DevicePlan& plan,
+                              const DeviceFacts& facts,
+                              const generated::StructInfo& info,
+                              std::span<const std::string_view> declined);
+    void EnableSupportedFeatures(rhi::DevicePlan& plan,
+                                 const DeviceFacts& facts,
+                                 std::span<const std::string_view> declined);
     void SortUnique(std::vector<std::string>& names);
     void ReadIdentity(rhi::DevicePlan& plan, VkPhysicalDevice physical_device, const VkPhysicalDeviceProperties& properties);
 }
@@ -145,8 +161,8 @@ namespace rhi
         }
 
         SortUnique(plan.Extensions);
+        EnableSupportedFeatures(plan, facts, start_info.Declined);
         SortUnique(plan.EnabledCapabilities);
-        SortUnique(plan.EnabledFeatures);
         return plan;
     }
 }
@@ -321,7 +337,75 @@ namespace
             }
         }
 
-        // the *2 queries are core from 1.1. A 1.0 device answers the 1.0 structs only
+        const auto matchesExtension = [&](std::string_view route)
+        {
+            for (const rhi::DeviceNeed& need : start_info.Extensions)
+            {
+                if (need.Name == route)
+                {
+                    return true;
+                }
+            }
+
+            for (const rhi::DeviceNeed& need : start_info.Capabilities)
+            {
+                if (need.Name == route)
+                {
+                    return true;
+                }
+
+                const std::optional<vulkan::CapabilityEntry> entry = vulkan::FindCapability(vulkan::PrimaryCapabilityName(need.Name));
+
+                if (!entry.has_value())
+                {
+                    continue;
+                }
+
+                for (const vulkan::CapabilityEnable& enable : vulkan::EnablesOf(*entry))
+                {
+                    if (enable.Kind == vulkan::CapabilityEnableKind::Extension && enable.Name == route)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        };
+
+        for (const generated::StructInfo& info : generated::k_Structs)
+        {
+            if (info.Kind != generated::StructKind::Feature)
+            {
+                continue;
+            }
+
+            const std::optional<std::string_view> route = StructRoute(info, facts);
+
+            if (!route.has_value() || route->empty())
+            {
+                continue;
+            }
+
+            if (std::ranges::contains(start_info.Declined, *route))
+            {
+                continue;
+            }
+
+            if (!Contains(facts.Extensions, *route))
+            {
+                continue;
+            }
+
+            if (!matchesExtension(*route))
+            {
+                continue;
+            }
+
+            facts.Features.Add(info);
+        }
+
+        // the *2 queries are core from 1.1. A 1.0 device fills the 1.0 structs only
         if (api_version < VK_API_VERSION_1_1)
         {
             vkGetPhysicalDeviceFeatures(physical_device, &static_cast<VkPhysicalDeviceFeatures2*>(facts.Features.Head())->features);
@@ -338,7 +422,7 @@ namespace
     {
         const generated::StructInfo* info = FindStruct(struct_name);
 
-        // a struct from a newer header than ours, or one that the device cannot have
+        // a struct from a newer header than ours, or one that the device doesn't support
         if (info == nullptr || info->Name == k_FeaturesHead || !StructRoute(*info, facts).has_value())
         {
             return;
@@ -359,7 +443,7 @@ namespace
                                               const DeviceFacts& facts) noexcept
     {
         const bool isCoreStruct = info.Name == k_FeaturesHead || std::ranges::contains(k_CoreFeatureStructs, info.Name);
-        const bool promoted = info.Requires.find("VK_VERSION_") != std::string_view::npos;
+        const bool promoted = info.Requires.contains("VK_VERSION_");
 
         if (isCoreStruct || !promoted)
         {
@@ -530,7 +614,6 @@ namespace
 
             if (EnableFeatureMember(plan, facts, *info, *member))
             {
-                plan.EnabledFeatures.emplace_back(need.Name);
                 continue;
             }
 
@@ -706,7 +789,20 @@ namespace
 
     void ReadIdentity(rhi::DevicePlan& plan, VkPhysicalDevice physical_device, const VkPhysicalDeviceProperties& properties)
     {
-        plan.DeviceName = properties.deviceName;
+        // find first null terminator in the device name string provided by Vulkan
+
+        int32_t nullPos = 0;
+        for (; std::cmp_less(nullPos, VK_MAX_PHYSICAL_DEVICE_NAME_SIZE); ++nullPos)
+        {
+            if (properties.deviceName[nullPos] == '\0')
+            {
+                break;
+            }
+        }
+        assert(nullPos < VK_MAX_PHYSICAL_DEVICE_NAME_SIZE && "Device name must be null-terminated within the maximum allowed size.");
+
+        plan.DeviceName = std::string{ properties.deviceName, properties.deviceName + nullPos };
+
         plan.Limits = lodestone::manifest::DeviceLimits
         {
             .MaxWorkgroupMemoryBytes = properties.limits.maxComputeSharedMemorySize,
@@ -738,6 +834,190 @@ namespace
             if ((heap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0u)
             {
                 plan.Score += static_cast<int32_t>(heap.size / k_Gibibyte);
+            }
+        }
+    }
+
+    bool IsExcludedFeature(std::string_view struct_name, std::string_view member_name) noexcept
+    {
+        if (member_name.contains("CaptureReplay"))
+        {
+            return true;
+        }
+
+        if (struct_name == "VkPhysicalDeviceRobustness2FeaturesKHR" ||
+            struct_name == "VkPhysicalDeviceRobustness2FeaturesEXT")
+        {
+            return true;
+        }
+
+        // these are all features that have some actual driver cost or performance implications,
+        // so unlike most feature toggles in feature/prop structs where leaving them all on is
+        // totally fine and dandy, these are the exclusions
+        if (member_name == "robustBufferAccess" ||
+            member_name == "robustImageAccess" ||
+            member_name == "pipelineRobustness" ||
+            member_name == "vertexAttributeRobustness" ||
+            member_name == "cooperativeMatrixRobustBufferAccess" ||
+            member_name == "protectedMemory" ||
+            member_name == "pipelineProtectedAccess")
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    bool IsMemberDeclined(const generated::StructInfo& info,
+                          const generated::MemberInfo& member,
+                          std::span<const std::string_view> declined,
+                          const DeviceFacts& facts) noexcept
+    {
+        for (const std::string_view entry : declined)
+        {
+            const size_t dot = entry.find('.');
+
+            if (dot == std::string_view::npos || dot == 0u || dot == entry.size() - 1u)
+            {
+                continue;
+            }
+
+            const std::string_view declStructName = entry.substr(0u, dot);
+            const std::string_view declMember = entry.substr(dot + 1u);
+
+            if (declMember != member.Member)
+            {
+                continue;
+            }
+
+            const generated::StructInfo* declInfo = FindStruct(declStructName);
+
+            if (declInfo == nullptr)
+            {
+                continue;
+            }
+
+            const std::string_view declStruct = declInfo->Name;
+
+            if (declStruct == info.Name)
+            {
+                return true;
+            }
+
+            const generated::MemberInfo* declMemberInfo = FindMember(declStruct, declMember);
+
+            if (declMemberInfo != nullptr)
+            {
+                const generated::MemberInfo* declFolded = FoldIntoCore(*declMemberInfo, *declInfo, facts);
+
+                if (declFolded != nullptr && declFolded->Struct == info.Name)
+                {
+                    return true;
+                }
+            }
+
+            const generated::MemberInfo* infoFolded = FoldIntoCore(member, info, facts);
+
+            if (infoFolded != nullptr && infoFolded->Struct == declStruct)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    void EnableStructFeatures(rhi::DevicePlan& plan,
+                              const DeviceFacts& facts,
+                              const generated::StructInfo& info,
+                              std::span<const std::string_view> declined)
+    {
+        const auto byStruct = [](const generated::MemberInfo& m, std::string_view s)
+        {
+            return m.Struct < s;
+        };
+        
+        auto iter = std::lower_bound(generated::k_Members.begin(), generated::k_Members.end(), info.Name, byStruct);
+
+        while (iter != generated::k_Members.end() && iter->Struct == info.Name)
+        {
+            const generated::MemberInfo& member = *iter++;
+
+            if (facts.Features.Read(member) == 0u)
+            {
+                continue;
+            }
+
+            if (IsExcludedFeature(info.Name, member.Member))
+            {
+                continue;
+            }
+
+            if (IsMemberDeclined(info, member, declined, facts))
+            {
+                continue;
+            }
+
+            const generated::MemberInfo* target = FoldIntoCore(member, info, facts);
+
+            if (facts.Features.Read(*target) == 0u)
+            {
+                continue;
+            }
+
+            const generated::StructInfo* targetInfo = FindStruct(target->Struct);
+
+            if (targetInfo != nullptr)
+            {
+                plan.Enabled.Add(*targetInfo);
+                plan.Enabled.Set(*target);
+            }
+        }
+    }
+
+    void EnableSupportedFeatures(rhi::DevicePlan& plan,
+                                 const DeviceFacts& facts,
+                                 std::span<const std::string_view> declined)
+    {
+        const generated::StructInfo* headInfo = FindStruct(k_FeaturesHead);
+
+        if (headInfo != nullptr)
+        {
+            EnableStructFeatures(plan, facts, *headInfo, declined);
+        }
+
+        for (const std::string_view coreStruct : k_CoreFeatureStructs)
+        {
+            if (!facts.Features.Contains(coreStruct))
+            {
+                continue;
+            }
+
+            const generated::StructInfo* info = FindStruct(coreStruct);
+
+            if (info != nullptr)
+            {
+                EnableStructFeatures(plan, facts, *info, declined);
+            }
+        }
+
+        for (const generated::StructInfo& info : generated::k_Structs)
+        {
+            if (info.Kind != generated::StructKind::Feature)
+            {
+                continue;
+            }
+
+            const std::optional<std::string_view> route = StructRoute(info, facts);
+
+            if (!route.has_value() || route->empty())
+            {
+                continue;
+            }
+
+            if (Contains(plan.Extensions, *route))
+            {
+                EnableStructFeatures(plan, facts, info, declined);
             }
         }
     }

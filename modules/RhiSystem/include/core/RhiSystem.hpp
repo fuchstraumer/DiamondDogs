@@ -64,8 +64,7 @@ class RhiSystem
 {
 public:
 
-    /** @brief Construct empty, then StartInstance and StartDevice. The device enables only what DeviceStartInfo asks
-     *  for. bootstrap's DeviceStage is the usual caller. */
+    /** @brief Construct empty, then StartInstance and StartDevice. bootstrap's DeviceStage is the usual caller. */
     RhiSystem() noexcept;
     ~RhiSystem();
     RhiSystem(const RhiSystem&) = delete;
@@ -75,8 +74,8 @@ public:
      *  before vkCreateInstance when a Required extension is not offered. */
     [[nodiscard]] RhiSystemResult StartInstance(const InstanceStartInfo& start_info);
     /** @brief Plans every physical device, chooses the best one that meets every Required need, and creates the
-     *  device with only the planned extensions and feature members. Fails with NoDeviceMeetsRequirements, naming the
-     *  first unmet need of the best device, when none meets them. */
+     *  device with the planned extensions and safe-maximal enabled features. Fails with NoDeviceMeetsRequirements,
+     *  naming the first unmet need of the best device, when none meets them. */
     [[nodiscard]] RhiSystemResult StartDevice(const DeviceStartInfo& start_info);
 
     /** @brief Answers from the enabled set, never from the physical device, so that a variant filter cannot pick
@@ -86,8 +85,6 @@ public:
     [[nodiscard]] static bool SupportsCapabilityFn(void* user, std::string_view capability_name) noexcept;
     /** @brief The primary names of the enabled capabilities, sorted. Empty on the old path. */
     [[nodiscard]] std::span<const std::string> EnabledCapabilities() const noexcept;
-    /** @brief The "Struct.member" features that StartDevice enabled, sorted. */
-    [[nodiscard]] std::span<const std::string> EnabledFeatures() const noexcept;
     /** @brief The compute and push constant limits of the device, for the variant filter. */
     [[nodiscard]] const lodestone::manifest::DeviceLimits& Limits() const noexcept;
 

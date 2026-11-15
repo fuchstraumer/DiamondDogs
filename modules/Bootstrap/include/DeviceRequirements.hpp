@@ -70,10 +70,6 @@ namespace bootstrap
      *  source of the first need at its level. Reads no device. Each spine need sets Name, Kind and Level. */
     [[nodiscard]] DeviceRequirements GatherDeviceRequirements(const ContentStage& content, std::span<const Need> spine_needs);
 
-    /** @brief Returns one DeviceFeature need at `level` for each "Struct.member" name, for a list that a system names
-     *  beside its code (for example pyramid::k_FastPipelineFeatures). The names must outlive the needs. */
-    [[nodiscard]] std::vector<Need> FeatureNeeds(std::span<const std::string_view> features, NeedLevel level);
-
     [[nodiscard]] std::string_view ToString(NeedKind kind) noexcept;
     [[nodiscard]] std::string_view ToString(NeedLevel level) noexcept;
 }

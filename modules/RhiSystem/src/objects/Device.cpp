@@ -1,4 +1,5 @@
 #include "Device.hpp"
+#include "core/FeatureChain.hpp"
 #include "DebugUtilFns.hpp"
 #include "RhiSystem.hpp"
 #include "Instance.hpp"
@@ -429,7 +430,7 @@ namespace rhi
         
         std::vector<std::string> EnabledExtensions;
         std::vector<std::string> CoreExtensions;
-        std::vector<std::string> EnabledFeatures;
+        FeatureChain EnabledFeatures;
         VkDebugUtilsFunctions DebugUtilsHandler;
 
         VkPhysicalDeviceProperties2 Properties;
@@ -443,15 +444,14 @@ namespace rhi
                    PhysicalDeviceHandle physical_device,
                    std::span<const char* const> extension_names,
                    std::vector<std::string> core_extensions,
-                   const void* feature_chain,
-                   std::vector<std::string> enabled_features) :
+                   FeatureChain&& enabled_features) :
         impl{ std::make_unique<DeviceImpl>(instance, api_version, physical_device.As<VkPhysicalDevice>()) },
         handle{ 0u }
     {
         impl->CoreExtensions = std::move(core_extensions);
         impl->EnabledFeatures = std::move(enabled_features);
         // on failure the handle stays invalid, and RhiSystem::StartDevice reports it
-        (void)createLogicalDevice(extension_names, feature_chain);
+        (void)createLogicalDevice(extension_names, impl->EnabledFeatures.Head());
     }
 
     Device::~Device()
@@ -508,12 +508,7 @@ namespace rhi
 
     bool Device::IsFeatureEnabled(std::string_view feature_name) const noexcept
     {
-        return std::ranges::binary_search(impl->EnabledFeatures, feature_name, std::less<>{});
-    }
-
-    std::span<const std::string> Device::EnabledFeatures() const noexcept
-    {
-        return impl->EnabledFeatures;
+        return impl->EnabledFeatures.IsEnabled(feature_name);
     }
 
     void Device::WaitDeviceIdle() const

@@ -27,8 +27,6 @@ namespace rhi
         FeatureChain Enabled;
         // the primary names of the capabilities that the device can run code for, sorted
         std::vector<std::string> EnabledCapabilities;
-        // the "Struct.member" names that were requested and enabled, sorted
-        std::vector<std::string> EnabledFeatures;
         lodestone::manifest::DeviceLimits Limits;
         // the first Required need that the device does not meet, and why. Both empty when it meets every one
         std::string UnmetNeed;

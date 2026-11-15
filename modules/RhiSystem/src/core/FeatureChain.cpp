@@ -11,8 +11,19 @@
 
 namespace
 {
+    namespace generated = rhi::generated;
+
+    constexpr std::string_view k_CoreFeatureStructs[]
+    {
+        "VkPhysicalDeviceVulkan11Features",
+        "VkPhysicalDeviceVulkan12Features",
+        "VkPhysicalDeviceVulkan13Features",
+        "VkPhysicalDeviceVulkan14Features",
+    };
+
     [[nodiscard]] std::unique_ptr<uint64_t[]> ZeroedStruct(VkStructureType type, uint32_t size);
     [[nodiscard]] VkBaseOutStructure* AsBase(uint64_t* storage) noexcept;
+    [[nodiscard]] const generated::MemberInfo* FindMember(std::string_view struct_name, std::string_view member_name) noexcept;
 }
 
 namespace rhi
@@ -79,8 +90,83 @@ namespace rhi
         return value;
     }
 
+    bool FeatureChain::IsEnabled(std::string_view feature_name) const noexcept
+    {
+        const size_t dot = feature_name.find('.');
+
+        if (dot == std::string_view::npos || dot == 0u || dot == feature_name.size() - 1u)
+        {
+            return false;
+        }
+
+        std::string_view structName = feature_name.substr(0u, dot);
+        const std::string_view memberName = feature_name.substr(dot + 1u);
+
+        const auto alias = std::ranges::lower_bound(generated::k_StructAliases, structName, {}, &generated::StructAlias::Alias);
+
+        if (alias != generated::k_StructAliases.end() && alias->Alias == structName)
+        {
+            structName = alias->Name;
+        }
+
+        const std::string_view canonicalStruct = structName;
+        const auto foundStruct = std::ranges::lower_bound(generated::k_Structs, canonicalStruct, {}, &generated::StructInfo::Name);
+
+        if (foundStruct == generated::k_Structs.end() || foundStruct->Name != canonicalStruct || foundStruct->Kind != generated::StructKind::Feature)
+        {
+            return false;
+        }
+
+        const generated::StructInfo* info = &*foundStruct;
+        const generated::MemberInfo* member = FindMember(canonicalStruct, memberName);
+
+        if (member == nullptr)
+        {
+            return false;
+        }
+
+        if (Read(*member) != 0u)
+        {
+            return true;
+        }
+
+        const bool notFeaturesHead = info->Name != "VkPhysicalDeviceFeatures";
+        const bool notInCore = !std::ranges::contains(k_CoreFeatureStructs, info->Name);
+        const bool hasVersion = info->Requires.contains("VK_VERSION_");
+
+        if (notFeaturesHead && notInCore && hasVersion)
+        {
+            for (const std::string_view coreStruct : k_CoreFeatureStructs)
+            {
+                const generated::MemberInfo* coreMember = FindMember(coreStruct, memberName);
+
+                if (coreMember != nullptr && Read(*coreMember) != 0u)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     void* FeatureChain::Head() noexcept
     {
+        if (blocks.empty())
+        {
+            return nullptr;
+        }
+
+        return blocks.front().Storage.get();
+    }
+
+    const void* FeatureChain::Head() const noexcept
+    {
+        if (blocks.empty())
+        {
+            return nullptr;
+        }
+
         return blocks.front().Storage.get();
     }
 
@@ -112,5 +198,25 @@ namespace
     VkBaseOutStructure* AsBase(uint64_t* storage) noexcept
     {
         return reinterpret_cast<VkBaseOutStructure*>(storage);
+    }
+
+    const generated::MemberInfo* FindMember(std::string_view struct_name, std::string_view member_name) noexcept
+    {
+        const auto byStructThenMember = [](const generated::MemberInfo& row, std::pair<std::string_view, std::string_view> key)
+        {
+            return std::pair{ row.Struct, row.Member } < key;
+        };
+        const std::pair<std::string_view, std::string_view> key{ struct_name, member_name };
+        const auto found = std::lower_bound(generated::k_Members.begin(),
+                                            generated::k_Members.end(),
+                                            key,
+                                            byStructThenMember);
+
+        if (found == generated::k_Members.end() || found->Struct != struct_name || found->Member != member_name)
+        {
+            return nullptr;
+        }
+
+        return &*found;
     }
 }

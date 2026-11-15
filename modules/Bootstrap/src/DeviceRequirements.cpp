@@ -74,20 +74,6 @@ namespace bootstrap
         return requirements;
     }
 
-    std::vector<Need> FeatureNeeds(std::span<const std::string_view> features, NeedLevel level)
-    {
-        std::vector<Need> needs;
-
-        needs.reserve(features.size());
-
-        for (const std::string_view feature : features)
-        {
-            needs.push_back(Need{ .Name = feature, .Kind = NeedKind::DeviceFeature, .Level = level });
-        }
-
-        return needs;
-    }
-
     std::string_view ToString(NeedKind kind) noexcept
     {
         switch (kind)
@@ -232,7 +218,7 @@ namespace
         // I don't even know if that's strictly *possible*, since so many of the caps are aliases
         // (a full ~50ish are just OpenCL capabilities!)
         assert(std::cmp_less(wordCount, k_StackMaskWords));
-        std::array<uint64_t, k_StackMaskWords> stackEvery{ 0u, 0u, 0u, 0u };
+        std::array<uint64_t, k_StackMaskWords> stackEvery{ ~uint64_t{ 0 }, ~uint64_t{ 0 }, ~uint64_t{ 0 }, ~uint64_t{ 0 } };
         std::array<uint64_t, k_StackMaskWords> stackAny{ 0u, 0u, 0u, 0u };
         std::span<uint64_t> every;
         std::span<uint64_t> any;
