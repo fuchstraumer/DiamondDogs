@@ -226,7 +226,6 @@ int main(int argc, char* argv[])
 
     needs.append_range(bootstrap::ShaderObjectNeeds());
     needs.append_range(bootstrap::QueryPoolNeeds());
-    needs.append_range(bootstrap::FeatureNeeds(ocean::k_WaveOpFeatures, bootstrap::NeedLevel::Wanted));
     needs.push_back(k_StorageBuffer16BitNeed);
 
     const bootstrap::DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(content, needs);

@@ -52,16 +52,9 @@ namespace
         },
     };
 
-    // the raster pass draws with vkCmdBeginRendering, the passes are shader objects, and the timestamps reset from the
-    // host
+    // the passes are shader objects, and the timestamps reset from the host
     constexpr bootstrap::Need k_AppNeeds[]
     {
-        bootstrap::Need
-        {
-            .Name = "VkPhysicalDeviceVulkan13Features.dynamicRendering",
-            .Kind = bootstrap::NeedKind::DeviceFeature,
-            .Level = bootstrap::NeedLevel::Required,
-        },
         bootstrap::Need
         {
             .Name = rhi::k_ShaderObjectFeature,

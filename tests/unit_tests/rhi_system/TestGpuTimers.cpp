@@ -43,7 +43,7 @@ class GpuTimersTest : public ::testing::Test
 protected:
     void SetUp() override
     {
-        const test_rhi::Needs needs{ .Features = test_rhi::k_GpuTimersFeatures };
+        const test_rhi::Needs needs{};
 
         rhiSystem = std::make_unique<rhi::RhiSystem>();
 

@@ -135,18 +135,19 @@ TEST(RhiSystemTest, ACoreExtensionCountsAsPresent)
 
 TEST(RhiSystemTest, IsFeatureEnabledAnswersFromTheEnabledSet)
 {
-    const std::array<DeviceNeed, 1> features
+    const std::array<std::string_view, 1> declined
     {
-        DeviceNeed{ .Name = "VkPhysicalDeviceVulkan12Features.timelineSemaphore", .Level = DeviceNeedLevel::Required },
+        "VkPhysicalDeviceVulkan13Features.synchronization2",
     };
     rhi::RhiSystem system;
-    const test_rhi::Needs needs{ .Features = features };
+    const test_rhi::Needs needs{ .Declined = declined };
     const rhi::RhiSystemResult started = test_rhi::StartTestRhi(system, k_ApplicationName, rhi::ApiVersion::Vulkan13, rhi::ValidationLayers::BaseOnly, needs);
 
     ASSERT_TRUE(started.Succeeded()) << started.Subject << ": " << started.Detail;
     EXPECT_TRUE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceVulkan12Features.timelineSemaphore"));
-    // every Vulkan 1.3 device supports synchronization2, and no need asked for it
+    EXPECT_TRUE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceTimelineSemaphoreFeatures.timelineSemaphore"));
     EXPECT_FALSE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceVulkan13Features.synchronization2"));
+    EXPECT_FALSE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceFeatures.robustBufferAccess"));
 }
 
 // each device names its own objects: the name function and the device handle are not globals

@@ -5,15 +5,8 @@
 #include "RhiHandle.hpp"
 #include <cstdint>
 #include <filesystem>
-#include <string_view>
 
 struct ImFont;
-
-// the device features that ImGuiModule needs: the Vulkan backend draws with dynamic rendering
-inline constexpr std::string_view k_ImGuiModuleFeatures[]
-{
-    "VkPhysicalDeviceVulkan13Features.dynamicRendering",
-};
 
 namespace rhi
 {

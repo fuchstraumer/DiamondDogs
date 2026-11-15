@@ -111,21 +111,11 @@ namespace ocean
         bool FusedKernels{ true };
     };
 
-    // the device features that the wave-op variants of the IFFT and the CDLOD quadtree need: a required subgroup
-    // size, and shuffles of 16-bit float vectors. An app asks for them as Wanted needs. On a device created without
-    // them, the wave-op variants do not run
-    inline constexpr std::string_view k_WaveOpFeatures[]
-    {
-        "VkPhysicalDeviceVulkan13Features.subgroupSizeControl",
-        "VkPhysicalDeviceVulkan13Features.computeFullSubgroups",
-        "VkPhysicalDeviceVulkan12Features.shaderSubgroupExtendedTypes",
-    };
-
-    /** @brief Returns true when the device was created with every feature in k_WaveOpFeatures. */
+    /** @brief Returns true when the device enables subgroupSizeControl, computeFullSubgroups, and shaderSubgroupExtendedTypes. */
     [[nodiscard]] bool WaveOpFeaturesEnabled(const rhi::Device& device) noexcept;
     /** @brief Returns the device's subgroup size when the wave-op variants can run with it (an IFFT_WAVE_SIZE axis
-     *  value, the k_WaveOpFeatures, required-size control for compute, and subgroup shuffles), and 0 otherwise. 32 on
-     *  NVIDIA. */
+     *  value, subgroupSizeControl, computeFullSubgroups, shaderSubgroupExtendedTypes, required-size control for compute,
+     *  and subgroup shuffles), and 0 otherwise. 32 on NVIDIA. */
     [[nodiscard]] uint32_t PickWaveSize(const rhi::Device& device) noexcept;
 
     /** @brief Returns the generated log-band cascade parameters for `size` from OceanFftCascades.hpp. */

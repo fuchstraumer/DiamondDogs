@@ -10,7 +10,6 @@
 #include "RhiHandle.hpp"
 #include <cstdint>
 #include <memory>
-#include <string_view>
 
 class ResourceContext;
 class Swapchain;
@@ -25,12 +24,6 @@ namespace rhi
 
 namespace color
 {
-    // the device features that the pipe needs: the composite draws with vkCmdBeginRendering
-    inline constexpr std::string_view k_ColorPipeFeatures[]
-    {
-        "VkPhysicalDeviceVulkan13Features.dynamicRendering",
-    };
-
     /** @brief A render target of the pipe. `Layout` is the layout to declare when rendering to the image, and to leave
      *  it in. */
     struct ColorTargetView

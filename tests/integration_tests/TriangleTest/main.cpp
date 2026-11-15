@@ -69,12 +69,6 @@ namespace
         },
         bootstrap::Need
         {
-            .Name = "VkPhysicalDeviceVulkan13Features.dynamicRendering",
-            .Kind = bootstrap::NeedKind::DeviceFeature,
-            .Level = bootstrap::NeedLevel::Required,
-        },
-        bootstrap::Need
-        {
             .Name = "VK_KHR_device_fault",
             .Kind = bootstrap::NeedKind::DeviceExtension,
             .Level = bootstrap::NeedLevel::Wanted,

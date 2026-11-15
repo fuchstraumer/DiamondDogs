@@ -496,11 +496,8 @@ int main(int argc, char* argv[])
         .Validation = rhi::ValidationLayers::Full,
         .ApplicationName = "GpuPyramidTest",
     };
-    // Wanted: without the fast pipeline's features, every level takes the general pipeline
-    std::vector<bootstrap::Need> appNeeds = bootstrap::FeatureNeeds(pyramid::k_FastPipelineFeatures, bootstrap::NeedLevel::Wanted);
+    const std::span<const bootstrap::Need> appNeeds = bootstrap::ShaderObjectNeeds();
     HeadlessBoot boot;
-
-    appNeeds.append_range(bootstrap::ShaderObjectNeeds());
 
     if (!StartHeadlessBoot(boot, std::span{ argv, static_cast<size_t>(argc) }, k_Bundles, appNeeds, config))
     {

@@ -249,12 +249,9 @@ namespace ocean
 
     bool WaveOpFeaturesEnabled(const rhi::Device& device) noexcept
     {
-        const auto enabled = [&device](std::string_view feature)
-        {
-            return device.IsFeatureEnabled(feature);
-        };
-
-        return std::ranges::all_of(k_WaveOpFeatures, enabled);
+        return device.IsFeatureEnabled("VkPhysicalDeviceVulkan13Features.subgroupSizeControl") &&
+               device.IsFeatureEnabled("VkPhysicalDeviceVulkan13Features.computeFullSubgroups") &&
+               device.IsFeatureEnabled("VkPhysicalDeviceVulkan12Features.shaderSubgroupExtendedTypes");
     }
 
     uint32_t PickWaveSize(const rhi::Device& device) noexcept

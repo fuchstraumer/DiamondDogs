@@ -258,9 +258,18 @@ public:
         rhi::DeviceNeed{ .Name = "VkPhysicalDeviceVulkan13Features.computeFullSubgroups", .Level = rhi::DeviceNeedLevel::Wanted },
     };
 
+    static constexpr rhi::DeviceNeed k_ExecutablePropertiesExtension[]
+    {
+        rhi::DeviceNeed{ .Name = "VK_KHR_pipeline_executable_properties", .Level = rhi::DeviceNeedLevel::Wanted },
+    };
+
     [[nodiscard]] static rhi::RhiSystemResult StartSystem(rhi::RhiSystem& system, std::span<const rhi::DeviceNeed> features)
     {
-        const test_rhi::Needs needs{ .Features = features };
+        const test_rhi::Needs needs
+        {
+            .DeviceExtensions = features.empty() ? std::span<const rhi::DeviceNeed>{} : std::span<const rhi::DeviceNeed>{ k_ExecutablePropertiesExtension },
+            .Features = features,
+        };
 
         return test_rhi::StartTestRhi(system, "ExecutableStatisticsTest", rhi::ApiVersion::Vulkan13, rhi::ValidationLayers::Full, needs);
     }

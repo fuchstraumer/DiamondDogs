@@ -229,10 +229,8 @@ int main(int argc, char* argv[])
         .Validation = rhi::ValidationLayers::Full,
         .ApplicationName = "ColorPipeTest",
     };
-    std::vector<bootstrap::Need> appNeeds = bootstrap::FeatureNeeds(color::k_ColorPipeFeatures, bootstrap::NeedLevel::Required);
+    const std::span<const bootstrap::Need> appNeeds = bootstrap::ShaderObjectNeeds();
     HeadlessBoot boot;
-
-    appNeeds.append_range(bootstrap::ShaderObjectNeeds());
 
     if (!StartHeadlessBoot(boot, std::span{ argv, static_cast<size_t>(argc) }, k_Bundles, appNeeds, config))
     {

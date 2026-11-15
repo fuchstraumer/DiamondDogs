@@ -188,11 +188,8 @@ TEST(BootstrapVulkan, HeadlessBootEnablesOnlyTheSpineAndUploads)
 
     ASSERT_TRUE(deviceStarted.Succeeded()) << bootstrap::FormatFailure(deviceStarted);
 
-    const std::span<const std::string> features = device.Rhi().EnabledFeatures();
-
-    EXPECT_EQ(features.size(), 2u);
-    EXPECT_TRUE(Contains(features, k_TimelineFeature));
-    EXPECT_TRUE(Contains(features, k_Sync2Feature));
+    EXPECT_TRUE(device.Rhi().GetDevice()->IsFeatureEnabled(k_TimelineFeature));
+    EXPECT_TRUE(device.Rhi().GetDevice()->IsFeatureEnabled(k_Sync2Feature));
     // no need names it: the device stage asks for it, so validation reaches our messenger and objects get names
     EXPECT_TRUE(device.Rhi().GetInstance()->HasExtension("VK_EXT_debug_utils"));
 

@@ -159,15 +159,13 @@ namespace pyramid
             VkPhysicalDeviceProperties2 properties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &subgroupProperties };
             vkGetPhysicalDeviceProperties2(device.GetPhysicalDevice().As<VkPhysicalDevice>(), &properties);
 
-            const auto enabled = [&device](std::string_view feature)
-            {
-                return device.IsFeatureEnabled(feature);
-            };
-
             constexpr VkSubgroupFeatureFlags k_RequiredOperations = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT;
+            const bool featuresEnabled = device.IsFeatureEnabled("VkPhysicalDeviceVulkan13Features.subgroupSizeControl") &&
+                                         device.IsFeatureEnabled("VkPhysicalDeviceVulkan13Features.computeFullSubgroups");
+
             return (subgroupProperties.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u &&
                 (subgroupProperties.supportedOperations & k_RequiredOperations) == k_RequiredOperations &&
-                std::ranges::all_of(k_FastPipelineFeatures, enabled) &&
+                featuresEnabled &&
                 (properties13.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u &&
                 properties13.minSubgroupSize <= k_FastSubgroupSize && k_FastSubgroupSize <= properties13.maxSubgroupSize;
         }
@@ -274,19 +272,10 @@ namespace pyramid
         impl->Library = &library;
         impl->Settings = create_info;
         const VkDevice vkDevice = device.Handle().As<VkDevice>();
-        const VkPhysicalDevice physicalDevice = device.GetPhysicalDevice().As<VkPhysicalDevice>();
 
-        VkPhysicalDeviceFeatures features{};
-        vkGetPhysicalDeviceFeatures(physicalDevice, &features);
-
-        if (features.shaderStorageImageWriteWithoutFormat != VK_TRUE)
+        if (!device.IsFeatureEnabled("VkPhysicalDeviceFeatures.shaderStorageImageExtendedFormats"))
         {
-            return std::unexpected(std::string{ "the device has no shaderStorageImageWriteWithoutFormat, which NvproPyramid needs until its levels declare a format" });
-        }
-
-        if (features.shaderStorageImageArrayDynamicIndexing != VK_TRUE)
-        {
-            return std::unexpected(std::string{ "the device has no shaderStorageImageArrayDynamicIndexing, which NvproPyramid needs to index PyramidLevels by the level" });
+            return std::unexpected(std::string{ "the device has no shaderStorageImageExtendedFormats, which NvproPyramid needs" });
         }
 
         rhi::ShaderLibraryResult<const lodestone::ManifestIndex*> index = library.ModuleIndex(k_ModuleName);

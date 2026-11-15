@@ -33,7 +33,7 @@ namespace
     [[nodiscard]] bool Contains(std::span<const std::string> names, std::string_view name);
 }
 
-TEST(RhiSystemStart, APlanWithNoNeedsEnablesNothing)
+TEST(RhiSystemStart, APlanWithNoNeedsEnablesSafeMaximalCoreFeatures)
 {
     rhi::RhiSystem system;
 
@@ -43,9 +43,24 @@ TEST(RhiSystemStart, APlanWithNoNeedsEnablesNothing)
 
     EXPECT_TRUE(plan.UnmetNeed.empty()) << plan.UnmetNeed;
     EXPECT_TRUE(plan.Extensions.empty());
-    // the old path enabled every supported feature, robustBufferAccess included
+    // safe-maximal excludes robustness and capture-replay flags
     EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceFeatures", "robustBufferAccess")), 0u);
-    EXPECT_FALSE(plan.Enabled.Contains("VkPhysicalDeviceVulkan13Features"));
+    EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceVulkan14Features", "pipelineRobustness")), 0u);
+    EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceVulkan12Features", "bufferDeviceAddressCaptureReplay")), 0u);
+    EXPECT_FALSE(plan.Enabled.Contains("VkPhysicalDeviceRobustness2FeaturesKHR"));
+    EXPECT_FALSE(plan.Enabled.Contains("VkPhysicalDeviceRobustness2FeaturesEXT"));
+    EXPECT_FALSE(plan.Enabled.IsEnabled("VkPhysicalDeviceFeatures.robustBufferAccess"));
+    EXPECT_FALSE(plan.Enabled.IsEnabled("VkPhysicalDeviceVulkan14Features.pipelineRobustness"));
+    EXPECT_FALSE(plan.Enabled.IsEnabled("VkPhysicalDeviceVulkan12Features.bufferDeviceAddressCaptureReplay"));
+
+    // safe-maximal enables supported core features
+    EXPECT_TRUE(plan.Enabled.Contains("VkPhysicalDeviceVulkan13Features"));
+    EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceVulkan13Features", "dynamicRendering")), 1u);
+    EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceVulkan12Features", "timelineSemaphore")), 1u);
+    EXPECT_TRUE(plan.Enabled.IsEnabled("VkPhysicalDeviceVulkan13Features.dynamicRendering"));
+    EXPECT_TRUE(plan.Enabled.IsEnabled("VkPhysicalDeviceDynamicRenderingFeaturesKHR.dynamicRendering"));
+    EXPECT_TRUE(plan.Enabled.IsEnabled("VkPhysicalDeviceVulkan12Features.timelineSemaphore"));
+    EXPECT_TRUE(plan.Enabled.IsEnabled("VkPhysicalDeviceTimelineSemaphoreFeatures.timelineSemaphore"));
 }
 
 TEST(RhiSystemStart, APromotedFeatureIsSetInTheCoreStruct)
@@ -65,8 +80,9 @@ TEST(RhiSystemStart, APromotedFeatureIsSetInTheCoreStruct)
     EXPECT_TRUE(plan.Enabled.Contains("VkPhysicalDeviceVulkan12Features"));
     EXPECT_FALSE(plan.Enabled.Contains("VkPhysicalDeviceTimelineSemaphoreFeatures"));
     EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceVulkan12Features", "timelineSemaphore")), 1u);
-    EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceVulkan12Features", "bufferDeviceAddress")), 0u);
-    EXPECT_TRUE(Contains(plan.EnabledFeatures, "VkPhysicalDeviceTimelineSemaphoreFeatures.timelineSemaphore"));
+    EXPECT_TRUE(plan.Enabled.IsEnabled("VkPhysicalDeviceTimelineSemaphoreFeatures.timelineSemaphore"));
+    EXPECT_TRUE(plan.Enabled.IsEnabled("VkPhysicalDeviceTimelineSemaphoreFeaturesKHR.timelineSemaphore"));
+    EXPECT_TRUE(plan.Enabled.IsEnabled("VkPhysicalDeviceVulkan12Features.timelineSemaphore"));
 }
 
 TEST(RhiSystemStart, AnExtensionFeatureEnablesItsExtension)
@@ -102,7 +118,6 @@ TEST(RhiSystemStart, CapabilitiesUseTheFirstSupportedEnable)
 
     ASSERT_TRUE(plan.UnmetNeed.empty()) << plan.UnmetNeed << ": " << plan.UnmetReason;
     EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceFeatures", "shaderInt64")), 1u);
-    EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceFeatures", "shaderFloat64")), 0u);
     EXPECT_TRUE(Contains(plan.EnabledCapabilities, "Int64"));
     EXPECT_TRUE(Contains(plan.EnabledCapabilities, "GroupNonUniformArithmetic"));
     EXPECT_TRUE(plan.Extensions.empty());
@@ -125,7 +140,6 @@ TEST(RhiSystemStart, ADeclinedWantedCapabilityStaysOff)
 
     EXPECT_TRUE(plan.UnmetNeed.empty());
     EXPECT_FALSE(Contains(plan.EnabledCapabilities, "Int64"));
-    EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceFeatures", "shaderInt64")), 0u);
 }
 
 TEST(RhiSystemStart, DeclinedWantedExtensionsAndFeaturesStayOff)
@@ -149,8 +163,62 @@ TEST(RhiSystemStart, DeclinedWantedExtensionsAndFeaturesStayOff)
 
     EXPECT_TRUE(plan.UnmetNeed.empty());
     EXPECT_FALSE(Contains(plan.Extensions, "VK_EXT_shader_object"));
-    EXPECT_TRUE(plan.EnabledFeatures.empty());
     EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceFeatures", "shaderInt64")), 0u);
+    EXPECT_FALSE(plan.Enabled.IsEnabled("VkPhysicalDeviceFeatures.shaderInt64"));
+}
+
+TEST(RhiSystemStart, DecliningPromotedFeatureByExtensionNameTurnsOffCoreMember)
+{
+    const std::array<std::string_view, 1> declined{ "VkPhysicalDeviceDynamicRenderingFeaturesKHR.dynamicRendering" };
+    rhi::RhiSystem system;
+
+    ASSERT_TRUE(StartTestInstance(system));
+
+    DevicePlan plan = rhi::PlanDevice(FirstPhysicalDevice(system),
+                                      system.GetVulkanApiVersion(),
+                                      DeviceStartInfo{ .Declined = declined });
+
+    EXPECT_TRUE(plan.UnmetNeed.empty());
+    EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceVulkan13Features", "dynamicRendering")), 0u);
+    EXPECT_FALSE(plan.Enabled.IsEnabled("VkPhysicalDeviceVulkan13Features.dynamicRendering"));
+    EXPECT_FALSE(plan.Enabled.IsEnabled("VkPhysicalDeviceDynamicRenderingFeaturesKHR.dynamicRendering"));
+    EXPECT_FALSE(plan.Enabled.IsEnabled("VkPhysicalDeviceDynamicRenderingFeatures.dynamicRendering"));
+}
+
+TEST(RhiSystemStart, DecliningPromotedFeatureByCoreNameTurnsOffExtensionName)
+{
+    const std::array<std::string_view, 1> declined{ "VkPhysicalDeviceVulkan13Features.dynamicRendering" };
+    rhi::RhiSystem system;
+
+    ASSERT_TRUE(StartTestInstance(system));
+
+    DevicePlan plan = rhi::PlanDevice(FirstPhysicalDevice(system),
+                                      system.GetVulkanApiVersion(),
+                                      DeviceStartInfo{ .Declined = declined });
+
+    EXPECT_TRUE(plan.UnmetNeed.empty());
+    EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceVulkan13Features", "dynamicRendering")), 0u);
+    EXPECT_FALSE(plan.Enabled.IsEnabled("VkPhysicalDeviceVulkan13Features.dynamicRendering"));
+    EXPECT_FALSE(plan.Enabled.IsEnabled("VkPhysicalDeviceDynamicRenderingFeaturesKHR.dynamicRendering"));
+    EXPECT_FALSE(plan.Enabled.IsEnabled("VkPhysicalDeviceDynamicRenderingFeatures.dynamicRendering"));
+}
+
+TEST(RhiSystemStart, DecliningPromotedFeatureByAliasNameTurnsOffCoreMember)
+{
+    const std::array<std::string_view, 1> declined{ "VkPhysicalDeviceTimelineSemaphoreFeaturesKHR.timelineSemaphore" };
+    rhi::RhiSystem system;
+
+    ASSERT_TRUE(StartTestInstance(system));
+
+    DevicePlan plan = rhi::PlanDevice(FirstPhysicalDevice(system),
+                                      system.GetVulkanApiVersion(),
+                                      DeviceStartInfo{ .Declined = declined });
+
+    EXPECT_TRUE(plan.UnmetNeed.empty());
+    EXPECT_EQ(plan.Enabled.Read(Member("VkPhysicalDeviceVulkan12Features", "timelineSemaphore")), 0u);
+    EXPECT_FALSE(plan.Enabled.IsEnabled("VkPhysicalDeviceVulkan12Features.timelineSemaphore"));
+    EXPECT_FALSE(plan.Enabled.IsEnabled("VkPhysicalDeviceTimelineSemaphoreFeatures.timelineSemaphore"));
+    EXPECT_FALSE(plan.Enabled.IsEnabled("VkPhysicalDeviceTimelineSemaphoreFeaturesKHR.timelineSemaphore"));
 }
 
 TEST(RhiSystemStart, DeclinedHasNoEffectOnARequiredNeed)
@@ -228,7 +296,14 @@ TEST(RhiSystemStart, StartDeviceCreatesTheDeviceWithTheNeeds)
     ASSERT_NE(system.GetDevice(), nullptr);
     EXPECT_TRUE(system.GetDevice()->Handle().IsValid());
     EXPECT_TRUE(system.GetDevice()->HasExtension("VK_EXT_shader_object"));
-    EXPECT_EQ(system.EnabledFeatures().size(), 4u);
+    EXPECT_TRUE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceVulkan13Features.synchronization2"));
+    EXPECT_TRUE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceSynchronization2FeaturesKHR.synchronization2"));
+    EXPECT_TRUE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceVulkan13Features.dynamicRendering"));
+    EXPECT_TRUE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceDynamicRenderingFeaturesKHR.dynamicRendering"));
+    EXPECT_TRUE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceTimelineSemaphoreFeatures.timelineSemaphore"));
+    EXPECT_TRUE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceTimelineSemaphoreFeaturesKHR.timelineSemaphore"));
+    EXPECT_TRUE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceVulkan12Features.timelineSemaphore"));
+    EXPECT_TRUE(system.GetDevice()->IsFeatureEnabled("VkPhysicalDeviceShaderObjectFeaturesEXT.shaderObject"));
 
     // the filter answers from the enabled set: Float64 is supported on the device, and was not asked for
     const lodestone::manifest::CapabilitySupportFn supports = &rhi::RhiSystem::SupportsCapabilityFn;

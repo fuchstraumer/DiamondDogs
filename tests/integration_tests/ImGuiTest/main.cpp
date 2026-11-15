@@ -36,10 +36,9 @@ int main(int argc, char* argv[])
         .Validation = rhi::ValidationLayers::Full,
         .ApplicationName = "ImGuiTest",
     };
-    const std::vector<bootstrap::Need> appNeeds = bootstrap::FeatureNeeds(k_ImGuiModuleFeatures, bootstrap::NeedLevel::Required);
     WindowedBoot boot;
 
-    if (!StartWindowedBoot(boot, std::span{ argv, static_cast<size_t>(argc) }, std::span<const bootstrap::BundleRequest>{}, appNeeds, config, windowInfo))
+    if (!StartWindowedBoot(boot, std::span{ argv, static_cast<size_t>(argc) }, std::span<const bootstrap::BundleRequest>{}, std::span<const bootstrap::Need>{}, config, windowInfo))
     {
         return 1;
     }

@@ -1844,8 +1844,7 @@ namespace
         },
     };
 
-    // shader objects and GPU timers, and the wave-op variants and the fast mip pipeline when the device has their
-    // features (k_WaveOpFeatures holds both of pyramid::k_FastPipelineFeatures)
+    // shader objects and GPU timers
     constexpr bootstrap::Need k_AppNeeds[]
     {
         bootstrap::Need
@@ -1859,24 +1858,6 @@ namespace
             .Name = rhi::k_QueryPoolFeature,
             .Kind = bootstrap::NeedKind::DeviceFeature,
             .Level = bootstrap::NeedLevel::Required,
-        },
-        bootstrap::Need
-        {
-            .Name = ocean::k_WaveOpFeatures[0],
-            .Kind = bootstrap::NeedKind::DeviceFeature,
-            .Level = bootstrap::NeedLevel::Wanted,
-        },
-        bootstrap::Need
-        {
-            .Name = ocean::k_WaveOpFeatures[1],
-            .Kind = bootstrap::NeedKind::DeviceFeature,
-            .Level = bootstrap::NeedLevel::Wanted,
-        },
-        bootstrap::Need
-        {
-            .Name = ocean::k_WaveOpFeatures[2],
-            .Kind = bootstrap::NeedKind::DeviceFeature,
-            .Level = bootstrap::NeedLevel::Wanted,
         },
         // the bundle lists UniformAndStorageBuffer16BitAccess, which implicitly declares this one, and the cook does
         // not list implied capabilities yet

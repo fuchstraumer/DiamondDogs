@@ -38,6 +38,7 @@ namespace test_rhi
         {
             .Extensions = needs.DeviceExtensions,
             .Features = needs.Features,
+            .Declined = needs.Declined,
         };
 
         return system.StartDevice(deviceInfo);

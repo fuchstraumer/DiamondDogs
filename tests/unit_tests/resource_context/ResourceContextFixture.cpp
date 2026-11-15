@@ -13,7 +13,6 @@ void ResourceContextTest::SetUpTestSuite()
     const test_rhi::Needs needs
     {
         .DeviceExtensions = test_rhi::k_MemoryBudgetExtension,
-        .Features = test_rhi::k_SyncFeatures,
     };
 
     rhiSystem = std::make_unique<rhi::RhiSystem>();

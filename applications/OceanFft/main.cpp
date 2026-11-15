@@ -136,14 +136,6 @@ namespace
         },
     };
 
-    // the ocean and seabed samplers filter anisotropically when the device has it
-    constexpr bootstrap::Need k_AnisotropyNeed
-    {
-        .Name = k_SamplerAnisotropyFeature,
-        .Kind = bootstrap::NeedKind::DeviceFeature,
-        .Level = bootstrap::NeedLevel::Wanted,
-    };
-
     // the OceanFft bundle lists UniformAndStorageBuffer16BitAccess, which implicitly declares this one, and the cook
     // does not list implied capabilities yet
     constexpr bootstrap::Need k_StorageBuffer16BitNeed
@@ -173,20 +165,13 @@ namespace
         return found->Path;
     }
 
-    // the spine needs, then what the demo's own code uses: shader objects, GPU timers, dynamic rendering for the
-    // scene, the color pipe and ImGui, and the wave-op variants, the fast mip pipeline and anisotropic filtering when
-    // the device has them
+    // the spine needs, then what the demo's own code uses: shader objects and GPU timers
     [[nodiscard]] std::vector<bootstrap::Need> AppNeeds(const bootstrap::WindowStage& window_stage)
     {
         std::vector<bootstrap::Need> needs = bootstrap::SpineNeeds(window_stage);
 
         needs.append_range(bootstrap::ShaderObjectNeeds());
         needs.append_range(bootstrap::QueryPoolNeeds());
-        needs.append_range(bootstrap::FeatureNeeds(color::k_ColorPipeFeatures, bootstrap::NeedLevel::Required));
-        needs.append_range(bootstrap::FeatureNeeds(k_ImGuiModuleFeatures, bootstrap::NeedLevel::Required));
-        needs.append_range(bootstrap::FeatureNeeds(ocean::k_WaveOpFeatures, bootstrap::NeedLevel::Wanted));
-        needs.append_range(bootstrap::FeatureNeeds(pyramid::k_FastPipelineFeatures, bootstrap::NeedLevel::Wanted));
-        needs.push_back(k_AnisotropyNeed);
         needs.push_back(k_StorageBuffer16BitNeed);
         return needs;
     }
