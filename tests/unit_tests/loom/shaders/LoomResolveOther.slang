@@ -3,9 +3,17 @@ import LodestoneAttributes;
 
 // The second module of Loom's Resolve test bundle. It declares none of LoomResolveTest's axes, so a graph pin on TAPS
 // applies to one module and is skipped for this one. A graph pin that neither module declares is LM206.
+// SMOOTH and SMOOTH_TAPS are a technique gate pair with no capability, so no device rule picks the gate: both take
+// their defaults in one round. The gate default is off, so the default of SMOOTH_TAPS must not switch it on.
 
 [ls_axis_boolean][ls_axis_kind("technique")]
 extern static const bool INVERT = false;
+
+[ls_axis_boolean][ls_axis_kind("technique")]
+extern static const bool SMOOTH = false;
+
+[ls_axis_values("2, 4")][ls_axis_kind("tuning")][ls_axis_active_when("SMOOTH==1")]
+extern static const uint SMOOTH_TAPS = 4u;
 
 RWStructuredBuffer<float> Values;
 
@@ -18,6 +26,11 @@ void OtherCS(uint3 threadId : SV_DispatchThreadID)
     if (INVERT)
     {
         value = -value;
+    }
+
+    if (SMOOTH)
+    {
+        value /= float(SMOOTH_TAPS);
     }
 
     Values[threadId.x] = value;

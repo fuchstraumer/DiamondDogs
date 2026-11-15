@@ -1,3 +1,4 @@
+#include "freeze/FrozenGraph.hpp"
 #include "resolve/ResolveContext.hpp"
 #include "Declarations.hpp"
 #include "Records.hpp"
@@ -34,8 +35,11 @@ namespace loom::resolve
                                              lodestone::PinMode mode)
     {
         const std::string_view axisName = pin.AxisName;
+        // WhereWhenActive is used to apply the constraints only when an axis is actually active:
+        // think of cases like wave sizing, where this only counts if wave ops are also enabled
         const bool required = (mode == lodestone::PinMode::Required);
-
+        // use std::visit and std::decay_t to get the type being requested out of
+        // the std::variant, reduces boilerplate a bit
         const auto addConstraint = [&](const auto& value) -> lodestone::ManifestQueryBuilder
         {
             using Value = std::decay_t<decltype(value)>;
@@ -71,6 +75,8 @@ namespace loom::resolve
 
     bool PrefersCapableValue(const lodestone::manifest::ModuleView& module, uint32_t local_axis)
     {
+        // axes classified as device capabilities are (usually) boolean flags, so if we support
+        // such a capability - then we want to try and use it!
         const lodestone::manifest::Axis& axis = module.AxisData(local_axis);
         return axis.Kind == lodestone::AxisKind::Capability && axis.Domain == lodestone::AxisValueDomain::Boolean;
     }

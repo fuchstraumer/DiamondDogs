@@ -30,6 +30,7 @@ namespace
             .Code = code,
             .Severity = DefaultSeverityOf(code),
             .Where = pass.Shader.Where,
+            .Pass = pass.Key,
             .Binding = name,
         };
     }
@@ -53,16 +54,18 @@ namespace
     std::string_view CapabilityName(const lodestone::manifest::EnvironmentView& environment,
                                     std::string_view capability_name)
     {
-        // span of indices into master name table
-        const auto capabilityNames = environment.CapabilityNames();
-        const auto checkName = [capability_name, environment](uint32_t index)
-        {
-            const std::string_view& storedName = environment.CapabilityName(index);
-            return storedName == capability_name;
-        };
+        // CapabilityNames() holds string table indices; CapabilityName() takes a position in that span, not its value
+        const uint32_t count = static_cast<uint32_t>(environment.CapabilityNames().size());
 
-        const auto found = std::ranges::find_if(capabilityNames, checkName);
-        return found != capabilityNames.end() ? std::string_view{ environment.CapabilityName(*found) } : std::string_view{};
+        for (uint32_t capability = 0u; capability < count; ++capability)
+        {
+            if (environment.CapabilityName(capability) == capability_name)
+            {
+                return environment.CapabilityName(capability);
+            }
+        }
+
+        return {};
     }
 
     // a declared default as a constraint. we use the `WhenActive` query field here to make sure

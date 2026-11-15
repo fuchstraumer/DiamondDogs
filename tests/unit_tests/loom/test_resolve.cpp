@@ -25,7 +25,7 @@
 // The Resolve stage against the test bundle (tests/unit_tests/loom/shaders), with no device. The device is a fake
 // capability table. Each error test builds a graph with exactly one broken pass.
 //
-// The tests named DISABLED_ wait for the author's part of Resolve (Shaders.cpp, Pins.cpp, Variants.cpp). Turn each on
+// The tests named  wait for the author's part of Resolve (Shaders.cpp, Pins.cpp, Variants.cpp). Turn each on
 // when its step is written. They state the agreed behavior; a test may change where a behavior choice is still open.
 
 using namespace freeze_tests;
@@ -383,7 +383,7 @@ TEST(Resolve, RecordPassNeedsNoShader)
 // The author's part. Each test states the agreed behavior.
 
 // Every relevant axis pinned: one variant, the right entry point, no diagnostic.
-TEST(Resolve, DISABLED_DispatchResolvesOneVariant)
+TEST(Resolve, DispatchResolvesOneVariant)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
 
@@ -414,7 +414,7 @@ TEST(Resolve, DISABLED_DispatchResolvesOneVariant)
 }
 
 // The same graph on the other profile selects the same axis values (keys are per environment, so compare values).
-TEST(Resolve, DISABLED_BothProfilesSelectTheSameValues)
+TEST(Resolve, BothProfilesSelectTheSameValues)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
 
@@ -443,7 +443,7 @@ TEST(Resolve, DISABLED_BothProfilesSelectTheSameValues)
 
 // A draw: the vertex and fragment entry points, an interface pin and an enum pin. The compute axes are not relevant
 // to either stage, so they need no pin and give no LM205.
-TEST(Resolve, DISABLED_DrawResolvesBothStages)
+TEST(Resolve, DrawResolvesBothStages)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
     graph.Import(k_Backbuffer);
@@ -476,7 +476,7 @@ TEST(Resolve, DISABLED_DrawResolvesBothStages)
 }
 
 // A depth-only draw: the vertex entry point reads no axis, so nothing needs a pin.
-TEST(Resolve, DISABLED_DepthOnlyDrawNeedsNoPin)
+TEST(Resolve, DepthOnlyDrawNeedsNoPin)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
     graph.Import(k_Backbuffer);
@@ -500,7 +500,7 @@ TEST(Resolve, DISABLED_DepthOnlyDrawNeedsNoPin)
 }
 
 // LM201, module: the suggestion is the nearest module name.
-TEST(Resolve, DISABLED_UnknownModuleIsLM201)
+TEST(Resolve, UnknownModuleIsLM201)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
 
@@ -524,7 +524,7 @@ TEST(Resolve, DISABLED_UnknownModuleIsLM201)
 }
 
 // LM201, entry point: the suggestion is the nearest entry point of the module.
-TEST(Resolve, DISABLED_UnknownEntryPointIsLM201)
+TEST(Resolve, UnknownEntryPointIsLM201)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
 
@@ -547,7 +547,7 @@ TEST(Resolve, DISABLED_UnknownEntryPointIsLM201)
 }
 
 // LM202: a dispatch that names a vertex entry point.
-TEST(Resolve, DISABLED_DispatchOfAVertexEntryIsLM202)
+TEST(Resolve, DispatchOfAVertexEntryIsLM202)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
 
@@ -567,7 +567,7 @@ TEST(Resolve, DISABLED_DispatchOfAVertexEntryIsLM202)
 }
 
 // LM202: a draw whose fragment entry point is a compute entry point.
-TEST(Resolve, DISABLED_DrawOfAComputeEntryIsLM202)
+TEST(Resolve, DrawOfAComputeEntryIsLM202)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
     graph.Import(k_Backbuffer);
@@ -590,7 +590,7 @@ TEST(Resolve, DISABLED_DrawOfAComputeEntryIsLM202)
 }
 
 // The merge: a pass pin refines a graph pin on the same axis (the pass value wins, no error).
-TEST(Resolve, DISABLED_PassPinWinsOverGraphPin)
+TEST(Resolve, PassPinWinsOverGraphPin)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
     graph.Pin("TAPS", loom::AxisValue::Unsigned(1u));
@@ -614,7 +614,7 @@ TEST(Resolve, DISABLED_PassPinWinsOverGraphPin)
 }
 
 // The merge: a graph pin on an axis that one module declares is dropped for the other module, with no diagnostic.
-TEST(Resolve, DISABLED_GraphPinSkipsAModuleThatLacksTheAxis)
+TEST(Resolve, GraphPinSkipsAModuleThatLacksTheAxis)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
     graph.Pin("TAPS", loom::AxisValue::Unsigned(2u));
@@ -625,6 +625,7 @@ TEST(Resolve, DISABLED_GraphPinSkipsAModuleThatLacksTheAxis)
     {
         pass.Shader(k_OtherModule, "OtherCS");
         pass.Pin("INVERT", loom::AxisValue::Boolean(true));
+        pass.Pin("SMOOTH", loom::AxisValue::Boolean(false));
         pass.DispatchThreads(64, 1, 1);
     };
 
@@ -641,7 +642,7 @@ TEST(Resolve, DISABLED_GraphPinSkipsAModuleThatLacksTheAxis)
 }
 
 // LM206: a graph pin that no resolved module declares is a warning, and the graph still resolves.
-TEST(Resolve, DISABLED_UndeclaredGraphPinIsLM206)
+TEST(Resolve, UndeclaredGraphPinIsLM206)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
     graph.Pin("TAPZ", loom::AxisValue::Unsigned(2u));
@@ -668,7 +669,7 @@ TEST(Resolve, DISABLED_UndeclaredGraphPinIsLM206)
 
 // LM203: the pins together match no variant. WAVE_SIZE (pinned as Required) needs USE_WAVE_OPS on, and the pass pins
 // it off.
-TEST(Resolve, DISABLED_ContradictoryPinsAreLM203)
+TEST(Resolve, ContradictoryPinsAreLM203)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
 
@@ -693,7 +694,7 @@ TEST(Resolve, DISABLED_ContradictoryPinsAreLM203)
 // LM205 and the capability rule on a capable device. USE_WAVE_OPS takes true by the rule (no warning); the other
 // relevant axes take their declared defaults with one LM205 each: DOUBLE_PASS, TAPS, and WAVE_SIZE (active once the
 // rule turns the gate on). SHADE and CURVE are not relevant to ResolveCS, so they get no warning.
-TEST(Resolve, DISABLED_UnpinnedAxesTakeDefaultsOnACapableDevice)
+TEST(Resolve, UnpinnedAxesTakeDefaultsOnACapableDevice)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
     graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, ResolveCompute);
@@ -715,7 +716,7 @@ TEST(Resolve, DISABLED_UnpinnedAxesTakeDefaultsOnACapableDevice)
 
 // The same pass on a device without wave ops: ForDevice removes the wave variants, so USE_WAVE_OPS no longer varies
 // and WAVE_SIZE is inactive. Two LM205 warnings remain.
-TEST(Resolve, DISABLED_UnpinnedAxesTakeDefaultsWithoutWaveOps)
+TEST(Resolve, UnpinnedAxesTakeDefaultsWithoutWaveOps)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
     graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, ResolveCompute);
@@ -730,7 +731,7 @@ TEST(Resolve, DISABLED_UnpinnedAxesTakeDefaultsWithoutWaveOps)
 }
 
 // LM207: the pins ask for wave ops, and the device cannot run them.
-TEST(Resolve, DISABLED_PinnedWaveOpsOnADeviceWithoutThemIsLM207)
+TEST(Resolve, PinnedWaveOpsOnADeviceWithoutThemIsLM207)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
 
@@ -749,11 +750,94 @@ TEST(Resolve, DISABLED_PinnedWaveOpsOnADeviceWithoutThemIsLM207)
     RunResolve(graph, FakeDevice{ .Missing = WaveOnlyCapabilities() }, k_SpirvProfile, run);
 
     EXPECT_FALSE(run.Resolved.has_value());
-    EXPECT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM207);
+    ASSERT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM207);
+
+    // the pass key and the bundle's capability name, so the report says which pass and which capability
+    const loom::Diagnostic& diagnostic = run.Sink.Diagnostics()[0];
+    EXPECT_EQ(diagnostic.Pass.Hash, k_First.Hash);
+    EXPECT_FALSE(diagnostic.Binding.empty());
+}
+
+// Defaults on a technique gate pair. SMOOTH (default off) and SMOOTH_TAPS (default 4, active when SMOOTH is on) take
+// their defaults in the same round. Both go in as WhenActive, so the SMOOTH_TAPS default does not ask for the gate,
+// and the pass resolves with SMOOTH off. As Required, the two defaults contradict: a false LM203.
+TEST(Resolve, GatedDefaultDoesNotSwitchItsGateOn)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+
+    const auto build = [](loom::DispatchBuilder& pass)
+    {
+        pass.Shader(k_OtherModule, "OtherCS");
+        pass.Pin("INVERT", loom::AxisValue::Boolean(false));
+        pass.DispatchThreads(64, 1, 1);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, build);
+
+    ResolveRun run;
+    RunResolve(graph, FakeDevice{}, k_SpirvProfile, run);
+
+    ASSERT_TRUE(run.Resolved.has_value());
+    EXPECT_EQ(CountOf(run.Sink, loom::DiagnosticCode::LM203), 0);
+    EXPECT_GE(CountOf(run.Sink, loom::DiagnosticCode::LM205), 1);
+    EXPECT_EQ(ValueOf(TestIndex(k_OtherModule), run.Resolved->Passes[0].Variant, "SMOOTH").IntegralValue, 0u);
+}
+
+// LM203 carries Lodestone's suggestion: a misspelled enum case names the nearest declared case.
+TEST(Resolve, MisspelledEnumPinIsLM203WithSuggestion)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Import(k_Backbuffer);
+    graph.Declare(MakeImageOfTarget(k_Backbuffer));
+
+    const auto build = [](loom::DrawBuilder& pass)
+    {
+        pass.Shaders(k_Module, k_VertexEntry, k_FragmentEntry);
+        pass.Pin("SHADE", loom::AxisValue::Interface("ShadeWarm"));
+        pass.Pin("CURVE", loom::AxisValue::EnumCase("Filmik"));
+        pass.Color(0, k_Albedo, loom::ColorLoad::DontCare(), loom::AttachmentStore::Store, loom::BlendMode::Opaque);
+        pass.Draw(3, 1, 0, 0);
+    };
+
+    graph.AddDraw(k_First, k_EveryFrame, k_Graphics, build);
+
+    ResolveRun run;
+    RunResolve(graph, FakeDevice{}, k_SpirvProfile, run);
+
+    EXPECT_FALSE(run.Resolved.has_value());
+    ASSERT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM203);
+
+    const loom::Diagnostic& diagnostic = run.Sink.Diagnostics()[0];
+    EXPECT_EQ(diagnostic.Binding, "CURVE");
+    EXPECT_EQ(diagnostic.Suggestion, "Filmic");
+}
+
+// A graph pin on the gated axis WAVE_SIZE goes in as WhenActive. On a device without wave ops it constrains nothing,
+// so the pass resolves with wave ops off, and no LM207.
+TEST(Resolve, GraphPinOnAGatedAxisDoesNotSwitchTheGateOn)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Pin("WAVE_SIZE", loom::AxisValue::Unsigned(32u));
+
+    const auto build = [](loom::DispatchBuilder& pass)
+    {
+        ResolveCompute(pass);
+        pass.Pin("DOUBLE_PASS", loom::AxisValue::Boolean(false));
+        pass.Pin("TAPS", loom::AxisValue::Unsigned(1u));
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, build);
+
+    ResolveRun run;
+    RunResolve(graph, FakeDevice{ .Missing = WaveOnlyCapabilities() }, k_SpirvProfile, run);
+
+    ASSERT_TRUE(run.Resolved.has_value());
+    EXPECT_TRUE(run.Sink.Diagnostics().empty());
+    EXPECT_EQ(ValueOf(TestIndex(k_Module), run.Resolved->Passes[0].Variant, "USE_WAVE_OPS").IntegralValue, 0u);
 }
 
 // Every broken pass reports, not only the first one.
-TEST(Resolve, DISABLED_EveryBrokenPassReports)
+TEST(Resolve, EveryBrokenPassReports)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
 
