@@ -13,6 +13,7 @@
 #include "ShaderManifestDevice.hpp"
 #include "ShaderManifestIndex.hpp"
 #include "freeze_test_helpers.hpp"
+#include "ShaderLibrary.host.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <optional>
@@ -834,6 +835,48 @@ TEST(Resolve, GraphPinOnAGatedAxisDoesNotSwitchTheGateOn)
     ASSERT_TRUE(run.Resolved.has_value());
     EXPECT_TRUE(run.Sink.Diagnostics().empty());
     EXPECT_EQ(ValueOf(TestIndex(k_Module), run.Resolved->Passes[0].Variant, "USE_WAVE_OPS").IntegralValue, 0u);
+}
+
+// The generated host header (HOST_TYPES "math/ShaderHostTypes.hpp") against the bundle it came from. The header's own
+// static_asserts prove the offsets in C++; this proves that the sizes and binding names are the ones the cook reflected.
+TEST(HostHeader, MatchesTheReflectedLayout)
+{
+    namespace host = loom_test_shaders;
+    using Shapes = host::HostShapes<host::CookProfile::Spirv, lodestone::LayoutRule::Std430>;
+    using Settings = host::ResolveParams<host::CookProfile::Spirv, lodestone::LayoutRule::Std140>;
+
+    uint32_t shapesStride = 0u;
+    uint32_t settingsSize = 0u;
+
+    const lodestone::manifest::EnvironmentView& other = TestIndex(k_OtherModule).View();
+
+    for (const lodestone::manifest::ResolvedResource& resource : other.VariantAt(0u).EntryPoint(0u).Layout())
+    {
+        if (resource.Name() == host::LoomResolveOther::OtherCS::Shapes)
+        {
+            shapesStride = resource.ElementStride();
+        }
+    }
+
+    const lodestone::manifest::EnvironmentView& main = TestIndex(k_Module).View();
+    const auto computeEntry = main.Module().FindEntryPointIndex(k_ComputeEntry);
+    ASSERT_TRUE(computeEntry.has_value());
+
+    for (const lodestone::manifest::ResolvedResource& resource : main.VariantAt(0u).EntryPoint(*computeEntry).Layout())
+    {
+        if (resource.Name() == host::LoomResolveTest::ResolveCS::Settings)
+        {
+            settingsSize = resource.ByteSize();
+        }
+    }
+
+    EXPECT_EQ(shapesStride, static_cast<uint32_t>(sizeof(Shapes)));
+    EXPECT_EQ(settingsSize, static_cast<uint32_t>(sizeof(Settings)));
+
+    // the storage matrix fills the packed field as is, rows first
+    Shapes shapes{};
+    shapes.world = math::Float4x4::Identity();
+    EXPECT_EQ(sizeof(shapes.world), 64u);
 }
 
 // Every broken pass reports, not only the first one.

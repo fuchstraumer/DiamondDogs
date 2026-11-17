@@ -59,19 +59,19 @@ struct ResolveParams
     float Scale;
 };
 
-ConstantBuffer<ResolveParams> Params;
+ConstantBuffer<ResolveParams> Settings;
 RWStructuredBuffer<float> Output;
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void ResolveCS(uint3 threadId : SV_DispatchThreadID)
 {
-    if (threadId.x >= Params.Count)
+    if (threadId.x >= Settings.Count)
     {
         return;
     }
 
-    float value = float(threadId.x) * Params.Scale;
+    float value = float(threadId.x) * Settings.Scale;
 
     for (uint tap = 0u; tap < TAPS; ++tap)
     {

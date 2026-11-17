@@ -24,8 +24,11 @@ target_include_directories(loom_tests PRIVATE "${CMAKE_SOURCE_DIR}/modules/Rende
 lodestone_add_shader_cook(loom_test_shaders
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
     TARGETS spirv spirv-modern-mutable
+    HOST_TYPES "math/ShaderHostTypes.hpp"
     MODULES shaders/LoomResolveTest.slang shaders/LoomResolveOther.slang)
 set_target_properties(loom_test_shaders PROPERTIES FOLDER "Tests/Unit Tests")
 add_dependencies(loom_tests loom_test_shaders)
 target_compile_definitions(loom_tests PRIVATE
     "LOOM_TEST_BUNDLE=\"$<TARGET_PROPERTY:loom_test_shaders,LODESTONE_MANIFEST>\"")
+# The generated host header sits beside the manifest
+target_include_directories(loom_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/cooked")
