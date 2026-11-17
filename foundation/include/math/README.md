@@ -3,25 +3,34 @@
 This library enforces a strict separation between **Storage Types** and **SIMD Execution Types**. To avoid performance footguns and compiler errors, strictly adhere to the following rules when interacting with this API.
 
 ## 1. Storage vs. SIMD Types (The Golden Rule)
+`MathStorage.hpp` has the storage types with no SIMD backend. Include it in code, such as generated shader host headers, that only stores and sends data.
+
 *   **Storage Types:** `Float2`, `Float3`, `Float4`, `Float3x3`, `Float4x3`, `Float4x4`.
 *   **SIMD Types:** `Vector`, `Matrix`, `Quaternion`, `VectorMask`.
 
 **INVARIANT:** **NEVER** store `Vector`, `Matrix`, or `Quaternion` inside classes, structs, or standard containers. They are 16-byte aligned hardware registers meant exclusively for transient, hot-loop math. Always persist data using Storage Types.
 
-## 2. The `auto` Proxy Trap (DANGER)
-Methods like `Float4x4::Row()`, `Float4x4::Column()`, and the free function `FromVector()` return lightweight **Proxy Objects**, not concrete types. 
+## 2. Row and Column Accessors
+`Row()` and `Column()` on the storage matrices return a storage type by value. No proxy objects exist, so `auto` is safe there.
 
-**INVARIANT:** **NEVER** use `auto` with these functions. You will capture a dangling proxy instead of the mathematical value, leading to compiler errors or undefined behavior.
+| Matrix | `Row(i)` | `Column(i)` |
+|---|---|---|
+| `Float3x3` | `Float3` | `Float3` |
+| `Float4x3` | `Float3` | `Float4` |
+| `Float4x4` | `Float4` | `Float4` |
+
+To get a `Vector`, convert the result with `ToVector(m.Row(0))`, or call `RowVector(m, 0)` and `ColumnVector(m, 0)`. A `Float3` row or column becomes a `Vector` with `w = 0`.
+
+**INVARIANT:** `FromVector()` still returns a proxy (`detail::FromVectorProxy`). **NEVER** use `auto` with it. Name the target type.
 
 ```cpp
-// WRONG: Captures a RowProxy or FromVectorProxy
-auto myRow = mat.Row(0); 
+// WRONG: Captures a FromVectorProxy
 auto myPos = FromVector(simdVec);
 
-// RIGHT: Rely on implicit conversion to the explicit target type
-Float3 myRow = mat.Row(0);
-Vector myRowVec = mat.Row(0);
+// RIGHT: Name the target type
 Float3 myPos = FromVector(simdVec);
+Float4 myRow = mat.Row(0);
+Vector myRowVec = RowVector(mat, 0);
 ```
 
 ## 3. When to use SIMD (The Rule of Three)
@@ -50,6 +59,8 @@ If you need true perspective-correct homogeneous math (like `TransformCoord`), m
 ```cpp
 Vector v = ToVector(f3);
 Matrix m = ToMatrix(f4x4);
+Vector row = RowVector(f4x4, 0);       // same as ToVector(f4x4.Row(0))
+Vector column = ColumnVector(f4x4, 0); // same as ToVector(f4x4.Column(0))
 ```
 
 **To Storage (End of Math):**

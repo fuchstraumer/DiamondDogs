@@ -55,8 +55,13 @@ set(FOUNDATION_TEST_SOURCES
     
     # Math tests
     math/MathTests.cpp
+    math/MathStorageTests.cpp
 
 )
+
+# The shared PCH includes DirectXMath.h, which would hide a SIMD include in MathStorage.hpp.
+# This file must compile without it.
+set_source_files_properties(math/MathStorageTests.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
 # Create test target
 add_unit_test_target(foundation_tests 
