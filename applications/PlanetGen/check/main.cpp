@@ -1,0 +1,904 @@
+#include "BootResult.hpp"
+#include "CommandBuffer.hpp"
+#include "CommandPool.hpp"
+#include "ContentStage.hpp"
+#include "CoreStage.hpp"
+#include "Device.hpp"
+#include "DeviceConfig.hpp"
+#include "DeviceRequirements.hpp"
+#include "DeviceStage.hpp"
+#include "Fence.hpp"
+#include "GpuBuffers.hpp"
+#include "GpuStage.hpp"
+#include "LaunchStage.hpp"
+#include "LoadedBundle.hpp"
+#include "ModuleDescriptor.hpp"
+#include "PlanetShaders.hpp"
+#include "Queue.hpp"
+#include "ReferenceSet.hpp"
+#include "ResourceContext.hpp"
+#include "RhiAssert.hpp"
+#include "RhiSystem.hpp"
+#include "RhiTypes.hpp"
+#include "ShaderBundle.hpp"
+#include "ShaderLibrary.hpp"
+#include "SpineNeeds.hpp"
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <filesystem>
+#include <format>
+#include <memory>
+#include <numbers>
+#include <optional>
+#include <print>
+#include <ranges>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
+
+// PlanetGenCheck: runs the PlanetLab Slang passes through Lodestone and compares each result with the reference files
+// of applications/PlanetLab (write_gpu_reference.py). The checks and their tolerances are the ones of the pass
+// specification.
+//
+//     PlanetGenCheck --reference=<folder> [--checks=map,owners,front,crust]
+//
+// Each check runs once for each crust flag storage (bytes, words) that the device can run. Exit 0 only when every
+// check passes. Validation is Full, so also search the output for validation messages.
+namespace
+{
+    constexpr std::string_view k_ReferenceFlag{ "--reference=" };
+    constexpr std::string_view k_ChecksFlag{ "--checks=" };
+    constexpr std::array<std::string_view, 4> k_AllChecks{ "map", "owners", "front", "crust" };
+    constexpr std::array<planet::CrustFlagChoice, 2> k_FlagStorages{ planet::CrustFlagChoice::Bytes, planet::CrustFlagChoice::Words };
+    constexpr std::array<std::string_view, 6> k_AllEntryPoints{ "MapProbeCS", "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS" };
+
+    constexpr bootstrap::BundleRequest k_Bundles[]
+    {
+        bootstrap::BundleRequest
+        {
+            .FileName = "ShaderLibrary.ldmanifest",
+            .BuildTreePath = PLANET_GEN_MANIFEST,
+            .Profile = rhi::k_SpirvProfileName,
+        },
+    };
+
+    struct GpuContext
+    {
+        rhi::Device& Device;
+        ResourceContext& Resources;
+        const rhi::ShaderLibrary& Library;
+        rhi::CommandPool& Pool;
+        const bootstrap::DeviceFilter Filter;
+    };
+
+    // prints a boot failure to stderr
+    [[nodiscard]] bool Booted(const bootstrap::BootResult& result)
+    {
+        if (!result.Succeeded())
+        {
+            std::println(stderr, "{}", bootstrap::FormatFailure(result));
+        }
+
+        return result.Succeeded();
+    }
+
+    template<typename T>
+    [[nodiscard]] std::span<const std::byte> Bytes(const std::vector<T>& values) noexcept
+    {
+        return std::as_bytes(std::span{ values });
+    }
+
+    template<typename T>
+    [[nodiscard]] std::vector<T> FromBytes(const std::vector<std::byte>& bytes, size_t count)
+    {
+        std::vector<T> values(count);
+        std::memcpy(values.data(), bytes.data(), count * sizeof(T));
+        return values;
+    }
+
+    // records the passes, then the readback copies, and waits for the fence
+    template<typename Record>
+    [[nodiscard]] bool Submit(GpuContext& gpu, const planet::GpuBuffers& buffers, const Record& record)
+    {
+        RhiAssert(gpu.Pool.Reset());
+        rhi::CommandBuffer commandBuffer(gpu.Pool.GetCommandBuffer(0));
+        RhiAssert(commandBuffer.Begin());
+        record(commandBuffer);
+        buffers.RecordReadbackCopies(commandBuffer);
+        RhiAssert(commandBuffer.End());
+
+        const rhi::CommandBufferHandle handle = commandBuffer.Handle();
+        rhi::Fence fence(gpu.Device.Handle());
+        RhiAssert(rhi::QueueSubmit(gpu.Device.GetGeneralQueue(), rhi::SubmitInfo{ {}, std::span{ &handle, 1 }, {} }, fence.Handle()));
+
+        if (!fence.Wait())
+        {
+            std::println(stderr, "the submit did not finish");
+            return false;
+        }
+
+        return true;
+    }
+
+    // the creation of shaders and buffers prints its own cause, so a check only has to stop
+    [[nodiscard]] bool Failed(planet::PlanetGpuError error)
+    {
+        return error != planet::PlanetGpuError::Success;
+    }
+
+    // lattice point `index` of `count`, in double: the exact point, for the distance test of the map check
+    [[nodiscard]] std::array<double, 3> LatticeDouble(int64_t index, int64_t count)
+    {
+        const double goldenAngle = std::numbers::pi * (3.0 - std::sqrt(5.0));
+        const double z = 1.0 - (2.0 * static_cast<double>(index) + 1.0) / static_cast<double>(count);
+        const double radius = std::sqrt(std::max(1.0 - z * z, 0.0));
+        const double angle = (static_cast<double>(index) + 0.5) * goldenAngle;
+        return { radius * std::cos(angle), radius * std::sin(angle), z };
+    }
+
+    [[nodiscard]] double Distance(const std::array<double, 3>& point, const float* direction)
+    {
+        const double dx = point[0] - static_cast<double>(direction[0]);
+        const double dy = point[1] - static_cast<double>(direction[1]);
+        const double dz = point[2] - static_cast<double>(direction[2]);
+        return std::sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    // numpy.isclose(actual, expected, rtol, atol), with inf equal to inf
+    [[nodiscard]] bool Close(float actual, float expected, float relative, float absolute)
+    {
+        if (actual == expected)
+        {
+            return true;
+        }
+
+        return std::fabs(actual - expected) <= absolute + relative * std::fabs(expected);
+    }
+
+    template<typename T>
+    [[nodiscard]] std::vector<std::byte> ToByteVector(const std::vector<T>& values)
+    {
+        const std::span<const std::byte> bytes = Bytes(values);
+        return std::vector<std::byte>(bytes.begin(), bytes.end());
+    }
+
+    template<typename T>
+    [[nodiscard]] int64_t CountDifferent(const std::vector<T>& actual, const std::vector<T>& expected)
+    {
+        int64_t different = 0;
+
+        for (size_t index = 0; index < expected.size(); ++index)
+        {
+            if (std::memcmp(&actual[index], &expected[index], sizeof(T)) != 0)
+            {
+                ++different;
+            }
+        }
+
+        return different;
+    }
+
+    // compares `expected.size() / element_size` elements bit for bit
+    [[nodiscard]] int64_t CountDifferentElements(std::span<const std::byte> actual, std::span<const std::byte> expected, size_t element_size)
+    {
+        int64_t different = 0;
+
+        for (size_t offset = 0; offset < expected.size(); offset += element_size)
+        {
+            if (std::memcmp(actual.data() + offset, expected.data() + offset, element_size) != 0)
+            {
+                ++different;
+            }
+        }
+
+        return different;
+    }
+
+    [[nodiscard]] size_t FlagElementSize(planet::CrustFlagStorage storage) noexcept
+    {
+        return storage == planet::CrustFlagStorage::Bytes ? sizeof(uint8_t) : sizeof(uint32_t);
+    }
+
+    // the uint8 flag file `name` in the storage that the variant reads: one byte or one word for each cell
+    [[nodiscard]] std::optional<std::vector<std::byte>> FlagArray(const planet::ReferenceSet& reference, std::string_view name, planet::CrustFlagStorage storage)
+    {
+        std::optional<std::vector<uint8_t>> flags = reference.Bytes(name);
+
+        if (!flags.has_value())
+        {
+            return std::nullopt;
+        }
+
+        if (storage == planet::CrustFlagStorage::Bytes)
+        {
+            return ToByteVector(*flags);
+        }
+
+        return ToByteVector(std::vector<uint32_t>(flags->begin(), flags->end()));
+    }
+
+    [[nodiscard]] bool AddFlags(planet::GpuBuffers& buffers, const planet::ReferenceSet& reference, planet::CrustFlagStorage storage,
+                                std::string_view buffer, std::string_view file, bool readable)
+    {
+        std::optional<std::vector<std::byte>> flags = FlagArray(reference, file, storage);
+        return flags.has_value() && buffers.AddStorage(buffer, *flags, readable) == planet::PlanetGpuError::Success;
+    }
+
+    // creates the programs of one check in the storage that the run asked for
+    [[nodiscard]] planet::PlanetGpuResult<std::unique_ptr<planet::PlanetShaders>> CreateShaders(GpuContext& gpu,
+                                                                                                planet::CrustFlagChoice crust_flags,
+                                                                                                std::span<const std::string_view> entry_points)
+    {
+        return planet::PlanetShaders::Create(gpu.Device, gpu.Library, gpu.Filter, crust_flags, entry_points);
+    }
+
+    // Pass 0: each direction maps to the expected lattice index, or to a point at almost the same distance
+    [[nodiscard]] bool CheckMap(GpuContext& gpu, const planet::ReferenceSet& reference, planet::CrustFlagChoice crust_flags)
+    {
+        constexpr std::array<std::string_view, 1> k_EntryPoints{ "MapProbeCS" };
+        std::optional<std::vector<float>> directions = reference.Floats("map_directions");
+        std::optional<std::vector<uint32_t>> expected = reference.Words("map_nearest");
+
+        if (!directions.has_value() || !expected.has_value())
+        {
+            return false;
+        }
+
+        planet::PlanetGpuResult<std::unique_ptr<planet::PlanetShaders>> shaders = CreateShaders(gpu, crust_flags, k_EntryPoints);
+
+        if (!shaders.has_value())
+        {
+            return false;
+        }
+
+        const uint32_t rowCount = static_cast<uint32_t>(expected->size());
+        const std::array<planet::UniformValue, 2> constants
+        {
+            planet::UniformUint("DirectionCount", rowCount),
+            planet::UniformUint("LatticeCount", static_cast<uint32_t>(reference.PointCount())),
+        };
+        planet::PlanetGpuResult<std::vector<std::byte>> constantBytes = (*shaders)->UniformBytes("MapProbeCS", "MapProbeConstants", constants);
+
+        if (!constantBytes.has_value())
+        {
+            return false;
+        }
+
+        planet::GpuBuffers buffers(gpu.Resources);
+        const std::vector<uint32_t> zeros(rowCount, 0u);
+
+        if (Failed(buffers.AddUniform("MapProbeConstants", *constantBytes)) ||
+            Failed(buffers.AddStorage("MapDirections", Bytes(*directions), false)) ||
+            Failed(buffers.AddStorage("MapResults", Bytes(zeros), true)))
+        {
+            return false;
+        }
+
+        planet::PlanetGpuResult<std::unique_ptr<planet::PassBindings>> bindings = (*shaders)->Bind(buffers.Bound());
+
+        if (!bindings.has_value())
+        {
+            return false;
+        }
+
+        const auto record = [&](rhi::CommandBuffer& command_buffer)
+        {
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "MapProbeCS", rowCount);
+        };
+
+        if (!Submit(gpu, buffers, record))
+        {
+            return false;
+        }
+
+        planet::PlanetGpuResult<std::vector<std::byte>> resultBytes = buffers.Read("MapResults");
+
+        if (!resultBytes.has_value())
+        {
+            return false;
+        }
+
+        const std::vector<uint32_t> actual = FromBytes<uint32_t>(*resultBytes, rowCount);
+        const double spacing = std::sqrt(4.0 * std::numbers::pi / static_cast<double>(reference.PointCount()));
+        int64_t different = 0;
+        int64_t ties = 0;
+
+        for (size_t row = 0; row < actual.size(); ++row)
+        {
+            if (actual[row] == (*expected)[row])
+            {
+                continue;
+            }
+
+            const float* direction = directions->data() + row * 3u;
+            const double gpuDistance = Distance(LatticeDouble(actual[row], reference.PointCount()), direction);
+            const double referenceDistance = Distance(LatticeDouble((*expected)[row], reference.PointCount()), direction);
+            ++different;
+
+            if (std::fabs(gpuDistance - referenceDistance) <= 0.05 * spacing)
+            {
+                ++ties;
+            }
+        }
+
+        const int64_t wrong = different - ties;
+        std::println("map: {} directions, {} differ, {} near ties, {} wrong", rowCount, different, ties, wrong);
+        return wrong == 0 && ties < 10;
+    }
+
+    // Pass 1: the best two plates at each point. A float32 rotation can move a few points at cell borders
+    [[nodiscard]] bool CheckOwners(GpuContext& gpu, const planet::ReferenceSet& reference, planet::CrustFlagChoice crust_flags)
+    {
+        constexpr std::array<std::string_view, 1> k_EntryPoints{ "OwnersCS" };
+        constexpr std::array<std::string_view, 4> k_Outputs{ "BestPlate", "BestCell", "SecondPlate", "SecondCell" };
+        constexpr std::array<std::string_view, 4> k_Expected{ "owners_best_plate", "owners_best_cell", "owners_second_plate", "owners_second_cell" };
+        const int32_t pointCount = reference.PointCount();
+        std::optional<std::vector<float>> rotation = reference.Floats("rotation");
+        std::optional<std::vector<float>> birth = reference.Floats("ref_birth");
+        std::optional<std::vector<int32_t>> previous = reference.Ints("previous_plate");
+
+        if (!rotation.has_value() || !birth.has_value() || !previous.has_value())
+        {
+            return false;
+        }
+
+        planet::PlanetGpuResult<std::unique_ptr<planet::PlanetShaders>> shaders = CreateShaders(gpu, crust_flags, k_EntryPoints);
+
+        if (!shaders.has_value())
+        {
+            return false;
+        }
+
+        const std::array<planet::UniformValue, 2> constants
+        {
+            planet::UniformUint("PointCount", static_cast<uint32_t>(pointCount)),
+            planet::UniformUint("PlateCount", static_cast<uint32_t>(reference.PlateCount())),
+        };
+        planet::PlanetGpuResult<std::vector<std::byte>> constantBytes = (*shaders)->UniformBytes("OwnersCS", "Params", constants);
+
+        if (!constantBytes.has_value())
+        {
+            return false;
+        }
+
+        planet::GpuBuffers buffers(gpu.Resources);
+        const std::vector<int32_t> zeros(static_cast<size_t>(pointCount), 0);
+        const planet::CrustFlagStorage storage = (*shaders)->CrustFlags();
+        const planet::CrustFlagBuffers flagNames = planet::CrustFlagBufferNames(storage);
+
+        if (Failed(buffers.AddUniform("Params", *constantBytes)) ||
+            Failed(buffers.AddStorage("Rotation", Bytes(*rotation), false)) ||
+            !AddFlags(buffers, reference, storage, flagNames.Alive, "ref_alive", false) ||
+            !AddFlags(buffers, reference, storage, flagNames.Continental, "ref_continental", false) ||
+            Failed(buffers.AddStorage("CrustBirth", Bytes(*birth), false)) ||
+            Failed(buffers.AddStorage("PreviousPlate", Bytes(*previous), false)))
+        {
+            return false;
+        }
+
+        for (const std::string_view output : k_Outputs)
+        {
+            if (Failed(buffers.AddStorage(output, Bytes(zeros), true)))
+            {
+                return false;
+            }
+        }
+
+        planet::PlanetGpuResult<std::unique_ptr<planet::PassBindings>> bindings = (*shaders)->Bind(buffers.Bound());
+
+        if (!bindings.has_value())
+        {
+            return false;
+        }
+
+        const auto record = [&](rhi::CommandBuffer& command_buffer)
+        {
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "OwnersCS", static_cast<uint32_t>(pointCount));
+        };
+
+        if (!Submit(gpu, buffers, record))
+        {
+            return false;
+        }
+
+        std::vector<bool> differs(static_cast<size_t>(pointCount), false);
+
+        for (size_t output = 0; output < k_Outputs.size(); ++output)
+        {
+            planet::PlanetGpuResult<std::vector<std::byte>> resultBytes = buffers.Read(k_Outputs[output]);
+            std::optional<std::vector<int32_t>> expected = reference.Ints(k_Expected[output]);
+
+            if (!resultBytes.has_value() || !expected.has_value())
+            {
+                return false;
+            }
+
+            const std::vector<int32_t> actual = FromBytes<int32_t>(*resultBytes, static_cast<size_t>(pointCount));
+
+            for (size_t point = 0; point < actual.size(); ++point)
+            {
+                if (actual[point] != (*expected)[point])
+                {
+                    differs[point] = true;
+                }
+            }
+        }
+
+        const int64_t different = std::ranges::count(differs, true);
+        const int64_t allowed = std::max<int64_t>(pointCount / 10000, 1);
+        std::println("owners: {} points differ (allowed fewer than {})", different, allowed);
+        return different < allowed;
+    }
+
+    // Pass 2: one plate on top for each pair of ocean plates. Integer arithmetic only, so the result is exact
+    [[nodiscard]] bool CheckFront(GpuContext& gpu, const planet::ReferenceSet& reference, planet::CrustFlagChoice crust_flags)
+    {
+        constexpr std::array<std::string_view, 2> k_EntryPoints{ "CountVotesCS", "SwapToMajorityCS" };
+        constexpr std::array<std::string_view, 4> k_Outputs{ "BestPlate", "BestCell", "SecondPlate", "SecondCell" };
+        constexpr std::array<std::string_view, 4> k_Inputs{ "owners_best_plate", "owners_best_cell", "owners_second_plate", "owners_second_cell" };
+        constexpr std::array<std::string_view, 4> k_Expected{ "front_best_plate", "front_best_cell", "front_second_plate", "front_second_cell" };
+        const int32_t pointCount = reference.PointCount();
+        const int32_t plateCount = reference.PlateCount();
+        planet::PlanetGpuResult<std::unique_ptr<planet::PlanetShaders>> shaders = CreateShaders(gpu, crust_flags, k_EntryPoints);
+
+        if (!shaders.has_value())
+        {
+            return false;
+        }
+
+        const std::array<planet::UniformValue, 2> constants
+        {
+            planet::UniformUint("PointCount", static_cast<uint32_t>(pointCount)),
+            planet::UniformUint("PlateCount", static_cast<uint32_t>(plateCount)),
+        };
+        planet::PlanetGpuResult<std::vector<std::byte>> constantBytes = (*shaders)->UniformBytes("CountVotesCS", "Params", constants);
+
+        if (!constantBytes.has_value())
+        {
+            return false;
+        }
+
+        planet::GpuBuffers buffers(gpu.Resources);
+        const std::vector<uint32_t> votes(static_cast<size_t>(plateCount * plateCount), 0u);
+        const planet::CrustFlagStorage storage = (*shaders)->CrustFlags();
+
+        if (Failed(buffers.AddUniform("Params", *constantBytes)) ||
+            !AddFlags(buffers, reference, storage, planet::CrustFlagBufferNames(storage).Continental, "ref_continental", false) ||
+            Failed(buffers.AddStorage("PairVotes", Bytes(votes), false)) ||
+            Failed(buffers.AddStorage("LowVotes", Bytes(votes), false)))
+        {
+            return false;
+        }
+
+        for (size_t output = 0; output < k_Outputs.size(); ++output)
+        {
+            std::optional<std::vector<int32_t>> input = reference.Ints(k_Inputs[output]);
+
+            if (!input.has_value() || Failed(buffers.AddStorage(k_Outputs[output], Bytes(*input), true)))
+            {
+                return false;
+            }
+        }
+
+        planet::PlanetGpuResult<std::unique_ptr<planet::PassBindings>> bindings = (*shaders)->Bind(buffers.Bound());
+
+        if (!bindings.has_value())
+        {
+            return false;
+        }
+
+        const auto record = [&](rhi::CommandBuffer& command_buffer)
+        {
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "CountVotesCS", static_cast<uint32_t>(pointCount));
+            planet::RecordComputeBarrier(command_buffer);
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "SwapToMajorityCS", static_cast<uint32_t>(pointCount));
+        };
+
+        if (!Submit(gpu, buffers, record))
+        {
+            return false;
+        }
+
+        int64_t different = 0;
+
+        for (size_t output = 0; output < k_Outputs.size(); ++output)
+        {
+            planet::PlanetGpuResult<std::vector<std::byte>> resultBytes = buffers.Read(k_Outputs[output]);
+            std::optional<std::vector<int32_t>> expected = reference.Ints(k_Expected[output]);
+
+            if (!resultBytes.has_value() || !expected.has_value())
+            {
+                return false;
+            }
+
+            different += CountDifferent(FromBytes<int32_t>(*resultBytes, static_cast<size_t>(pointCount)), *expected);
+        }
+
+        std::println("front: {} values differ", different);
+        return different == 0;
+    }
+
+    enum class ArrayForm : uint8_t
+    {
+        Invalid = 0,
+        Int,
+        Float,
+        Flag,
+    };
+
+    struct CrustArray
+    {
+        std::string_view Buffer;
+        std::string_view Input;
+        std::string_view Expected;
+        ArrayForm Form{ ArrayForm::Invalid };
+    };
+
+    // a crust array as the shader stores it: a flag in the variant's storage, an int8 array widened to int
+    [[nodiscard]] std::optional<std::vector<std::byte>> ReadCrustArray(const planet::ReferenceSet& reference, std::string_view name, ArrayForm form,
+                                                                       planet::CrustFlagStorage storage)
+    {
+        if (form == ArrayForm::Flag)
+        {
+            return FlagArray(reference, name, storage);
+        }
+
+        if (form == ArrayForm::Int)
+        {
+            std::optional<std::vector<int32_t>> ints = reference.Ints(name);
+            return ints.has_value() ? std::optional{ ToByteVector(*ints) } : std::nullopt;
+        }
+
+        std::optional<std::vector<float>> floats = reference.Floats(name);
+        return floats.has_value() ? std::optional{ ToByteVector(*floats) } : std::nullopt;
+    }
+
+    // Pass 3: new crust at the gaps, removal under subduction fronts, and the front values. The crust flags use the
+    // storage of the variant. Integer and crust results are exact; the front values allow a relative 1e-4
+    [[nodiscard]] bool CheckCrust(GpuContext& gpu, const planet::ReferenceSet& reference, planet::CrustFlagChoice crust_flags)
+    {
+        constexpr std::array<std::string_view, 2> k_EntryPoints{ "FillGapsCS", "RemoveSubductedCS" };
+        constexpr std::array<std::string_view, 4> k_FrontInputs{ "BestPlate", "BestCell", "SecondPlate", "SecondCell" };
+        constexpr std::array<std::string_view, 4> k_FrontFiles{ "front_best_plate", "front_best_cell", "front_second_plate", "front_second_cell" };
+        constexpr std::array<std::string_view, 3> k_FrontFloats{ "FrontStrength", "FrontSpeed", "FrontSlabAge" };
+        constexpr std::array<std::string_view, 3> k_FrontFloatFiles{ "front_strength", "front_speed", "front_slab_age" };
+        const int32_t pointCount = reference.PointCount();
+        planet::PlanetGpuResult<std::unique_ptr<planet::PlanetShaders>> shaders = CreateShaders(gpu, crust_flags, k_EntryPoints);
+
+        if (!shaders.has_value())
+        {
+            return false;
+        }
+
+        const planet::CrustFlagStorage storage = (*shaders)->CrustFlags();
+        const planet::CrustFlagBuffers flagNames = planet::CrustFlagBufferNames(storage);
+        const std::array<CrustArray, 6> crust
+        {
+            CrustArray{ flagNames.Alive, "ref_alive", "p3_ref_alive", ArrayForm::Flag },
+            CrustArray{ flagNames.Continental, "ref_continental", "p3_ref_continental", ArrayForm::Flag },
+            CrustArray{ "CrustBirth", "ref_birth", "p3_ref_birth", ArrayForm::Float },
+            CrustArray{ "CrustRelief", "ref_relief", "p3_ref_relief", ArrayForm::Float },
+            CrustArray{ "CrustOrogeny", "ref_orogeny", "p3_ref_orogeny", ArrayForm::Int },
+            CrustArray{ "CrustOrogenyTime", "ref_orogeny_time", "p3_ref_orogeny_time", ArrayForm::Float },
+        };
+
+        const std::array<planet::UniformValue, 2> constants
+        {
+            planet::UniformUint("PointCount", static_cast<uint32_t>(pointCount)),
+            planet::UniformUint("PlateCount", static_cast<uint32_t>(reference.PlateCount())),
+        };
+        const std::array<planet::UniformValue, 1> passConstants{ planet::UniformFloat("Time", reference.Time()) };
+        planet::PlanetGpuResult<std::vector<std::byte>> constantBytes = (*shaders)->UniformBytes("FillGapsCS", "Params", constants);
+        planet::PlanetGpuResult<std::vector<std::byte>> passBytes = (*shaders)->UniformBytes("FillGapsCS", "Pass3Constants", passConstants);
+        std::optional<std::vector<float>> rotation = reference.Floats("rotation");
+        std::optional<std::vector<int32_t>> previous = reference.Ints("previous_plate");
+        std::optional<std::vector<float>> poles = reference.Floats("poles");
+        std::optional<std::vector<float>> rates = reference.Floats("rates");
+
+        if (!constantBytes.has_value() || !passBytes.has_value() || !rotation.has_value() || !previous.has_value() ||
+            !poles.has_value() || !rates.has_value())
+        {
+            return false;
+        }
+
+        planet::GpuBuffers buffers(gpu.Resources);
+        const std::vector<uint32_t> zeros(static_cast<size_t>(pointCount), 0u);
+
+        if (Failed(buffers.AddUniform("Params", *constantBytes)) ||
+            Failed(buffers.AddUniform("Pass3Constants", *passBytes)) ||
+            Failed(buffers.AddStorage("Rotation", Bytes(*rotation), false)) ||
+            Failed(buffers.AddStorage("PreviousPlate", Bytes(*previous), false)) ||
+            Failed(buffers.AddStorage("Poles", Bytes(*poles), false)) ||
+            Failed(buffers.AddStorage("Rates", Bytes(*rates), false)) ||
+            Failed(buffers.AddStorage("Pass3Plate", Bytes(zeros), true)) ||
+            Failed(buffers.AddStorage("Pass3Cell", Bytes(zeros), true)) ||
+            Failed(buffers.AddStorage("FrontSubduction", Bytes(zeros), true)))
+        {
+            return false;
+        }
+
+        for (size_t input = 0; input < k_FrontInputs.size(); ++input)
+        {
+            std::optional<std::vector<int32_t>> values = reference.Ints(k_FrontFiles[input]);
+
+            if (!values.has_value() || Failed(buffers.AddStorage(k_FrontInputs[input], Bytes(*values), false)))
+            {
+                return false;
+            }
+        }
+
+        for (const std::string_view output : k_FrontFloats)
+        {
+            if (Failed(buffers.AddStorage(output, Bytes(zeros), true)))
+            {
+                return false;
+            }
+        }
+
+        for (const CrustArray& array : crust)
+        {
+            std::optional<std::vector<std::byte>> input = ReadCrustArray(reference, array.Input, array.Form, storage);
+
+            if (!input.has_value() || Failed(buffers.AddStorage(array.Buffer, *input, true)))
+            {
+                return false;
+            }
+        }
+
+        planet::PlanetGpuResult<std::unique_ptr<planet::PassBindings>> bindings = (*shaders)->Bind(buffers.Bound());
+
+        if (!bindings.has_value())
+        {
+            return false;
+        }
+
+        const auto record = [&](rhi::CommandBuffer& command_buffer)
+        {
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "FillGapsCS", static_cast<uint32_t>(pointCount));
+            planet::RecordComputeBarrier(command_buffer);
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "RemoveSubductedCS", static_cast<uint32_t>(pointCount));
+        };
+
+        if (!Submit(gpu, buffers, record))
+        {
+            return false;
+        }
+
+        bool passed = true;
+
+        const auto report = [&passed](std::string_view name, int64_t different)
+        {
+            std::println("crust {}: {} differ", name, different);
+            passed = passed && different == 0;
+        };
+
+        for (const auto& [buffer, file] : { std::pair{ "Pass3Plate", "p3_plate" }, std::pair{ "Pass3Cell", "p3_cell" }, std::pair{ "FrontSubduction", "front_subduction" } })
+        {
+            planet::PlanetGpuResult<std::vector<std::byte>> resultBytes = buffers.Read(buffer);
+            std::optional<std::vector<int32_t>> expected = reference.Ints(file);
+
+            if (!resultBytes.has_value() || !expected.has_value())
+            {
+                return false;
+            }
+
+            report(file, CountDifferent(FromBytes<int32_t>(*resultBytes, static_cast<size_t>(pointCount)), *expected));
+        }
+
+        for (const CrustArray& array : crust)
+        {
+            planet::PlanetGpuResult<std::vector<std::byte>> resultBytes = buffers.Read(array.Buffer);
+            std::optional<std::vector<std::byte>> expected = ReadCrustArray(reference, array.Expected, array.Form, storage);
+
+            if (!resultBytes.has_value() || !expected.has_value())
+            {
+                return false;
+            }
+
+            const size_t elementSize = array.Form == ArrayForm::Flag ? FlagElementSize(storage) : sizeof(uint32_t);
+            report(array.Expected, CountDifferentElements(*resultBytes, *expected, elementSize));
+        }
+
+        for (size_t output = 0; output < k_FrontFloats.size(); ++output)
+        {
+            planet::PlanetGpuResult<std::vector<std::byte>> resultBytes = buffers.Read(k_FrontFloats[output]);
+            std::optional<std::vector<float>> expected = reference.Floats(k_FrontFloatFiles[output]);
+
+            if (!resultBytes.has_value() || !expected.has_value())
+            {
+                return false;
+            }
+
+            const std::vector<float> actual = FromBytes<float>(*resultBytes, static_cast<size_t>(pointCount));
+            int64_t different = 0;
+
+            for (size_t point = 0; point < actual.size(); ++point)
+            {
+                if (!Close(actual[point], (*expected)[point], 1.0e-4f, 1.0e-6f))
+                {
+                    ++different;
+                }
+            }
+
+            report(k_FrontFloatFiles[output], different);
+        }
+
+        return passed;
+    }
+
+    [[nodiscard]] bool RunCheck(std::string_view name, GpuContext& gpu, const planet::ReferenceSet& reference, planet::CrustFlagChoice crust_flags)
+    {
+        if (name == "map")
+        {
+            return CheckMap(gpu, reference, crust_flags);
+        }
+
+        if (name == "owners")
+        {
+            return CheckOwners(gpu, reference, crust_flags);
+        }
+
+        if (name == "front")
+        {
+            return CheckFront(gpu, reference, crust_flags);
+        }
+
+        if (name == "crust")
+        {
+            return CheckCrust(gpu, reference, crust_flags);
+        }
+
+        std::println(stderr, "unknown check '{}'", name);
+        return false;
+    }
+}
+
+int main(int argc, char* argv[])
+{
+    std::filesystem::path referenceFolder;
+    std::vector<std::string_view> checks;
+
+    for (const char* argument : std::span{ argv, static_cast<size_t>(argc) }.subspan(1))
+    {
+        const std::string_view text{ argument };
+
+        if (text.starts_with(k_ReferenceFlag))
+        {
+            referenceFolder = text.substr(k_ReferenceFlag.size());
+        }
+        else if (text.starts_with(k_ChecksFlag))
+        {
+            for (const auto part : std::views::split(text.substr(k_ChecksFlag.size()), ','))
+            {
+                checks.emplace_back(part.begin(), part.end());
+            }
+        }
+    }
+
+    if (checks.empty())
+    {
+        checks.assign(k_AllChecks.begin(), k_AllChecks.end());
+    }
+
+    if (referenceFolder.empty())
+    {
+        std::println(stderr, "usage: PlanetGenCheck --reference=<folder> [--checks=map,owners,front,crust]");
+        return 1;
+    }
+
+    std::optional<planet::ReferenceSet> reference = planet::ReferenceSet::Open(referenceFolder);
+
+    if (!reference.has_value())
+    {
+        return 1;
+    }
+
+    // headless boot: no window and no modules
+    bootstrap::LaunchStage launch;
+
+    if (!Booted(launch.Start(std::span{ argv, static_cast<size_t>(argc) }, std::span<const bootstrap::ModuleDescriptor>{}, bootstrap::Stage::Gpu)))
+    {
+        return 1;
+    }
+
+    bootstrap::CoreStage core;
+
+    if (!Booted(core.Start(launch)))
+    {
+        return 1;
+    }
+
+    bootstrap::ContentStage content;
+
+    if (!Booted(content.Start(core, k_Bundles)))
+    {
+        return 1;
+    }
+
+    std::vector<bootstrap::Need> needs = bootstrap::HeadlessSpineNeeds();
+    needs.append_range(bootstrap::ShaderObjectNeeds());
+    const bootstrap::DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(content, needs);
+    bootstrap::DeviceConfig config
+    {
+        .ApiVersion = rhi::ApiVersion::Latest,
+        .Validation = rhi::ValidationLayers::Full,
+        .ApplicationName = "PlanetGenCheck",
+    };
+
+    // --config=PATH can decline Wanted needs, for example "StorageBuffer8BitAccess" to run the word variant only
+    if (!Booted(bootstrap::ReadDeviceConfig(launch, config)))
+    {
+        return 1;
+    }
+
+    bootstrap::DeviceStage deviceStage;
+
+    if (!Booted(deviceStage.StartHeadless(content, requirements, config)))
+    {
+        return 1;
+    }
+
+    bootstrap::GpuStage gpuStage;
+
+    if (!Booted(gpuStage.StartHeadless(deviceStage)))
+    {
+        return 1;
+    }
+
+    rhi::Device& device = *deviceStage.Rhi().GetDevice();
+    // the content stage found the bundle, so the library opens that same file
+    const std::filesystem::path& bundlePath = content.Bundles().front().Path;
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> library = rhi::ShaderLibrary::Open(bundlePath, rhi::k_SpirvProfileName);
+
+    if (!library.has_value())
+    {
+        std::println(stderr, "Failed to open {}: {}", bundlePath.string(), rhi::ToString(library.error()));
+        return 1;
+    }
+
+    std::println("PlanetGenCheck: {} points, {} plates, time {} My", reference->PointCount(), reference->PlateCount(), reference->Time());
+    bool passed = true;
+
+    {
+        rhi::CommandPool pool(device.Handle(), rhi::CommandPool::Type::Compute, device.GetQueueFamilyIndices().Graphics);
+        RhiAssert(pool.AllocateCommandBuffers(1));
+        GpuContext gpu{ device, gpuStage.Resources(), **library, pool, deviceStage.Filter() };
+        planet::PlanetGpuResult<std::unique_ptr<planet::PlanetShaders>> preferred = CreateShaders(gpu, planet::CrustFlagChoice::BestForDevice, k_AllEntryPoints);
+
+        if (!preferred.has_value())
+        {
+            std::println(stderr, "the device runs no variant of {}", planet::k_PlanetModuleName);
+            return 1;
+        }
+
+        std::println("the device prefers crust flags in {}", planet::ToString((*preferred)->CrustFlags()));
+
+        for (const planet::CrustFlagChoice storage : k_FlagStorages)
+        {
+            const std::string_view storageName = storage == planet::CrustFlagChoice::Bytes ? "bytes" : "words";
+            planet::PlanetGpuResult<std::unique_ptr<planet::PlanetShaders>> probe = CreateShaders(gpu, storage, k_AllEntryPoints);
+
+            // a device without 8-bit storage runs the word variant only; that is not a failure
+            if (!probe.has_value() && probe.error() == planet::PlanetGpuError::NoVariantFitsDevice)
+            {
+                std::println("crust flags in {}: SKIP, the device cannot run this variant", storageName);
+                continue;
+            }
+
+            std::println("crust flags in {}:", storageName);
+
+            for (const std::string_view check : checks)
+            {
+                const bool checkPassed = RunCheck(check, gpu, *reference, storage);
+                std::println("{} [{}]: {}", check, storageName, checkPassed ? "PASS" : "FAIL");
+                passed = passed && checkPassed;
+            }
+        }
+    }
+
+    return passed ? 0 : 1;
+}
