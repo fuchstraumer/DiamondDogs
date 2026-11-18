@@ -1,6 +1,7 @@
 implementing PlanetLab;
 import LodestoneAttributes;
 import LodestoneShims;
+__include PlanetParams;
 
 // The buffer forms of the plate passes. Each buffer is a Lodestone shim, so a spirv cook binds it as a descriptor and a
 // spirv-modern cook stores its device address, with no change here.
@@ -20,6 +21,7 @@ extern struct FlagBytes : IReadWriteBuffer<uint8_t>;
 extern struct Counters : IAtomicBuffer<uint>;
 // signed counters used during TorqueSum
 extern struct SignedCounters : IAtomicBuffer<int>;
+extern struct Points : IReadWriteBuffer<float4>;
 
 // The crust in the plate frames, [plate][cell] flat. Passes 1 and 2 read it, and pass 3 writes it.
 FlagBytes CrustAliveBytes;
@@ -27,6 +29,8 @@ FlagBytes CrustContinentalBytes;
 Words CrustAliveWords;
 Words CrustContinentalWords;
 Floats CrustBirth;
+[ls_element_count("PlanetGenCellCount")]
+Points LatticePoints;
 
 uint LoadAlive(uint flat)
 {

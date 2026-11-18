@@ -2,6 +2,9 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.10)
 PROJECT(DiamondDogs)
 # and turquoise days...
 
+# clangd reads compile_commands.json. Set it here too, so a configure without a preset still writes it
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # MSVC is also true for clang-cl, which takes the same flags but has no /MP and no SVML library. Test
 # DIAMOND_DOGS_COMPILER_IS_CL for those two, and MSVC for everything cl-style.
 # clang-cl ignores /JMC without debug info, and warns about it, so it goes only where /Zi is.
