@@ -7,7 +7,7 @@ import LodestoneShims;
 
 // The crust flags (alive, continental) take one byte for each cell when the device has 8-bit storage, and one word for
 // each cell when it does not. A byte store changes only its own byte, so two threads that write neighbouring cells need
-// no atomic in either form. The word form uses four times the memory.
+// no atomic in either form. The word form uses four times the memory (and bandwidth, more importantly)
 [ls_axis_boolean][ls_axis_kind("Capability")]
 extern static const bool CRUST_FLAG_BYTES = true;
 
@@ -18,6 +18,8 @@ extern struct Ints : IReadWriteBuffer<int>;
 extern struct Words : IReadWriteBuffer<uint>;
 extern struct FlagBytes : IReadWriteBuffer<uint8_t>;
 extern struct Counters : IAtomicBuffer<uint>;
+// signed counters used during TorqueSum
+extern struct SignedCounters : IAtomicBuffer<int>;
 
 // The crust in the plate frames, [plate][cell] flat. Passes 1 and 2 read it, and pass 3 writes it.
 FlagBytes CrustAliveBytes;

@@ -173,6 +173,12 @@ namespace planet
             return std::unexpected(PlanetGpuError::NoVariantFitsDevice);
         }
 
+        if (!variant.has_value() && variant.error().Code == lodestone::QueryErrorCode::UnknownEntryPoint)
+        {
+            std::println(stderr, "PlanetShaders: the module {} has no entry point {}", k_PlanetModuleName, variant.error().AxisName);
+            return std::unexpected(PlanetGpuError::EntryPointNotFound);
+        }
+
         if (!variant.has_value())
         {
             std::println(stderr, "PlanetShaders: no single variant (query error {}, axis '{}')",

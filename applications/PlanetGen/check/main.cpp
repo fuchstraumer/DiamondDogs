@@ -30,6 +30,7 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <limits>
 #include <memory>
 #include <numbers>
 #include <optional>
@@ -44,17 +45,22 @@
 // of applications/PlanetLab (write_gpu_reference.py). The checks and their tolerances are the ones of the pass
 // specification.
 //
-//     PlanetGenCheck --reference=<folder> [--checks=map,owners,front,crust]
+//     PlanetGenCheck --reference=<folder> [--checks=map,owners,front,crust,distance,uplift,torque]
 //
-// Each check runs once for each crust flag storage (bytes, words) that the device can run. Exit 0 only when every
-// check passes. Validation is Full, so also search the output for validation messages.
+// The default is all of them. Each check runs once for each crust flag storage (bytes, words) that the device can
+// run. Exit 0 only when every check passes. Validation is Full, so also search the output for validation messages.
 namespace
 {
     constexpr std::string_view k_ReferenceFlag{ "--reference=" };
     constexpr std::string_view k_ChecksFlag{ "--checks=" };
-    constexpr std::array<std::string_view, 4> k_AllChecks{ "map", "owners", "front", "crust" };
+    constexpr std::array<std::string_view, 7> k_AllChecks{ "map", "owners", "front", "crust", "distance", "uplift", "torque" };
     constexpr std::array<planet::CrustFlagChoice, 2> k_FlagStorages{ planet::CrustFlagChoice::Bytes, planet::CrustFlagChoice::Words };
-    constexpr std::array<std::string_view, 6> k_AllEntryPoints{ "MapProbeCS", "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS" };
+    constexpr std::array<std::string_view, 13> k_AllEntryPoints
+    {
+        "MapProbeCS", "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
+        "CountFrontPointsCS", "OffsetFrontPointsCS", "ScatterFrontPointsCS", "NearestFrontPointCS", "UpliftCS",
+        "SumPlatesCS", "SumPullCS",
+    };
 
     constexpr bootstrap::BundleRequest k_Bundles[]
     {
@@ -730,6 +736,505 @@ namespace
         return passed;
     }
 
+    constexpr double k_PlanetRadiusKm = 6370.0;
+
+    // great-circle km between two unit vectors, from the chord, as crust.ChordToKilometers does
+    [[nodiscard]] double ChordKilometers(const std::array<double, 3>& a, const std::array<double, 3>& b)
+    {
+        const double dx = a[0] - b[0];
+        const double dy = a[1] - b[1];
+        const double dz = a[2] - b[2];
+        const double chord = std::sqrt(dx * dx + dy * dy + dz * dz);
+        return 2.0 * std::asin(std::clamp(0.5 * chord, 0.0, 1.0)) * k_PlanetRadiusKm;
+    }
+
+    // cell `cell` of plate `plate` in the world: rotation * frame point, with the float32 rotation of the file
+    [[nodiscard]] std::array<double, 3> CellInWorld(const std::vector<float>& rotation, int32_t plate, int32_t cell, int32_t count)
+    {
+        const std::array<double, 3> frame = LatticeDouble(cell, count);
+        const float* matrix = rotation.data() + static_cast<size_t>(plate) * 9u;
+        std::array<double, 3> world{};
+
+        for (size_t row = 0; row < 3u; ++row)
+        {
+            world[row] = static_cast<double>(matrix[row * 3u]) * frame[0] +
+                         static_cast<double>(matrix[row * 3u + 1u]) * frame[1] +
+                         static_cast<double>(matrix[row * 3u + 2u]) * frame[2];
+        }
+
+        return world;
+    }
+
+    struct FrontPointTally
+    {
+        int64_t Wrong{ 0 };
+        int64_t Ties{ 0 };
+        int64_t DistanceBad{ 0 };
+    };
+
+    // Pass 4: the front point lists of each plate, then the nearest front point of each plate cell, by brute force. A
+    // cell's front point may differ from the reference only at a tie (1 % of the spacing); distances allow the larger
+    // of 1 % of the spacing and 1e-4 of the distance
+    [[nodiscard]] bool CheckFrontDistance(GpuContext& gpu, const planet::ReferenceSet& reference, planet::CrustFlagChoice crust_flags)
+    {
+        constexpr std::array<std::string_view, 4> k_EntryPoints{ "CountFrontPointsCS", "OffsetFrontPointsCS", "ScatterFrontPointsCS", "NearestFrontPointCS" };
+        const int32_t pointCount = reference.PointCount();
+        const int32_t plateCount = reference.PlateCount();
+        const size_t points = static_cast<size_t>(pointCount);
+        const size_t plates = static_cast<size_t>(plateCount);
+        const size_t cellCount = plates * points;
+        planet::PlanetGpuResult<std::unique_ptr<planet::PlanetShaders>> shaders = CreateShaders(gpu, crust_flags, k_EntryPoints);
+
+        if (!shaders.has_value())
+        {
+            return false;
+        }
+
+        const std::array<planet::UniformValue, 2> constants
+        {
+            planet::UniformUint("PointCount", static_cast<uint32_t>(pointCount)),
+            planet::UniformUint("PlateCount", static_cast<uint32_t>(plateCount)),
+        };
+        planet::PlanetGpuResult<std::vector<std::byte>> constantBytes = (*shaders)->UniformBytes("CountFrontPointsCS", "Params", constants);
+        std::optional<std::vector<float>> rotation = reference.Floats("rotation");
+        std::optional<std::vector<uint32_t>> subduction = reference.Words("front_subduction");
+        std::optional<std::vector<int32_t>> plateOnTop = reference.Ints("p3_plate");
+        std::optional<std::vector<int32_t>> expectedFrontPoint = reference.Ints("p4_cell_front_point");
+        std::optional<std::vector<float>> expectedDistance = reference.Floats("p4_cell_distance");
+
+        if (!constantBytes.has_value() || !rotation.has_value() || !subduction.has_value() || !plateOnTop.has_value() ||
+            !expectedFrontPoint.has_value() || !expectedDistance.has_value())
+        {
+            return false;
+        }
+
+        planet::GpuBuffers buffers(gpu.Resources);
+        const planet::CrustFlagStorage storage = (*shaders)->CrustFlags();
+        const std::vector<uint32_t> plateZeros(plates, 0u);
+        const std::vector<uint32_t> offsetZeros(plates + 1u, 0u);
+        const std::vector<int32_t> pointZeros(points, 0);
+        const std::vector<float> positionZeros(points * 3u, 0.0f);
+        const std::vector<int32_t> cellZeros(cellCount, 0);
+
+        if (Failed(buffers.AddUniform("Params", *constantBytes)) ||
+            Failed(buffers.AddStorage("Rotation", Bytes(*rotation), false)) ||
+            Failed(buffers.AddStorage("FrontSubduction", Bytes(*subduction), false)) ||
+            Failed(buffers.AddStorage("Pass3Plate", Bytes(*plateOnTop), false)) ||
+            !AddFlags(buffers, reference, storage, planet::CrustFlagBufferNames(storage).Alive, "p3_ref_alive", false) ||
+            Failed(buffers.AddStorage("PlateFrontPointCount", Bytes(plateZeros), true)) ||
+            Failed(buffers.AddStorage("PlateFrontPointCursor", Bytes(plateZeros), false)) ||
+            Failed(buffers.AddStorage("PlateFrontPointOffset", Bytes(offsetZeros), true)) ||
+            Failed(buffers.AddStorage("FrontPoint", Bytes(pointZeros), true)) ||
+            Failed(buffers.AddStorage("FrontPointPosition", Bytes(positionZeros), false)) ||
+            Failed(buffers.AddStorage("CellFrontPoint", Bytes(cellZeros), true)) ||
+            Failed(buffers.AddStorage("CellDistance", Bytes(cellZeros), true)))
+        {
+            return false;
+        }
+
+        planet::PlanetGpuResult<std::unique_ptr<planet::PassBindings>> bindings = (*shaders)->Bind(buffers.Bound());
+
+        if (!bindings.has_value())
+        {
+            return false;
+        }
+
+        // OffsetFrontPointsCS is one workgroup: a thread count of 1 dispatches one group, whatever its size
+        const auto record = [&](rhi::CommandBuffer& command_buffer)
+        {
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "CountFrontPointsCS", static_cast<uint32_t>(pointCount));
+            planet::RecordComputeBarrier(command_buffer);
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "OffsetFrontPointsCS", 1u);
+            planet::RecordComputeBarrier(command_buffer);
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "ScatterFrontPointsCS", static_cast<uint32_t>(pointCount));
+            planet::RecordComputeBarrier(command_buffer);
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "NearestFrontPointCS", static_cast<uint32_t>(cellCount));
+        };
+
+        if (!Submit(gpu, buffers, record))
+        {
+            return false;
+        }
+
+        planet::PlanetGpuResult<std::vector<std::byte>> countBytes = buffers.Read("PlateFrontPointCount");
+        planet::PlanetGpuResult<std::vector<std::byte>> offsetBytes = buffers.Read("PlateFrontPointOffset");
+        planet::PlanetGpuResult<std::vector<std::byte>> frontPointBytes = buffers.Read("FrontPoint");
+        planet::PlanetGpuResult<std::vector<std::byte>> cellFrontPointBytes = buffers.Read("CellFrontPoint");
+        planet::PlanetGpuResult<std::vector<std::byte>> cellDistanceBytes = buffers.Read("CellDistance");
+
+        if (!countBytes.has_value() || !offsetBytes.has_value() || !frontPointBytes.has_value() || !cellFrontPointBytes.has_value() ||
+            !cellDistanceBytes.has_value())
+        {
+            return false;
+        }
+
+        // the front point lists: counts and offsets exact, and the front points of each plate as a set, because the
+        // scatter order changes
+        std::vector<std::vector<int32_t>> expectedLists(plates);
+
+        for (size_t point = 0; point < points; ++point)
+        {
+            if ((*subduction)[point] == 1u)
+            {
+                expectedLists[static_cast<size_t>((*plateOnTop)[point])].push_back(static_cast<int32_t>(point));
+            }
+        }
+
+        const std::vector<uint32_t> counts = FromBytes<uint32_t>(*countBytes, plates);
+        const std::vector<uint32_t> offsets = FromBytes<uint32_t>(*offsetBytes, plates + 1u);
+        const std::vector<int32_t> frontPoints = FromBytes<int32_t>(*frontPointBytes, points);
+        int64_t listsWrong = 0;
+        uint32_t expectedOffset = 0u;
+
+        for (size_t plate = 0; plate < plates; ++plate)
+        {
+            const std::vector<int32_t>& expected = expectedLists[plate];
+            const uint32_t expectedCount = static_cast<uint32_t>(expected.size());
+
+            if (counts[plate] != expectedCount || offsets[plate] != expectedOffset)
+            {
+                ++listsWrong;
+                expectedOffset += expectedCount;
+                continue;
+            }
+
+            std::vector<int32_t> actual(frontPoints.begin() + expectedOffset, frontPoints.begin() + expectedOffset + expectedCount);
+            std::ranges::sort(actual);
+
+            if (actual != expected)
+            {
+                ++listsWrong;
+            }
+
+            expectedOffset += expectedCount;
+        }
+
+        if (offsets[plates] != expectedOffset)
+        {
+            ++listsWrong;
+        }
+
+        std::println("distance: {} front points on {} plates, {} plate lists wrong", expectedOffset, plates, listsWrong);
+
+        // the nearest front point of each plate cell
+        const std::vector<int32_t> cellFrontPoints = FromBytes<int32_t>(*cellFrontPointBytes, cellCount);
+        const std::vector<float> cellDistances = FromBytes<float>(*cellDistanceBytes, cellCount);
+        const double spacingKm = std::sqrt(4.0 * std::numbers::pi / static_cast<double>(pointCount)) * k_PlanetRadiusKm;
+        FrontPointTally tally;
+
+        for (size_t flat = 0; flat < cellCount; ++flat)
+        {
+            const int32_t expected = (*expectedFrontPoint)[flat];
+            const int32_t actual = cellFrontPoints[flat];
+            const float expectedKm = (*expectedDistance)[flat];
+            const float actualKm = cellDistances[flat];
+            const double allowedKm = std::max(0.01 * spacingKm, 1.0e-4 * static_cast<double>(expectedKm));
+
+            if (actual != expected && (actual < 0 || expected < 0))
+            {
+                ++tally.Wrong;
+                continue;
+            }
+
+            if (actual != expected)
+            {
+                const int32_t plate = static_cast<int32_t>(flat / points);
+                const int32_t cell = static_cast<int32_t>(flat % points);
+                const std::array<double, 3> world = CellInWorld(*rotation, plate, cell, pointCount);
+                const double toActual = ChordKilometers(world, LatticeDouble(actual, pointCount));
+                const double toExpected = ChordKilometers(world, LatticeDouble(expected, pointCount));
+                const bool tie = std::fabs(toActual - toExpected) <= 0.01 * spacingKm;
+                tally.Ties += tie ? 1 : 0;
+                tally.Wrong += tie ? 0 : 1;
+            }
+
+            if (!(actualKm == expectedKm) && !(std::fabs(static_cast<double>(actualKm) - static_cast<double>(expectedKm)) <= allowedKm))
+            {
+                ++tally.DistanceBad;
+            }
+        }
+
+        std::println("distance: {} cells, {} take another front point ({} near ties, {} wrong), {} distances outside the tolerance",
+                     cellCount, tally.Ties + tally.Wrong, tally.Ties, tally.Wrong, tally.DistanceBad);
+        return listsWrong == 0 && tally.Wrong == 0 && tally.Ties < 10 && tally.DistanceBad == 0;
+    }
+
+    // Pass 5: uplift, erosion damping and arc accretion, from the exact pass 4 results. Floats within 1e-4 (and a
+    // relative 1e-5); the other arrays exact. Orogeny and accretion flip at a threshold, but a float32 uplift differs
+    // from the double one by less than 1e-6 km, and only 3 cells accrete at 100 000 points: an allowance of a few cells
+    // would hide a pass with no accretion at all
+    [[nodiscard]] bool CheckUplift(GpuContext& gpu, const planet::ReferenceSet& reference, planet::CrustFlagChoice crust_flags)
+    {
+        constexpr std::array<std::string_view, 1> k_EntryPoints{ "UpliftCS" };
+        const int32_t pointCount = reference.PointCount();
+        const int32_t plateCount = reference.PlateCount();
+        const size_t cellCount = static_cast<size_t>(plateCount) * static_cast<size_t>(pointCount);
+        planet::PlanetGpuResult<std::unique_ptr<planet::PlanetShaders>> shaders = CreateShaders(gpu, crust_flags, k_EntryPoints);
+
+        if (!shaders.has_value())
+        {
+            return false;
+        }
+
+        const planet::CrustFlagStorage storage = (*shaders)->CrustFlags();
+        const planet::CrustFlagBuffers flagNames = planet::CrustFlagBufferNames(storage);
+        const std::array<CrustArray, 4> crust
+        {
+            CrustArray{ flagNames.Continental, "p3_ref_continental", "p5_ref_continental", ArrayForm::Flag },
+            CrustArray{ "CrustRelief", "p3_ref_relief", "p5_ref_relief", ArrayForm::Float },
+            CrustArray{ "CrustOrogeny", "p3_ref_orogeny", "p5_ref_orogeny", ArrayForm::Int },
+            CrustArray{ "CrustOrogenyTime", "p3_ref_orogeny_time", "p5_ref_orogeny_time", ArrayForm::Float },
+        };
+
+        const std::array<planet::UniformValue, 2> constants
+        {
+            planet::UniformUint("PointCount", static_cast<uint32_t>(pointCount)),
+            planet::UniformUint("PlateCount", static_cast<uint32_t>(plateCount)),
+        };
+        const std::array<planet::UniformValue, 1> passConstants{ planet::UniformFloat("Time", reference.Time()) };
+        planet::PlanetGpuResult<std::vector<std::byte>> constantBytes = (*shaders)->UniformBytes("UpliftCS", "Params", constants);
+        planet::PlanetGpuResult<std::vector<std::byte>> passBytes = (*shaders)->UniformBytes("UpliftCS", "UpliftConstants", passConstants);
+        std::optional<std::vector<int32_t>> cellFrontPoint = reference.Ints("p4_cell_front_point");
+        std::optional<std::vector<float>> cellDistance = reference.Floats("p4_cell_distance");
+        std::optional<std::vector<float>> strength = reference.Floats("front_strength");
+
+        if (!constantBytes.has_value() || !passBytes.has_value() || !cellFrontPoint.has_value() || !cellDistance.has_value() ||
+            !strength.has_value())
+        {
+            return false;
+        }
+
+        planet::GpuBuffers buffers(gpu.Resources);
+
+        if (Failed(buffers.AddUniform("Params", *constantBytes)) ||
+            Failed(buffers.AddUniform("UpliftConstants", *passBytes)) ||
+            Failed(buffers.AddStorage("CellFrontPoint", Bytes(*cellFrontPoint), false)) ||
+            Failed(buffers.AddStorage("CellDistance", Bytes(*cellDistance), false)) ||
+            Failed(buffers.AddStorage("FrontStrength", Bytes(*strength), false)) ||
+            !AddFlags(buffers, reference, storage, flagNames.Alive, "p3_ref_alive", false))
+        {
+            return false;
+        }
+
+        for (const CrustArray& array : crust)
+        {
+            std::optional<std::vector<std::byte>> input = ReadCrustArray(reference, array.Input, array.Form, storage);
+
+            if (!input.has_value() || Failed(buffers.AddStorage(array.Buffer, *input, true)))
+            {
+                return false;
+            }
+        }
+
+        planet::PlanetGpuResult<std::unique_ptr<planet::PassBindings>> bindings = (*shaders)->Bind(buffers.Bound());
+
+        if (!bindings.has_value())
+        {
+            return false;
+        }
+
+        const auto record = [&](rhi::CommandBuffer& command_buffer)
+        {
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "UpliftCS", static_cast<uint32_t>(cellCount));
+        };
+
+        if (!Submit(gpu, buffers, record))
+        {
+            return false;
+        }
+
+        bool passed = true;
+
+        for (const CrustArray& array : crust)
+        {
+            planet::PlanetGpuResult<std::vector<std::byte>> resultBytes = buffers.Read(array.Buffer);
+            std::optional<std::vector<std::byte>> expected = ReadCrustArray(reference, array.Expected, array.Form, storage);
+
+            if (!resultBytes.has_value() || !expected.has_value())
+            {
+                return false;
+            }
+
+            if (array.Form != ArrayForm::Float)
+            {
+                const size_t elementSize = array.Form == ArrayForm::Flag ? FlagElementSize(storage) : sizeof(uint32_t);
+                const int64_t different = CountDifferentElements(*resultBytes, *expected, elementSize);
+                std::println("uplift {}: {} differ", array.Expected, different);
+                passed = passed && different == 0;
+                continue;
+            }
+
+            const std::vector<float> actualValues = FromBytes<float>(*resultBytes, cellCount);
+            const std::vector<float> expectedValues = FromBytes<float>(*expected, cellCount);
+            int64_t different = 0;
+            double largest = 0.0;
+
+            for (size_t flat = 0; flat < cellCount; ++flat)
+            {
+                largest = std::max(largest, std::fabs(static_cast<double>(actualValues[flat]) - static_cast<double>(expectedValues[flat])));
+
+                if (!Close(actualValues[flat], expectedValues[flat], 1.0e-5f, 1.0e-4f))
+                {
+                    ++different;
+                }
+            }
+
+            std::println("uplift {}: {} differ, largest difference {:.3g}", array.Expected, different, largest);
+            passed = passed && different == 0;
+        }
+
+        return passed;
+    }
+
+    // The fixed-point scales of the pass 6 sums: the shader adds round(value * scale) as int, so the sum does not depend
+    // on the order of the atomics or on the subgroup size. The pass specification states the same values
+    constexpr double k_PositionSumScale = 16384.0;
+    constexpr double k_PullScale = 4096.0;
+
+    // the largest relative difference of a [plate, 3] sum, against the largest component of that plate's expected row
+    [[nodiscard]] double LargestRowDifference(std::span<const int32_t> actual, double scale, std::span<const float> expected, size_t plate)
+    {
+        double largestComponent = 0.0;
+        double largestDifference = 0.0;
+
+        for (size_t axis = 0; axis < 3u; ++axis)
+        {
+            const size_t index = plate * 3u + axis;
+            const double value = static_cast<double>(actual[index]) / scale;
+            largestComponent = std::max(largestComponent, std::fabs(static_cast<double>(expected[index])));
+            largestDifference = std::max(largestDifference, std::fabs(value - static_cast<double>(expected[index])));
+        }
+
+        if (largestComponent == 0.0)
+        {
+            return largestDifference == 0.0 ? 0.0 : std::numeric_limits<double>::infinity();
+        }
+
+        return largestDifference / largestComponent;
+    }
+
+    // Pass 6: the sums of the torque balance. Cell counts exact; the position sums and the pulls within a relative 1e-4
+    // of the largest component of each plate's row
+    [[nodiscard]] bool CheckTorqueSums(GpuContext& gpu, const planet::ReferenceSet& reference, planet::CrustFlagChoice crust_flags)
+    {
+        constexpr std::array<std::string_view, 2> k_EntryPoints{ "SumPlatesCS", "SumPullCS" };
+        constexpr uint32_t k_RowGroupSize = 64u;
+        constexpr double k_RelativeTolerance = 1.0e-4;
+        const int32_t pointCount = reference.PointCount();
+        const int32_t plateCount = reference.PlateCount();
+        const size_t plates = static_cast<size_t>(plateCount);
+        planet::PlanetGpuResult<std::unique_ptr<planet::PlanetShaders>> shaders = CreateShaders(gpu, crust_flags, k_EntryPoints);
+
+        if (!shaders.has_value())
+        {
+            return false;
+        }
+
+        const planet::CrustFlagStorage storage = (*shaders)->CrustFlags();
+        const planet::CrustFlagBuffers flagNames = planet::CrustFlagBufferNames(storage);
+        const std::array<planet::UniformValue, 2> constants
+        {
+            planet::UniformUint("PointCount", static_cast<uint32_t>(pointCount)),
+            planet::UniformUint("PlateCount", static_cast<uint32_t>(plateCount)),
+        };
+        planet::PlanetGpuResult<std::vector<std::byte>> constantBytes = (*shaders)->UniformBytes("SumPlatesCS", "Params", constants);
+        std::optional<std::vector<float>> rotation = reference.Floats("rotation");
+        std::optional<std::vector<uint32_t>> subduction = reference.Words("front_subduction");
+        std::optional<std::vector<int32_t>> underPlate = reference.Ints("front_second_plate");
+        std::optional<std::vector<float>> speed = reference.Floats("front_speed");
+        std::optional<std::vector<float>> slabAge = reference.Floats("front_slab_age");
+        std::optional<std::vector<int32_t>> expectedCells = reference.Ints("p6_cell_count");
+        std::optional<std::vector<int32_t>> expectedContinental = reference.Ints("p6_continental_count");
+        std::optional<std::vector<float>> expectedPositions = reference.Floats("p6_position_sum");
+        std::optional<std::vector<float>> expectedPull = reference.Floats("p6_pull");
+
+        if (!constantBytes.has_value() || !rotation.has_value() || !subduction.has_value() || !underPlate.has_value() ||
+            !speed.has_value() || !slabAge.has_value() || !expectedCells.has_value() || !expectedContinental.has_value() ||
+            !expectedPositions.has_value() || !expectedPull.has_value())
+        {
+            return false;
+        }
+
+        planet::GpuBuffers buffers(gpu.Resources);
+        const std::vector<uint32_t> countZeros(plates, 0u);
+        const std::vector<int32_t> rowZeros(plates * 3u, 0);
+
+        if (Failed(buffers.AddUniform("Params", *constantBytes)) ||
+            Failed(buffers.AddStorage("Rotation", Bytes(*rotation), false)) ||
+            Failed(buffers.AddStorage("FrontSubduction", Bytes(*subduction), false)) ||
+            Failed(buffers.AddStorage("SecondPlate", Bytes(*underPlate), false)) ||
+            Failed(buffers.AddStorage("FrontSpeed", Bytes(*speed), false)) ||
+            Failed(buffers.AddStorage("FrontSlabAge", Bytes(*slabAge), false)) ||
+            !AddFlags(buffers, reference, storage, flagNames.Alive, "p3_ref_alive", false) ||
+            !AddFlags(buffers, reference, storage, flagNames.Continental, "p3_ref_continental", false) ||
+            Failed(buffers.AddStorage("PlateCellCount", Bytes(countZeros), true)) ||
+            Failed(buffers.AddStorage("PlateContinentalCount", Bytes(countZeros), true)) ||
+            Failed(buffers.AddStorage("PlatePositionSum", Bytes(rowZeros), true)) ||
+            Failed(buffers.AddStorage("PlatePull", Bytes(rowZeros), true)))
+        {
+            return false;
+        }
+
+        planet::PlanetGpuResult<std::unique_ptr<planet::PassBindings>> bindings = (*shaders)->Bind(buffers.Bound());
+
+        if (!bindings.has_value())
+        {
+            return false;
+        }
+
+        // SumPlatesCS gives each plate its own row of whole workgroups, so that every lane of a subgroup is in one plate
+        const uint32_t groupsPerPlate = (static_cast<uint32_t>(pointCount) + k_RowGroupSize - 1u) / k_RowGroupSize;
+        const uint32_t rowThreads = static_cast<uint32_t>(plateCount) * groupsPerPlate * k_RowGroupSize;
+
+        const auto record = [&](rhi::CommandBuffer& command_buffer)
+        {
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "SumPlatesCS", rowThreads);
+            planet::RecordComputeBarrier(command_buffer);
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "SumPullCS", static_cast<uint32_t>(pointCount));
+        };
+
+        if (!Submit(gpu, buffers, record))
+        {
+            return false;
+        }
+
+        planet::PlanetGpuResult<std::vector<std::byte>> cellBytes = buffers.Read("PlateCellCount");
+        planet::PlanetGpuResult<std::vector<std::byte>> continentalBytes = buffers.Read("PlateContinentalCount");
+        planet::PlanetGpuResult<std::vector<std::byte>> positionBytes = buffers.Read("PlatePositionSum");
+        planet::PlanetGpuResult<std::vector<std::byte>> pullBytes = buffers.Read("PlatePull");
+
+        if (!cellBytes.has_value() || !continentalBytes.has_value() || !positionBytes.has_value() || !pullBytes.has_value())
+        {
+            return false;
+        }
+
+        const std::vector<int32_t> cells = FromBytes<int32_t>(*cellBytes, plates);
+        const std::vector<int32_t> continental = FromBytes<int32_t>(*continentalBytes, plates);
+        const std::vector<int32_t> positions = FromBytes<int32_t>(*positionBytes, plates * 3u);
+        const std::vector<int32_t> pull = FromBytes<int32_t>(*pullBytes, plates * 3u);
+        const int64_t cellsWrong = CountDifferent(cells, *expectedCells);
+        const int64_t continentalWrong = CountDifferent(continental, *expectedContinental);
+        int64_t positionsWrong = 0;
+        int64_t pullWrong = 0;
+        double largestPosition = 0.0;
+        double largestPull = 0.0;
+
+        for (size_t plate = 0; plate < plates; ++plate)
+        {
+            const double positionDifference = LargestRowDifference(positions, k_PositionSumScale, *expectedPositions, plate);
+            const double pullDifference = LargestRowDifference(pull, k_PullScale, *expectedPull, plate);
+            largestPosition = std::max(largestPosition, positionDifference);
+            largestPull = std::max(largestPull, pullDifference);
+            positionsWrong += positionDifference > k_RelativeTolerance ? 1 : 0;
+            pullWrong += pullDifference > k_RelativeTolerance ? 1 : 0;
+        }
+
+        std::println("torque: cell counts {} wrong, continental counts {} wrong (of {} plates)", cellsWrong, continentalWrong, plates);
+        std::println("torque: position sums {} plates outside 1e-4 (largest {:.3g}), pulls {} plates outside 1e-4 (largest {:.3g})",
+                     positionsWrong, largestPosition, pullWrong, largestPull);
+        return cellsWrong == 0 && continentalWrong == 0 && positionsWrong == 0 && pullWrong == 0;
+    }
+
     [[nodiscard]] bool RunCheck(std::string_view name, GpuContext& gpu, const planet::ReferenceSet& reference, planet::CrustFlagChoice crust_flags)
     {
         if (name == "map")
@@ -750,6 +1255,21 @@ namespace
         if (name == "crust")
         {
             return CheckCrust(gpu, reference, crust_flags);
+        }
+
+        if (name == "distance")
+        {
+            return CheckFrontDistance(gpu, reference, crust_flags);
+        }
+
+        if (name == "uplift")
+        {
+            return CheckUplift(gpu, reference, crust_flags);
+        }
+
+        if (name == "torque")
+        {
+            return CheckTorqueSums(gpu, reference, crust_flags);
         }
 
         std::println(stderr, "unknown check '{}'", name);
@@ -786,7 +1306,7 @@ int main(int argc, char* argv[])
 
     if (referenceFolder.empty())
     {
-        std::println(stderr, "usage: PlanetGenCheck --reference=<folder> [--checks=map,owners,front,crust]");
+        std::println(stderr, "usage: PlanetGenCheck --reference=<folder> [--checks=map,owners,front,crust,distance,uplift,torque]");
         return 1;
     }
 

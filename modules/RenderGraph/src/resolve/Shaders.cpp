@@ -29,6 +29,7 @@ namespace
             .Code = code,
             .Severity = DefaultSeverityOf(code),
             .Where = pass.Shader.Where,
+            .OtherWhere = {},
             .Pass = pass.Key,
             .Binding = binding,
         };

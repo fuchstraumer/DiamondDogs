@@ -1,5 +1,6 @@
 implementing PlanetLab;
 __include Fibonacci;
+__include Buffers;
 
 // Pass 1 of the plate port: for each world point, the best two plates that have crust there.
 // Reference: tectonics.FindOwners. Each thread reads shared buffers and writes only its own four values.

@@ -66,6 +66,14 @@ outside the repositories are not real.
 `Validation Error` and `VUID_NAME`. RhiSystem's debug callback prints each message and does not fail the run, so
 exit code 0 alone proved nothing in the first audit (a filter hid every `vkCreate*` error).
 
+**One known false positive: OBS.** OBS Studio installs an implicit Vulkan layer, `VK_LAYER_OBS_HOOK`
+(`C:\ProgramData\obs-studio-hook\obs-vulkan64.json`, `graphics-hook64.dll`). The loader puts it into every Vulkan
+process, and its calls can make the validation layer print messages that our code did not cause. The author has
+confirmed these and ignores them. Do not ignore any other message. If you are not sure that a message comes from
+OBS, run the test again with the layer off (`set DISABLE_VULKAN_OBS_CAPTURE=1`, or `$env:DISABLE_VULKAN_OBS_CAPTURE=1`
+in PowerShell). A message that remains is ours. The loader line "Failed to open JSON file ... EOSOverlayVkLayer" is
+not a validation message: an Epic overlay layer that is registered but no longer installed causes it.
+
 Synchronization validation is on for `ValidationLayers::WithSynchronization` and above, and every test uses `Full`.
 `Instance` sets the validation layer's `validate_sync` setting through `VK_EXT_layer_settings`, so no environment
 variable is needed. This is proven: a planted present hazard in ImGuiTest reported `SYNC-HAZARD-PRESENT-AFTER-WRITE`

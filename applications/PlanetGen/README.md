@@ -8,7 +8,7 @@ prototype, and git ignores it. Its file `gpu_port/README.md` is the pass specifi
 
 | Path | Holds |
 |---|---|
-| `assets/shaders/compute/Planet/` | The Slang module `PlanetLab` (passes 0 to 3). Lodestone cooks it to `ShaderLibrary.ldmanifest` as a build step (target `planet_gen_shaders`). `Buffers.slang` declares the buffer shims and the crust flag axis. |
+| `assets/shaders/compute/Planet/` | The Slang module `PlanetLab` (passes 0 to 6). Lodestone cooks it to `ShaderLibrary.ldmanifest` as a build step (target `planet_gen_shaders`). `Buffers.slang` declares the buffer shims and the crust flag axis. |
 | `gpu/` | `planet_gpu`, a static library. `PlanetShaders` selects a variant for the device, makes one program for each entry point, and writes the descriptor sets by the names that the cook reflected (`WriteManifestDescriptors`). It also writes uniform buffers from the member offsets in the manifest. `GpuBuffers` holds buffers by their shader names, and reads them back. |
 | `check/` | `PlanetGenCheck`, a headless executable. It runs each pass on the reference inputs and compares the result with the reference outputs. |
 
@@ -22,11 +22,13 @@ prototype, and git ignores it. Its file `gpu_port/README.md` is the pass specifi
 
 ## The check
 
-Make the reference files first, from `applications/PlanetLab`:
+Make the reference files first, from `applications/PlanetLab`. The script is in `python/` and the package
+`planetlab/` is beside that folder, so the package path must be set:
 
 ```bat
-C:\Python313\python.exe write_gpu_reference.py 10000 40
-C:\Python313\python.exe write_gpu_reference.py 100000 40
+set PYTHONPATH=.
+C:\Python313\python.exe python\write_gpu_reference.py 10000 40
+C:\Python313\python.exe python\write_gpu_reference.py 100000 40
 ```
 
 Then run the check for each size, from its output folder:
@@ -35,7 +37,7 @@ Then run the check for each size, from its output folder:
 PlanetGenCheck --reference=C:\SoftwareDev\DiamondDogs\applications\PlanetLab\gpu_port\reference_100000
 ```
 
-`--checks=map,owners,front,crust` selects checks; the default is all of them. Each check runs once for each crust flag
+`--checks=map,owners,front,crust,distance,uplift,torque` selects checks; the default is all of them. Each check runs once for each crust flag
 storage (bytes, then words). A storage that the device cannot run prints `SKIP`. The program exits 0 only if each check
 passes. Validation is `Full`, so a pass also needs output with no `Validation Error` and no `VUID`. If the reference
 folder is missing, the check fails; it does not skip.
@@ -56,6 +58,23 @@ The tolerances are the ones of the pass specification:
 | `owners` | 1, owners | Fewer than 1 point in 10 000 differs |
 | `front` | 2, one plate on top | Exact |
 | `crust` | 3, new crust and removal | Exact, and a relative 1e-4 for the front values |
+| `distance` | 4, distance to fronts (brute force) | Front point lists exact (as sets); a cell front point equal, or a near tie (1 % of the spacing), fewer than 10 ties; distances within the larger of 1 % of the spacing and 1e-4 of the distance |
+| `uplift` | 5, uplift, erosion, accretion | Relief and orogeny time within 1e-4 (and a relative 1e-5); orogeny and continental exact |
+| `torque` | 6, sums for the torque balance | Cell counts exact; position sums and pulls within a relative 1e-4 of the largest component of each plate |
+
+Before each pass was in the module, its check was tested against a throwaway implementation of the contract in the
+pass specification (`gpu_port/README.md`), which was not kept:
+
+- `distance`: it passed at both sizes in both storages, and it failed when the search skipped the last front point of
+  each plate (1699 and 998 cells wrong at 10 000 points).
+- `uplift`: it passed at both sizes in both storages (largest relief difference 4.8e-7 km), and it failed with no arc
+  accretion (3 cells wrong at 100 000 points).
+- `torque`: it passed at both sizes in both storages (pull 7.9e-5 relative at 100 000 points, of the 1e-4 allowed),
+  and it failed without the square root of the slab age weight (9 plates wrong at 10 000 points).
+
+The orogeny and accretion arrays are exact, not "a few cells", on
+purpose: only 3 cells accrete at 100 000 points (0 at 10 000), so an allowance of a few cells would pass a kernel that
+never accretes.
 
 ## Buffers
 
