@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_PLANET_SHADERS_HPP
 #include "ManifestDescriptors.hpp"
 #include "PlanetGpuErrors.hpp"
+#include "RhiHandle.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -118,6 +119,13 @@ namespace planet
                             const PassBindings& bindings,
                             std::string_view entry_point,
                             uint32_t thread_count) const;
+        /** @brief Binds the program and its set, and dispatches the group counts at `offset` in `arguments`, which an
+         *  earlier pass wrote. RecordIndirectBarrier must come between that pass and this dispatch. */
+        void RecordDispatchIndirect(rhi::CommandBuffer& command_buffer,
+                                    const PassBindings& bindings,
+                                    std::string_view entry_point,
+                                    const rhi::BufferHandle& arguments,
+                                    uint64_t offset) const;
 
     private:
         std::unique_ptr<PlanetShadersImpl> impl;
@@ -125,6 +133,9 @@ namespace planet
 
     /** @brief A barrier from one compute dispatch to the next: storage writes before storage reads and writes. */
     void RecordComputeBarrier(rhi::CommandBuffer& command_buffer);
+
+    /** @brief RecordComputeBarrier, and the storage writes also before the reads of indirect group counts. */
+    void RecordIndirectBarrier(rhi::CommandBuffer& command_buffer);
 }
 
 #endif // !DIAMOND_DOGS_PLANET_SHADERS_HPP

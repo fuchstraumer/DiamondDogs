@@ -34,6 +34,8 @@ namespace planet
             return "SubmitFailed";
         case PlanetGpuError::ReadbackFailed:
             return "ReadbackFailed";
+        case PlanetGpuError::EmptyStep:
+            return "EmptyStep";
         default:
             return "Unknown";
         }

@@ -345,6 +345,34 @@ namespace planet
         command_buffer.Dispatch((thread_count + workgroupX - 1u) / workgroupX, 1, 1);
     }
 
+    void PlanetShaders::RecordDispatchIndirect(rhi::CommandBuffer& command_buffer,
+                                               const PassBindings& bindings,
+                                               std::string_view entry_point,
+                                               const rhi::BufferHandle& arguments,
+                                               uint64_t offset) const
+    {
+        const PlanetShadersImpl::Pass* pass = impl->Find(entry_point);
+        // a name that Create did not get is a programming error
+        assert(pass != nullptr);
+        const size_t passIndex = static_cast<size_t>(pass - impl->Passes.data());
+        const rhi::DescriptorSetHandle set{ reinterpret_cast<uint64_t>(bindings.impl->Sets[passIndex]) };
+
+        RhiAssert(command_buffer.BindShaders(pass->Program->Program()));
+        command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Compute, pass->Program->PipelineLayout(), 0, std::span{ &set, 1 });
+        command_buffer.DispatchIndirect(arguments, offset);
+    }
+
+    void RecordIndirectBarrier(rhi::CommandBuffer& command_buffer)
+    {
+        const rhi::GlobalBarrier barrier
+        {
+            rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
+            rhi::PipelineStage::ComputeShader | rhi::PipelineStage::DrawIndirect,
+            rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite | rhi::Access::IndirectCommandRead
+        };
+        command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &barrier, 1 }, {}, {} });
+    }
+
     void RecordComputeBarrier(rhi::CommandBuffer& command_buffer)
     {
         const rhi::GlobalBarrier barrier

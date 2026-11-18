@@ -4,8 +4,11 @@
 #include "ManifestDescriptors.hpp"
 #include "PlanetGpuErrors.hpp"
 #include "ResourceTypes.hpp"
+#include "RhiHandle.hpp"
 #include <cstddef>
+#include <cstdint>
 #include <deque>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -40,6 +43,13 @@ namespace planet
         [[nodiscard]] const BoundResources& Bound() const noexcept;
         /** @brief Records a copy of each readable buffer to its readback buffer, with the barriers before and after. */
         void RecordReadbackCopies(rhi::CommandBuffer& command_buffer) const;
+        /** @brief Records a fill of the whole storage buffer `name` with `value` in each 32-bit word. No barrier. */
+        [[nodiscard]] PlanetGpuError RecordFill(rhi::CommandBuffer& command_buffer, std::string_view name, uint32_t value) const;
+        /** @brief Records a copy of the whole storage buffer `source` into `destination`, which has the same size. No
+         *  barrier. */
+        [[nodiscard]] PlanetGpuError RecordCopy(rhi::CommandBuffer& command_buffer, std::string_view source, std::string_view destination) const;
+        /** @brief The buffer `name`, for a command that takes a buffer (an indirect dispatch), or nothing. */
+        [[nodiscard]] std::optional<rhi::BufferHandle> Handle(std::string_view name) const;
         /** @brief The bytes of a readable buffer. Call it after the submit that holds RecordReadbackCopies finished. */
         [[nodiscard]] PlanetGpuResult<std::vector<std::byte>> Read(std::string_view name) const;
 

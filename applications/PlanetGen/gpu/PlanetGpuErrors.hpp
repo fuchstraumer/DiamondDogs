@@ -24,6 +24,8 @@ namespace planet
         BufferNotFound,
         SubmitFailed,
         ReadbackFailed,
+        // a step with no points or no plates
+        EmptyStep,
     };
 
     template<typename T>

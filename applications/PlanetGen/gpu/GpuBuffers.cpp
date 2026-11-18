@@ -1,13 +1,24 @@
 #include "GpuBuffers.hpp"
 #include "CommandBuffer.hpp"
+#include "ManifestDescriptors.hpp"
+#include "PlanetGpuErrors.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
 #include "ResourceFuture.hpp"
+#include "ResourceTypes.hpp"
 #include "RhiFlags.hpp"
+#include "RhiHandle.hpp"
 #include "RhiTypes.hpp"
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <expected>
 #include <print>
+#include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace planet
@@ -15,6 +26,8 @@ namespace planet
     namespace
     {
         constexpr uint64_t k_TimeoutNs = 10'000'000'000ull;
+        // VK_WHOLE_SIZE
+        constexpr uint64_t k_WholeBuffer = ~0ull;
     }
 
     GpuBuffers::GpuBuffers(ResourceContext& _resources) noexcept :
@@ -46,7 +59,10 @@ namespace planet
     {
         BufferCreateInfo createInfo{};
         createInfo.Domain = ResourceDomain::GPUOnly;
-        createInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource;
+        // a copy destination too, so that the step runner can fill and restore it, and indirect, so that a pass can
+        // write the group counts of a later dispatch
+        createInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource | BufferUsageBits::CopyDestination |
+                           BufferUsageBits::IndirectCompute;
         createInfo.Size = data.size();
         createInfo.Name = name;
         PlanetGpuResult<GraphicsResource> buffer = create(createInfo, data);
@@ -130,6 +146,49 @@ namespace planet
             rhi::PipelineStage::Host, rhi::Access::HostRead
         };
         command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &toHost, 1 }, {}, {} });
+    }
+
+    PlanetGpuError GpuBuffers::RecordFill(rhi::CommandBuffer& command_buffer, std::string_view name, uint32_t value) const
+    {
+        const Entry* entry = find(name);
+
+        if (entry == nullptr)
+        {
+            std::println(stderr, "GpuBuffers: no buffer {} to fill", name);
+            return PlanetGpuError::BufferNotFound;
+        }
+
+        // vkCmdFillBuffer needs a size that is a multiple of 4; VK_WHOLE_SIZE rounds the end down for a byte array
+        command_buffer.FillBuffer(rhi::BufferHandle{ entry->Buffer.VkHandle }, 0u, k_WholeBuffer, value);
+        return PlanetGpuError::Success;
+    }
+
+    PlanetGpuError GpuBuffers::RecordCopy(rhi::CommandBuffer& command_buffer, std::string_view source, std::string_view destination) const
+    {
+        const Entry* from = find(source);
+        const Entry* to = find(destination);
+
+        if (from == nullptr || to == nullptr || from->ByteSize != to->ByteSize)
+        {
+            std::println(stderr, "GpuBuffers: cannot copy {} to {} (missing, or the sizes differ)", source, destination);
+            return PlanetGpuError::BufferNotFound;
+        }
+
+        const rhi::BufferCopy region{ 0u, 0u, from->ByteSize };
+        command_buffer.CopyBuffer(rhi::BufferHandle{ from->Buffer.VkHandle }, rhi::BufferHandle{ to->Buffer.VkHandle }, std::span{ &region, 1 });
+        return PlanetGpuError::Success;
+    }
+
+    std::optional<rhi::BufferHandle> GpuBuffers::Handle(std::string_view name) const
+    {
+        const Entry* entry = find(name);
+
+        if (entry == nullptr)
+        {
+            return std::nullopt;
+        }
+
+        return rhi::BufferHandle{ entry->Buffer.VkHandle };
     }
 
     PlanetGpuResult<std::vector<std::byte>> GpuBuffers::Read(std::string_view name) const

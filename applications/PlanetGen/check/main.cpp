@@ -14,8 +14,10 @@
 #include "LoadedBundle.hpp"
 #include "ModuleDescriptor.hpp"
 #include "PlanetShaders.hpp"
+#include "PlanetStep.hpp"
 #include "Queue.hpp"
 #include "ReferenceSet.hpp"
+#include "StepState.hpp"
 #include "ResourceContext.hpp"
 #include "RhiAssert.hpp"
 #include "RhiSystem.hpp"
@@ -45,7 +47,7 @@
 // of applications/PlanetLab (write_gpu_reference.py). The checks and their tolerances are the ones of the pass
 // specification.
 //
-//     PlanetGenCheck --reference=<folder> [--checks=map,owners,front,crust,distance,uplift,torque]
+//     PlanetGenCheck --reference=<folder> [--checks=map,owners,front,crust,live,distance,uplift,torque,chain]
 //
 // The default is all of them. Each check runs once for each crust flag storage (bytes, words) that the device can
 // run. Exit 0 only when every check passes. Validation is Full, so also search the output for validation messages.
@@ -53,14 +55,17 @@ namespace
 {
     constexpr std::string_view k_ReferenceFlag{ "--reference=" };
     constexpr std::string_view k_ChecksFlag{ "--checks=" };
-    constexpr std::array<std::string_view, 7> k_AllChecks{ "map", "owners", "front", "crust", "distance", "uplift", "torque" };
+    constexpr std::array<std::string_view, 9> k_AllChecks{ "map", "owners", "front", "crust", "live", "distance", "uplift", "torque", "chain" };
     constexpr std::array<planet::CrustFlagChoice, 2> k_FlagStorages{ planet::CrustFlagChoice::Bytes, planet::CrustFlagChoice::Words };
-    constexpr std::array<std::string_view, 13> k_AllEntryPoints
+    constexpr std::array<std::string_view, 15> k_AllEntryPoints
     {
         "MapProbeCS", "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
+        "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
         "CountFrontPointsCS", "OffsetFrontPointsCS", "ScatterFrontPointsCS", "NearestFrontPointCS", "UpliftCS",
-        "SumPlatesCS", "SumPullCS",
+        "SumPullCS",
     };
+    // NearestFrontPointCS and UpliftCS run this many threads to a group on the live cell list (LiveCells.slang)
+    constexpr uint32_t k_ListGroupSize = 64u;
 
     constexpr bootstrap::BundleRequest k_Bundles[]
     {
@@ -232,6 +237,75 @@ namespace
     {
         std::optional<std::vector<std::byte>> flags = FlagArray(reference, file, storage);
         return flags.has_value() && buffers.AddStorage(buffer, *flags, readable) == planet::PlanetGpuError::Success;
+    }
+
+    // the live cell list as the host makes it from a flag file: the flat index of each live cell, plate by plate and
+    // in cell order, and the offset of each plate in it
+    struct HostLiveList
+    {
+        std::vector<uint32_t> Cells;
+        std::vector<uint32_t> Offsets;
+        std::vector<uint8_t> Alive;
+    };
+
+    [[nodiscard]] std::optional<HostLiveList> BuildLiveList(const planet::ReferenceSet& reference, std::string_view alive_file)
+    {
+        std::optional<std::vector<uint8_t>> alive = reference.Bytes(alive_file);
+
+        if (!alive.has_value())
+        {
+            return std::nullopt;
+        }
+
+        const size_t points = static_cast<size_t>(reference.PointCount());
+        const size_t plates = static_cast<size_t>(reference.PlateCount());
+        HostLiveList list;
+        list.Offsets.reserve(plates + 1u);
+
+        for (size_t plate = 0; plate < plates; ++plate)
+        {
+            list.Offsets.push_back(static_cast<uint32_t>(list.Cells.size()));
+
+            for (size_t cell = 0; cell < points; ++cell)
+            {
+                const size_t flat = plate * points + cell;
+
+                if ((*alive)[flat] != 0u)
+                {
+                    list.Cells.push_back(static_cast<uint32_t>(flat));
+                }
+            }
+        }
+
+        list.Offsets.push_back(static_cast<uint32_t>(list.Cells.size()));
+        list.Alive = std::move(*alive);
+        return list;
+    }
+
+    // the buffers that a pass on the list reads, for a check that runs that pass alone
+    [[nodiscard]] bool AddLiveList(planet::GpuBuffers& buffers, const HostLiveList& list)
+    {
+        return buffers.AddStorage("LiveCell", Bytes(list.Cells), false) == planet::PlanetGpuError::Success &&
+               buffers.AddStorage("PlateLiveOffset", Bytes(list.Offsets), false) == planet::PlanetGpuError::Success;
+    }
+
+    // compares the elements of live cells only: a pass on the list leaves dead cells as they were
+    [[nodiscard]] int64_t CountDifferentLive(std::span<const std::byte> actual, std::span<const std::byte> expected, size_t element_size,
+                                             const std::vector<uint8_t>& alive)
+    {
+        int64_t different = 0;
+
+        for (size_t flat = 0; flat < alive.size(); ++flat)
+        {
+            const size_t offset = flat * element_size;
+
+            if (alive[flat] != 0u && std::memcmp(actual.data() + offset, expected.data() + offset, element_size) != 0)
+            {
+                ++different;
+            }
+        }
+
+        return different;
     }
 
     // creates the programs of one check in the storage that the run asked for
@@ -801,9 +875,10 @@ namespace
         std::optional<std::vector<int32_t>> plateOnTop = reference.Ints("p3_plate");
         std::optional<std::vector<int32_t>> expectedFrontPoint = reference.Ints("p4_cell_front_point");
         std::optional<std::vector<float>> expectedDistance = reference.Floats("p4_cell_distance");
+        std::optional<HostLiveList> live = BuildLiveList(reference, "p3_ref_alive");
 
         if (!constantBytes.has_value() || !rotation.has_value() || !subduction.has_value() || !plateOnTop.has_value() ||
-            !expectedFrontPoint.has_value() || !expectedDistance.has_value())
+            !expectedFrontPoint.has_value() || !expectedDistance.has_value() || !live.has_value())
         {
             return false;
         }
@@ -827,7 +902,8 @@ namespace
             Failed(buffers.AddStorage("FrontPoint", Bytes(pointZeros), true)) ||
             Failed(buffers.AddStorage("FrontPointPosition", Bytes(positionZeros), false)) ||
             Failed(buffers.AddStorage("CellFrontPoint", Bytes(cellZeros), true)) ||
-            Failed(buffers.AddStorage("CellDistance", Bytes(cellZeros), true)))
+            Failed(buffers.AddStorage("CellDistance", Bytes(cellZeros), true)) ||
+            !AddLiveList(buffers, *live))
         {
             return false;
         }
@@ -839,7 +915,10 @@ namespace
             return false;
         }
 
-        // OffsetFrontPointsCS is one workgroup: a thread count of 1 dispatches one group, whatever its size
+        // OffsetFrontPointsCS is one workgroup: a thread count of 1 dispatches one group, whatever its size. The search
+        // runs on the live cell list from the host, one thread for each live cell
+        const uint32_t liveCount = static_cast<uint32_t>(live->Cells.size());
+
         const auto record = [&](rhi::CommandBuffer& command_buffer)
         {
             (*shaders)->RecordDispatch(command_buffer, **bindings, "CountFrontPointsCS", static_cast<uint32_t>(pointCount));
@@ -848,7 +927,7 @@ namespace
             planet::RecordComputeBarrier(command_buffer);
             (*shaders)->RecordDispatch(command_buffer, **bindings, "ScatterFrontPointsCS", static_cast<uint32_t>(pointCount));
             planet::RecordComputeBarrier(command_buffer);
-            (*shaders)->RecordDispatch(command_buffer, **bindings, "NearestFrontPointCS", static_cast<uint32_t>(cellCount));
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "NearestFrontPointCS", liveCount);
         };
 
         if (!Submit(gpu, buffers, record))
@@ -922,8 +1001,14 @@ namespace
         const double spacingKm = std::sqrt(4.0 * std::numbers::pi / static_cast<double>(pointCount)) * k_PlanetRadiusKm;
         FrontPointTally tally;
 
+        // dead cells are not on the list, so the pass does not write them
         for (size_t flat = 0; flat < cellCount; ++flat)
         {
+            if (live->Alive[flat] == 0u)
+            {
+                continue;
+            }
+
             const int32_t expected = (*expectedFrontPoint)[flat];
             const int32_t actual = cellFrontPoints[flat];
             const float expectedKm = (*expectedDistance)[flat];
@@ -954,8 +1039,8 @@ namespace
             }
         }
 
-        std::println("distance: {} cells, {} take another front point ({} near ties, {} wrong), {} distances outside the tolerance",
-                     cellCount, tally.Ties + tally.Wrong, tally.Ties, tally.Wrong, tally.DistanceBad);
+        std::println("distance: {} live cells, {} take another front point ({} near ties, {} wrong), {} distances outside the tolerance",
+                     liveCount, tally.Ties + tally.Wrong, tally.Ties, tally.Wrong, tally.DistanceBad);
         return listsWrong == 0 && tally.Wrong == 0 && tally.Ties < 10 && tally.DistanceBad == 0;
     }
 
@@ -997,9 +1082,10 @@ namespace
         std::optional<std::vector<int32_t>> cellFrontPoint = reference.Ints("p4_cell_front_point");
         std::optional<std::vector<float>> cellDistance = reference.Floats("p4_cell_distance");
         std::optional<std::vector<float>> strength = reference.Floats("front_strength");
+        std::optional<HostLiveList> live = BuildLiveList(reference, "p3_ref_alive");
 
         if (!constantBytes.has_value() || !passBytes.has_value() || !cellFrontPoint.has_value() || !cellDistance.has_value() ||
-            !strength.has_value())
+            !strength.has_value() || !live.has_value())
         {
             return false;
         }
@@ -1011,7 +1097,8 @@ namespace
             Failed(buffers.AddStorage("CellFrontPoint", Bytes(*cellFrontPoint), false)) ||
             Failed(buffers.AddStorage("CellDistance", Bytes(*cellDistance), false)) ||
             Failed(buffers.AddStorage("FrontStrength", Bytes(*strength), false)) ||
-            !AddFlags(buffers, reference, storage, flagNames.Alive, "p3_ref_alive", false))
+            !AddFlags(buffers, reference, storage, flagNames.Alive, "p3_ref_alive", false) ||
+            !AddLiveList(buffers, *live))
         {
             return false;
         }
@@ -1035,7 +1122,7 @@ namespace
 
         const auto record = [&](rhi::CommandBuffer& command_buffer)
         {
-            (*shaders)->RecordDispatch(command_buffer, **bindings, "UpliftCS", static_cast<uint32_t>(cellCount));
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "UpliftCS", static_cast<uint32_t>(live->Cells.size()));
         };
 
         if (!Submit(gpu, buffers, record))
@@ -1043,6 +1130,7 @@ namespace
             return false;
         }
 
+        // live cells only: the pass runs on the live cell list, and the reference also erodes dead continental cells
         bool passed = true;
 
         for (const CrustArray& array : crust)
@@ -1058,7 +1146,7 @@ namespace
             if (array.Form != ArrayForm::Float)
             {
                 const size_t elementSize = array.Form == ArrayForm::Flag ? FlagElementSize(storage) : sizeof(uint32_t);
-                const int64_t different = CountDifferentElements(*resultBytes, *expected, elementSize);
+                const int64_t different = CountDifferentLive(*resultBytes, *expected, elementSize, live->Alive);
                 std::println("uplift {}: {} differ", array.Expected, different);
                 passed = passed && different == 0;
                 continue;
@@ -1071,6 +1159,11 @@ namespace
 
             for (size_t flat = 0; flat < cellCount; ++flat)
             {
+                if (live->Alive[flat] == 0u)
+                {
+                    continue;
+                }
+
                 largest = std::max(largest, std::fabs(static_cast<double>(actualValues[flat]) - static_cast<double>(expectedValues[flat])));
 
                 if (!Close(actualValues[flat], expectedValues[flat], 1.0e-5f, 1.0e-4f))
@@ -1113,12 +1206,12 @@ namespace
         return largestDifference / largestComponent;
     }
 
-    // Pass 6: the sums of the torque balance. Cell counts exact; the position sums and the pulls within a relative 1e-4
-    // of the largest component of each plate's row
+    // Pass 6: the sums of the torque balance. CountLiveCellsCS makes the counts and position sums, and SumPullCS the
+    // pull. Cell counts exact; the position sums and the pulls within a relative 1e-4 of the largest component of each
+    // plate's row
     [[nodiscard]] bool CheckTorqueSums(GpuContext& gpu, const planet::ReferenceSet& reference, planet::CrustFlagChoice crust_flags)
     {
-        constexpr std::array<std::string_view, 2> k_EntryPoints{ "SumPlatesCS", "SumPullCS" };
-        constexpr uint32_t k_RowGroupSize = 64u;
+        constexpr std::array<std::string_view, 2> k_EntryPoints{ "CountLiveCellsCS", "SumPullCS" };
         constexpr double k_RelativeTolerance = 1.0e-4;
         const int32_t pointCount = reference.PointCount();
         const int32_t plateCount = reference.PlateCount();
@@ -1137,7 +1230,7 @@ namespace
             planet::UniformUint("PointCount", static_cast<uint32_t>(pointCount)),
             planet::UniformUint("PlateCount", static_cast<uint32_t>(plateCount)),
         };
-        planet::PlanetGpuResult<std::vector<std::byte>> constantBytes = (*shaders)->UniformBytes("SumPlatesCS", "Params", constants);
+        planet::PlanetGpuResult<std::vector<std::byte>> constantBytes = (*shaders)->UniformBytes("CountLiveCellsCS", "Params", constants);
         std::optional<std::vector<float>> rotation = reference.Floats("rotation");
         std::optional<std::vector<uint32_t>> subduction = reference.Words("front_subduction");
         std::optional<std::vector<int32_t>> underPlate = reference.Ints("front_second_plate");
@@ -1182,13 +1275,13 @@ namespace
             return false;
         }
 
-        // SumPlatesCS gives each plate its own row of whole workgroups, so that every lane of a subgroup is in one plate
-        const uint32_t groupsPerPlate = (static_cast<uint32_t>(pointCount) + k_RowGroupSize - 1u) / k_RowGroupSize;
-        const uint32_t rowThreads = static_cast<uint32_t>(plateCount) * groupsPerPlate * k_RowGroupSize;
+        // CountLiveCellsCS gives each plate its own row of whole workgroups
+        const planet::StepSize size{ static_cast<uint32_t>(pointCount), static_cast<uint32_t>(plateCount) };
+        const uint32_t liveThreads = planet::LiveGroupCount(size) * planet::k_LiveGroupSize;
 
         const auto record = [&](rhi::CommandBuffer& command_buffer)
         {
-            (*shaders)->RecordDispatch(command_buffer, **bindings, "SumPlatesCS", rowThreads);
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "CountLiveCellsCS", liveThreads);
             planet::RecordComputeBarrier(command_buffer);
             (*shaders)->RecordDispatch(command_buffer, **bindings, "SumPullCS", static_cast<uint32_t>(pointCount));
         };
@@ -1235,8 +1328,316 @@ namespace
         return cellsWrong == 0 && continentalWrong == 0 && positionsWrong == 0 && pullWrong == 0;
     }
 
+    // Pass 3b: the live cell list, from the crust that pass 3 left. The offsets and the group counts of the indirect
+    // dispatch exact; each plate's range of the list holds exactly its live cells, in any order
+    [[nodiscard]] bool CheckLiveCells(GpuContext& gpu, const planet::ReferenceSet& reference, planet::CrustFlagChoice crust_flags)
+    {
+        constexpr std::array<std::string_view, 3> k_EntryPoints{ "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS" };
+        const int32_t pointCount = reference.PointCount();
+        const int32_t plateCount = reference.PlateCount();
+        const size_t plates = static_cast<size_t>(plateCount);
+        planet::PlanetGpuResult<std::unique_ptr<planet::PlanetShaders>> shaders = CreateShaders(gpu, crust_flags, k_EntryPoints);
+        std::optional<HostLiveList> expected = BuildLiveList(reference, "p3_ref_alive");
+
+        if (!shaders.has_value() || !expected.has_value())
+        {
+            return false;
+        }
+
+        const planet::CrustFlagStorage storage = (*shaders)->CrustFlags();
+        const planet::CrustFlagBuffers flagNames = planet::CrustFlagBufferNames(storage);
+        const std::array<planet::UniformValue, 2> constants
+        {
+            planet::UniformUint("PointCount", static_cast<uint32_t>(pointCount)),
+            planet::UniformUint("PlateCount", static_cast<uint32_t>(plateCount)),
+        };
+        planet::PlanetGpuResult<std::vector<std::byte>> constantBytes = (*shaders)->UniformBytes("CountLiveCellsCS", "Params", constants);
+
+        if (!constantBytes.has_value())
+        {
+            return false;
+        }
+
+        planet::GpuBuffers buffers(gpu.Resources);
+        const std::vector<uint32_t> plateZeros(plates, 0u);
+        const std::vector<uint32_t> offsetZeros(plates + 1u, 0u);
+        const std::vector<int32_t> rowZeros(plates * 3u, 0);
+        const std::vector<uint32_t> dispatchZeros(3u, 0u);
+        const std::vector<uint32_t> listZeros(plates * static_cast<size_t>(pointCount), 0u);
+
+        if (Failed(buffers.AddUniform("Params", *constantBytes)) ||
+            !AddFlags(buffers, reference, storage, flagNames.Alive, "p3_ref_alive", false) ||
+            !AddFlags(buffers, reference, storage, flagNames.Continental, "p3_ref_continental", false) ||
+            Failed(buffers.AddStorage("PlateCellCount", Bytes(plateZeros), true)) ||
+            Failed(buffers.AddStorage("PlateContinentalCount", Bytes(plateZeros), false)) ||
+            Failed(buffers.AddStorage("PlatePositionSum", Bytes(rowZeros), false)) ||
+            Failed(buffers.AddStorage("PlateLiveCursor", Bytes(plateZeros), false)) ||
+            Failed(buffers.AddStorage("PlateLiveOffset", Bytes(offsetZeros), true)) ||
+            Failed(buffers.AddStorage("LiveDispatch", Bytes(dispatchZeros), true)) ||
+            Failed(buffers.AddStorage("LiveCell", Bytes(listZeros), true)))
+        {
+            return false;
+        }
+
+        planet::PlanetGpuResult<std::unique_ptr<planet::PassBindings>> bindings = (*shaders)->Bind(buffers.Bound());
+
+        if (!bindings.has_value())
+        {
+            return false;
+        }
+
+        const planet::StepSize size{ static_cast<uint32_t>(pointCount), static_cast<uint32_t>(plateCount) };
+        const uint32_t liveThreads = planet::LiveGroupCount(size) * planet::k_LiveGroupSize;
+
+        const auto record = [&](rhi::CommandBuffer& command_buffer)
+        {
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "CountLiveCellsCS", liveThreads);
+            planet::RecordComputeBarrier(command_buffer);
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "OffsetLiveCellsCS", 1u);
+            planet::RecordComputeBarrier(command_buffer);
+            (*shaders)->RecordDispatch(command_buffer, **bindings, "ScatterLiveCellsCS", liveThreads);
+        };
+
+        if (!Submit(gpu, buffers, record))
+        {
+            return false;
+        }
+
+        planet::PlanetGpuResult<std::vector<std::byte>> countBytes = buffers.Read("PlateCellCount");
+        planet::PlanetGpuResult<std::vector<std::byte>> offsetBytes = buffers.Read("PlateLiveOffset");
+        planet::PlanetGpuResult<std::vector<std::byte>> dispatchBytes = buffers.Read("LiveDispatch");
+        planet::PlanetGpuResult<std::vector<std::byte>> listBytes = buffers.Read("LiveCell");
+
+        if (!countBytes.has_value() || !offsetBytes.has_value() || !dispatchBytes.has_value() || !listBytes.has_value())
+        {
+            return false;
+        }
+
+        const std::vector<uint32_t> counts = FromBytes<uint32_t>(*countBytes, plates);
+        const std::vector<uint32_t> offsets = FromBytes<uint32_t>(*offsetBytes, plates + 1u);
+        const std::vector<uint32_t> dispatch = FromBytes<uint32_t>(*dispatchBytes, 3u);
+        const std::vector<uint32_t> list = FromBytes<uint32_t>(*listBytes, expected->Cells.size());
+        const uint32_t total = static_cast<uint32_t>(expected->Cells.size());
+        const std::array<uint32_t, 3> expectedDispatch{ (total + k_ListGroupSize - 1u) / k_ListGroupSize, 1u, 1u };
+        int64_t countsWrong = 0;
+        int64_t platesWrong = 0;
+
+        for (size_t plate = 0; plate < plates; ++plate)
+        {
+            const uint32_t begin = expected->Offsets[plate];
+            const uint32_t end = expected->Offsets[plate + 1u];
+            countsWrong += counts[plate] != end - begin ? 1 : 0;
+
+            if (offsets[plate] != begin)
+            {
+                ++platesWrong;
+                continue;
+            }
+
+            std::vector<uint32_t> actual(list.begin() + begin, list.begin() + end);
+            std::ranges::sort(actual);
+            platesWrong += std::ranges::equal(actual, std::span{ expected->Cells }.subspan(begin, end - begin)) ? 0 : 1;
+        }
+
+        const bool totalRight = offsets[plates] == total;
+        const bool dispatchRight = std::ranges::equal(dispatch, expectedDispatch);
+        std::println("live: {} live cells on {} plates, {} counts wrong, {} plate ranges wrong, total {}, dispatch {} {} {} ({})",
+                     total, plates, countsWrong, platesWrong, totalRight ? "right" : "wrong", dispatch[0], dispatch[1], dispatch[2],
+                     dispatchRight ? "right" : "wrong");
+        return countsWrong == 0 && platesWrong == 0 && totalRight && dispatchRight;
+    }
+
+    struct ChainArray
+    {
+        std::string_view Buffer;
+        std::string_view Expected;
+        ArrayForm Form{ ArrayForm::Invalid };
+        // floats: the tolerance of the single-pass check that writes the array
+        float Relative{ 0.0f };
+        float Absolute{ 0.0f };
+        // the plate and cell on top come from pass 1, so they allow its float32 border points
+        bool OwnersAllowance{ false };
+        // written by a pass on the live cell list, which leaves dead cells as they were
+        bool LiveOnly{ false };
+    };
+
+    // The whole step: PlanetStep runs passes 1 to 6 on the start state, each pass on the buffers that the passes before
+    // it wrote. It runs twice in one submit, with a reset before each, so a reset that misses a buffer shows as a
+    // difference. The tolerances are the ones of the single-pass checks: the plate and cell on top allow the owners
+    // check's border points, and CellFrontPoint the near ties of the distance check. The arrays that passes on the live
+    // cell list write are compared on live cells only
+    [[nodiscard]] bool CheckChain(GpuContext& gpu, const planet::ReferenceSet& reference, planet::CrustFlagChoice crust_flags)
+    {
+        constexpr int64_t k_AllowedFrontPointTies = 10;
+        constexpr double k_RelativeTolerance = 1.0e-4;
+        const int32_t pointCount = reference.PointCount();
+        const int32_t plateCount = reference.PlateCount();
+        const size_t plates = static_cast<size_t>(plateCount);
+        planet::PlanetGpuResult<std::unique_ptr<planet::PlanetShaders>> shaders = CreateShaders(gpu, crust_flags, planet::k_StepEntryPoints);
+
+        if (!shaders.has_value())
+        {
+            return false;
+        }
+
+        planet::GpuBuffers buffers(gpu.Resources);
+
+        if (!planet::AddStepBuffers(buffers, **shaders, reference, planet::StepReadback::Outputs))
+        {
+            return false;
+        }
+
+        const planet::StepSize size{ static_cast<uint32_t>(pointCount), static_cast<uint32_t>(plateCount) };
+        planet::PlanetGpuResult<std::unique_ptr<planet::PlanetStep>> step = planet::PlanetStep::Create(**shaders, buffers, size);
+
+        if (!step.has_value())
+        {
+            return false;
+        }
+
+        bool recorded = true;
+
+        const auto record = [&](rhi::CommandBuffer& command_buffer)
+        {
+            for (uint32_t run = 0; run < 2u; ++run)
+            {
+                recorded = recorded && (*step)->RecordReset(command_buffer) == planet::PlanetGpuError::Success;
+                (*step)->RecordStep(command_buffer);
+            }
+        };
+
+        if (!Submit(gpu, buffers, record) || !recorded)
+        {
+            return false;
+        }
+
+        const planet::CrustFlagStorage storage = (*shaders)->CrustFlags();
+        const planet::CrustFlagBuffers flagNames = planet::CrustFlagBufferNames(storage);
+        const std::array<ChainArray, 10> arrays
+        {
+            ChainArray{ "Pass3Plate", "p3_plate", ArrayForm::Int, 0.0f, 0.0f, true },
+            ChainArray{ "Pass3Cell", "p3_cell", ArrayForm::Int, 0.0f, 0.0f, true },
+            ChainArray{ "FrontSubduction", "front_subduction", ArrayForm::Int },
+            ChainArray{ "FrontStrength", "front_strength", ArrayForm::Float, 1.0e-4f, 1.0e-6f },
+            ChainArray{ flagNames.Alive, "p3_ref_alive", ArrayForm::Flag },
+            // a tolerance of 0 is exact: pass 3 copies or sets the birth time and never computes it
+            ChainArray{ "CrustBirth", "p3_ref_birth", ArrayForm::Float, 0.0f, 0.0f },
+            ChainArray{ flagNames.Continental, "p5_ref_continental", ArrayForm::Flag, 0.0f, 0.0f, false, true },
+            ChainArray{ "CrustRelief", "p5_ref_relief", ArrayForm::Float, 1.0e-5f, 1.0e-4f, false, true },
+            ChainArray{ "CrustOrogeny", "p5_ref_orogeny", ArrayForm::Int, 0.0f, 0.0f, false, true },
+            ChainArray{ "CrustOrogenyTime", "p5_ref_orogeny_time", ArrayForm::Float, 1.0e-5f, 1.0e-4f, false, true },
+        };
+        std::optional<std::vector<uint8_t>> alive = reference.Bytes("p3_ref_alive");
+
+        if (!alive.has_value())
+        {
+            return false;
+        }
+
+        bool passed = true;
+
+        for (const ChainArray& array : arrays)
+        {
+            planet::PlanetGpuResult<std::vector<std::byte>> resultBytes = buffers.Read(array.Buffer);
+            std::optional<std::vector<std::byte>> expected = ReadCrustArray(reference, array.Expected, array.Form, storage);
+
+            if (!resultBytes.has_value() || !expected.has_value())
+            {
+                return false;
+            }
+
+            if (array.Form != ArrayForm::Float)
+            {
+                const size_t elementSize = array.Form == ArrayForm::Flag ? FlagElementSize(storage) : sizeof(uint32_t);
+                const int64_t different = array.LiveOnly ? CountDifferentLive(*resultBytes, *expected, elementSize, *alive)
+                                                         : CountDifferentElements(*resultBytes, *expected, elementSize);
+                // the same allowance as the owners check: fewer than 1 point in 10 000
+                const int64_t allowed = array.OwnersAllowance ? std::max<int64_t>(pointCount / 10000, 1) : 1;
+                std::println("chain {}: {} differ (allowed fewer than {})", array.Expected, different, allowed);
+                passed = passed && different < allowed;
+                continue;
+            }
+
+            const size_t count = expected->size() / sizeof(float);
+            const std::vector<float> actualValues = FromBytes<float>(*resultBytes, count);
+            const std::vector<float> expectedValues = FromBytes<float>(*expected, count);
+            int64_t different = 0;
+            double largest = 0.0;
+
+            for (size_t index = 0; index < count; ++index)
+            {
+                if (array.LiveOnly && (*alive)[index] == 0u)
+                {
+                    continue;
+                }
+
+                largest = std::max(largest, std::fabs(static_cast<double>(actualValues[index]) - static_cast<double>(expectedValues[index])));
+
+                if (!Close(actualValues[index], expectedValues[index], array.Relative, array.Absolute))
+                {
+                    ++different;
+                }
+            }
+
+            std::println("chain {}: {} differ, largest difference {:.3g}", array.Expected, different, largest);
+            passed = passed && different == 0;
+        }
+
+        // pass 4: the nearest front point of each cell, with the near ties of the distance check
+        planet::PlanetGpuResult<std::vector<std::byte>> frontPointBytes = buffers.Read("CellFrontPoint");
+        std::optional<std::vector<int32_t>> expectedFrontPoint = reference.Ints("p4_cell_front_point");
+
+        if (!frontPointBytes.has_value() || !expectedFrontPoint.has_value())
+        {
+            return false;
+        }
+
+        const int64_t frontPointsDifferent = CountDifferentLive(*frontPointBytes, Bytes(*expectedFrontPoint), sizeof(int32_t), *alive);
+        std::println("chain p4_cell_front_point: {} differ (allowed fewer than {})", frontPointsDifferent, k_AllowedFrontPointTies);
+        passed = passed && frontPointsDifferent < k_AllowedFrontPointTies;
+
+        // pass 6: the sums, with the tolerances of the torque check
+        planet::PlanetGpuResult<std::vector<std::byte>> cellBytes = buffers.Read("PlateCellCount");
+        planet::PlanetGpuResult<std::vector<std::byte>> continentalBytes = buffers.Read("PlateContinentalCount");
+        planet::PlanetGpuResult<std::vector<std::byte>> positionBytes = buffers.Read("PlatePositionSum");
+        planet::PlanetGpuResult<std::vector<std::byte>> pullBytes = buffers.Read("PlatePull");
+        std::optional<std::vector<int32_t>> expectedCells = reference.Ints("p6_cell_count");
+        std::optional<std::vector<int32_t>> expectedContinental = reference.Ints("p6_continental_count");
+        std::optional<std::vector<float>> expectedPositions = reference.Floats("p6_position_sum");
+        std::optional<std::vector<float>> expectedPull = reference.Floats("p6_pull");
+
+        if (!cellBytes.has_value() || !continentalBytes.has_value() || !positionBytes.has_value() || !pullBytes.has_value() ||
+            !expectedCells.has_value() || !expectedContinental.has_value() || !expectedPositions.has_value() || !expectedPull.has_value())
+        {
+            return false;
+        }
+
+        const int64_t cellsWrong = CountDifferent(FromBytes<int32_t>(*cellBytes, plates), *expectedCells);
+        const int64_t continentalWrong = CountDifferent(FromBytes<int32_t>(*continentalBytes, plates), *expectedContinental);
+        const std::vector<int32_t> positions = FromBytes<int32_t>(*positionBytes, plates * 3u);
+        const std::vector<int32_t> pull = FromBytes<int32_t>(*pullBytes, plates * 3u);
+        double largestPosition = 0.0;
+        double largestPull = 0.0;
+
+        for (size_t plate = 0; plate < plates; ++plate)
+        {
+            largestPosition = std::max(largestPosition, LargestRowDifference(positions, k_PositionSumScale, *expectedPositions, plate));
+            largestPull = std::max(largestPull, LargestRowDifference(pull, k_PullScale, *expectedPull, plate));
+        }
+
+        std::println("chain p6: cell counts {} wrong, continental counts {} wrong, position sums largest {:.3g}, pulls largest {:.3g}",
+                     cellsWrong, continentalWrong, largestPosition, largestPull);
+        passed = passed && cellsWrong == 0 && continentalWrong == 0 && largestPosition <= k_RelativeTolerance && largestPull <= k_RelativeTolerance;
+        return passed;
+    }
+
     [[nodiscard]] bool RunCheck(std::string_view name, GpuContext& gpu, const planet::ReferenceSet& reference, planet::CrustFlagChoice crust_flags)
     {
+        if (name == "chain")
+        {
+            return CheckChain(gpu, reference, crust_flags);
+        }
+
         if (name == "map")
         {
             return CheckMap(gpu, reference, crust_flags);
@@ -1255,6 +1656,11 @@ namespace
         if (name == "crust")
         {
             return CheckCrust(gpu, reference, crust_flags);
+        }
+
+        if (name == "live")
+        {
+            return CheckLiveCells(gpu, reference, crust_flags);
         }
 
         if (name == "distance")
@@ -1306,7 +1712,7 @@ int main(int argc, char* argv[])
 
     if (referenceFolder.empty())
     {
-        std::println(stderr, "usage: PlanetGenCheck --reference=<folder> [--checks=map,owners,front,crust,distance,uplift,torque]");
+        std::println(stderr, "usage: PlanetGenCheck --reference=<folder> [--checks=map,owners,front,crust,live,distance,uplift,torque,chain]");
         return 1;
     }
 
