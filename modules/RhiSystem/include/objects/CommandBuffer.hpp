@@ -57,6 +57,9 @@ namespace rhi
         void Draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance) noexcept;
         void DrawIndexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance) noexcept;
         void Dispatch(uint32_t group_count_x, uint32_t group_count_y, uint32_t group_count_z) noexcept;
+        /** @brief The group counts are three uint32 at `offset` in `buffer`, which needs indirect usage. A barrier must
+         *  make the writes of those counts visible to PipelineStage::DrawIndirect and Access::IndirectCommandRead */
+        void DispatchIndirect(const BufferHandle& buffer, uint64_t offset) noexcept;
 
         void Barrier(const DependencyInfo& dependencies) noexcept;
         void FillBuffer(const BufferHandle& buffer, uint64_t offset, uint64_t size, uint32_t value) noexcept;

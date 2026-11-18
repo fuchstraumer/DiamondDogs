@@ -93,24 +93,13 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID)
     // The brute force search to find nearest points to the subducting points: our initial
     // thought was to use jump flooding for this, but given our point count (fairly small),
     // a simple brute force approach is likely more than sufficient for our needs.
-
-    const uint flattenedPt = threadId.x;
-    // recall that prev. stage wrote points out into regions per plate
-    const uint ptLimit = Params.PointCount * Params.PlateCount;
-    if (flattenedPt >= ptLimit)
+    const uint idxLimit = PlateLiveOffset.Load(Params.PlateCount);
+    if (threadId.x >= idxLimit)
     {
         return;
     }
 
-    CellFrontPoint.Store(flattenedPt, -1);
-    // store infinity as the initial distance for this cell, so any real distance will be smaller
-    CellDistance.Store(flattenedPt, asfloat(0x7f800000u));
-    // if the point died, we still want to store the above values so the sim can handle
-    // dead points correctly (dead here usually meaning absorbed into the subduction zone "for good")
-    if (LoadAlive(flattenedPt) == 0u)
-    {
-        return;
-    }
+    const uint flattenedPt = LiveCell.Load(threadId.x);
 
     const uint plate = flattenedPt / Params.PointCount;
     const uint plateCell = flattenedPt % Params.PointCount;
@@ -141,14 +130,12 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID)
         }
     }
 
+    CellFrontPoint.Store(flattenedPt, bestFrontPoint);
+    CellDistance.Store(flattenedPt, asfloat(0x7f800000));
     if (bestFrontPoint >= 0)
     {
-        CellFrontPoint.Store(flattenedPt, bestFrontPoint);
-        // todo: 6370 is the approximate radius of the *Earth* in km, so this needs to be made a uniform
         const float bestDistance = 6370.0f * 2.0f * asin(clamp(0.5f * sqrt(best), 0.0f, 1.0f));
         CellDistance.Store(flattenedPt, bestDistance);
     }
-
-
 
 }

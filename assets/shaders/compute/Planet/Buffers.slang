@@ -1,7 +1,7 @@
 implementing PlanetLab;
 import LodestoneAttributes;
 import LodestoneShims;
-__include PlanetParams;
+//__include PlanetParams;
 
 // The buffer forms of the plate passes. Each buffer is a Lodestone shim, so a spirv cook binds it as a descriptor and a
 // spirv-modern cook stores its device address, with no change here.
@@ -29,10 +29,17 @@ FlagBytes CrustContinentalBytes;
 Words CrustAliveWords;
 Words CrustContinentalWords;
 Floats CrustBirth;
-[ls_element_count("PlanetGenCellCount")]
 Points LatticePoints;
+Counters PlateLiveCursor;
+Words PlateLiveOffset;
+Words LiveCell;
+Words LiveDispatch;
+SignedCounters PlatePositionSum;
+SignedCounters PlatePull;
+Counters PlateCellCount;
+Counters PlateContinentalCount;
 
-uint LoadAlive(uint flat)
+internal uint LoadAlive(uint flat)
 {
     if (CRUST_FLAG_BYTES)
     {
@@ -42,7 +49,7 @@ uint LoadAlive(uint flat)
     return CrustAliveWords.Load(flat);
 }
 
-uint LoadContinental(uint flat)
+internal uint LoadContinental(uint flat)
 {
     if (CRUST_FLAG_BYTES)
     {
@@ -52,7 +59,7 @@ uint LoadContinental(uint flat)
     return CrustContinentalWords.Load(flat);
 }
 
-void StoreAlive(uint flat, uint value)
+internal void StoreAlive(uint flat, uint value)
 {
     if (CRUST_FLAG_BYTES)
     {
@@ -63,7 +70,7 @@ void StoreAlive(uint flat, uint value)
     CrustAliveWords.Store(flat, value);
 }
 
-void StoreContinental(uint flat, uint value)
+internal void StoreContinental(uint flat, uint value)
 {
     if (CRUST_FLAG_BYTES)
     {
@@ -72,4 +79,36 @@ void StoreContinental(uint flat, uint value)
     }
 
     CrustContinentalWords.Store(flat, value);
+}
+
+internal void AddPlatePositionSum(uint where, int3 position)
+{
+    PlatePositionSum.Add(where, position.x);
+    PlatePositionSum.Add(where + 1u, position.y);
+    PlatePositionSum.Add(where + 2u, position.z);
+}
+
+internal int3 LoadPlatePositionSum(uint where)
+{
+    int3 position;
+    position.x = PlatePositionSum.Load(where);
+    position.y = PlatePositionSum.Load(where + 1u);
+    position.z = PlatePositionSum.Load(where + 2u);
+    return position;
+}
+
+internal void AddPlatePull(uint where, int3 pull)
+{
+    PlatePull.Add(where, pull.x);
+    PlatePull.Add(where + 1u, pull.y);
+    PlatePull.Add(where + 2u, pull.z);
+}
+
+internal int3 LoadPlatePull(uint where)
+{
+    int3 pull;
+    pull.x = PlatePull.Load(where);
+    pull.y = PlatePull.Load(where + 1u);
+    pull.z = PlatePull.Load(where + 2u);
+    return pull;
 }

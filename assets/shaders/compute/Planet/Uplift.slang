@@ -41,14 +41,13 @@ float SubductionProfile(float distance, float reach)
 [numthreads(64, 1, 1)]
 void UpliftCS(uint3 threadID : SV_DispatchThreadID)
 {
-    const uint flattenedPt = threadID.x;
-    const uint pointRange = Params.PointCount * Params.PlateCount;
-    if (flattenedPt >= pointRange)
+    const uint pointLimit = PlateLiveOffset.Load(Params.PlateCount);
+    if (threadID.x >= pointLimit)
     {
         return;
     }
-
-    const bool isAlive = LoadAlive(flattenedPt) != 0u;
+    
+    const uint flattenedPt = LiveCell.Load(threadID.x);
     const bool isContinental = LoadContinental(flattenedPt) != 0u;
     float relief = CrustRelief.Load(flattenedPt);
 
@@ -57,7 +56,7 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
     // uplift will mark this cell as an active mountain range, stamped
     // with the time
     const int frontPoint = CellFrontPoint.Load(flattenedPt);
-    if (isAlive && frontPoint >= 0)
+    if (frontPoint >= 0)
     {
         const float reach = isContinental ? ContinentalReachKm : IslandArcReachKm;
         // note: this is the *cell* distance, it comes from the cell index not frontPoint
@@ -84,7 +83,7 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
     relief = min(relief, PeakElevation);
 
     // a tall ocean island arc is upgraded to a continent at this point
-    if (isAlive && !isContinental && (relief > AccretionRelief))
+    if (!isContinental && (relief > AccretionRelief))
     {
         StoreContinental(flattenedPt, 1u);
         relief = AccretionStartRelief;

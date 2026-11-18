@@ -8,86 +8,12 @@ __include Fibonacci;
     floats change with ordering. This only holds up to ~130k points: more would need int64 atomics.
 */
 
-SignedCounters PlatePositionSum;
-SignedCounters PlatePull;
-Counters PlateCellCount;
-Counters PlateContinentalCount;
 static const float PositionSumScale = 16384.0f;
 static const float PositionSumScaleInv = 1.0f / PositionSumScale;
 static const float PullScale = 4096.0f;
 static const float SlabFullAgeMy = 80.0f;
 static const float TimeStepMy = 2.0f;
 static const uint RowGroupSize = 64u;
-
-void AddPlatePositionSum(uint where, int3 position)
-{
-    PlatePositionSum.Add(where, position.x);
-    PlatePositionSum.Add(where + 1u, position.y);
-    PlatePositionSum.Add(where + 2u, position.z);
-}
-
-int3 LoadPlatePositionSum(uint where)
-{
-    int3 position;
-    position.x = PlatePositionSum.Load(where);
-    position.y = PlatePositionSum.Load(where + 1u);
-    position.z = PlatePositionSum.Load(where + 2u);
-    return position;
-}
-
-void AddPlatePull(uint where, int3 pull)
-{
-    PlatePull.Add(where, pull.x);
-    PlatePull.Add(where + 1u, pull.y);
-    PlatePull.Add(where + 2u, pull.z);
-}
-
-int3 LoadPlatePull(uint where)
-{
-    int3 pull;
-    pull.x = PlatePull.Load(where);
-    pull.y = PlatePull.Load(where + 1u);
-    pull.z = PlatePull.Load(where + 2u);
-    return pull;
-}
-
-[shader("compute")]
-[numthreads(64, 1, 1)]
-void SumPlatesCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupThreadID)
-{
-    const uint groupsPerPlate = (Params.PointCount + RowGroupSize - 1u) / RowGroupSize;
-    const uint plateID = groupID.x / groupsPerPlate;
-    const uint cellID = (groupID.x % groupsPerPlate) * RowGroupSize + laneInGroup.x;
-
-    bool isAlive = false;
-    bool isContinental = false;
-
-    int3 position = int3(0, 0, 0);
-    if (cellID < Params.PointCount)
-    {
-        const uint flattenedID = plateID * Params.PointCount + cellID;
-        isAlive = LoadAlive(flattenedID) != 0u;
-        isContinental = isAlive && LoadContinental(flattenedID) != 0u;
-
-        if (isAlive)
-        {
-            const int latticeCount = int(Params.PointCount) * int(PositionSumScale);
-            const float3 floatPos = LatticePoint(int(cellID), int(Params.PointCount)) * PositionSumScale.xxx;
-            position = int3(round(floatPos));
-        }
-    }
-
-    const uint cellCount = WaveActiveCountBits(isAlive);
-    const uint continentalCount = WaveActiveCountBits(isContinental);
-    const int3 positionSum = WaveActiveSum(position);
-
-    if (WaveIsFirstLane())
-    {
-        PlateCellCount.Add(plateID, cellCount);
-        PlateContinentalCount.Add(plateID, continentalCount);
-        AddPlatePositionSum(plateID * 3u, positionSum);
-    }
-}
 
 [shader("compute")]
 [numthreads(64, 1, 1)]

@@ -263,6 +263,12 @@ namespace rhi
         vkCmdDispatch(handle.As<VkCommandBuffer>(), group_count_x, group_count_y, group_count_z);
     }
 
+    void CommandBuffer::DispatchIndirect(const BufferHandle& buffer, uint64_t offset) noexcept
+    {
+        assert(isRecording && "CommandBuffer::DispatchIndirect() called while not in recording mode.");
+        vkCmdDispatchIndirect(handle.As<VkCommandBuffer>(), buffer.As<VkBuffer>(), offset);
+    }
+
     void CommandBuffer::Barrier(const DependencyInfo& dependencies) noexcept
     {
         assert(isRecording && "CommandBuffer::Barrier() called while not in recording mode.");
