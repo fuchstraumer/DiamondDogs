@@ -151,7 +151,7 @@ namespace planet
         }
 
         // the outputs and counters, as 32-bit words. RecordReset zeroes them again before each step
-        const std::array<ZeroedOutput, 26> outputs
+        const std::array<ZeroedOutput, 25> outputs
         {
             ZeroedOutput{ "BestPlate", points },
             ZeroedOutput{ "BestCell", points },
@@ -172,8 +172,7 @@ namespace planet
             ZeroedOutput{ "PlateFrontPointCount", plates },
             ZeroedOutput{ "PlateFrontPointCursor", plates },
             ZeroedOutput{ "PlateFrontPointOffset", plates + 1u },
-            ZeroedOutput{ "FrontPoint", points },
-            ZeroedOutput{ "FrontPointPosition", points * 3u },
+            ZeroedOutput{ "FrontPoints", points * 4u },
             ZeroedOutput{ "CellFrontPoint", plates * points },
             ZeroedOutput{ "CellDistance", plates * points },
             ZeroedOutput{ "PlateCellCount", plates },

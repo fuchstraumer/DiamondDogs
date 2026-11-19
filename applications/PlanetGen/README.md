@@ -141,6 +141,36 @@ Measure in RelWithDebInfo. Release compiles the GPU timers out (`RHI_GPU_TIMERS_
 1. Check that the GPU is idle first. The clocks are not locked, so two runs of the same build can differ by about
 8 % (310 and 336 µs for the step at 100 000 points).
 
+### Nsight Graphics GPU Trace
+
+The bench has no present, so start the trace by submits: each step is one submit. From the command line:
+
+```bat
+ngfx.exe --activity "GPU Trace Profiler" --exe <RelWithDebInfo>\PlanetGenBench.exe --dir <RelWithDebInfo> --args "--reference=<folder> --dispatches --steps=20000" --start-after-submits 100 --limit-to-submits 1 --architecture Ada --metric-set-id 1 --real-time-shader-profiler --auto-export --output-dir <folder>
+```
+
+`ngfx.exe` is in `C:\Program Files\NVIDIA Corporation\Nsight Graphics 2026.4.0\host\windows-desktop-nomad-x64`. It
+writes a `.ngfx-gputrace` file into `--output-dir`; open it in the GUI with File, Open. The GUI cannot start this
+trace itself: it starts on frames, and the bench never presents. `VK_EXT_frame_boundary` does not help: only the
+Nsight Capture layer offers it, not the driver and not the GPU Trace layer. Do not pass `--frame-boundaries`.
+
+- After the trace, Nsight ends the process and prints "connection error encountered". That is the normal end.
+- The shader profiler options are per architecture. `--real-time-shader-profiler` alone is ignored; it needs
+  `--architecture Ada`, and the default Ada metric set (0, Async Compute Triage) keeps it off. Set 1 (Throughput
+  Metrics) turns it on. Check the line "Real-Time Shader Profiler" in `BASE\REPRO_INFO.xls` of the export. With it off,
+  every entry point gives the warning "Metric <entry point> has no data".
+- The `--auto-export` text files hold scope times and counters only, never shader samples. To read the shader
+  profiler without the GUI, use `ngfx-mcp.exe --profile native --transport stdio` (same folder; docs in
+  `docs\ngfx-mcp`). Each request needs `params._meta` with the protocol version `2026-07-28`. The useful calls:
+  `gpu_trace.open_trace`, `gpu_trace.get_shader_catalog` (`shaders`, `stall_reason_types`) and
+  `gpu_trace.get_shader_profile` (`performance` per shader, `hotspots_shader` per source line). Shader objects map to
+  their Slang files and lines.
+- GPU Trace locks the clocks to base, so its times are about 15 % longer than the bench's.
+
+First read of the throughput (% of peak, 100 000 points, after the live cell list): `OwnersCS` SM 67, L2 53, DRAM 42
+(compute bound); `NearestFrontPointCS` SM 52, occupancy 38, DRAM 5 (latency in the loop); `UpliftCS` L2 49, DRAM 51,
+SM 5 (memory bound); the small passes use under 5 % of the SM, so their 3 to 5 µs is the cost of a dispatch.
+
 ### Baseline (2026-11-18)
 
 RTX 4080, clang-cl RelWithDebInfo, crust flags in bytes, 20 plates. Medians in µs, `--dispatches`:

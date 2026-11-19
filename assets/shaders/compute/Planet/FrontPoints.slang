@@ -4,25 +4,13 @@ __include Buffers;
 Counters PlateFrontPointCount;
 Counters PlateFrontPointCursor;
 Words PlateFrontPointOffset;
-Ints FrontPoint;
-Floats FrontPointPosition;
 Ints CellFrontPoint;
 Floats CellDistance;
+Points FrontPoints;
 
-void StoreFloat3(uint where, float3 value)
+void StoreFrontPointData(uint where, float3 position, uint point)
 {
-    FrontPointPosition.Store(where * 3u, value.x);
-    FrontPointPosition.Store(where * 3u + 1u, value.y);
-    FrontPointPosition.Store(where * 3u + 2u, value.z);
-}
-
-float3 LoadFloat3(uint where)
-{
-    float3 value;
-    value.x = FrontPointPosition.Load(where * 3u);
-    value.y = FrontPointPosition.Load(where * 3u + 1u);
-    value.z = FrontPointPosition.Load(where * 3u + 2u);
-    return value;
+    FrontPoints.Store(where, float4(position, asfloat(point)));
 }
 
 /*
@@ -82,8 +70,7 @@ void ScatterFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
     // to write to the same plate's front point slots without causing race conditions.
     const uint slot = PlateFrontPointOffset.Load(plate) + PlateFrontPointCursor.Add(plate, 1u);
     const float3 position = LatticePoint(int(point), int(Params.PointCount));
-    FrontPoint.Store(slot, int(point));
-    StoreFloat3(slot, position);
+    StoreFrontPointData(slot, position, point);
 }
 
 [shader("compute")]
@@ -118,11 +105,12 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID)
 
     for (uint slot = begin; slot < end; ++slot)
     {
-        float3 position = LoadFloat3(slot);
+        float4 frontPointData = FrontPoints.Load(slot);
+        float3 position = frontPointData.xyz;
         const float3 delta = worldPoint - position;
         const float distance = dot(delta, delta);
 
-        const int index = FrontPoint.Load(slot);
+        const int index = int(asuint(frontPointData.w));
         if (distance < best || (distance == best && index < bestFrontPoint))
         {
             best = distance;

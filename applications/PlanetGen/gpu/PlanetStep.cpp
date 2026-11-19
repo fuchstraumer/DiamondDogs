@@ -2,10 +2,22 @@
 #include "CommandBuffer.hpp"
 #include "GpuBuffers.hpp"
 #include "GpuTimers.hpp"
+#include "PlanetGpuErrors.hpp"
+#include "PlanetShaders.hpp"
 #include "RhiFlags.hpp"
+#include "RhiHandle.hpp"
 #include "RhiTypes.hpp"
+#include <array>
+#include <cstdint>
+#include <cstdio>
+#include <expected>
+#include <memory>
 #include <optional>
 #include <print>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
 
 namespace planet
 {
@@ -13,13 +25,13 @@ namespace planet
     {
         constexpr std::string_view k_LiveDispatchBuffer{ "LiveDispatch" };
 
-        constexpr std::array<std::string_view, 26> k_ZeroedBuffers
+        constexpr std::array<std::string_view, 25> k_ZeroedBuffers
         {
             "BestPlate", "BestCell", "SecondPlate", "SecondCell",
             "PairVotes", "LowVotes",
             "Pass3Plate", "Pass3Cell", "FrontSubduction", "FrontStrength", "FrontSpeed", "FrontSlabAge",
             "PlateLiveCursor", "PlateLiveOffset", "LiveDispatch",
-            "PlateFrontPointCount", "PlateFrontPointCursor", "PlateFrontPointOffset", "FrontPoint", "FrontPointPosition",
+            "PlateFrontPointCount", "PlateFrontPointCursor", "PlateFrontPointOffset", "FrontPoints",
             "CellFrontPoint", "CellDistance",
             "PlateCellCount", "PlateContinentalCount", "PlatePositionSum", "PlatePull",
         };

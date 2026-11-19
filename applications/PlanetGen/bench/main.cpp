@@ -29,6 +29,7 @@
 #include "StepState.hpp"
 #include "timing/MonotonicClock.hpp"
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstdint>
 #include <filesystem>
@@ -49,9 +50,11 @@
 // with no validation layer, so only the passes are measured. GPU timers exist in Debug and RelWithDebInfo; measure in
 // RelWithDebInfo, on an idle GPU.
 //
-//     PlanetGenBench --reference=<folder> [--steps=N] [--warmup=N] [--dispatches] [--json=<file>]
+//     PlanetGenBench --reference=<folder> [--steps=N] [--warmup=N] [--dispatches] [--frame-boundaries] [--json=<file>]
 //
 // --json appends one line with the results to the file, so that later runs can be compared with this one.
+// --frame-boundaries tags each step's submit as the end of a frame (VK_EXT_frame_boundary), so that a tool that
+// captures frames, such as Nsight Graphics GPU Trace, sees one frame for each step with no present.
 namespace
 {
     constexpr std::string_view k_ReferenceFlag{ "--reference=" };
@@ -59,6 +62,24 @@ namespace
     constexpr std::string_view k_WarmupFlag{ "--warmup=" };
     constexpr std::string_view k_JsonFlag{ "--json=" };
     constexpr std::string_view k_DispatchesFlag{ "--dispatches" };
+    constexpr std::string_view k_FrameBoundariesFlag{ "--frame-boundaries" };
+    constexpr std::string_view k_FrameBoundaryExtension{ "VK_EXT_frame_boundary" };
+    constexpr std::string_view k_FrameBoundaryFeature{ "VkPhysicalDeviceFrameBoundaryFeaturesEXT.frameBoundary" };
+
+    // Wanted, not Required: the bench checks after the boot, and only a run that asked for the boundaries stops
+    constexpr std::array<bootstrap::Need, 2> k_FrameBoundaryNeeds
+    {
+        bootstrap::Need{ .Name = k_FrameBoundaryExtension, .Kind = bootstrap::NeedKind::DeviceExtension, .Level = bootstrap::NeedLevel::Wanted },
+        bootstrap::Need{ .Name = k_FrameBoundaryFeature, .Kind = bootstrap::NeedKind::DeviceFeature, .Level = bootstrap::NeedLevel::Wanted },
+    };
+
+    enum class FrameBoundaries : uint8_t
+    {
+        Invalid = 0,
+        Off,
+        // each step's submit ends a frame
+        EachStep,
+    };
     constexpr uint32_t k_DefaultSteps = 200u;
     constexpr uint32_t k_DefaultWarmup = 20u;
     // one block is recording while the one before it waits for Collect
@@ -89,6 +110,7 @@ namespace
         uint32_t Steps{ k_DefaultSteps };
         uint32_t Warmup{ k_DefaultWarmup };
         planet::StepTimerDetail Detail{ planet::StepTimerDetail::Passes };
+        FrameBoundaries Boundaries{ FrameBoundaries::Off };
     };
 
     struct Summary
@@ -151,6 +173,12 @@ namespace
                 continue;
             }
 
+            if (text == k_FrameBoundariesFlag)
+            {
+                options.Boundaries = FrameBoundaries::EachStep;
+                continue;
+            }
+
             if (text.starts_with(k_JsonFlag))
             {
                 options.Json = text.substr(k_JsonFlag.size());
@@ -177,7 +205,7 @@ namespace
 
         if (options.Reference.empty() || options.Steps == 0u)
         {
-            std::println(stderr, "usage: PlanetGenBench --reference=<folder> [--steps=N] [--warmup=N] [--dispatches] [--json=<file>]");
+            std::println(stderr, "usage: PlanetGenBench --reference=<folder> [--steps=N] [--warmup=N] [--dispatches] [--frame-boundaries] [--json=<file>]");
             return std::nullopt;
         }
 
@@ -197,8 +225,33 @@ namespace
     }
 
     // one submit: the reset, then the timed step, and a wait for the fence
+    // vkQueueSubmit2 with a VkFrameBoundaryEXT in the chain: rhi::QueueSubmit takes no pNext, and only the bench needs it
+    [[nodiscard]] bool SubmitFrameEnd(rhi::Device& device, rhi::CommandBufferHandle command_buffer, const rhi::Fence& fence, uint64_t frame)
+    {
+        const VkFrameBoundaryEXT boundary
+        {
+            .sType = VK_STRUCTURE_TYPE_FRAME_BOUNDARY_EXT,
+            .flags = VK_FRAME_BOUNDARY_FRAME_END_BIT_EXT,
+            .frameID = frame,
+        };
+        const VkCommandBufferSubmitInfo commandBufferInfo
+        {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+            .commandBuffer = command_buffer.As<VkCommandBuffer>(),
+        };
+        const VkSubmitInfo2 submitInfo
+        {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+            .pNext = &boundary,
+            .commandBufferInfoCount = 1u,
+            .pCommandBufferInfos = &commandBufferInfo,
+        };
+
+        return vkQueueSubmit2(device.GetGeneralQueue().As<VkQueue>(), 1u, &submitInfo, fence.Handle().As<VkFence>()) == VK_SUCCESS;
+    }
+
     [[nodiscard]] bool SubmitStep(rhi::Device& device, rhi::CommandPool& pool, const planet::PlanetStep& step, rhi::GpuTimers& timers,
-                                  planet::StepTimerDetail detail, uint64_t submission)
+                                  planet::StepTimerDetail detail, FrameBoundaries boundaries, uint64_t submission)
     {
         RhiAssert(pool.Reset());
         rhi::CommandBuffer commandBuffer(pool.GetCommandBuffer(0));
@@ -218,7 +271,18 @@ namespace
 
         const rhi::CommandBufferHandle handle = commandBuffer.Handle();
         rhi::Fence fence(device.Handle());
-        RhiAssert(rhi::QueueSubmit(device.GetGeneralQueue(), rhi::SubmitInfo{ {}, std::span{ &handle, 1 }, {} }, fence.Handle()));
+        if (boundaries == FrameBoundaries::EachStep)
+        {
+            if (!SubmitFrameEnd(device, handle, fence, submission))
+            {
+                std::println(stderr, "PlanetGenBench: the submit with a frame boundary failed");
+                return false;
+            }
+        }
+        else
+        {
+            RhiAssert(rhi::QueueSubmit(device.GetGeneralQueue(), rhi::SubmitInfo{ {}, std::span{ &handle, 1 }, {} }, fence.Handle()));
+        }
 
         if (!fence.Wait())
         {
@@ -282,6 +346,12 @@ int main(int argc, char* argv[])
     std::vector<bootstrap::Need> needs = bootstrap::HeadlessSpineNeeds();
     needs.append_range(bootstrap::ShaderObjectNeeds());
     needs.append_range(bootstrap::QueryPoolNeeds());
+
+    if (options->Boundaries == FrameBoundaries::EachStep)
+    {
+        needs.append_range(k_FrameBoundaryNeeds);
+    }
+
     const bootstrap::DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(content, needs);
     // the validation layer instruments and slows the passes it would be measuring
     const bootstrap::DeviceConfig config
@@ -326,6 +396,19 @@ int main(int argc, char* argv[])
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(device.GetPhysicalDevice().As<VkPhysicalDevice>(), &properties);
     const std::string_view flagStorage = planet::ToString((*shaders)->CrustFlags());
+    const bool boundariesEnabled = device.HasExtension(k_FrameBoundaryExtension) && device.IsFeatureEnabled(k_FrameBoundaryFeature);
+
+    if (options->Boundaries == FrameBoundaries::EachStep && !boundariesEnabled)
+    {
+        std::println(stderr, "PlanetGenBench: --frame-boundaries needs {} and its feature, and the device was created without them",
+                     k_FrameBoundaryExtension);
+        return 1;
+    }
+
+    if (options->Boundaries == FrameBoundaries::EachStep)
+    {
+        std::println("PlanetGenBench: each step's submit ends a frame ({})", k_FrameBoundaryExtension);
+    }
 
     if (k_BuildType == "Debug")
     {
@@ -372,7 +455,7 @@ int main(int argc, char* argv[])
         {
             const foundation::Stopwatch submitTime;
 
-            if (!SubmitStep(device, pool, **step, timers, options->Detail, index))
+            if (!SubmitStep(device, pool, **step, timers, options->Detail, options->Boundaries, index))
             {
                 return 1;
             }
