@@ -2,6 +2,7 @@
 #include "CommandBuffer.hpp"
 #include "ManifestDescriptors.hpp"
 #include "PlanetGpuErrors.hpp"
+#include "PlanetShaders.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
 #include "ResourceFuture.hpp"
@@ -19,6 +20,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace planet
@@ -28,6 +30,9 @@ namespace planet
         constexpr uint64_t k_TimeoutNs = 10'000'000'000ull;
         // VK_WHOLE_SIZE
         constexpr uint64_t k_WholeBuffer = ~0ull;
+
+        template<typename T>
+        [[nodiscard]] PlanetGpuResult<std::vector<T>> ReadTyped(const GpuBuffers& buffers, std::string_view name);
     }
 
     GpuBuffers::GpuBuffers(ResourceContext& _resources) noexcept :
@@ -95,6 +100,12 @@ namespace planet
         return PlanetGpuError::Success;
     }
 
+    PlanetGpuError GpuBuffers::AddZeroedStorage(std::string_view name, size_t byte_size, bool readable)
+    {
+        const std::vector<std::byte> zeros(byte_size, std::byte{ 0 });
+        return AddStorage(name, zeros, readable);
+    }
+
     PlanetGpuError GpuBuffers::AddUniform(std::string_view name, std::span<const std::byte> data)
     {
         BufferCreateInfo createInfo{};
@@ -112,6 +123,21 @@ namespace planet
         Entry& entry = entries.emplace_back(Entry{ std::string{ name }, *buffer, GraphicsResource::Null(), data.size() });
         bound.emplace(entry.Name, BoundResource{ .Resource = entry.Buffer });
         return PlanetGpuError::Success;
+    }
+
+    PlanetGpuError GpuBuffers::AddUniformFrom(const PlanetShaders& shaders,
+                                              std::string_view entry_point,
+                                              std::string_view resource,
+                                              std::span<const UniformValue> values)
+    {
+        const PlanetGpuResult<std::vector<std::byte>> bytes = shaders.UniformBytes(entry_point, resource, values);
+
+        if (!bytes.has_value())
+        {
+            return bytes.error();
+        }
+
+        return AddUniform(resource, *bytes);
     }
 
     const BoundResources& GpuBuffers::Bound() const noexcept
@@ -222,6 +248,26 @@ namespace planet
         return bytes;
     }
 
+    PlanetGpuResult<std::vector<int32_t>> GpuBuffers::ReadInts(std::string_view name) const
+    {
+        return ReadTyped<int32_t>(*this, name);
+    }
+
+    PlanetGpuResult<std::vector<uint32_t>> GpuBuffers::ReadWords(std::string_view name) const
+    {
+        return ReadTyped<uint32_t>(*this, name);
+    }
+
+    PlanetGpuResult<std::vector<float>> GpuBuffers::ReadFloats(std::string_view name) const
+    {
+        return ReadTyped<float>(*this, name);
+    }
+
+    PlanetGpuResult<std::vector<math::Float4>> GpuBuffers::ReadFloat4s(std::string_view name) const
+    {
+        return ReadTyped<math::Float4>(*this, name);
+    }
+
     PlanetGpuResult<GraphicsResource> GpuBuffers::create(const BufferCreateInfo& create_info, std::span<const std::byte> data)
     {
         const RhiBufferResourceData initial{ data, 0u };
@@ -255,5 +301,36 @@ namespace planet
         }
 
         return &*found;
+    }
+
+    namespace
+    {
+        template<typename T>
+        PlanetGpuResult<std::vector<T>> ReadTyped(const GpuBuffers& buffers, std::string_view name)
+        {
+            static_assert(std::is_trivially_copyable_v<T>);
+            const PlanetGpuResult<std::vector<std::byte>> bytes = buffers.Read(name);
+
+            if (!bytes.has_value())
+            {
+                return std::unexpected(bytes.error());
+            }
+
+            if (bytes->size() % sizeof(T) != 0u)
+            {
+                std::println(stderr, "GpuBuffers: {} byte size {} is not a multiple of {}", name, bytes->size(), sizeof(T));
+                return std::unexpected(PlanetGpuError::ReadbackFailed);
+            }
+
+            const size_t count = bytes->size() / sizeof(T);
+            std::vector<T> values(count);
+
+            if (!values.empty())
+            {
+                std::memcpy(values.data(), bytes->data(), bytes->size());
+            }
+
+            return values;
+        }
     }
 }

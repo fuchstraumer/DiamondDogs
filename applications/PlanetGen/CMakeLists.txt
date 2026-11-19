@@ -15,6 +15,8 @@ add_library(planet_gpu STATIC
     "gpu/GpuBuffers.hpp"
     "gpu/PlanetGpuErrors.cpp"
     "gpu/PlanetGpuErrors.hpp"
+    "gpu/PlanetSession.cpp"
+    "gpu/PlanetSession.hpp"
     "gpu/PlanetShaders.cpp"
     "gpu/PlanetShaders.hpp"
     "gpu/PlanetStep.cpp"
@@ -31,6 +33,8 @@ diamond_dogs_add_pch(planet_gpu LIBRARY)
 # planet_reference: the reference files of PlanetLab, and the buffers of one step made from them. The check and the
 # bench both start from these
 add_library(planet_reference STATIC
+    "check/PlanetMath.cpp"
+    "check/PlanetMath.hpp"
     "check/ReferenceSet.cpp"
     "check/ReferenceSet.hpp"
     "check/StepState.cpp"

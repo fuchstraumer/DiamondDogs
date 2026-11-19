@@ -62,6 +62,25 @@ namespace planet
         uint32_t PlateCount{ 0u };
     };
 
+    enum class BufferExtent : uint8_t
+    {
+        Invalid = 0,
+        Points,
+        PointsTimes4,
+        Plates,
+        PlatesPlusOne,
+        PlatesSquared,
+        PlatesTimes3,
+        Cells,
+        IndirectDispatch,
+    };
+
+    struct StepBufferSpec
+    {
+        std::string_view Name;
+        BufferExtent Extent{ BufferExtent::Invalid };
+    };
+
     /** Records passes 1 to 6 of one step into a command buffer, on buffers that GpuBuffers holds by their shader names.
      *  The buffers and the shaders must live longer than the step. README.md lists the buffers and the pass order. */
     class PlanetStep
@@ -129,8 +148,11 @@ namespace planet
     /** @brief The workgroups of CountLiveCellsCS and ScatterLiveCellsCS: each plate gets its own row of groups. */
     [[nodiscard]] uint32_t LiveGroupCount(StepSize size) noexcept;
 
+    /** @brief The word count of a step buffer with the given extent. */
+    [[nodiscard]] size_t StepBufferWordCount(BufferExtent extent, StepSize size) noexcept;
+
     /** @brief The outputs and counters that RecordReset fills with zero. */
-    [[nodiscard]] std::span<const std::string_view> StepZeroedBuffers() noexcept;
+    [[nodiscard]] std::span<const StepBufferSpec> StepZeroedBuffers() noexcept;
 }
 
 #endif // !DIAMOND_DOGS_PLANET_STEP_HPP

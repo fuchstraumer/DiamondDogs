@@ -1,6 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_PLANET_REFERENCE_SET_HPP
 #define DIAMOND_DOGS_PLANET_REFERENCE_SET_HPP
+#include "math/MathStorage.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -26,6 +27,8 @@ namespace planet
         [[nodiscard]] float Time() const noexcept;
 
         [[nodiscard]] std::optional<std::vector<float>> Floats(std::string_view name) const;
+        [[nodiscard]] std::optional<std::vector<math::Float3>> Float3s(std::string_view name) const;
+        [[nodiscard]] std::optional<std::vector<math::Float3x3>> Float3x3s(std::string_view name) const;
         [[nodiscard]] std::optional<std::vector<int32_t>> Ints(std::string_view name) const;
         [[nodiscard]] std::optional<std::vector<uint32_t>> Words(std::string_view name) const;
         /** @brief A uint8 array, one byte for each element. */

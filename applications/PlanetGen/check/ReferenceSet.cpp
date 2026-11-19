@@ -8,34 +8,16 @@
 
 namespace planet
 {
+    static_assert(sizeof(math::Float3) == 3u * sizeof(float));
+    static_assert(sizeof(math::Float3x3) == 9u * sizeof(float));
+
     namespace
     {
         // the element size of each type that write_gpu_reference.py writes, by its numpy name
-        [[nodiscard]] size_t ElementSize(std::string_view type) noexcept
-        {
-            if (type == "float32" || type == "int32" || type == "uint32")
-            {
-                return 4u;
-            }
-
-            if (type == "uint8" || type == "int8")
-            {
-                return 1u;
-            }
-
-            return 0u;
-        }
+        [[nodiscard]] size_t ElementSize(std::string_view type) noexcept;
 
         template<typename T>
-        void Widen(std::span<const std::byte> bytes, std::vector<double>& values)
-        {
-            for (size_t index = 0; index < values.size(); ++index)
-            {
-                T value{};
-                std::memcpy(&value, bytes.data() + index * sizeof(T), sizeof(T));
-                values[index] = static_cast<double>(value);
-            }
-        }
+        void Widen(std::span<const std::byte> bytes, std::vector<double>& values);
     }
 
     std::optional<ReferenceSet> ReferenceSet::Open(const std::filesystem::path& folder)
@@ -109,6 +91,76 @@ namespace planet
         for (size_t index = 0; index < result.size(); ++index)
         {
             result[index] = static_cast<float>((*values)[index]);
+        }
+
+        return result;
+    }
+
+    std::optional<std::vector<math::Float3>> ReferenceSet::Float3s(std::string_view name) const
+    {
+        std::optional<std::vector<double>> values = read(name);
+
+        if (!values.has_value())
+        {
+            return std::nullopt;
+        }
+
+        if (std::ssize(*values) % 3 != 0)
+        {
+            std::println(stderr, "{}: {} has {} values, not a multiple of 3", folder.string(), name, values->size());
+            return std::nullopt;
+        }
+
+        const int64_t count = std::ssize(*values) / 3;
+        std::vector<math::Float3> result(static_cast<size_t>(count));
+
+        for (int64_t index = 0; index < count; ++index)
+        {
+            const size_t base = static_cast<size_t>(index * 3);
+            result[static_cast<size_t>(index)] = math::Float3
+            {
+                static_cast<float>((*values)[base]),
+                static_cast<float>((*values)[base + 1u]),
+                static_cast<float>((*values)[base + 2u]),
+            };
+        }
+
+        return result;
+    }
+
+    std::optional<std::vector<math::Float3x3>> ReferenceSet::Float3x3s(std::string_view name) const
+    {
+        std::optional<std::vector<double>> values = read(name);
+
+        if (!values.has_value())
+        {
+            return std::nullopt;
+        }
+
+        if (std::ssize(*values) % 9 != 0)
+        {
+            std::println(stderr, "{}: {} has {} values, not a multiple of 9", folder.string(), name, values->size());
+            return std::nullopt;
+        }
+
+        const int64_t count = std::ssize(*values) / 9;
+        std::vector<math::Float3x3> result(static_cast<size_t>(count));
+
+        for (int64_t index = 0; index < count; ++index)
+        {
+            const size_t base = static_cast<size_t>(index * 9);
+            result[static_cast<size_t>(index)] = math::Float3x3
+            {
+                static_cast<float>((*values)[base]),
+                static_cast<float>((*values)[base + 1u]),
+                static_cast<float>((*values)[base + 2u]),
+                static_cast<float>((*values)[base + 3u]),
+                static_cast<float>((*values)[base + 4u]),
+                static_cast<float>((*values)[base + 5u]),
+                static_cast<float>((*values)[base + 6u]),
+                static_cast<float>((*values)[base + 7u]),
+                static_cast<float>((*values)[base + 8u]),
+            };
         }
 
         return result;
@@ -217,5 +269,35 @@ namespace planet
         }
 
         return values;
+    }
+
+    namespace
+    {
+        size_t ElementSize(std::string_view type) noexcept
+        {
+            if (type == "float32" || type == "int32" || type == "uint32")
+            {
+                return 4u;
+            }
+
+            if (type == "uint8" || type == "int8")
+            {
+                return 1u;
+            }
+
+            return 0u;
+        }
+
+        template<typename T>
+        void Widen(std::span<const std::byte> bytes, std::vector<double>& values)
+        {
+            for (int64_t index = 0; index < std::ssize(values); ++index)
+            {
+                const size_t element = static_cast<size_t>(index);
+                T value{};
+                std::memcpy(&value, bytes.data() + element * sizeof(T), sizeof(T));
+                values[element] = static_cast<double>(value);
+            }
+        }
     }
 }

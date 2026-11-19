@@ -5,6 +5,7 @@
 #include "PlanetGpuErrors.hpp"
 #include "ResourceTypes.hpp"
 #include "RhiHandle.hpp"
+#include "math/MathStorage.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -23,6 +24,9 @@ namespace rhi
 
 namespace planet
 {
+    class PlanetShaders;
+    struct UniformValue;
+
     /** Buffers by the names that the shaders use, so that WriteManifestDescriptors can bind them. Each Add call
      *  waits until ResourceContext has created the buffer and finished its upload, so a dispatch needs no wait on
      *  the transfer timeline. The destructor destroys every buffer. */
@@ -37,8 +41,15 @@ namespace planet
         /** @brief A device-local storage buffer that holds `data`. A readable buffer also gets a GPUToCPU copy, which
          *  RecordReadbackCopies fills. */
         [[nodiscard]] PlanetGpuError AddStorage(std::string_view name, std::span<const std::byte> data, bool readable);
+        /** @brief A device-local zeroed storage buffer of `byte_size` bytes. */
+        [[nodiscard]] PlanetGpuError AddZeroedStorage(std::string_view name, size_t byte_size, bool readable);
         /** @brief A host-visible uniform buffer that holds `data`. */
         [[nodiscard]] PlanetGpuError AddUniform(std::string_view name, std::span<const std::byte> data);
+        /** @brief Packs `values` for `resource` in `entry_point` and creates a host-visible uniform buffer. */
+        [[nodiscard]] PlanetGpuError AddUniformFrom(const PlanetShaders& shaders,
+                                                    std::string_view entry_point,
+                                                    std::string_view resource,
+                                                    std::span<const UniformValue> values);
 
         [[nodiscard]] const BoundResources& Bound() const noexcept;
         /** @brief Records a copy of each readable buffer to its readback buffer, with the barriers before and after. */
@@ -52,6 +63,10 @@ namespace planet
         [[nodiscard]] std::optional<rhi::BufferHandle> Handle(std::string_view name) const;
         /** @brief The bytes of a readable buffer. Call it after the submit that holds RecordReadbackCopies finished. */
         [[nodiscard]] PlanetGpuResult<std::vector<std::byte>> Read(std::string_view name) const;
+        [[nodiscard]] PlanetGpuResult<std::vector<int32_t>> ReadInts(std::string_view name) const;
+        [[nodiscard]] PlanetGpuResult<std::vector<uint32_t>> ReadWords(std::string_view name) const;
+        [[nodiscard]] PlanetGpuResult<std::vector<float>> ReadFloats(std::string_view name) const;
+        [[nodiscard]] PlanetGpuResult<std::vector<math::Float4>> ReadFloat4s(std::string_view name) const;
 
     private:
         struct Entry

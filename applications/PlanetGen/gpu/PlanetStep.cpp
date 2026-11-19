@@ -28,15 +28,33 @@ namespace planet
         // pass 3b writes these, and the next step's OwnersCS reads them
         constexpr std::array<std::string_view, 2> k_CarriedBuffers{ "PlateCapCenters", "PlateCapSpread" };
 
-        constexpr std::array<std::string_view, 25> k_ZeroedBuffers
+        constexpr std::array<StepBufferSpec, 25> k_ZeroedBuffers
         {
-            "BestPlate", "BestCell", "SecondPlate", "SecondCell",
-            "PairVotes", "LowVotes",
-            "Pass3Plate", "Pass3Cell", "FrontSubduction", "FrontStrength", "FrontSpeed", "FrontSlabAge",
-            "PlateLiveCursor", "PlateLiveOffset", "LiveDispatch",
-            "PlateFrontPointCount", "PlateFrontPointCursor", "PlateFrontPointOffset", "FrontPoints",
-            "CellFrontPoint", "CellDistance",
-            "PlateCellCount", "PlateContinentalCount", "PlatePositionSum", "PlatePull",
+            StepBufferSpec{ "BestPlate", BufferExtent::Points },
+            StepBufferSpec{ "BestCell", BufferExtent::Points },
+            StepBufferSpec{ "SecondPlate", BufferExtent::Points },
+            StepBufferSpec{ "SecondCell", BufferExtent::Points },
+            StepBufferSpec{ "PairVotes", BufferExtent::PlatesSquared },
+            StepBufferSpec{ "LowVotes", BufferExtent::PlatesSquared },
+            StepBufferSpec{ "Pass3Plate", BufferExtent::Points },
+            StepBufferSpec{ "Pass3Cell", BufferExtent::Points },
+            StepBufferSpec{ "FrontSubduction", BufferExtent::Points },
+            StepBufferSpec{ "FrontStrength", BufferExtent::Points },
+            StepBufferSpec{ "FrontSpeed", BufferExtent::Points },
+            StepBufferSpec{ "FrontSlabAge", BufferExtent::Points },
+            StepBufferSpec{ "PlateLiveCursor", BufferExtent::Plates },
+            StepBufferSpec{ "PlateLiveOffset", BufferExtent::PlatesPlusOne },
+            StepBufferSpec{ "LiveDispatch", BufferExtent::IndirectDispatch },
+            StepBufferSpec{ "PlateFrontPointCount", BufferExtent::Plates },
+            StepBufferSpec{ "PlateFrontPointCursor", BufferExtent::Plates },
+            StepBufferSpec{ "PlateFrontPointOffset", BufferExtent::PlatesPlusOne },
+            StepBufferSpec{ "FrontPoints", BufferExtent::PointsTimes4 },
+            StepBufferSpec{ "CellFrontPoint", BufferExtent::Cells },
+            StepBufferSpec{ "CellDistance", BufferExtent::Cells },
+            StepBufferSpec{ "PlateCellCount", BufferExtent::Plates },
+            StepBufferSpec{ "PlateContinentalCount", BufferExtent::Plates },
+            StepBufferSpec{ "PlatePositionSum", BufferExtent::PlatesTimes3 },
+            StepBufferSpec{ "PlatePull", BufferExtent::PlatesTimes3 },
         };
 
         // a GPU timer scope when the caller gave a timer block, and nothing when it did not
@@ -69,7 +87,35 @@ namespace planet
         return initial;
     }
 
-    std::span<const std::string_view> StepZeroedBuffers() noexcept
+    size_t StepBufferWordCount(BufferExtent extent, StepSize size) noexcept
+    {
+        const size_t points = static_cast<size_t>(size.PointCount);
+        const size_t plates = static_cast<size_t>(size.PlateCount);
+
+        switch (extent)
+        {
+        case BufferExtent::Points:
+            return points;
+        case BufferExtent::PointsTimes4:
+            return points * 4u;
+        case BufferExtent::Plates:
+            return plates;
+        case BufferExtent::PlatesPlusOne:
+            return plates + 1u;
+        case BufferExtent::PlatesSquared:
+            return plates * plates;
+        case BufferExtent::PlatesTimes3:
+            return plates * 3u;
+        case BufferExtent::Cells:
+            return plates * points;
+        case BufferExtent::IndirectDispatch:
+            return 3u;
+        default:
+            return 0u;
+        }
+    }
+
+    std::span<const StepBufferSpec> StepZeroedBuffers() noexcept
     {
         return k_ZeroedBuffers;
     }
@@ -155,9 +201,9 @@ namespace planet
             }
         }
 
-        for (const std::string_view name : k_ZeroedBuffers)
+        for (const StepBufferSpec& spec : k_ZeroedBuffers)
         {
-            const PlanetGpuError filled = buffers.RecordFill(command_buffer, name, 0u);
+            const PlanetGpuError filled = buffers.RecordFill(command_buffer, spec.Name, 0u);
 
             if (filled != PlanetGpuError::Success)
             {

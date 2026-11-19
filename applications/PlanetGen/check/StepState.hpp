@@ -1,8 +1,13 @@
 #pragma once
 #ifndef DIAMOND_DOGS_PLANET_STEP_STATE_HPP
 #define DIAMOND_DOGS_PLANET_STEP_STATE_HPP
+#include "PlanetStep.hpp"
+#include "math/MathStorage.hpp"
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace planet
@@ -22,13 +27,26 @@ namespace planet
     /** The plate caps as the shaders store them: PlateCapCenters (4 floats a plate), PlateCapSpread (one word a plate). */
     struct PlateCaps
     {
-        std::vector<float> Centres;
+        std::vector<math::Float4> Centres;
         std::vector<uint32_t> Spreads;
     };
 
-    /** @brief The cap of each plate around its live cells, from the alive flags ([plate][cell], 1 alive): the centre is the
-     *  mean of the live lattice points, the spread the largest 1 - dot(point, centre), rounded up to a float. */
-    [[nodiscard]] PlateCaps ComputePlateCaps(std::span<const uint8_t> alive, int32_t point_count, int32_t plate_count);
+    enum class ReferenceArrayForm : uint8_t
+    {
+        Invalid = 0,
+        Int,
+        Word,
+        Float,
+        Flag,
+    };
+
+    struct ReferenceBufferSpec
+    {
+        std::string_view BufferName;
+        std::string_view FileName;
+        ReferenceArrayForm Form{ ReferenceArrayForm::Invalid };
+        bool Readable{ false };
+    };
 
     /** Whether the outputs of the step get a readback copy. The check reads them; the bench does not. */
     enum class StepReadback : bool
@@ -36,6 +54,30 @@ namespace planet
         None = false,
         Outputs = true,
     };
+
+    /** @brief The cap of each plate around its live cells, from the alive flags ([plate][cell], 1 alive): the centre is the
+     *  mean of the live lattice points, the spread the largest 1 - dot(point, centre), rounded up to a float. */
+    [[nodiscard]] PlateCaps ComputePlateCaps(std::span<const uint8_t> alive, int32_t point_count, int32_t plate_count);
+
+    [[nodiscard]] size_t FlagElementSize(CrustFlagStorage storage) noexcept;
+    [[nodiscard]] size_t ReferenceElementSize(ReferenceArrayForm form, CrustFlagStorage storage) noexcept;
+    [[nodiscard]] std::optional<std::vector<std::byte>> ReadReferenceBytes(const ReferenceSet& reference,
+                                                                           std::string_view file,
+                                                                           ReferenceArrayForm form,
+                                                                           CrustFlagStorage storage);
+    [[nodiscard]] bool AddReferenceBuffers(GpuBuffers& buffers,
+                                           const ReferenceSet& reference,
+                                           CrustFlagStorage storage,
+                                           std::span<const ReferenceBufferSpec> specs);
+    [[nodiscard]] bool AddParamsUniform(GpuBuffers& buffers,
+                                        const PlanetShaders& shaders,
+                                        std::string_view entry_point,
+                                        StepSize size);
+    [[nodiscard]] bool AddTimeUniform(GpuBuffers& buffers,
+                                      const PlanetShaders& shaders,
+                                      std::string_view entry_point,
+                                      std::string_view resource,
+                                      float time);
 
     /** @brief Creates every buffer that PlanetStep binds, from the reference state at the start of the step: the inputs,
      *  the crust arrays and the plate caps with their initial copies, the uniform buffers, and the outputs and counters (zero). The crust
