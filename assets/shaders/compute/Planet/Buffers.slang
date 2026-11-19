@@ -17,6 +17,7 @@ extern struct IntsIn : IReadBuffer<int>;
 extern struct Floats : IReadWriteBuffer<float>;
 extern struct Ints : IReadWriteBuffer<int>;
 extern struct Words : IReadWriteBuffer<uint>;
+extern struct WordsIn : IReadBuffer<uint>;
 extern struct FlagBytes : IReadWriteBuffer<uint8_t>;
 extern struct Counters : IAtomicBuffer<uint>;
 // signed counters used during TorqueSum
@@ -49,6 +50,21 @@ Points PlateCapCenters;
 // 1-cos(cap radius) as float bits: it's never negative, so an atomic max on the uint bits is safely
 // the same as atomic max on a float (which we can't really do in shaders at all)
 Counters PlateCapSpread;
+
+// this tag tells us to make this an alis of PlateCapSpread - but without the atomic instructions to read
+// from it, since the Owners.slang is just trying to *only* read without needing atomicity
+[ls_resource_tags("Aliased:PlateCapSpread")]
+WordsIn PlateCapSpreadIn; // read by OwnersCS
+[ls_resource_tags("Aliased:PlateCellCount")]
+WordsIn PlateCellCountIn; // read by OffsetLiveCellsCS, SumPullCS
+[ls_resource_tags("Aliased:PlatePositionSum")]
+IntsIn PlatePositionSumIn; // read by OffsetLiveCellsCS, SumPullCS
+[ls_resource_tags("Aliased:PlateFrontPointCount")]
+WordsIn PlateFrontPointCountIn; // read by OffsetFrontPointsCS
+[ls_resource_tags("Aliased:PairVotes")]
+WordsIn PairVotesIn; // read by SwapToMajorityCS
+[ls_resource_tags("Aliased:LowVotes")]
+WordsIn LowVotesIn; // read by SwapToMajorityCS
 
 internal static const float PlateCapNone = 0.0f;
 internal static const float PlateCapValid = 1.0f;
@@ -113,6 +129,15 @@ internal int3 LoadPlatePositionSum(uint where)
     return position;
 }
 
+internal int3 LoadPlatePositionSumIn(uint where)
+{
+    int3 position;
+    position.x = PlatePositionSumIn.Load(where);
+    position.y = PlatePositionSumIn.Load(where + 1u);
+    position.z = PlatePositionSumIn.Load(where + 2u);
+    return position;
+}
+
 internal void AddPlatePull(uint where, int3 pull)
 {
     PlatePull.Add(where, pull.x);
@@ -140,14 +165,12 @@ internal float3x4 LoadRotation(uint plate)
 
 internal float3 WorldToPlate(in float3 worldPos, in float3x4 rotation)
 {
-    return worldPos.x * rotation[0].xyz +
-           worldPos.y * rotation[1].xyz +
-           worldPos.z * rotation[2].xyz;
+    const float3x3 mat = float3x3(rotation[0].xyz, rotation[1].xyz, rotation[2].xyz);
+    return mul(worldPos, mat);
 }
 
 internal float3 PlateToWorld(in float3 platePos, in float3x4 rotation)
 {
-    return float3(dot(rotation[0].xyz, platePos),
-                  dot(rotation[1].xyz, platePos),
-                  dot(rotation[2].xyz, platePos));
+    const float3x3 mat = float3x3(rotation[0].xyz, rotation[1].xyz, rotation[2].xyz);
+    return mul(mat, platePos);
 }

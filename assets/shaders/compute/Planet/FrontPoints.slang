@@ -73,7 +73,7 @@ void OffsetFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint plate = threadId.x;
     const bool isActive = plate < Params.PlateCount;
-    const uint count = isActive ? PlateFrontPointCount.Load(plate) : 0u;
+    const uint count = isActive ? PlateFrontPointCountIn.Load(plate) : 0u;
     const uint waveOffset = WavePrefixSum(count);
     const uint waveTotal = WaveActiveSum(count);
 

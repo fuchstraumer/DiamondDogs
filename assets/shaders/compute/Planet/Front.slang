@@ -57,7 +57,7 @@ void SwapToMajorityCS(uint3 threadId : SV_DispatchThreadID)
     }
 
     const uint pair = uint(low) * Params.PlateCount + uint(high);
-    const bool lowWins = 2u * LowVotes.Load(pair) >= PairVotes.Load(pair);
+    const bool lowWins = 2u * LowVotesIn.Load(pair) >= PairVotesIn.Load(pair);
     const bool lowIsOnTop = BestPlate.Load(point) == low;
     if (lowIsOnTop == lowWins)
     {

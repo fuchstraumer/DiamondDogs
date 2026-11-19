@@ -102,7 +102,7 @@ void OffsetLiveCellsCS(uint3 threadID : SV_DispatchThreadID)
     // non-active threads here just won't do any work
     const bool isActive = plate < Params.PlateCount;
 
-    const uint count = isActive ? PlateCellCount.Load(plate) : 0u;
+    const uint count = isActive ? PlateCellCountIn.Load(plate) : 0u;
     const uint waveOffset = WavePrefixSum(count);
     const uint total = WaveActiveSum(count);
 
@@ -116,7 +116,7 @@ void OffsetLiveCellsCS(uint3 threadID : SV_DispatchThreadID)
         }
         else
         {
-            const float3 positionSum = float3(LoadPlatePositionSum(plate * 3u));
+            const float3 positionSum = float3(LoadPlatePositionSumIn(plate * 3u));
             const float posLength = length(positionSum);
             if (posLength < 1.0e-3f * PositionSumScale * float(count))
             {
@@ -137,8 +137,6 @@ void OffsetLiveCellsCS(uint3 threadID : SV_DispatchThreadID)
         LiveDispatch.Store(2u, 1u);
     }
 
-
-    
 }
 
 [shader("compute")][numthreads(256,1,1)]

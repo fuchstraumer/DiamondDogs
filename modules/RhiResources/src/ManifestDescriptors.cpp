@@ -17,6 +17,8 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace
@@ -28,6 +30,60 @@ namespace
         std::deque<std::vector<VkDescriptorBufferInfo>> Buffers;
         std::deque<std::vector<VkDescriptorImageInfo>> Images;
     };
+
+    struct ResolvedBinding
+    {
+        const BoundResource* Bound{ nullptr };
+        std::string_view AliasTarget;
+    };
+
+    // Checks [ls_resource_tags("Aliased:<Target>")] so read-only views can share a backing resource with an atomic/RW binding.
+    [[nodiscard]] std::optional<std::string_view> FindAliasTarget(const lodestone::manifest::ResolvedResource& resource) noexcept
+    {
+        constexpr std::string_view k_AliasPrefix{ "Aliased:" };
+        const uint32_t tagCount = resource.TagCount();
+
+        for (uint32_t i = 0u; i < tagCount; ++i)
+        {
+            const std::string_view tag = resource.Tag(i);
+            if (tag.starts_with(k_AliasPrefix))
+            {
+                const std::string_view target = tag.substr(k_AliasPrefix.size());
+                if (!target.empty())
+                {
+                    return target;
+                }
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    [[nodiscard]] ResolvedBinding FindBoundResource(const BoundResources& resources, const lodestone::manifest::ResolvedResource& resource) noexcept
+    {
+        auto found = resources.find(resource.Name());
+        if (found == resources.end() && !resource.ScopeName().empty())
+        {
+            found = resources.find(resource.ScopeName());
+        }
+        if (found != resources.end())
+        {
+            return ResolvedBinding{ &found->second, {} };
+        }
+
+        if (const std::optional<std::string_view> aliasTarget = FindAliasTarget(resource); aliasTarget.has_value())
+        {
+            found = resources.find(*aliasTarget);
+            if (found != resources.end())
+            {
+                return ResolvedBinding{ &found->second, *aliasTarget };
+            }
+
+            return ResolvedBinding{ nullptr, *aliasTarget };
+        }
+
+        return ResolvedBinding{};
+    }
 
     // sets the write's type and its infos, one per element
     [[nodiscard]] bool SetWriteElements(lodestone::BindingKind kind, std::span<const GraphicsResource> elements, VkImageLayout sampled_layout,
@@ -98,6 +154,8 @@ std::optional<std::string> WriteManifestDescriptors(
     std::vector<VkWriteDescriptorSet> writes;
     // two stages that read one resource list it twice: write each binding once
     std::set<uint32_t> written;
+    // guard against binding both a backing buffer and its Aliased:<Target> view in the same dispatch/set
+    std::unordered_map<uint64_t, std::pair<std::string_view, bool>> boundBufferHandles;
 
     for (const std::string_view entryPoint : entry_points)
     {
@@ -120,18 +178,19 @@ std::optional<std::string> WriteManifestDescriptors(
                 continue;
             }
 
-            auto found = resources.find(resource.Name());
-            if (found == resources.end() && !resource.ScopeName().empty())
+            const ResolvedBinding resolved = FindBoundResource(resources, resource);
+            if (resolved.Bound == nullptr)
             {
-                found = resources.find(resource.ScopeName());
-            }
-            if (found == resources.end())
-            {
+                if (!resolved.AliasTarget.empty())
+                {
+                    return std::format("{} reads {} (aliased to {}), which this host does not provide",
+                                       entryPoint, resource.Name(), resolved.AliasTarget);
+                }
                 return std::format("{} reads {}, which this host does not provide", entryPoint, resource.Name());
             }
 
             // an array binding takes Elements, one per element; a single binding takes Resource
-            const BoundResource& bound = found->second;
+            const BoundResource& bound = *resolved.Bound;
             const uint32_t arrayCount = resource.ArrayCount();
             const bool isArray = arrayCount > 1u;
             const std::span<const GraphicsResource> elements = isArray ? std::span{ bound.Elements } : std::span{ &bound.Resource, 1 };
@@ -139,6 +198,27 @@ std::optional<std::string> WriteManifestDescriptors(
             if (elements.size() != arrayCount)
             {
                 return std::format("{}: {} is an array of {}, and the host gave {} elements", entryPoint, resource.Name(), arrayCount, elements.size());
+            }
+
+            const bool isBuffer = resource.Kind() == lodestone::BindingKind::StorageBuffer ||
+                                  resource.Kind() == lodestone::BindingKind::UniformBuffer;
+            if (isBuffer)
+            {
+                const bool isAliased = !resolved.AliasTarget.empty();
+                for (const GraphicsResource& element : elements)
+                {
+                    if (element.VkHandle == 0u)
+                    {
+                        continue;
+                    }
+
+                    const auto [it, inserted] = boundBufferHandles.emplace(element.VkHandle, std::pair{ resource.Name(), isAliased });
+                    if (!inserted && (isAliased || it->second.second))
+                    {
+                        return std::format("{}: {} aliases the same backing buffer as {} in the same descriptor set",
+                                           entryPoint, resource.Name(), it->second.first);
+                    }
+                }
             }
 
             VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, binding, 0, arrayCount };
@@ -171,6 +251,7 @@ std::optional<std::string> WriteManifestPointerAddresses(
     }
 
     std::set<std::string_view> written;
+    std::unordered_map<uint64_t, std::pair<std::string_view, bool>> boundDeviceAddresses;
 
     for (const std::string_view entryPoint : entry_points)
     {
@@ -193,13 +274,14 @@ std::optional<std::string> WriteManifestPointerAddresses(
                 continue;
             }
 
-            auto found = resources.find(resource.Name());
-            if (found == resources.end() && !resource.ScopeName().empty())
+            const ResolvedBinding resolved = FindBoundResource(resources, resource);
+            if (resolved.Bound == nullptr)
             {
-                found = resources.find(resource.ScopeName());
-            }
-            if (found == resources.end())
-            {
+                if (!resolved.AliasTarget.empty())
+                {
+                    return std::format("{} reads {} (aliased to {}), which this host does not provide",
+                                       entryPoint, resource.Name(), resolved.AliasTarget);
+                }
                 return std::format("{} reads {}, which this host does not provide", entryPoint, resource.Name());
             }
 
@@ -208,7 +290,18 @@ std::optional<std::string> WriteManifestPointerAddresses(
                 return std::format("{}: offset {} exceeds target span size {}", resource.Name(), resource.ValueOffset(), target_bytes.size());
             }
 
-            const uint64_t address = found->second.Resource.DeviceAddress;
+            const uint64_t address = resolved.Bound->Resource.DeviceAddress;
+            const bool isAliased = !resolved.AliasTarget.empty();
+            if (address != 0u)
+            {
+                const auto [it, inserted] = boundDeviceAddresses.emplace(address, std::pair{ resource.Name(), isAliased });
+                if (!inserted && (isAliased || it->second.second))
+                {
+                    return std::format("{}: {} aliases the same backing buffer as {} in the same pointer block",
+                                       entryPoint, resource.Name(), it->second.first);
+                }
+            }
+
             std::memcpy(target_bytes.data() + resource.ValueOffset(), &address, sizeof(uint64_t));
         }
     }
