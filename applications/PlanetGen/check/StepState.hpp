@@ -78,6 +78,7 @@ namespace planet
                                       std::string_view entry_point,
                                       std::string_view resource,
                                       float time);
+    [[nodiscard]] bool AddRotationsBuffer(GpuBuffers& buffers, const ReferenceSet& reference);
 
     /** @brief Creates every buffer that PlanetStep binds, from the reference state at the start of the step: the inputs,
      *  the crust arrays and the plate caps with their initial copies, the uniform buffers, and the outputs and counters (zero). The crust

@@ -59,7 +59,8 @@ void OwnersCS(uint3 threadId : SV_DispatchThreadID)
     for (uint plate = 0; plate < Params.PlateCount; ++plate)
     {
         // row vector times matrix is transpose(R) * w, the world to plate frame
-        const float3 frameDirection = mul(worldPoint, LoadRotation(plate));
+        const float3x4 rotation = LoadRotation(plate);
+        const float3 frameDirection = WorldToPlate(worldPoint, rotation);
 
         // check the plate caps, if any have been computed yet, to try and exclude this
         // plate if it's far from the current point

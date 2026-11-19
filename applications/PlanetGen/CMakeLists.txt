@@ -46,7 +46,13 @@ set_target_properties(planet_reference PROPERTIES FOLDER "Applications/PlanetGen
 diamond_dogs_add_pch(planet_reference LIBRARY)
 
 # PlanetGenCheck: each pass, and the whole step, against the reference files of PlanetLab. Headless, with Full validation
-add_executable(PlanetGenCheck "check/main.cpp")
+add_executable(PlanetGenCheck
+    "check/CheckHarness.cpp"
+    "check/CheckHarness.hpp"
+    "check/PassChecks.hpp"
+    "check/StepChecks.cpp"
+    "check/SurfaceChecks.cpp"
+    "check/main.cpp")
 target_link_libraries(PlanetGenCheck PRIVATE planet_reference planet_gpu bootstrap_vulkan)
 set_target_properties(PlanetGenCheck PROPERTIES FOLDER "Applications/PlanetGen" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(PlanetGenCheck LIBRARY)

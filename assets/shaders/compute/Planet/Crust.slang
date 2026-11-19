@@ -53,9 +53,11 @@ void FillGapsCS(uint3 threadId : SV_DispatchThreadID)
     if (plate == -1)
     {
         const int count = int(Params.PointCount);
-        const float3 worldPoint = LatticePoint(int(point), count);
+        float3 worldPoint = LatticePoint(int(point), count);
         plate = PreviousPlate.Load(point);
-        cell = FibonacciNearest(mul(worldPoint, LoadRotation(uint(plate))), count);
+        float3x4 rotation = LoadRotation(uint(plate));
+        worldPoint = WorldToPlate(worldPoint, rotation);
+        cell = FibonacciNearest(worldPoint, count);
         WriteNewOceanCrust(uint(plate) * Params.PointCount + uint(cell));
     }
 

@@ -141,9 +141,9 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID,
         flattenedPoint = LiveCell.Load(threadId.x);
         const uint plateIdx = flattenedPoint / Params.PointCount;
         const uint plateCell = flattenedPoint % Params.PointCount;
-        const float3x3 plateTransform = LoadRotation(plateIdx);
+        const float3x4 plateTransform = LoadRotation(plateIdx);
         const float3 latticePoint = LatticePoint(int(plateCell), int(Params.PointCount));
-        worldPoint = mul(plateTransform, latticePoint);
+        worldPoint = PlateToWorld(latticePoint, plateTransform);
         begin = PlateFrontPointOffset.Load(plateIdx);
         end = PlateFrontPointOffset.Load(plateIdx + 1u);
     }

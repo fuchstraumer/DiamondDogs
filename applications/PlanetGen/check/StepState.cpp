@@ -192,6 +192,28 @@ namespace planet
         return buffers.AddUniformFrom(shaders, entry_point, resource, values) == PlanetGpuError::Success;
     }
 
+    bool AddRotationsBuffer(GpuBuffers& buffers, const ReferenceSet& reference)
+    {
+        const std::optional<std::vector<math::Float3x3>> rotations = reference.Float3x3s("rotation");
+
+        if (!rotations.has_value())
+        {
+            return false;
+        }
+
+        std::vector<math::Float4> rows;
+        rows.reserve(rotations->size() * 3u);
+
+        for (const math::Float3x3& matrix : *rotations)
+        {
+            rows.emplace_back(matrix.Row(0u), 0.0f);
+            rows.emplace_back(matrix.Row(1u), 0.0f);
+            rows.emplace_back(matrix.Row(2u), 0.0f);
+        }
+
+        return buffers.AddStorage("Rotations", std::as_bytes(std::span{ rows }), false) == PlanetGpuError::Success;
+    }
+
     bool AddStepBuffers(GpuBuffers& buffers, const PlanetShaders& shaders, const ReferenceSet& reference, StepReadback readback)
     {
         const StepSize size
@@ -212,15 +234,14 @@ namespace planet
         }
 
         // the inputs that no pass writes
-        const std::array<ReferenceBufferSpec, 4> inputs
+        const std::array<ReferenceBufferSpec, 3> inputs
         {
-            ReferenceBufferSpec{ "Rotation", "rotation", ReferenceArrayForm::Float, false },
             ReferenceBufferSpec{ "PreviousPlate", "previous_plate", ReferenceArrayForm::Int, false },
             ReferenceBufferSpec{ "Poles", "poles", ReferenceArrayForm::Float, false },
             ReferenceBufferSpec{ "Rates", "rates", ReferenceArrayForm::Float, false },
         };
 
-        if (!AddReferenceBuffers(buffers, reference, storage, inputs))
+        if (!AddRotationsBuffer(buffers, reference) || !AddReferenceBuffers(buffers, reference, storage, inputs))
         {
             return false;
         }

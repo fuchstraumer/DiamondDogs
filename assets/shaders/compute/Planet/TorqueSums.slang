@@ -43,8 +43,8 @@ void SumPullCS(uint3 threadID : SV_DispatchThreadID)
     const float3 positionSum = (float3(positionSumInt) * PositionSumScaleInv);
 
     const float3 centroidLocal = positionSum / float(cellCount);
-    const float3x3 plateFrame = LoadRotation(underPlate);
-    const float3 centroidWorld = mul(plateFrame, centroidLocal);
+    const float3x4 plateFrame = LoadRotation(underPlate);
+    const float3 centroidWorld = PlateToWorld(centroidLocal, plateFrame);
 
     const float cellArea = 4.0f * 3.14159265f * PlanetRadiusKm * (PlanetRadiusKm / float(Params.PointCount));
     const float trenchAmount = cellArea / max(FrontSpeed.Load(pointID) * TimeStepMy, sqrt(cellArea));
