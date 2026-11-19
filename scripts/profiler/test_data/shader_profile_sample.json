@@ -1,0 +1,677 @@
+{
+ "available": true,
+ "total_samples": 33594,
+ "unattributed": {
+  "percent_of_total": 50.22027743049354,
+  "sample_count": 16871,
+  "sass_counters": {
+   "active_threads_per_warp": 0.0,
+   "available": false,
+   "inst_executed": 0,
+   "thread_inst_executed_pred_on": 0
+  },
+  "stall_reasons": [
+   {
+    "percent_of_scope": 69.68762966036394,
+    "sample_count": 11757,
+    "type_index": 14
+   },
+   {
+    "percent_of_scope": 13.561733151561851,
+    "sample_count": 2288,
+    "type_index": 17
+   },
+   {
+    "percent_of_scope": 7.616620235907771,
+    "sample_count": 1285,
+    "type_index": 5
+   },
+   {
+    "percent_of_scope": 3.8586924307984116,
+    "sample_count": 651,
+    "type_index": 12
+   },
+   {
+    "percent_of_scope": 1.6418706656392625,
+    "sample_count": 277,
+    "type_index": 9
+   },
+   {
+    "percent_of_scope": 1.3040128030347935,
+    "sample_count": 220,
+    "type_index": 10
+   },
+   {
+    "percent_of_scope": 0.865390314741272,
+    "sample_count": 146,
+    "type_index": 0
+   },
+   {
+    "percent_of_scope": 0.5690237685970008,
+    "sample_count": 96,
+    "type_index": 4
+   },
+   {
+    "percent_of_scope": 0.5512417758283445,
+    "sample_count": 93,
+    "type_index": 6
+   },
+   {
+    "percent_of_scope": 0.16596526584079188,
+    "sample_count": 28,
+    "type_index": 16
+   },
+   {
+    "percent_of_scope": 0.0948372947661668,
+    "sample_count": 16,
+    "type_index": 11
+   },
+   {
+    "percent_of_scope": 0.0474186473830834,
+    "sample_count": 8,
+    "type_index": 1
+   },
+   {
+    "percent_of_scope": 0.03556398553731255,
+    "sample_count": 6,
+    "type_index": 8
+   }
+  ]
+ },
+ "stall_types": {
+  "0": {
+   "name": "Selected",
+   "short_name": "SELECT"
+  },
+  "1": {
+   "name": "Not Selected",
+   "short_name": "NOTSEL"
+  },
+  "2": {
+   "name": "Barrier",
+   "short_name": "THDBAR"
+  },
+  "3": {
+   "name": "Sleeping",
+   "short_name": "SLEEP"
+  },
+  "4": {
+   "name": "Branch Resolving",
+   "short_name": "BRANCH"
+  },
+  "5": {
+   "name": "Wait",
+   "short_name": "WAIT"
+  },
+  "6": {
+   "name": "No Instructions",
+   "short_name": "NOINST"
+  },
+  "7": {
+   "name": "Dispatch Stall",
+   "short_name": "DISPCH"
+  },
+  "8": {
+   "name": "Math Pipe Throttle",
+   "short_name": "MATHTH"
+  },
+  "9": {
+   "name": "Short Scoreboard",
+   "short_name": "SHRTSB"
+  },
+  "10": {
+   "name": "MIO Throttle",
+   "short_name": "MIOT"
+  },
+  "11": {
+   "name": "Drain",
+   "short_name": "DRAIN"
+  },
+  "12": {
+   "name": "Immediate Constant Cache Miss",
+   "short_name": "IMCMIS"
+  },
+  "13": {
+   "name": "Memory Barrier",
+   "short_name": "MEMBAR"
+  },
+  "14": {
+   "name": "Long Scoreboard",
+   "short_name": "LGSB"
+  },
+  "15": {
+   "name": "Texture Throttle",
+   "short_name": "TEXTHR"
+  },
+  "16": {
+   "name": "LG Throttle",
+   "short_name": "LGTHR"
+  },
+  "17": {
+   "name": "Miscellaneous",
+   "short_name": "MISC"
+  }
+ },
+ "shaders": [
+  {
+   "shader_index": 0,
+   "name": "OwnersCS",
+   "type": "compute",
+   "main_filename": "C:/SoftwareDev/DiamondDogs/assets/shaders/compute/Planet/Owners.slang",
+   "module_hash": "0x59b7086533518caa",
+   "performance": {
+    "percent_of_total": 22.712389117104244,
+    "sample_count": 7630,
+    "stall_reasons": [
+     {
+      "percent_of_scope": 37.06422018348624,
+      "sample_count": 2828,
+      "type_index": 14
+     },
+     {
+      "percent_of_scope": 20.57667103538663,
+      "sample_count": 1570,
+      "type_index": 1
+     },
+     {
+      "percent_of_scope": 11.939711664482306,
+      "sample_count": 911,
+      "type_index": 5
+     },
+     {
+      "percent_of_scope": 11.66448230668414,
+      "sample_count": 890,
+      "type_index": 0
+     },
+     {
+      "percent_of_scope": 11.258191349934469,
+      "sample_count": 859,
+      "type_index": 8
+     },
+     {
+      "percent_of_scope": 1.834862385321101,
+      "sample_count": 140,
+      "type_index": 9
+     },
+     {
+      "percent_of_scope": 1.4285714285714286,
+      "sample_count": 109,
+      "type_index": 7
+     },
+     {
+      "percent_of_scope": 1.2975098296199215,
+      "sample_count": 99,
+      "type_index": 10
+     },
+     {
+      "percent_of_scope": 1.1533420707732633,
+      "sample_count": 88,
+      "type_index": 12
+     },
+     {
+      "percent_of_scope": 0.8125819134993447,
+      "sample_count": 62,
+      "type_index": 6
+     },
+     {
+      "percent_of_scope": 0.6946264744429882,
+      "sample_count": 53,
+      "type_index": 4
+     },
+     {
+      "percent_of_scope": 0.20969855832241152,
+      "sample_count": 16,
+      "type_index": 17
+     },
+     {
+      "percent_of_scope": 0.0655307994757536,
+      "sample_count": 5,
+      "type_index": 16
+     }
+    ]
+   },
+   "hotspots": [
+    {
+     "function_scopes": [
+      {
+       "name": "OwnersCS",
+       "scope_index": 0
+      }
+     ],
+     "hotspot_index": 0,
+     "instance_index": null,
+     "performance": {
+      "percent_of_total": 6.382092040245282,
+      "sample_count": 2144,
+      "stall_reasons": [
+       {
+        "percent_of_scope": 89.31902985074628,
+        "sample_count": 1915,
+        "type_index": 14
+       },
+       {
+        "percent_of_scope": 4.337686567164179,
+        "sample_count": 93,
+        "type_index": 1
+       },
+       {
+        "percent_of_scope": 3.3582089552238807,
+        "sample_count": 72,
+        "type_index": 8
+       },
+       {
+        "percent_of_scope": 1.6791044776119404,
+        "sample_count": 36,
+        "type_index": 5
+       },
+       {
+        "percent_of_scope": 1.1194029850746268,
+        "sample_count": 24,
+        "type_index": 0
+       },
+       {
+        "percent_of_scope": 0.1865671641791045,
+        "sample_count": 4,
+        "type_index": 7
+       }
+      ]
+     },
+     "shader_index": 0,
+     "source_location": {
+      "address": "0x000000020000d150",
+      "file_index": 7,
+      "file_name": "C:/SoftwareDev/DiamondDogs/assets/shaders/compute/Planet/Owners.slang",
+      "line_number": 57,
+      "source_line": {
+       "text": "        if (LoadAlive(flat) == 0u)"
+      }
+     },
+     "source_type": "source"
+    },
+    {
+     "function_scopes": [
+      {
+       "name": "FibonacciNearest",
+       "scope_index": 0
+      }
+     ],
+     "hotspot_index": 1,
+     "instance_index": null,
+     "performance": {
+      "percent_of_total": 2.4587723998333035,
+      "sample_count": 826,
+      "stall_reasons": [
+       {
+        "percent_of_scope": 35.59322033898305,
+        "sample_count": 294,
+        "type_index": 1
+       },
+       {
+        "percent_of_scope": 21.54963680387409,
+        "sample_count": 178,
+        "type_index": 5
+       },
+       {
+        "percent_of_scope": 20.46004842615012,
+        "sample_count": 169,
+        "type_index": 8
+       },
+       {
+        "percent_of_scope": 12.953995157384988,
+        "sample_count": 107,
+        "type_index": 0
+       },
+       {
+        "percent_of_scope": 3.9951573849878934,
+        "sample_count": 33,
+        "type_index": 9
+       },
+       {
+        "percent_of_scope": 2.4213075060532687,
+        "sample_count": 20,
+        "type_index": 4
+       },
+       {
+        "percent_of_scope": 2.4213075060532687,
+        "sample_count": 20,
+        "type_index": 7
+       },
+       {
+        "percent_of_scope": 0.6053268765133172,
+        "sample_count": 5,
+        "type_index": 10
+       }
+      ]
+     },
+     "shader_index": 0,
+     "source_location": {
+      "address": "0x000000020000be40",
+      "file_index": 2,
+      "file_name": "C:/SoftwareDev/DiamondDogs/assets/shaders/compute/Planet/Fibonacci.slang",
+      "line_number": 85,
+      "source_line": {
+       "text": "    float azimuth = -(atan2(direction.y, direction.x) - 0.5f * GoldenAngle);"
+      }
+     },
+     "source_type": "source"
+    },
+    {
+     "function_scopes": [
+      {
+       "name": "OwnersCS",
+       "scope_index": 0
+      }
+     ],
+     "hotspot_index": 2,
+     "instance_index": null,
+     "performance": {
+      "percent_of_total": 2.134309698160386,
+      "sample_count": 717,
+      "stall_reasons": [
+       {
+        "percent_of_scope": 94.56066945606695,
+        "sample_count": 678,
+        "type_index": 14
+       },
+       {
+        "percent_of_scope": 2.928870292887029,
+        "sample_count": 21,
+        "type_index": 1
+       },
+       {
+        "percent_of_scope": 1.9525801952580195,
+        "sample_count": 14,
+        "type_index": 8
+       },
+       {
+        "percent_of_scope": 0.41841004184100417,
+        "sample_count": 3,
+        "type_index": 7
+       },
+       {
+        "percent_of_scope": 0.1394700139470014,
+        "sample_count": 1,
+        "type_index": 0
+       }
+      ]
+     },
+     "shader_index": 0,
+     "source_location": {
+      "address": "0x000000020000d250",
+      "file_index": 7,
+      "file_name": "C:/SoftwareDev/DiamondDogs/assets/shaders/compute/Planet/Owners.slang",
+      "line_number": 63,
+      "source_line": {
+       "text": "        if (LoadContinental(flat) != 0u)"
+      }
+     },
+     "source_type": "source"
+    }
+   ],
+   "hotspots_truncated": false
+  },
+  {
+   "shader_index": 11,
+   "name": "NearestFrontPointCS",
+   "type": "compute",
+   "main_filename": "C:/SoftwareDev/DiamondDogs/assets/shaders/compute/Planet/FrontPoints.slang",
+   "module_hash": "0x08ee75db89e77e69",
+   "performance": {
+    "percent_of_total": 11.993213073763172,
+    "sample_count": 4029,
+    "stall_reasons": [
+     {
+      "percent_of_scope": 32.39017125837677,
+      "sample_count": 1305,
+      "type_index": 5
+     },
+     {
+      "percent_of_scope": 28.64234301315463,
+      "sample_count": 1154,
+      "type_index": 14
+     },
+     {
+      "percent_of_scope": 13.775130305286671,
+      "sample_count": 555,
+      "type_index": 0
+     },
+     {
+      "percent_of_scope": 13.129808885579548,
+      "sample_count": 529,
+      "type_index": 1
+     },
+     {
+      "percent_of_scope": 7.4460163812360385,
+      "sample_count": 300,
+      "type_index": 8
+     },
+     {
+      "percent_of_scope": 1.538843385455448,
+      "sample_count": 62,
+      "type_index": 17
+     },
+     {
+      "percent_of_scope": 0.9183420203524447,
+      "sample_count": 37,
+      "type_index": 12
+     },
+     {
+      "percent_of_scope": 0.8935219657483247,
+      "sample_count": 36,
+      "type_index": 4
+     },
+     {
+      "percent_of_scope": 0.47158103747828245,
+      "sample_count": 19,
+      "type_index": 6
+     },
+     {
+      "percent_of_scope": 0.34748076445768183,
+      "sample_count": 14,
+      "type_index": 9
+     },
+     {
+      "percent_of_scope": 0.2482005460412013,
+      "sample_count": 10,
+      "type_index": 16
+     },
+     {
+      "percent_of_scope": 0.09928021841648052,
+      "sample_count": 4,
+      "type_index": 7
+     },
+     {
+      "percent_of_scope": 0.04964010920824026,
+      "sample_count": 2,
+      "type_index": 10
+     },
+     {
+      "percent_of_scope": 0.04964010920824026,
+      "sample_count": 2,
+      "type_index": 11
+     }
+    ]
+   },
+   "hotspots": [
+    {
+     "function_scopes": [
+      {
+       "name": "NearestFrontPointCS",
+       "scope_index": 0
+      }
+     ],
+     "hotspot_index": 0,
+     "instance_index": null,
+     "performance": {
+      "percent_of_total": 3.655414657379294,
+      "sample_count": 1228,
+      "stall_reasons": [
+       {
+        "percent_of_scope": 91.12377850162866,
+        "sample_count": 1119,
+        "type_index": 14
+       },
+       {
+        "percent_of_scope": 7.980456026058632,
+        "sample_count": 98,
+        "type_index": 0
+       },
+       {
+        "percent_of_scope": 0.8957654723127035,
+        "sample_count": 11,
+        "type_index": 1
+       }
+      ]
+     },
+     "shader_index": 11,
+     "source_location": {
+      "address": "0x0000000200016050",
+      "file_index": 4,
+      "file_name": "C:/SoftwareDev/DiamondDogs/assets/shaders/compute/Planet/FrontPoints.slang",
+      "line_number": 110,
+      "source_line": {
+       "text": "        const float3 delta = worldPoint - position;"
+      }
+     },
+     "source_type": "source"
+    },
+    {
+     "function_scopes": [
+      {
+       "name": "BoundReadWriteBuffer.Load",
+       "scope_index": 0
+      },
+      {
+       "name": "BoundReadWriteBuffer.Load",
+       "scope_index": 1
+      },
+      {
+       "name": "BoundReadWriteBuffer.Load",
+       "scope_index": 2
+      },
+      {
+       "name": "BoundReadWriteBuffer.Load",
+       "scope_index": 3
+      },
+      {
+       "name": "BoundReadWriteBuffer.Load",
+       "scope_index": 4
+      }
+     ],
+     "hotspot_index": 1,
+     "instance_index": null,
+     "performance": {
+      "percent_of_total": 3.0898374709769603,
+      "sample_count": 1038,
+      "stall_reasons": [
+       {
+        "percent_of_scope": 48.458574181117534,
+        "sample_count": 503,
+        "type_index": 5
+       },
+       {
+        "percent_of_scope": 20.038535645472063,
+        "sample_count": 208,
+        "type_index": 1
+       },
+       {
+        "percent_of_scope": 12.33140655105973,
+        "sample_count": 128,
+        "type_index": 8
+       },
+       {
+        "percent_of_scope": 11.946050096339114,
+        "sample_count": 124,
+        "type_index": 0
+       },
+       {
+        "percent_of_scope": 2.504816955684008,
+        "sample_count": 26,
+        "type_index": 4
+       },
+       {
+        "percent_of_scope": 2.4084778420038537,
+        "sample_count": 25,
+        "type_index": 12
+       },
+       {
+        "percent_of_scope": 1.5414258188824663,
+        "sample_count": 16,
+        "type_index": 6
+       },
+       {
+        "percent_of_scope": 0.7707129094412332,
+        "sample_count": 8,
+        "type_index": 16
+       }
+      ]
+     },
+     "shader_index": 11,
+     "source_location": {
+      "address": "0x0000000200015810",
+      "file_index": 13,
+      "file_name": "lodestone-builtin/LodestoneShims.slang",
+      "line_number": 234,
+      "source_line": {
+       "text": "        return data[index];"
+      }
+     },
+     "source_type": "source"
+    },
+    {
+     "function_scopes": [
+      {
+       "name": "NearestFrontPointCS",
+       "scope_index": 0
+      }
+     ],
+     "hotspot_index": 2,
+     "instance_index": null,
+     "performance": {
+      "percent_of_total": 2.0301244269810086,
+      "sample_count": 682,
+      "stall_reasons": [
+       {
+        "percent_of_scope": 47.65395894428153,
+        "sample_count": 325,
+        "type_index": 5
+       },
+       {
+        "percent_of_scope": 20.234604105571847,
+        "sample_count": 138,
+        "type_index": 0
+       },
+       {
+        "percent_of_scope": 19.35483870967742,
+        "sample_count": 132,
+        "type_index": 1
+       },
+       {
+        "percent_of_scope": 12.609970674486803,
+        "sample_count": 86,
+        "type_index": 8
+       },
+       {
+        "percent_of_scope": 0.1466275659824047,
+        "sample_count": 1,
+        "type_index": 7
+       }
+      ]
+     },
+     "shader_index": 11,
+     "source_location": {
+      "address": "0x00000002000160b0",
+      "file_index": 4,
+      "file_name": "C:/SoftwareDev/DiamondDogs/assets/shaders/compute/Planet/FrontPoints.slang",
+      "line_number": 114,
+      "source_line": {
+       "text": "        if (distance < best || (distance == best && index < bestFrontPoint))"
+      }
+     },
+     "source_type": "source"
+    }
+   ],
+   "hotspots_truncated": false
+  }
+ ]
+}

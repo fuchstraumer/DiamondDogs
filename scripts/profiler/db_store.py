@@ -13,11 +13,13 @@ from typing import Any, Dict, Optional, Sequence, Set, Union
 
 try:
     from .gpu_trace import parse_gpu_trace_export
+    from .ngfx_mcp import hotspot_location
 except ImportError:
     script_dir = Path(__file__).resolve().parent
     if str(script_dir) not in sys.path:
         sys.path.insert(0, str(script_dir))
     from gpu_trace import parse_gpu_trace_export
+    from ngfx_mcp import hotspot_location
 
 NCU_INSTALL_ROOT = Path(r"C:\Program Files\NVIDIA Corporation")
 
@@ -56,7 +58,11 @@ ncu_report = _load_ncu_report()
 HAS_NCU_REPORT = ncu_report is not None
 
 # PRAGMA user_version of a database that this code created or migrated.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
+
+# The REPRO_INFO line that says whether the trace has shader profiler samples.
+SHADER_PROFILER_KEY = "Real-Time Shader Profiler"
+SHADER_PROFILER_ENABLED = "Enabled"
 
 RUN_COLUMNS: Dict[str, str] = {
     "timestamp": "TEXT",
@@ -80,6 +86,10 @@ RUN_COLUMNS: Dict[str, str] = {
     "ticks_per_config": "INTEGER",
     "warmup_ticks": "INTEGER",
     "artifact_path": "TEXT",
+    "metric_set": "TEXT",
+    "shader_profiler": "TEXT",
+    "profiler_samples": "INTEGER",
+    "unattributed_samples": "INTEGER",
 }
 
 PASS_COLUMNS: Dict[str, str] = {
@@ -108,6 +118,35 @@ SHADER_COLUMNS: Dict[str, str] = {
     "local_mem_bytes": "INTEGER",
     "subgroup_size": "INTEGER",
     "block_size": "INTEGER",
+    "trace_shader_index": "INTEGER",
+    "source_file": "TEXT",
+    "module_hash": "TEXT",
+    "sample_count": "INTEGER",
+    "pct_of_samples": "REAL",
+}
+
+# One row per hot source line of a shader (GPU Trace shader profiler).
+SHADER_LINE_COLUMNS: Dict[str, str] = {
+    "run_id": "INTEGER",
+    "shader_id": "INTEGER",
+    "hotspot_rank": "INTEGER",
+    "file_name": "TEXT",
+    "line_number": "INTEGER",
+    "function_scope": "TEXT",
+    "source_text": "TEXT",
+    "sample_count": "INTEGER",
+    "pct_of_samples": "REAL",
+}
+
+# One row per stall reason of a shader (line_id NULL) or of one hot line.
+SHADER_STALL_COLUMNS: Dict[str, str] = {
+    "run_id": "INTEGER",
+    "shader_id": "INTEGER",
+    "line_id": "INTEGER",
+    "stall_short": "TEXT",
+    "stall_name": "TEXT",
+    "sample_count": "INTEGER",
+    "pct_of_scope": "REAL",
 }
 
 METRIC_COLUMNS: Dict[str, str] = {
@@ -165,6 +204,44 @@ TABLES: Dict[str, Any] = {
             "FOREIGN KEY (shader_id) REFERENCES shaders(shader_id) ON DELETE SET NULL",
         ],
     ),
+    "shader_lines": (
+        "line_id",
+        SHADER_LINE_COLUMNS,
+        [
+            "FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE",
+            "FOREIGN KEY (shader_id) REFERENCES shaders(shader_id) ON DELETE CASCADE",
+        ],
+    ),
+    "shader_stalls": (
+        "stall_id",
+        SHADER_STALL_COLUMNS,
+        [
+            "FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE",
+            "FOREIGN KEY (shader_id) REFERENCES shaders(shader_id) ON DELETE CASCADE",
+            "FOREIGN KEY (line_id) REFERENCES shader_lines(line_id) ON DELETE CASCADE",
+        ],
+    ),
+}
+
+# Views for agents: each row stands alone, so a query needs no joins. init_db drops and creates them again,
+# so a change here reaches old databases.
+VIEWS: Dict[str, str] = {
+    "v_shader_stalls": """
+        SELECT st.run_id, s.shader_name, s.source_file, s.sample_count AS shader_samples,
+               s.pct_of_samples AS shader_pct_of_samples, st.stall_short, st.stall_name,
+               st.sample_count AS stall_samples, st.pct_of_scope AS pct_of_shader
+        FROM shader_stalls st
+        JOIN shaders s ON st.shader_id = s.shader_id
+        WHERE st.line_id IS NULL
+    """,
+    "v_line_stalls": """
+        SELECT st.run_id, s.shader_name, l.hotspot_rank, l.file_name, l.line_number, l.function_scope,
+               l.source_text, l.sample_count AS line_samples, l.pct_of_samples AS line_pct_of_samples,
+               st.stall_short, st.stall_name, st.sample_count AS stall_samples, st.pct_of_scope AS pct_of_line
+        FROM shader_stalls st
+        JOIN shader_lines l ON st.line_id = l.line_id
+        JOIN shaders s ON st.shader_id = s.shader_id
+    """,
 }
 
 
@@ -193,6 +270,10 @@ def init_db(db_path: Union[str, Path]) -> sqlite3.Connection:
             for name, sql_type in columns.items():
                 if name not in existing:
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type};")
+
+        for view, select in VIEWS.items():
+            conn.execute(f"DROP VIEW IF EXISTS {view};")
+            conn.execute(f"CREATE VIEW {view} AS {select};")
 
         version = conn.execute("PRAGMA user_version;").fetchone()[0]
         if version < SCHEMA_VERSION:
@@ -253,6 +334,91 @@ def insert_bottleneck(conn: sqlite3.Connection, bottleneck_data: Dict[str, Any])
     return _insert(conn, "bottlenecks", list(BOTTLENECK_COLUMNS), bottleneck_data)
 
 
+def insert_shader_line(conn: sqlite3.Connection, line_data: Dict[str, Any]) -> int:
+    """Insert one hot source line. Do not commit.
+
+    Return the line identifier.
+    """
+    return _insert(conn, "shader_lines", list(SHADER_LINE_COLUMNS), line_data)
+
+
+def insert_shader_stall(conn: sqlite3.Connection, stall_data: Dict[str, Any]) -> int:
+    """Insert one stall reason row. Do not commit.
+
+    Return the stall identifier.
+    """
+    return _insert(conn, "shader_stalls", list(SHADER_STALL_COLUMNS), stall_data)
+
+
+def _insert_stalls(
+    conn: sqlite3.Connection,
+    run_id: int,
+    shader_id: int,
+    line_id: Optional[int],
+    performance: Dict[str, Any],
+    stall_types: Dict[int, Dict[str, str]],
+) -> None:
+    """Insert the stall reason rows of one performance record (of a shader, or of one line)."""
+    for stall in performance.get("stall_reasons", []):
+        stall_type = stall_types.get(stall["type_index"], {})
+        insert_shader_stall(conn, {
+            "run_id": run_id,
+            "shader_id": shader_id,
+            "line_id": line_id,
+            "stall_short": stall_type.get("short_name", f"TYPE{stall['type_index']}"),
+            "stall_name": stall_type.get("name"),
+            "sample_count": stall.get("sample_count"),
+            "pct_of_scope": stall.get("percent_of_scope"),
+        })
+
+
+def _insert_shader_profile(
+    conn: sqlite3.Connection,
+    run_id: int,
+    profile: Dict[str, Any],
+    pass_ids: Dict[str, int],
+) -> int:
+    """Insert the shaders, hot lines and stall rows of a shader profile. Do not commit.
+
+    A shader gets the pass_id of the scope whose last name is the shader's entry point, when one exists (the
+    bench's per-dispatch scopes). Return the number of hot lines stored.
+    """
+    stall_types = profile["stall_types"]
+    line_count = 0
+
+    for shader in profile["shaders"]:
+        performance = shader["performance"]
+        shader_id = insert_shader(conn, {
+            "run_id": run_id,
+            "pass_id": pass_ids.get(shader["name"]),
+            "stage": shader["type"],
+            "shader_name": shader["name"],
+            "entry_point": shader["name"],
+            "trace_shader_index": shader["shader_index"],
+            "source_file": shader["main_filename"],
+            "module_hash": shader["module_hash"],
+            "sample_count": performance.get("sample_count"),
+            "pct_of_samples": performance.get("percent_of_total"),
+        })
+        _insert_stalls(conn, run_id, shader_id, None, performance, stall_types)
+
+        for rank, hotspot in enumerate(shader["hotspots"]):
+            location = hotspot_location(hotspot)
+            line_performance = hotspot.get("performance") or {}
+            line_id = insert_shader_line(conn, {
+                "run_id": run_id,
+                "shader_id": shader_id,
+                "hotspot_rank": rank,
+                **location,
+                "sample_count": line_performance.get("sample_count"),
+                "pct_of_samples": line_performance.get("percent_of_total"),
+            })
+            _insert_stalls(conn, run_id, shader_id, line_id, line_performance, stall_types)
+            line_count += 1
+
+    return line_count
+
+
 def _find_trace_artifact(out_dir: Path) -> Optional[Path]:
     """Find the .ngfx-gputrace file in the export folder, or return None."""
     matches = sorted(out_dir.glob("*.ngfx-gputrace"), key=lambda p: p.stat().st_mtime)
@@ -290,12 +456,14 @@ def ingest_gpu_trace(
     exe_path: Optional[Path],
     app_args: str,
     provenance: Optional[Dict[str, Any]],
+    shader_profile: Optional[Dict[str, Any]],
 ) -> int:
     """Ingest a GPU Trace export folder as one transaction.
 
     The run stores one frame. Each debug-label scope becomes a pass, and each scope metric
     is linked to its pass. Whole-frame metrics have no pass. The run stores the provenance
     dictionary only when the caller passes one. The export folder must contain a BASE folder.
+    shader_profile is the result of ngfx_mcp.read_shader_profile, or None when the caller did not read it.
     Return the run identifier.
     """
     export = parse_gpu_trace_export(out_dir / "BASE")
@@ -314,7 +482,11 @@ def ingest_gpu_trace(
 
     artifact = _find_trace_artifact(out_dir)
     attached_paths: Set[str] = set()
+    pass_ids_by_leaf: Dict[str, int] = {}
     metric_count = 0
+    line_count = 0
+    profile_available = shader_profile is not None and shader_profile["available"]
+    unattributed = (shader_profile or {}).get("unattributed") or {}
 
     with conn:
         run_id = insert_run(conn, {
@@ -330,6 +502,10 @@ def ingest_gpu_trace(
             "avg_fps": avg_fps,
             "mode": "gputrace",
             "artifact_path": str(artifact) if artifact else None,
+            "metric_set": repro.get("Metric Set"),
+            "shader_profiler": repro.get(SHADER_PROFILER_KEY),
+            "profiler_samples": shader_profile["total_samples"] if profile_available else None,
+            "unattributed_samples": unattributed.get("sample_count") if profile_available else None,
             **(provenance or {}),
         })
 
@@ -341,6 +517,7 @@ def ingest_gpu_trace(
                 "queue_family": "Graphics",
                 "duration_ns": scope["time_ms"] * 1_000_000.0,
             })
+            pass_ids_by_leaf.setdefault(path.rsplit("/", 1)[-1], pass_id)
 
             # A repeated scope path has one regimes row, so its metrics go to the first pass only.
             if path in attached_paths:
@@ -355,9 +532,18 @@ def ingest_gpu_trace(
             insert_metric(conn, _trace_metric_row(run_id, None, metric))
             metric_count += 1
 
+        if profile_available:
+            line_count = _insert_shader_profile(conn, run_id, shader_profile, pass_ids_by_leaf)
+
     unmatched = export["unmatched_scopes"]
     print(f"[Profiler] GPU Trace ingest: {len(export['scopes'])} scopes, {metric_count} metrics, "
           f"{export['skipped_cells']} cells skipped.")
+    if profile_available:
+        print(f"[Profiler] Shader profile: {len(shader_profile['shaders'])} shaders, {line_count} hot lines, "
+              f"{shader_profile['total_samples']} samples.")
+    elif repro.get(SHADER_PROFILER_KEY) != SHADER_PROFILER_ENABLED:
+        print(f"[Profiler] Warning: the trace says '{SHADER_PROFILER_KEY}: {repro.get(SHADER_PROFILER_KEY)}', "
+              "so it has no stall reasons. Trace again with the profiler on (see the README).")
     if unmatched:
         print(f"[Profiler] Warning: no regimes row for scopes: {', '.join(unmatched)}")
     return run_id

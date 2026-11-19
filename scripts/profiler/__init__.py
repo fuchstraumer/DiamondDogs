@@ -11,9 +11,18 @@ from .db_store import (
     insert_pass,
     insert_run,
     insert_shader,
+    insert_shader_line,
+    insert_shader_stall,
 )
+from .ngfx_mcp import NgfxMcpClient, NgfxMcpError, locate_ngfx_tool, read_shader_profile
 
 __all__ = [
+    "insert_shader_line",
+    "insert_shader_stall",
+    "NgfxMcpClient",
+    "NgfxMcpError",
+    "locate_ngfx_tool",
+    "read_shader_profile",
     "HAS_NCU_REPORT",
     "SCHEMA_VERSION",
     "init_db",

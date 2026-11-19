@@ -105,7 +105,7 @@ class TestGpuTraceIngest(unittest.TestCase):
     def ingest(self, app_args: str, provenance) -> int:
         """Ingest the fixture into the scratch database and return the run identifier."""
         with contextlib.redirect_stdout(io.StringIO()):
-            return db_store.ingest_gpu_trace(self.conn, FIXTURE_DIR, None, app_args, provenance)
+            return db_store.ingest_gpu_trace(self.conn, FIXTURE_DIR, None, app_args, provenance, None)
 
     def test_run_row(self):
         run_id = self.ingest("--frames=1500 --validation=off", self.provenance)
@@ -163,7 +163,7 @@ class TestGpuTraceIngest(unittest.TestCase):
     def test_validation_warning(self):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
-            db_store.ingest_gpu_trace(self.conn, FIXTURE_DIR, None, "--frames=1500", None)
+            db_store.ingest_gpu_trace(self.conn, FIXTURE_DIR, None, "--frames=1500", None, None)
         self.assertIn("--validation=off", output.getvalue())
 
     def test_compare_two_traces_without_config(self):
@@ -213,8 +213,8 @@ class TestSchemaMigration(unittest.TestCase):
 
             migrated = db_store.init_db(path)
             version = migrated.execute("PRAGMA user_version;").fetchone()[0]
-            self.assertEqual(version, 4)
-            self.assertEqual(db_store.SCHEMA_VERSION, 4)
+            self.assertEqual(version, 5)
+            self.assertEqual(db_store.SCHEMA_VERSION, 5)
 
             run_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(runs);")}
             metric_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(metrics);")}
@@ -232,7 +232,7 @@ class TestSchemaMigration(unittest.TestCase):
             migrated.close()
 
             reopened = db_store.init_db(path)
-            self.assertEqual(reopened.execute("PRAGMA user_version;").fetchone()[0], 4)
+            self.assertEqual(reopened.execute("PRAGMA user_version;").fetchone()[0], 5)
             reopened.close()
 
 

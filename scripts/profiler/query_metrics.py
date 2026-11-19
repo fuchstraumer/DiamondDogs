@@ -67,6 +67,13 @@ def config_label(size: Optional[int], radix: Optional[int], wave: Optional[str],
     return f"{label}/{path}" if path else label
 
 
+def _stall_summary(stalls: List[Dict[str, Any]], count: int) -> str:
+    """Name the largest stall reasons with their share, for example "LGSB 89%, NOTSEL 4%"."""
+    if not stalls:
+        return "-"
+    return ", ".join(f"{s['stall_short']} {s['pct_of_scope']:.0f}%" for s in stalls[:count])
+
+
 class BenchmarkDB:
     """Query profiler benchmarks, passes, metrics, and bottlenecks from SQLite."""
 
@@ -230,6 +237,88 @@ class BenchmarkDB:
             rows.append(entry)
 
         return rows
+
+    def get_shader_stalls(self, run_id: int, shader_text: Optional[str]) -> List[Dict[str, Any]]:
+        """One record per profiled shader of a run, most samples first, with its stall reasons.
+
+        shader_text keeps only the shaders whose name contains it, ignoring case (None keeps all).
+        Each record has shader_name, source_file, sample_count, pct_of_samples and stalls: a list of
+        {stall_short, stall_name, sample_count, pct_of_scope}, largest first.
+        Return the list of records.
+        """
+        shaders = self.conn.execute("""
+            SELECT shader_id, shader_name, source_file, sample_count, pct_of_samples
+            FROM shaders
+            WHERE run_id = ? AND sample_count IS NOT NULL
+              AND (? IS NULL OR INSTR(LOWER(shader_name), LOWER(?)) > 0)
+            ORDER BY sample_count DESC;
+        """, (run_id, shader_text, shader_text)).fetchall()
+
+        records = []
+        for shader in shaders:
+            stalls = self.conn.execute("""
+                SELECT stall_short, stall_name, sample_count, pct_of_scope
+                FROM shader_stalls
+                WHERE shader_id = ? AND line_id IS NULL
+                ORDER BY sample_count DESC;
+            """, (shader["shader_id"],)).fetchall()
+            records.append({**dict(shader), "stalls": [dict(s) for s in stalls]})
+
+        return records
+
+    def get_hotspot_lines(self, run_id: int, shader_text: Optional[str], limit: int) -> List[Dict[str, Any]]:
+        """The hottest source lines of a run, most samples first, with their stall reasons.
+
+        shader_text keeps only the lines of shaders whose name contains it, ignoring case (None keeps all).
+        Each record has shader_name, file_name, line_number, function_scope, source_text, sample_count,
+        pct_of_samples and stalls (as in get_shader_stalls). Return at most limit records.
+        """
+        lines = self.conn.execute("""
+            SELECT l.line_id, s.shader_name, l.file_name, l.line_number, l.function_scope, l.source_text,
+                   l.sample_count, l.pct_of_samples
+            FROM shader_lines l
+            JOIN shaders s ON l.shader_id = s.shader_id
+            WHERE l.run_id = ? AND (? IS NULL OR INSTR(LOWER(s.shader_name), LOWER(?)) > 0)
+            ORDER BY l.sample_count DESC
+            LIMIT ?;
+        """, (run_id, shader_text, shader_text, limit)).fetchall()
+
+        records = []
+        for line in lines:
+            stalls = self.conn.execute("""
+                SELECT stall_short, stall_name, sample_count, pct_of_scope
+                FROM shader_stalls
+                WHERE line_id = ?
+                ORDER BY sample_count DESC;
+            """, (line["line_id"],)).fetchall()
+            records.append({**dict(line), "stalls": [dict(s) for s in stalls]})
+
+        return records
+
+    def compare_shader_samples(self, run_id_a: int, run_id_b: int) -> List[Dict[str, Any]]:
+        """Compare the profiled shaders of two runs by name: samples, share of samples and the top stall.
+
+        Sample counts depend on the trace length, so compare the shares (pct_of_samples) and the stall mix,
+        and take times from the scopes or from a benchmark. Return one record per shader name in either run.
+        """
+        def by_name(run_id: int) -> Dict[str, Dict[str, Any]]:
+            return {r["shader_name"]: r for r in self.get_shader_stalls(run_id, None)}
+
+        a, b = by_name(run_id_a), by_name(run_id_b)
+        names = list(a) + [name for name in b if name not in a]
+        records = []
+        for name in names:
+            ra, rb = a.get(name), b.get(name)
+            records.append({
+                "shader_name": name,
+                "pct_a": ra["pct_of_samples"] if ra else None,
+                "pct_b": rb["pct_of_samples"] if rb else None,
+                "samples_a": ra["sample_count"] if ra else None,
+                "samples_b": rb["sample_count"] if rb else None,
+                "top_stall_a": _stall_summary(ra["stalls"], 1) if ra else "-",
+                "top_stall_b": _stall_summary(rb["stalls"], 1) if rb else "-",
+            })
+        return records
 
     def compare_runs(self, run_id_a: int, run_id_b: int) -> Dict[str, Any]:
         """Compare performance metrics and passes between two runs.
@@ -508,6 +597,48 @@ def format_compare_runs_md(cmp: Dict[str, Any]) -> str:
     return "\n".join(out)
 
 
+def format_shader_stalls_md(run_id: int, records: List[Dict[str, Any]]) -> str:
+    """Format the per-shader stall records into a GitHub markdown table. Return the markdown text."""
+    if not records:
+        return (f"### Shader stalls (Run {run_id})\n\n_No shader profiler data for Run {run_id}. "
+                "The trace needs the shader profiler on; see the README._")
+
+    headers = ["Shader", "% of samples", "Samples", "Top stalls (% of the shader's samples)"]
+    rows = [[r["shader_name"], fmt_num(r["pct_of_samples"], ".1f", ""), str(r["sample_count"]),
+             _stall_summary(r["stalls"], 5)] for r in records]
+    return f"### Shader stalls (Run {run_id})\n\n{to_markdown_table(headers, rows)}"
+
+
+def format_hotspots_md(run_id: int, records: List[Dict[str, Any]]) -> str:
+    """Format the hot line records into a GitHub markdown table. Return the markdown text.
+
+    The stall is charged to the instruction that waits, which is the first use of a value, not the load or
+    the instruction that makes it.
+    """
+    if not records:
+        return f"### Hot lines (Run {run_id})\n\n_No hot lines for Run {run_id}._"
+
+    headers = ["% of samples", "Shader", "Line", "Top stalls (% of the line)", "Source", "Function scope"]
+    rows = []
+    for r in records:
+        file_name = Path(r["file_name"]).name if r["file_name"] else "?"
+        source = (r["source_text"] or "").strip().replace("|", "\\|")
+        rows.append([fmt_num(r["pct_of_samples"], ".2f", ""), r["shader_name"], f"{file_name}:{r['line_number']}",
+                     _stall_summary(r["stalls"], 3), f"`{source}`" if source else "-", r["function_scope"] or "-"])
+    return (f"### Hot lines (Run {run_id})\n\n{to_markdown_table(headers, rows)}\n\n"
+            "A stall is charged to the instruction that waits: the first use of a loaded value, not the load.")
+
+
+def format_compare_shaders_md(run_id_a: int, run_id_b: int, records: List[Dict[str, Any]]) -> str:
+    """Format the shader comparison records into a GitHub markdown table. Return the markdown text."""
+    headers = ["Shader", f"Run {run_id_a} %", f"Run {run_id_b} %", f"Run {run_id_a} top stall",
+               f"Run {run_id_b} top stall"]
+    rows = [[r["shader_name"], fmt_num(r["pct_a"], ".1f", ""), fmt_num(r["pct_b"], ".1f", ""),
+             r["top_stall_a"], r["top_stall_b"]] for r in records]
+    return (f"### Shader samples: Run {run_id_a} vs Run {run_id_b}\n\n{to_markdown_table(headers, rows)}\n\n"
+            "Shares of samples, not times. Compare times with the scopes (--compare) or a benchmark.")
+
+
 def select_metrics(db: BenchmarkDB, run_id: int, args: argparse.Namespace) -> List[Dict[str, Any]]:
     """Select the metrics of a run for the command-line filters.
 
@@ -543,6 +674,15 @@ def main() -> int:
                         help="Display one row per GPU Trace scope: time and percent-of-peak counters")
     parser.add_argument("--bottlenecks", action="store_true", help="Display diagnosed bottlenecks")
     parser.add_argument("--compare", nargs=2, type=int, metavar=("ID1", "ID2"), help="Compare two profiling runs")
+    parser.add_argument("--stalls", action="store_true",
+                        help="GPU Trace: one row per profiled shader with its share of samples and top stalls")
+    parser.add_argument("--hotspots", action="store_true",
+                        help="GPU Trace: the hottest source lines with their stalls and source text")
+    parser.add_argument("--shader-name", default=None,
+                        help="With --stalls or --hotspots: only shaders whose name contains this text")
+    parser.add_argument("--limit", type=int, default=20, help="With --hotspots: the number of lines (default: 20)")
+    parser.add_argument("--compare-shaders", nargs=2, type=int, metavar=("ID1", "ID2"),
+                        help="Compare the shader sample shares and top stalls of two GPU Trace runs")
     parser.add_argument("--json", action="store_true", help="Output results in JSON format")
 
     args = parser.parse_args()
@@ -559,6 +699,12 @@ def main() -> int:
                 print(format_compare_runs_md(cmp_result))
             return 0
 
+        if args.compare_shaders:
+            id_a, id_b = args.compare_shaders
+            records = db.compare_shader_samples(id_a, id_b)
+            print(json.dumps(records, indent=2) if args.json else format_compare_shaders_md(id_a, id_b, records))
+            return 0
+
         # 2. Determine target run_id
         target_run_id = args.run
         if target_run_id is None:
@@ -568,6 +714,16 @@ def main() -> int:
             else:
                 print("No runs found in database.", file=sys.stderr)
                 return 1
+
+        if args.stalls:
+            records = db.get_shader_stalls(target_run_id, args.shader_name)
+            print(json.dumps(records, indent=2) if args.json else format_shader_stalls_md(target_run_id, records))
+            return 0
+
+        if args.hotspots:
+            records = db.get_hotspot_lines(target_run_id, args.shader_name, args.limit)
+            print(json.dumps(records, indent=2) if args.json else format_hotspots_md(target_run_id, records))
+            return 0
 
         # 3. Metrics only mode
         if args.metrics and not args.latest:

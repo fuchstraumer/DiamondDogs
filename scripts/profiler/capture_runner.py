@@ -18,23 +18,31 @@ from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from .db_store import (
+        SHADER_PROFILER_ENABLED,
+        SHADER_PROFILER_KEY,
         ingest_gpu_trace,
         ingest_ncu_report,
         init_db,
         insert_pass,
         insert_run,
     )
+    from .gpu_trace import REPRO_INFO_FILE, read_key_values
+    from .ngfx_mcp import NgfxMcpClient, NgfxMcpError, locate_ngfx_tool, read_shader_profile
 except ImportError:
     script_dir = Path(__file__).resolve().parent
     if str(script_dir) not in sys.path:
         sys.path.insert(0, str(script_dir))
     from db_store import (
+        SHADER_PROFILER_ENABLED,
+        SHADER_PROFILER_KEY,
         ingest_gpu_trace,
         ingest_ncu_report,
         init_db,
         insert_pass,
         insert_run,
     )
+    from gpu_trace import REPRO_INFO_FILE, read_key_values
+    from ngfx_mcp import NgfxMcpClient, NgfxMcpError, locate_ngfx_tool, read_shader_profile
 
 REPO_DIR = Path(__file__).resolve().parents[2]
 GIT_TIMEOUT_S = 30
@@ -45,7 +53,7 @@ GPU_TRACE_REGIMES = Path("BASE") / "GPUTRACE_REGIMES.xls"
 GPU_TRACE_NO_DATA_TEXT = "Data fetching never started"
 GPU_TRACE_HEADLESS_MESSAGE = (
     "[Profiler] Error: ngfx reports 'Data fetching never started'. The target did not present a frame. "
-    "A headless app cannot be traced with GPU Trace. Use a windowed app that presents frames."
+    "For a headless app, start the trace on submits instead: --trace-start-submits N."
 )
 
 # Columns that ngfx-replay writes to iteration_times.csv. We read them by exact name.
@@ -154,23 +162,11 @@ def locate_nsight_tools() -> Tuple[Path, Path]:
 
     Return paths to ngfx-capture and ngfx-replay binaries.
     """
-    primary_dir = Path(
-        r"C:\Program Files\NVIDIA Corporation\Nsight Graphics 2026.3.1\host\windows-desktop-nomad-x64"
-    )
-    capture_exe = primary_dir / "ngfx-capture.exe"
-    replay_exe = primary_dir / "ngfx-replay.exe"
-
-    if capture_exe.exists() and replay_exe.exists():
-        return capture_exe, replay_exe
-
-    base_dir = Path(r"C:\Program Files\NVIDIA Corporation")
-    if base_dir.exists():
-        for cap in base_dir.glob("**/ngfx-capture.exe"):
-            rep = cap.parent / "ngfx-replay.exe"
-            if rep.exists():
-                return cap, rep
-
-    raise FileNotFoundError("Could not locate ngfx-capture.exe and ngfx-replay.exe in Nsight Graphics directory.")
+    capture_exe = locate_ngfx_tool("ngfx-capture.exe")
+    replay_exe = capture_exe.parent / "ngfx-replay.exe"
+    if not replay_exe.is_file():
+        raise FileNotFoundError(f"{capture_exe.parent} has ngfx-capture.exe but no ngfx-replay.exe.")
+    return capture_exe, replay_exe
 
 
 def parse_benchmark_output(output_text: str) -> Dict[str, Any]:
@@ -507,22 +503,11 @@ def run_present_mode(args: argparse.Namespace) -> int:
 
 
 def locate_ngfx() -> Path:
-    """Locate ngfx.exe, the Nsight Graphics command-line front end.
+    """Locate ngfx.exe, the Nsight Graphics command-line front end, in the newest install.
 
     Return the path to ngfx.exe.
     """
-    primary_exe = Path(
-        r"C:\Program Files\NVIDIA Corporation\Nsight Graphics 2026.3.1\host\windows-desktop-nomad-x64\ngfx.exe"
-    )
-    if primary_exe.exists():
-        return primary_exe
-
-    base_dir = Path(r"C:\Program Files\NVIDIA Corporation")
-    if base_dir.exists():
-        for candidate in base_dir.glob("**/ngfx.exe"):
-            return candidate
-
-    raise FileNotFoundError("Could not locate ngfx.exe in the Nsight Graphics directory.")
+    return locate_ngfx_tool("ngfx.exe")
 
 
 def require_regimes_file(out_dir: Path) -> Path:
@@ -538,11 +523,71 @@ def require_regimes_file(out_dir: Path) -> Path:
     return regimes_path
 
 
-def run_gputrace_mode(args: argparse.Namespace) -> int:
-    """Run the Nsight Graphics GPU Trace activity on the app, then ingest the export.
+def build_trace_command(ngfx_exe: Path, exe_path: Path, out_dir: Path, args: argparse.Namespace) -> List[str]:
+    """Build the ngfx.exe command line of a GPU Trace with the shader profiler on.
 
-    The app must present frames. The trace uses locked base GPU clocks, so its times are not
-    comparable with submit mode times. Return the process exit code.
+    With --trace-start-submits the trace starts after that many queue submits and records one submit: this is
+    the only way to trace a headless app, which never presents a frame. Otherwise it starts after
+    --trace-start-frame frames and records one frame.
+
+    The shader profiler options are per architecture: ngfx ignores them unless --architecture names the GPU
+    family, and the profiler needs a metric set that allows it (on Ada, set 1, Throughput Metrics; set 0, the
+    default, keeps it off). Return the command as a list of arguments.
+    """
+    cmd = [
+        str(ngfx_exe),
+        "--activity", GPU_TRACE_ACTIVITY,
+        "--exe", str(exe_path),
+        "--args", args.trace_args,
+        "--dir", str(exe_path.parent),
+        "--output-dir", str(out_dir),
+    ]
+    if args.trace_start_submits is not None:
+        cmd += ["--start-after-submits", str(args.trace_start_submits), "--limit-to-submits", "1"]
+    else:
+        cmd += ["--start-after-frames", str(args.trace_start_frame), "--limit-to-frames", "1"]
+
+    cmd += [
+        "--auto-export",
+        "--architecture", args.trace_architecture,
+        "--metric-set-id", str(args.trace_metric_set),
+        "--real-time-shader-profiler",
+    ]
+    if args.multi_pass_metrics:
+        cmd.append("--multi-pass-metrics")
+
+    return cmd
+
+
+def read_profile_if_enabled(out_dir: Path, timeout_s: int) -> Optional[Dict[str, Any]]:
+    """Read the shader profile of the trace in an export folder through ngfx-mcp.
+
+    Return None, with a warning, when REPRO_INFO says that the shader profiler was off or the folder has no
+    .ngfx-gputrace file. Raise NgfxMcpError when ngfx-mcp fails.
+    """
+    repro = read_key_values(out_dir / "BASE" / REPRO_INFO_FILE)
+    state = repro.get(SHADER_PROFILER_KEY)
+    if state != SHADER_PROFILER_ENABLED:
+        print(f"[Profiler] Warning: '{SHADER_PROFILER_KEY}: {state}' in the trace. It has no stall data. "
+              f"Metric set: {repro.get('Metric Set')}.", file=sys.stderr)
+        return None
+
+    traces = sorted(out_dir.glob("*.ngfx-gputrace"), key=lambda p: p.stat().st_mtime)
+    if not traces:
+        print(f"[Profiler] Warning: no .ngfx-gputrace file in {out_dir}, so no shader profile.", file=sys.stderr)
+        return None
+
+    mcp_exe = locate_ngfx_tool("ngfx-mcp.exe")
+    print(f"[Profiler] Reading the shader profile of {traces[-1].name} with {mcp_exe}")
+    with NgfxMcpClient(mcp_exe, timeout_s) as client:
+        return read_shader_profile(client, traces[-1])
+
+
+def run_gputrace_mode(args: argparse.Namespace) -> int:
+    """Run the Nsight Graphics GPU Trace activity on the app, then ingest the export and the shader profile.
+
+    The trace starts on frames, or on submits for a headless app (--trace-start-submits). It uses locked
+    base GPU clocks, so its times are not comparable with submit mode times. Return the process exit code.
     """
     exe_path = Path(args.exe).resolve()
     if not exe_path.exists():
@@ -557,21 +602,7 @@ def run_gputrace_mode(args: argparse.Namespace) -> int:
     out_dir = cap_dir / f"{exe_path.stem}_gputrace_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    trace_cmd = [
-        str(ngfx_exe),
-        "--activity", GPU_TRACE_ACTIVITY,
-        "--exe", str(exe_path),
-        "--args", args.trace_args,
-        "--dir", str(exe_path.parent),
-        "--output-dir", str(out_dir),
-        "--start-after-frames", str(args.trace_start_frame),
-        "--limit-to-frames", "1",
-        "--auto-export",
-        # ngfx ignores the per-architecture options below unless --architecture names the GPU family
-        "--architecture", args.trace_architecture,
-        "--multi-pass-metrics",
-        "--real-time-shader-profiler",
-    ]
+    trace_cmd = build_trace_command(ngfx_exe, exe_path, out_dir, args)
 
     print(f"[Profiler] Launching ngfx: {' '.join(trace_cmd)}")
     trace_res = run_command(trace_cmd, args.timeout_s, capture=True)
@@ -593,9 +624,15 @@ def run_gputrace_mode(args: argparse.Namespace) -> int:
         print(f"[Profiler] Error: {err}", file=sys.stderr)
         return 1
 
+    try:
+        shader_profile = read_profile_if_enabled(out_dir, args.timeout_s)
+    except (OSError, NgfxMcpError) as err:
+        print(f"[Profiler] Error: reading the shader profile failed: {err}", file=sys.stderr)
+        return 1
+
     conn = init_db(args.db)
     try:
-        run_id = ingest_gpu_trace(conn, out_dir, exe_path, args.trace_args, provenance)
+        run_id = ingest_gpu_trace(conn, out_dir, exe_path, args.trace_args, provenance, shader_profile)
     except (OSError, ValueError) as err:
         print(f"[Profiler] Error: {err}", file=sys.stderr)
         return 1
@@ -619,9 +656,15 @@ def run_gputrace_ingest(args: argparse.Namespace) -> int:
         print(f"[Profiler] Error: {err}", file=sys.stderr)
         return 1
 
+    try:
+        shader_profile = read_profile_if_enabled(out_dir, args.timeout_s)
+    except (OSError, NgfxMcpError) as err:
+        print(f"[Profiler] Error: reading the shader profile failed: {err}", file=sys.stderr)
+        return 1
+
     conn = init_db(args.db)
     try:
-        run_id = ingest_gpu_trace(conn, out_dir, None, "", None)
+        run_id = ingest_gpu_trace(conn, out_dir, None, "", None, shader_profile)
     except (OSError, ValueError) as err:
         print(f"[Profiler] Error: {err}", file=sys.stderr)
         return 1
@@ -688,9 +731,17 @@ def main() -> int:
                              "(default: --frames=1500 --validation=off)")
     parser.add_argument("--trace-start-frame", type=int, default=120,
                         help="GPU Trace mode: the frame after which the trace starts (default: 120)")
+    parser.add_argument("--trace-start-submits", type=int, default=None,
+                        help="GPU Trace mode: start after this many queue submits and record one submit, "
+                             "in place of frames. Use it for a headless app that never presents")
     parser.add_argument("--trace-architecture", default="Ada",
                         help="GPU Trace mode: the GPU family for the metric options, as ngfx.exe --help-all "
                              "lists them, for example Ada or Blackwell GB20x (default: Ada, the RTX 4080)")
+    parser.add_argument("--trace-metric-set", type=int, default=1,
+                        help="GPU Trace mode: the metric set index of that architecture. It must allow the "
+                             "shader profiler: on Ada, 1 (Throughput Metrics) does and 0 does not (default: 1)")
+    parser.add_argument("--multi-pass-metrics", action="store_true",
+                        help="GPU Trace mode: collect more counters over several frames")
     parser.add_argument("--gputrace-dir", default=None,
                         help="Import an existing GPU Trace export folder (the folder that holds BASE) "
                              "without running anything")
@@ -702,7 +753,7 @@ def main() -> int:
         choices=["auto", "present", "submit", "gputrace"],
         default="auto",
         help="Profiling mode: auto, present (Nsight Graphics capture and replay), submit (benchmark run), "
-             "or gputrace (Nsight Graphics GPU Trace of a presenting app)",
+             "or gputrace (Nsight Graphics GPU Trace with the shader profiler)",
     )
 
     args = parser.parse_args()
