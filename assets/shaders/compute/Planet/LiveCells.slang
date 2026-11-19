@@ -46,9 +46,8 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
     GroupMemoryBarrierWithGroupSync();
 
     uint live = 0u;
-    uint continental = 0u;
-    int3 position = int3(0,0,0);
-
+    uint liveMask = 0u;
+    [unroll(CellsPerThread)]
     for (uint step = 0u; step < CellsPerThread; ++step)
     {
         const uint cellIndex = liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x;
@@ -58,7 +57,25 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
         }
 
         const uint flattenedIndex = liveGroup.Plate * Params.PointCount + cellIndex;
-        if (LoadAlive(flattenedIndex) == 0u)
+        if (LoadAlive(flattenedIndex) != 0u)
+        {
+            liveMask |= (1u << step);
+        }
+    }
+
+    uint continental = 0u;
+    int3 position = int3(0,0,0);
+    // now use live mask to determine which cells are alive without redundant loads
+    for (uint step = 0u; step < CellsPerThread; ++step)
+    {
+        const uint cellIndex = liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x;
+        if (cellIndex >= Params.PointCount)
+        {
+            break;
+        }
+
+        const uint flattenedIndex = liveGroup.Plate * Params.PointCount + cellIndex;
+        if ((liveMask & (1u << step)) == 0u)
         {
             continue;
         }
