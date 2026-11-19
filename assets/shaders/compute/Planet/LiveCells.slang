@@ -94,46 +94,51 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
     }
 }
 
-[shader("compute")][numthreads(1,1,1)]
+[shader("compute")][numthreads(32,1,1)]
 void OffsetLiveCellsCS(uint3 threadID : SV_DispatchThreadID)
 {
-    // run an offset pass to fill the buffers the next stage will need - and write
-    // the dispatch size for the next pass
-    uint sum = 0u;
-    for (uint plate = 0u; plate < Params.PlateCount; ++plate)
-    {
-        const uint count = PlateCellCount.Load(plate);
-        PlateLiveOffset.Store(plate, sum);
-        sum += count;
+    // this runs one dispatch, the dispatch thread is the lane ID
+    const uint plate = threadID.x;
+    // non-active threads here just won't do any work
+    const bool isActive = plate < Params.PlateCount;
 
-        // now move to compute cap for the next step: ScatterLiveCellsCS will handle
-        // the spread parameter
+    const uint count = isActive ? PlateCellCount.Load(plate) : 0u;
+    const uint waveOffset = WavePrefixSum(count);
+    const uint total = WaveActiveSum(count);
+
+    if (isActive)
+    {
+        PlateLiveOffset.Store(plate, waveOffset);
         PlateCapSpread.Store(plate, 0u);
         if (count == 0u)
         {
-            // we use the .w component as a status flag
             PlateCapCenters.Store(plate, float4(0.0f, 0.0f, 0.0f, PlateCapEmpty));
-            continue;
         }
-
-        // live cells spread evenly over the sphere have no useful center, so the 
-        // plate won't get a cap
-        const float3 positionSum = float3(LoadPlatePositionSum(plate * 3u));
-        const float posLength = length(positionSum);
-        if (posLength < 1.0e-3f * PositionSumScale * float(count))
+        else
         {
-            PlateCapCenters.Store(plate, float4(0.0f, 0.0f, 0.0f, PlateCapNone));
-            continue;
+            const float3 positionSum = float3(LoadPlatePositionSum(plate * 3u));
+            const float posLength = length(positionSum);
+            if (posLength < 1.0e-3f * PositionSumScale * float(count))
+            {
+                PlateCapCenters.Store(plate, float4(0.0f, 0.0f, 0.0f, PlateCapNone));
+            }
+            else
+            {
+                PlateCapCenters.Store(plate, float4(positionSum / posLength.xxx, PlateCapValid));
+            }
         }
-
-        PlateCapCenters.Store(plate, float4(positionSum / posLength.xxx, PlateCapValid));
     }
 
-    PlateLiveOffset.Store(Params.PlateCount, sum);
+    if (WaveIsFirstLane())
+    {
+        PlateLiveOffset.Store(Params.PlateCount, total);
+        LiveDispatch.Store(0u, (total + ListGroupSize - 1u) / ListGroupSize);
+        LiveDispatch.Store(1u, 1u);
+        LiveDispatch.Store(2u, 1u);
+    }
 
-    LiveDispatch.Store(0u, (sum + ListGroupSize - 1u) / ListGroupSize);
-    LiveDispatch.Store(1u, 1u);
-    LiveDispatch.Store(2u, 1u);
+
+    
 }
 
 [shader("compute")][numthreads(256,1,1)]
