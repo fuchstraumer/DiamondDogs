@@ -68,17 +68,24 @@ void CountFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
 }
 
 [shader("compute")]
-[numthreads(1, 1, 1)]
+[numthreads(32, 1, 1)]
 void OffsetFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
 {
-    uint sum = 0u;
-    for (uint plate = 0u; plate < Params.PlateCount; ++plate)
+    const uint plate = threadId.x;
+    const bool isActive = plate < Params.PlateCount;
+    const uint count = isActive ? PlateFrontPointCount.Load(plate) : 0u;
+    const uint waveOffset = WavePrefixSum(count);
+    const uint waveTotal = WaveActiveSum(count);
+
+    if (isActive)
     {
-        PlateFrontPointOffset.Store(plate, sum);
-        sum += PlateFrontPointCount.Load(plate);
+        PlateFrontPointOffset.Store(plate, waveOffset);
     }
 
-    PlateFrontPointOffset.Store(Params.PlateCount, sum);
+    if (WaveIsFirstLane())
+    {
+        PlateFrontPointOffset.Store(Params.PlateCount, waveTotal);
+    }
 }
 
 [shader("compute")]
