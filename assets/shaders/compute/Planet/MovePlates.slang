@@ -20,6 +20,10 @@ static const float KeelDrag = 1.5f;
 static const float SlabPullSpeed = 0.010f;
 static const float PlateDragTime = 10.0f;
 static const float SlabFreeSpeed = 10.0f;
+static const float RiftSlowSpeed = 5.0f;
+static const float RiftFastSpeed = 20.0f;
+static const float RiftSlowTime = 20.0f;
+static const float RiftPushTime = 100.0f;
 static const float PullScaleInv = 1.0f / 4096.0f;
 
 float3x3 RodriguesRotation(in float3 pole, in float angle)
@@ -63,12 +67,18 @@ void MovePlatesAndClearCountersCS(uint3 threadId : SV_DispatchThreadID)
             float(PlatePull.Load(pullBase + 2u))
         ) * PullScaleInv;
 
-        // 2. Torque balance: drive (slab pull) vs basal + continental keel drag
+        // 2. Torque balance: drive (slab pull + rift push) vs basal + continental keel drag
         const float area = max(float(cellCount), 1.0f);
         const float continentalShare = float(continentalCount) / area;
         const float drag = 1.0f + KeelDrag * continentalShare;
 
-        const float3 balance = (pull * SlabPullSpeed / drag) * (MantleVigor / PlanetRadiusKm);
+        const float4 plateRift = PlateRiftIn.Load(plate);
+        const float riftAge = (MovePlatesConstants.Time - plateRift.w) * MantleVigor;
+        const float riftPush = (riftAge < RiftSlowTime)
+            ? RiftSlowSpeed
+            : ((riftAge < RiftPushTime) ? RiftFastSpeed : 0.0f);
+
+        const float3 balance = (pull * SlabPullSpeed / drag + plateRift.xyz * riftPush) * (MantleVigor / PlanetRadiusKm);
         const float4 poleRate = PoleRatesRW.Load(plate);
         float3 spin = poleRate.xyz * poleRate.w;
         spin += (balance - spin) * min(dt * MantleVigor / PlateDragTime, 1.0f);

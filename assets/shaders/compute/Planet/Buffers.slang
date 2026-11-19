@@ -94,6 +94,8 @@ Counters LowVotes;
 PointsIn PoleRatesIn; // readonly view for Crust.slang
 [ls_resource_tags("Aliased:PoleRatesIn")]
 Points PoleRatesRW; // written by MovePlatesAndClearCountersCS
+// per-plate rift push state: .xyz = rift_axis (zero if inactive), .w = rift_time (My)
+PointsIn PlateRiftIn;
 Points CrustState;
 [ls_resource_tags("Aliased:CrustState")]
 PointsIn CrustStateIn;
