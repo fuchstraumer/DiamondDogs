@@ -1,6 +1,6 @@
 #pragma once
-#ifndef DIAMOND_DOGS_PLANET_PASS_CHECKS_HPP
-#define DIAMOND_DOGS_PLANET_PASS_CHECKS_HPP
+#ifndef DIAMOND_DOGS_PLANET_STEP_CHECKS_HPP
+#define DIAMOND_DOGS_PLANET_STEP_CHECKS_HPP
 #include <span>
 #include <string_view>
 
@@ -30,4 +30,4 @@ namespace planet
     [[nodiscard]] bool CheckChain(CheckContext& context);
 }
 
-#endif // !DIAMOND_DOGS_PLANET_PASS_CHECKS_HPP
+#endif // !DIAMOND_DOGS_PLANET_STEP_CHECKS_HPP

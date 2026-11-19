@@ -13,6 +13,8 @@ set_target_properties(planet_gen_shaders PROPERTIES FOLDER "Applications/PlanetG
 add_library(planet_gpu STATIC
     "gpu/GpuBuffers.cpp"
     "gpu/GpuBuffers.hpp"
+    "gpu/Healpix.cpp"
+    "gpu/Healpix.hpp"
     "gpu/PlanetGpuErrors.cpp"
     "gpu/PlanetGpuErrors.hpp"
     "gpu/PlanetSession.cpp"
@@ -49,7 +51,7 @@ diamond_dogs_add_pch(planet_reference LIBRARY)
 add_executable(PlanetGenCheck
     "check/CheckHarness.cpp"
     "check/CheckHarness.hpp"
-    "check/PassChecks.hpp"
+    "check/StepChecks.hpp"
     "check/StepChecks.cpp"
     "check/SurfaceChecks.cpp"
     "check/main.cpp")
@@ -59,7 +61,10 @@ diamond_dogs_add_pch(PlanetGenCheck LIBRARY)
 
 # PlanetGenBench: GPU time of each pass of the step, on the reference state. Headless, no validation. GPU timers exist
 # in Debug and RelWithDebInfo only; measure in RelWithDebInfo
-add_executable(PlanetGenBench "bench/main.cpp")
+add_executable(PlanetGenBench
+    "bench/BenchReport.cpp"
+    "bench/BenchReport.hpp"
+    "bench/main.cpp")
 target_link_libraries(PlanetGenBench PRIVATE planet_reference planet_gpu bootstrap_vulkan)
 set_target_properties(PlanetGenBench PROPERTIES FOLDER "Applications/PlanetGen" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(PlanetGenBench LIBRARY)

@@ -1,4 +1,4 @@
-#include "PassChecks.hpp"
+#include "StepChecks.hpp"
 #include "CheckHarness.hpp"
 #include "CommandBuffer.hpp"
 #include "GpuBuffers.hpp"
