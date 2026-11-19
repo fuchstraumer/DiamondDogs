@@ -25,6 +25,9 @@ namespace planet
     {
         constexpr std::string_view k_LiveDispatchBuffer{ "LiveDispatch" };
 
+        // pass 3b writes these, and the next step's OwnersCS reads them
+        constexpr std::array<std::string_view, 2> k_CarriedBuffers{ "PlateCapCenters", "PlateCapSpread" };
+
         constexpr std::array<std::string_view, 25> k_ZeroedBuffers
         {
             "BestPlate", "BestCell", "SecondPlate", "SecondCell",
@@ -69,6 +72,11 @@ namespace planet
     std::span<const std::string_view> StepZeroedBuffers() noexcept
     {
         return k_ZeroedBuffers;
+    }
+
+    std::span<const std::string_view> StepCarriedBuffers() noexcept
+    {
+        return k_CarriedBuffers;
     }
 
     uint32_t LiveGroupCount(StepSize size) noexcept
@@ -130,6 +138,16 @@ namespace planet
         for (const std::string_view array : StepCrustArrays(shaders.CrustFlags()))
         {
             const PlanetGpuError copied = buffers.RecordCopy(command_buffer, InitialName(array), array);
+
+            if (copied != PlanetGpuError::Success)
+            {
+                return copied;
+            }
+        }
+
+        for (const std::string_view carried : k_CarriedBuffers)
+        {
+            const PlanetGpuError copied = buffers.RecordCopy(command_buffer, InitialName(carried), carried);
 
             if (copied != PlanetGpuError::Success)
             {

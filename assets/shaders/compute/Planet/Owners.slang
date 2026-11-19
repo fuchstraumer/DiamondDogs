@@ -25,7 +25,11 @@ Ints SecondCell;
 static const float ContinentPriority = 1.0e6f;
 static const float NoScore = -3.402823466e+38f;
 
-float3x3 LoadRotation(uint plate);
+bool InsideCap(in float3 direction,
+               in float3 center,
+               in float spread,
+               in float cosMargin,
+               in float sinMargin);
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
@@ -46,11 +50,35 @@ void OwnersCS(uint3 threadId : SV_DispatchThreadID)
     int2 best = int2(-1, -1);
     int2 second = int2(-1, -1);
 
+    const float marginAmount = 2.0f * sqrt(4.0f * 3.141592653589793f / float(count));
+    float2 margin;
+    // margin.x = sin, margin.y = cos
+    sincos(marginAmount, margin.x, margin.y);
+
     // the plate sequence decides ties: with equal scores the lower plate stays on top
     for (uint plate = 0; plate < Params.PlateCount; ++plate)
     {
         // row vector times matrix is transpose(R) * w, the world to plate frame
         const float3 frameDirection = mul(worldPoint, LoadRotation(plate));
+
+        // check the plate caps, if any have been computed yet, to try and exclude this
+        // plate if it's far from the current point
+        const float4 plateCap = PlateCapCenters.Load(plate);
+        // plateCap.w is zero initialized on CPU, and empty==2.0f. this won't
+        // be hit at all during the first tick, as mentioned elsewhere. it's
+        // an optimization that occurs after the first tick
+        if (plateCap.w == PlateCapEmpty)
+        {
+            continue;
+        }
+
+        const float plateSpread = asfloat(PlateCapSpread.Load(plate));
+        const bool isInsideCap = InsideCap(frameDirection, plateCap.xyz, plateSpread, margin.y, margin.x);
+        if (plateCap.w == PlateCapValid && !isInsideCap)
+        {
+            continue; // skip this plate if the point is outside a valid cap
+        }
+
         const int cell = FibonacciNearest(frameDirection, count);
         const uint flat = plate * Params.PointCount + uint(cell);
 
@@ -85,11 +113,20 @@ void OwnersCS(uint3 threadId : SV_DispatchThreadID)
     SecondCell.Store(point, second.y);
 }
 
-float3x3 LoadRotation(uint plate)
+bool InsideCap(in float3 direction,
+               in float3 center,
+               in float spread,
+               in float cosMargin,
+               in float sinMargin)
 {
-    const uint base = plate * 9u;
-    return float3x3(
-        Rotation.Load(base + 0u), Rotation.Load(base + 1u), Rotation.Load(base + 2u),
-        Rotation.Load(base + 3u), Rotation.Load(base + 4u), Rotation.Load(base + 5u),
-        Rotation.Load(base + 6u), Rotation.Load(base + 7u), Rotation.Load(base + 8u));
+    const float cosRadius = 1.0f - spread;
+    // the radius plus the margin reaches past the far pole, every direction is inside
+    if (cosRadius <= -cosMargin)
+    {
+        return true;
+    }
+
+    const float sinRadius = sqrt(max(1.0f - cosRadius * cosRadius, 0.0f));
+    const float cosLimit = cosRadius * cosMargin - sinRadius * sinMargin;
+    return dot(direction, center) >= cosLimit;
 }

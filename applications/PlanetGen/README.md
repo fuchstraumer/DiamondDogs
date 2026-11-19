@@ -159,12 +159,10 @@ Nsight Capture layer offers it, not the driver and not the GPU Trace layer. Do n
   `--architecture Ada`, and the default Ada metric set (0, Async Compute Triage) keeps it off. Set 1 (Throughput
   Metrics) turns it on. Check the line "Real-Time Shader Profiler" in `BASE\REPRO_INFO.xls` of the export. With it off,
   every entry point gives the warning "Metric <entry point> has no data".
-- The `--auto-export` text files hold scope times and counters only, never shader samples. To read the shader
-  profiler without the GUI, use `ngfx-mcp.exe --profile native --transport stdio` (same folder; docs in
-  `docs\ngfx-mcp`). Each request needs `params._meta` with the protocol version `2026-07-28`. The useful calls:
-  `gpu_trace.open_trace`, `gpu_trace.get_shader_catalog` (`shaders`, `stall_reason_types`) and
-  `gpu_trace.get_shader_profile` (`performance` per shader, `hotspots_shader` per source line). Shader objects map to
-  their Slang files and lines.
+- The `--auto-export` text files hold scope times and counters only, never shader samples. `scripts/profiler`
+  runs the whole trace and reads the shader profile through Nsight's `ngfx-mcp` into a SQLite database:
+  `capture_runner --mode gputrace --trace-start-submits 100`, then `query_metrics --stalls` and `--hotspots`. Its
+  README has the commands and a guide to the stall reasons.
 - GPU Trace locks the clocks to base, so its times are about 15 % longer than the bench's.
 
 First read of the throughput (% of peak, 100 000 points, after the live cell list): `OwnersCS` SM 67, L2 53, DRAM 42
@@ -215,6 +213,34 @@ At 100 000 points the step is 2.1 to 2.3 times faster. At 10 000 points it is 9 
 dispatches, and each dispatch costs about 4 to 5 µs even when it does almost nothing (`OffsetLiveCellsCS` is one thread
 and takes 5 µs). At that size the floor of the dispatches is more than the work they save. `OwnersCS` (47 µs) is now
 the largest dispatch at 100 000 points.
+
+### The front point search in groupshared tiles (2026-11-18)
+
+`NearestFrontPointCS` compares each live cell with every front point of its plate: 147 front points on average at
+100 000 points, and 277 on the largest plate. It has fewer warps than one full wave of the GPU (about 3100 warps of
+the 64-thread groups, against 76 SMs x 48), so the scheduler cannot hide the latency of each step with other warps.
+The profiler showed WAIT 33 % (each compare needs the `best` of the step before) and long scoreboard 29 % (each step
+waits for its front point load).
+
+Medians in µs at 100 000 points, alternated runs (`--dispatches`):
+
+| Search loop | `NearestFrontPointCS` | Step |
+|---|---|---|
+| One candidate, one load each step (float4 front points) | 25.6 | 137.0 |
+| Four candidates, four loads each step | 24.6 to 25.6 | 136.7 |
+| Four candidates, eight loads each step | 23.6 | 134.8 |
+| Groupshared tile of 64 front points, four candidates | 18.4 | 130.1 |
+
+Four candidates broke the chain (WAIT fell to 12 %), but the wait moved to the loads (long scoreboard rose to 41 %):
+each step still paid one L1 round trip. The tile pays it once for 64 front points: each lane of the group loads one
+slot, and then all lanes read the tile from groupshared memory. The live cell list and the front point lists are both
+in plate order, so the plates of a group's first and last cells bound one contiguous range of slots, and a group that
+spans two plates still loads one range; each lane compares only the slots of its own plate. Every lane takes part in
+the loads and barriers, so a lane past the end of the list returns only after the tile loop. The four candidates merge
+with a total order (distance, then front point index), so the result does not depend on the slot order.
+
+With pass scopes only, the step is now 127.1 µs at 100 000 points and 60.7 µs at 10 000 (pass 4: 29.7 and 13.3 µs).
+`OwnersCS` (about 45 µs) is the next target: cone culling (see the PlanetLab handoff).
 
 ## Buffers
 

@@ -26,8 +26,8 @@ void ArcballCamera::Pan(float dx_pixels, float dy_pixels, float viewport_height_
     // one pixel moves the target by the size of one pixel at the target's distance, so the point under the cursor follows it
     const float worldPerPixel = 2.0f * Current.Distance * math::Tan(0.5f * FovY) / std::max(viewport_height_pixels, 1.0f);
     const Float4x4 view = View();
-    const Float3 right = view.Row(0);
-    const Float3 up = view.Row(1);
+    const Float3 right = view.Row(0).xyz();
+    const Float3 up = view.Row(1).xyz();
     Current.Target = Current.Target + right * (-dx_pixels * worldPerPixel) + up * (dy_pixels * worldPerPixel);
 }
 

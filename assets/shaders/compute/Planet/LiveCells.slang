@@ -13,6 +13,7 @@ groupshared uint GroupContinental;
 groupshared int GroupPosition[3];
 groupshared uint GroupCursor;
 groupshared uint GroupBase;
+groupshared uint GroupSpread;
 
 struct LiveGroup
 {
@@ -101,8 +102,31 @@ void OffsetLiveCellsCS(uint3 threadID : SV_DispatchThreadID)
     uint sum = 0u;
     for (uint plate = 0u; plate < Params.PlateCount; ++plate)
     {
+        const uint count = PlateCellCount.Load(plate);
         PlateLiveOffset.Store(plate, sum);
-        sum += PlateCellCount.Load(plate);
+        sum += count;
+
+        // now move to compute cap for the next step: ScatterLiveCellsCS will handle
+        // the spread parameter
+        PlateCapSpread.Store(plate, 0u);
+        if (count == 0u)
+        {
+            // we use the .w component as a status flag
+            PlateCapCenters.Store(plate, float4(0.0f, 0.0f, 0.0f, PlateCapEmpty));
+            continue;
+        }
+
+        // live cells spread evenly over the sphere have no useful center, so the 
+        // plate won't get a cap
+        const float3 positionSum = float3(LoadPlatePositionSum(plate * 3u));
+        const float posLength = length(positionSum);
+        if (posLength < 1.0e-3f * PositionSumScale * float(count))
+        {
+            PlateCapCenters.Store(plate, float4(0.0f, 0.0f, 0.0f, PlateCapNone));
+            continue;
+        }
+
+        PlateCapCenters.Store(plate, float4(positionSum / posLength.xxx, PlateCapValid));
     }
 
     PlateLiveOffset.Store(Params.PlateCount, sum);
@@ -120,6 +144,7 @@ void ScatterLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_Group
     if (laneInGroup.x == 0u)
     {
         GroupCursor = 0u;
+        GroupSpread = 0u;
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -161,6 +186,9 @@ void ScatterLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_Group
     // get the final index for this thread
     uint resultIdx = GroupBase + waveOffset + laneOffset;
 
+    const float4 plateCap = PlateCapCenters.Load(liveGroup.Plate);
+    float spread = 0.0f;
+
     for (uint step = 0u; step < CellsPerThread; ++step)
     {
         const uint cellIndex = liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x;
@@ -169,7 +197,24 @@ void ScatterLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_Group
         {
             LiveCell.Store(resultIdx, flattenedIndex);
             resultIdx += 1u;
+
+            const float3 latticePoint = LatticePoint(int(cellIndex), int(Params.PointCount));
+            spread = max(spread, 1.0f - dot(latticePoint, plateCap.xyz));
         }
+    }
+
+    const uint spreadUint = asuint(spread);
+    const uint waveSpread = WaveActiveMax(spreadUint);
+    if (WaveIsFirstLane())
+    {
+        InterlockedMax(GroupSpread, waveSpread);
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (laneInGroup.x == 0u && plateCap.w == PlateCapValid)
+    {
+        PlateCapSpread.Max(liveGroup.Plate, GroupSpread);
     }
 
 }

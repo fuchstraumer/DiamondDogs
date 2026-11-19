@@ -199,7 +199,7 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID,
     if (best.Index >= 0)
     {
         const float bestDistance = 6370.0f * 2.0f * asin(clamp(0.5f * sqrt(best.Distance), 0.0f, 1.0f));
-        CellDistance.Store(flattenedPoint, best.Distance);
+        CellDistance.Store(flattenedPoint, bestDistance);
     }
 
 }

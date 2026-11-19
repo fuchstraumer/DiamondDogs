@@ -28,3 +28,6 @@ docs/our-machinery/
 
 assets/shaders/common/Color/ddColorGenerated.slang
 assets/shaders/compute/Ocean/OceanFftGenerated.slang
+applications/PlanetLab/
+# local cache for alien planets
+applications/AlienPlanets

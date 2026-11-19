@@ -136,6 +136,7 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `applications/ContentCooker/` | The offline cooker console. A stub today: it boots the launch and core stages, and its CMake file proves that it links no RHI. `--boot-timings` prints the table. |
 | `applications/OceanFft/` | The ocean demo. `--tool-port=N` starts the tool server on 127.0.0.1 (`0` prints the port that the system chose). `OceanSceneTools.cpp` holds the scene's tools. |
 | `scripts/agent_sidecar/` | The MCP sidecar between an agent and the tool server, its tests, and `check_engine.py`. The README lists the tools. |
+| `scripts/profiler/` | GPU profiling into SQLite: benchmark times, Nsight GPU Trace scopes and counters, and the shader profiler (stall reasons per shader and per source line, through Nsight's `ngfx-mcp`). Use it to find a shader's bottleneck; the README has the loop and a stall reason guide. |
 | `cmake/ConfigureLodestone.cmake` | Adds Lodestone, and works around its embedding issues (each one is listed in the Lodestone requests file). |
 | `tests/unit_tests/`, `tests/integration_tests/` | Google Test suites, and executables with their own `main`. |
 | `docs/audit.md` | The running notes: state, fixes, open findings, decisions, next steps, log. |

@@ -22,6 +22,7 @@ extern struct Counters : IAtomicBuffer<uint>;
 // signed counters used during TorqueSum
 extern struct SignedCounters : IAtomicBuffer<int>;
 extern struct Points : IReadWriteBuffer<float4>;
+extern struct PointsIn : IReadBuffer<float4>;
 
 // The crust in the plate frames, [plate][cell] flat. Passes 1 and 2 read it, and pass 3 writes it.
 FlagBytes CrustAliveBytes;
@@ -38,6 +39,20 @@ SignedCounters PlatePositionSum;
 SignedCounters PlatePull;
 Counters PlateCellCount;
 Counters PlateContinentalCount;
+// stores per-plate rotations as float4x3s, so we only need 3 loads
+PointsIn Rotations;
+
+// `PlateCapCenter` stores the central "cap" of each plate around its live cells, in the plates frame.
+// LiveCells.slang writes it, and then OwnersCS of the next tick reads it - so the first pass of OwnersCS
+// will be *much* slower before this exists, but once it does successive ticks should be much faster
+Points PlateCapCenters;
+// 1-cos(cap radius) as float bits: it's never negative, so an atomic max on the uint bits is safely
+// the same as atomic max on a float (which we can't really do in shaders at all)
+Counters PlateCapSpread;
+
+internal static const float PlateCapNone = 0.0f;
+internal static const float PlateCapValid = 1.0f;
+internal static const float PlateCapEmpty = 2.0f;
 
 internal uint LoadAlive(uint flat)
 {
@@ -88,6 +103,7 @@ internal void AddPlatePositionSum(uint where, int3 position)
     PlatePositionSum.Add(where + 2u, position.z);
 }
 
+// todo: Can we coalesce this load somehow, but keep things atomic?
 internal int3 LoadPlatePositionSum(uint where)
 {
     int3 position;
@@ -111,4 +127,27 @@ internal int3 LoadPlatePull(uint where)
     pull.y = PlatePull.Load(where + 1u);
     pull.z = PlatePull.Load(where + 2u);
     return pull;
+}
+
+internal float3x4 LoadRotation(uint plate)
+{
+    float3x4 rotation;
+    rotation[0] = Rotations.Load(plate * 3u + 0u);
+    rotation[1] = Rotations.Load(plate * 3u + 1u);
+    rotation[2] = Rotations.Load(plate * 3u + 2u);
+    return rotation;
+}
+
+internal float3 WorldToPlate(in float3 worldPos, in float3x4 rotation)
+{
+    return worldPos.x * rotation[0].xyz +
+           worldPos.y * rotation[1].xyz +
+           worldPos.z * rotation[2].xyz;
+}
+
+internal float3 PlateToWorld(in float3 platePos, in float3x4 rotation)
+{
+    return float3(dot(rotation[0].xyz, platePos),
+                  dot(rotation[1].xyz, platePos),
+                  dot(rotation[2].xyz, platePos));
 }

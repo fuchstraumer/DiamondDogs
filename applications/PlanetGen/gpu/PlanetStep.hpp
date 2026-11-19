@@ -119,6 +119,10 @@ namespace planet
     /** @brief The crust arrays that RecordReset restores, in the flag storage `storage`. */
     [[nodiscard]] std::array<std::string_view, 6> StepCrustArrays(CrustFlagStorage storage) noexcept;
 
+    /** @brief The plate caps that pass 3b writes for the next step's OwnersCS. They carry from one step to the next, so
+     *  RecordReset restores them from their initial copies, as it does the crust arrays. */
+    [[nodiscard]] std::span<const std::string_view> StepCarriedBuffers() noexcept;
+
     /** @brief The name of the initial copy of the crust array `name`: k_InitialPrefix + name. */
     [[nodiscard]] std::string InitialName(std::string_view name);
 

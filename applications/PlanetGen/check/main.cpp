@@ -13,10 +13,13 @@
 #include "LaunchStage.hpp"
 #include "LoadedBundle.hpp"
 #include "ModuleDescriptor.hpp"
+#include "PlanetGpuErrors.hpp"
 #include "PlanetShaders.hpp"
 #include "PlanetStep.hpp"
 #include "Queue.hpp"
 #include "ReferenceSet.hpp"
+#include "RhiFlags.hpp"
+#include "RhiHandle.hpp"
 #include "StepState.hpp"
 #include "ResourceContext.hpp"
 #include "RhiAssert.hpp"
@@ -28,7 +31,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <format>
@@ -41,6 +46,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // PlanetGenCheck: runs the PlanetLab Slang passes through Lodestone and compares each result with the reference files
@@ -66,6 +72,9 @@ namespace
     };
     // NearestFrontPointCS and UpliftCS run this many threads to a group on the live cell list (LiveCells.slang)
     constexpr uint32_t k_ListGroupSize = 64u;
+    // FrontPoints holds one float4 for each slot (FrontPoints.slang): x, y, z, then the point index as the bits of w
+    constexpr size_t k_FrontPointWords = 4u;
+    constexpr size_t k_FrontPointIndexWord = 3u;
 
     constexpr bootstrap::BundleRequest k_Bundles[]
     {
@@ -420,12 +429,16 @@ namespace
         std::optional<std::vector<float>> rotation = reference.Floats("rotation");
         std::optional<std::vector<float>> birth = reference.Floats("ref_birth");
         std::optional<std::vector<int32_t>> previous = reference.Ints("previous_plate");
+        std::optional<std::vector<uint8_t>> alive = reference.Bytes("ref_alive");
 
-        if (!rotation.has_value() || !birth.has_value() || !previous.has_value())
+        if (!rotation.has_value() || !birth.has_value() || !previous.has_value() || !alive.has_value())
         {
             return false;
         }
 
+        // the caps let OwnersCS skip the plates whose crust is far from the point; a skipped plate must be one that
+        // could not claim it, so the outputs stay exact
+        const planet::PlateCaps caps = planet::ComputePlateCaps(*alive, pointCount, reference.PlateCount());
         planet::PlanetGpuResult<std::unique_ptr<planet::PlanetShaders>> shaders = CreateShaders(gpu, crust_flags, k_EntryPoints);
 
         if (!shaders.has_value())
@@ -455,7 +468,9 @@ namespace
             !AddFlags(buffers, reference, storage, flagNames.Alive, "ref_alive", false) ||
             !AddFlags(buffers, reference, storage, flagNames.Continental, "ref_continental", false) ||
             Failed(buffers.AddStorage("CrustBirth", Bytes(*birth), false)) ||
-            Failed(buffers.AddStorage("PreviousPlate", Bytes(*previous), false)))
+            Failed(buffers.AddStorage("PreviousPlate", Bytes(*previous), false)) ||
+            Failed(buffers.AddStorage("PlateCapCenters", Bytes(caps.Centres), false)) ||
+            Failed(buffers.AddStorage("PlateCapSpread", Bytes(caps.Spreads), false)))
         {
             return false;
         }
@@ -818,7 +833,7 @@ namespace
         const double dx = a[0] - b[0];
         const double dy = a[1] - b[1];
         const double dz = a[2] - b[2];
-        const double chord = std::sqrt(dx * dx + dy * dy + dz * dz);
+        const double chord = std::sqrt((dx * dx) + (dy * dy) + (dz * dz));
         return 2.0 * std::asin(std::clamp(0.5 * chord, 0.0, 1.0)) * k_PlanetRadiusKm;
     }
 
@@ -826,14 +841,14 @@ namespace
     [[nodiscard]] std::array<double, 3> CellInWorld(const std::vector<float>& rotation, int32_t plate, int32_t cell, int32_t count)
     {
         const std::array<double, 3> frame = LatticeDouble(cell, count);
-        const float* matrix = rotation.data() + static_cast<size_t>(plate) * 9u;
+        const float* matrix = rotation.data() + (static_cast<size_t>(plate) * 9u);
         std::array<double, 3> world{};
 
         for (size_t row = 0; row < 3u; ++row)
         {
-            world[row] = static_cast<double>(matrix[row * 3u]) * frame[0] +
-                         static_cast<double>(matrix[row * 3u + 1u]) * frame[1] +
-                         static_cast<double>(matrix[row * 3u + 2u]) * frame[2];
+            world[row] = (static_cast<double>(matrix[row * 3u]) * frame[0]) +
+                         (static_cast<double>(matrix[row * 3u + 1u]) * frame[1]) +
+                         (static_cast<double>(matrix[row * 3u + 2u]) * frame[2]);
         }
 
         return world;
@@ -887,8 +902,8 @@ namespace
         const planet::CrustFlagStorage storage = (*shaders)->CrustFlags();
         const std::vector<uint32_t> plateZeros(plates, 0u);
         const std::vector<uint32_t> offsetZeros(plates + 1u, 0u);
-        const std::vector<int32_t> pointZeros(points, 0);
-        const std::vector<float> positionZeros(points * 3u, 0.0f);
+        // FrontPoints is one float4 for each slot: the world position, and the point index as the bits of w
+        const std::vector<uint32_t> frontPointZeros(points * k_FrontPointWords, 0u);
         const std::vector<int32_t> cellZeros(cellCount, 0);
 
         if (Failed(buffers.AddUniform("Params", *constantBytes)) ||
@@ -899,8 +914,7 @@ namespace
             Failed(buffers.AddStorage("PlateFrontPointCount", Bytes(plateZeros), true)) ||
             Failed(buffers.AddStorage("PlateFrontPointCursor", Bytes(plateZeros), false)) ||
             Failed(buffers.AddStorage("PlateFrontPointOffset", Bytes(offsetZeros), true)) ||
-            Failed(buffers.AddStorage("FrontPoint", Bytes(pointZeros), true)) ||
-            Failed(buffers.AddStorage("FrontPointPosition", Bytes(positionZeros), false)) ||
+            Failed(buffers.AddStorage("FrontPoints", Bytes(frontPointZeros), true)) ||
             Failed(buffers.AddStorage("CellFrontPoint", Bytes(cellZeros), true)) ||
             Failed(buffers.AddStorage("CellDistance", Bytes(cellZeros), true)) ||
             !AddLiveList(buffers, *live))
@@ -937,7 +951,7 @@ namespace
 
         planet::PlanetGpuResult<std::vector<std::byte>> countBytes = buffers.Read("PlateFrontPointCount");
         planet::PlanetGpuResult<std::vector<std::byte>> offsetBytes = buffers.Read("PlateFrontPointOffset");
-        planet::PlanetGpuResult<std::vector<std::byte>> frontPointBytes = buffers.Read("FrontPoint");
+        planet::PlanetGpuResult<std::vector<std::byte>> frontPointBytes = buffers.Read("FrontPoints");
         planet::PlanetGpuResult<std::vector<std::byte>> cellFrontPointBytes = buffers.Read("CellFrontPoint");
         planet::PlanetGpuResult<std::vector<std::byte>> cellDistanceBytes = buffers.Read("CellDistance");
 
@@ -961,7 +975,14 @@ namespace
 
         const std::vector<uint32_t> counts = FromBytes<uint32_t>(*countBytes, plates);
         const std::vector<uint32_t> offsets = FromBytes<uint32_t>(*offsetBytes, plates + 1u);
-        const std::vector<int32_t> frontPoints = FromBytes<int32_t>(*frontPointBytes, points);
+        const std::vector<uint32_t> frontPointWords = FromBytes<uint32_t>(*frontPointBytes, points * k_FrontPointWords);
+        std::vector<int32_t> frontPoints(points);
+
+        for (size_t slot = 0; slot < points; ++slot)
+        {
+            frontPoints[slot] = static_cast<int32_t>(frontPointWords[slot * k_FrontPointWords + k_FrontPointIndexWord]);
+        }
+
         int64_t listsWrong = 0;
         uint32_t expectedOffset = 0u;
 
@@ -1364,8 +1385,11 @@ namespace
         const std::vector<int32_t> rowZeros(plates * 3u, 0);
         const std::vector<uint32_t> dispatchZeros(3u, 0u);
         const std::vector<uint32_t> listZeros(plates * static_cast<size_t>(pointCount), 0u);
+        const std::vector<float> capZeros(plates * 4u, 0.0f);
 
         if (Failed(buffers.AddUniform("Params", *constantBytes)) ||
+            Failed(buffers.AddStorage("PlateCapCenters", Bytes(capZeros), true)) ||
+            Failed(buffers.AddStorage("PlateCapSpread", Bytes(plateZeros), true)) ||
             !AddFlags(buffers, reference, storage, flagNames.Alive, "p3_ref_alive", false) ||
             !AddFlags(buffers, reference, storage, flagNames.Continental, "p3_ref_continental", false) ||
             Failed(buffers.AddStorage("PlateCellCount", Bytes(plateZeros), true)) ||
@@ -1407,11 +1431,57 @@ namespace
         planet::PlanetGpuResult<std::vector<std::byte>> offsetBytes = buffers.Read("PlateLiveOffset");
         planet::PlanetGpuResult<std::vector<std::byte>> dispatchBytes = buffers.Read("LiveDispatch");
         planet::PlanetGpuResult<std::vector<std::byte>> listBytes = buffers.Read("LiveCell");
+        planet::PlanetGpuResult<std::vector<std::byte>> centreBytes = buffers.Read("PlateCapCenters");
+        planet::PlanetGpuResult<std::vector<std::byte>> spreadBytes = buffers.Read("PlateCapSpread");
 
-        if (!countBytes.has_value() || !offsetBytes.has_value() || !dispatchBytes.has_value() || !listBytes.has_value())
+        if (!countBytes.has_value() || !offsetBytes.has_value() || !dispatchBytes.has_value() || !listBytes.has_value() ||
+            !centreBytes.has_value() || !spreadBytes.has_value())
         {
             return false;
         }
+
+        // the caps for the next step's OwnersCS: an empty plate is marked empty, and every other plate's cap holds
+        // all its live cells. The float dot product on the GPU may round the other way, so the spread may be short
+        // by 1e-6
+        constexpr double k_SpreadRounding = 1.0e-6;
+        const std::vector<float> centres = FromBytes<float>(*centreBytes, plates * 4u);
+        const std::vector<float> spreads = FromBytes<float>(*spreadBytes, plates);
+        int64_t capsWrong = 0;
+        double largestSpread = 0.0;
+
+        for (size_t plate = 0; plate < plates; ++plate)
+        {
+            const float* centre = centres.data() + plate * 4u;
+            const uint32_t begin = expected->Offsets[plate];
+            const uint32_t end = expected->Offsets[plate + 1u];
+
+            if (begin == end)
+            {
+                capsWrong += centre[3] == planet::k_CapEmpty ? 0 : 1;
+                continue;
+            }
+
+            if (centre[3] != planet::k_CapValid)
+            {
+                ++capsWrong;
+                continue;
+            }
+
+            double needed = 0.0;
+
+            for (uint32_t entry = begin; entry < end; ++entry)
+            {
+                const int64_t cell = static_cast<int64_t>(expected->Cells[entry] % static_cast<uint32_t>(pointCount));
+                const std::array<double, 3> point = LatticeDouble(cell, pointCount);
+                const double cosine = point[0] * centre[0] + point[1] * centre[1] + point[2] * centre[2];
+                needed = std::max(needed, 1.0 - cosine);
+            }
+
+            largestSpread = std::max(largestSpread, needed);
+            capsWrong += needed <= static_cast<double>(spreads[plate]) + k_SpreadRounding ? 0 : 1;
+        }
+
+        std::println("live: plate caps {} wrong, largest spread {:.4f} (1 - cos of the cap radius)", capsWrong, largestSpread);
 
         const std::vector<uint32_t> counts = FromBytes<uint32_t>(*countBytes, plates);
         const std::vector<uint32_t> offsets = FromBytes<uint32_t>(*offsetBytes, plates + 1u);
@@ -1444,7 +1514,7 @@ namespace
         std::println("live: {} live cells on {} plates, {} counts wrong, {} plate ranges wrong, total {}, dispatch {} {} {} ({})",
                      total, plates, countsWrong, platesWrong, totalRight ? "right" : "wrong", dispatch[0], dispatch[1], dispatch[2],
                      dispatchRight ? "right" : "wrong");
-        return countsWrong == 0 && platesWrong == 0 && totalRight && dispatchRight;
+        return countsWrong == 0 && platesWrong == 0 && totalRight && dispatchRight && capsWrong == 0;
     }
 
     struct ChainArray
