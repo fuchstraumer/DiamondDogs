@@ -53,6 +53,8 @@ SignedCounters PlatePull;
 Counters PlateContinentalCount;
 // stores per-plate rotations as float4x3s, so we only need 3 loads
 PointsIn Rotations;
+[ls_resource_tags("Aliased:Rotations")]
+Points RotationsRW; // written by MovePlatesAndClearCountersCS
 
 // `PlateCapCenter` stores the central "cap" of each plate around its live cells, in the plates frame.
 // LiveCells.slang writes it, and then OwnersCS of the next tick reads it - so the first pass of OwnersCS
@@ -89,7 +91,9 @@ Counters PairVotes;
 Counters LowVotes;
 
 // Used by Crust.slang entrypoints (FillGapsCS, RemoveSubductedCS, and related functions)
-PointsIn PoleRatesIn; // this is readonly for now: mantle plume or editor could mean we need mutable tho
+PointsIn PoleRatesIn; // readonly view for Crust.slang
+[ls_resource_tags("Aliased:PoleRatesIn")]
+Points PoleRatesRW; // written by MovePlatesAndClearCountersCS
 Points CrustState;
 [ls_resource_tags("Aliased:CrustState")]
 PointsIn CrustStateIn;
