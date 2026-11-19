@@ -153,6 +153,7 @@ void ScatterLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_Group
     GroupMemoryBarrierWithGroupSync();
 
     uint live = 0u;
+    uint liveMask = 0u;
     for (uint step = 0u; step < CellsPerThread; ++step)
     {
         const uint cellIndex = liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x;
@@ -160,6 +161,7 @@ void ScatterLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_Group
         if (cellIndex < Params.PointCount && LoadAlive(flattenedIndex) != 0u)
         {
             live += 1u;
+            liveMask |= (1u << step);
         }
     }
 
@@ -177,6 +179,12 @@ void ScatterLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_Group
 
     GroupMemoryBarrierWithGroupSync();
 
+    // skip all the atomics/loads/barriers if the group is empty
+    if (GroupCursor == 0u)
+    {
+        return;
+    }
+
     // unfortunately need to barrier again so we can set GroupBase to finish this up
     if (laneInGroup.x == 0u)
     {
@@ -188,16 +196,18 @@ void ScatterLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_Group
 
     // get the final index for this thread
     uint resultIdx = GroupBase + waveOffset + laneOffset;
-
     const float4 plateCap = PlateCapCenters.Load(liveGroup.Plate);
     float spread = 0.0f;
 
+    // changed - use liveMask to test if something is live, don't repeat the load!
+    // note: this didn't seem to budge perf, not compared to the early-out we added above, but it's still
+    // worth keeping as it avoids redundant loads for cells that are already known to be alive
     for (uint step = 0u; step < CellsPerThread; ++step)
     {
-        const uint cellIndex = liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x;
-        const uint flattenedIndex = liveGroup.Plate * Params.PointCount + cellIndex;
-        if (cellIndex < Params.PointCount && LoadAlive(flattenedIndex) != 0u)
+        if ((liveMask & (1u << step)) != 0u)
         {
+            const uint cellIndex = liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x;
+            const uint flattenedIndex = liveGroup.Plate * Params.PointCount + cellIndex;
             LiveCell.Store(resultIdx, flattenedIndex);
             resultIdx += 1u;
 
