@@ -22,14 +22,21 @@ void SumPullCS(uint3 threadID : SV_DispatchThreadID)
     // this only has to run once per front points, so those are what make the "pull" forces
     // for each plates torque balance
     const uint pointID = threadID.x;
-    if (pointID >= Params.PointCount || FrontSubduction.Load(pointID) != 1u)
+    if (pointID >= Params.PointCount)
+    {
+        return;
+    }
+
+    const FrontState frontState = LoadFrontStateIn(pointID);
+    if (frontState.GetSubduction() != 1u)
     {
         return;
     }
 
     // torque balance is influenced by the plate going underneath this front subduction point
-    const uint underPlate = uint(SecondPlate.Load(pointID));
-    const int4 plateCounters = LoadPlateCountersIn(underPlate * 4u);
+    const OwnersData owners = LoadOwnersIn(pointID);
+    const uint underPlate = uint(owners.GetSecondPlate());
+    const int4 plateCounters = LoadPlateCountersIn(underPlate);
     const uint cellCount = uint(plateCounters.w);
     if (cellCount == 0u)
     {
@@ -48,8 +55,8 @@ void SumPullCS(uint3 threadID : SV_DispatchThreadID)
     const float3 centroidWorld = PlateToWorld(centroidLocal, plateFrame);
 
     const float cellArea = 4.0f * 3.14159265f * PlanetRadiusKm * (PlanetRadiusKm / float(Params.PointCount));
-    const float trenchAmount = cellArea / max(FrontSpeed.Load(pointID) * TimeStepMy, sqrt(cellArea));
-    const float slabWeight = trenchAmount * sqrt(clamp(FrontSlabAge.Load(pointID) / SlabFullAgeMy, 0.0f, 1.0f));
+    const float trenchAmount = cellArea / max(frontState.GetSpeed() * TimeStepMy, sqrt(cellArea));
+    const float slabWeight = trenchAmount * sqrt(clamp(frontState.GetSlabAge() / SlabFullAgeMy, 0.0f, 1.0f));
 
     // now apply the pull and perform the last fixed-point add. 
     // cross(centroid, world) is the rotation axis/lever arm that would turn the plate towards the trench

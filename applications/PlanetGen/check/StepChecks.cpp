@@ -12,6 +12,7 @@
 #include "math/MathStorage.hpp"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -99,15 +100,9 @@ namespace planet
         }
 
         const CrustFlagStorage storage = (*shaders)->CrustFlags();
-        const CrustFlagBuffers flagNames = CrustFlagBufferNames(storage);
         const StepSize size{ static_cast<uint32_t>(pointCount), static_cast<uint32_t>(plateCount) };
-        const std::array<ReferenceBufferSpec, 2> inputs
-        {
-            ReferenceBufferSpec{ flagNames.Alive, "p3_ref_alive", ReferenceArrayForm::Flag, false },
-            ReferenceBufferSpec{ flagNames.Continental, "p3_ref_continental", ReferenceArrayForm::Flag, false },
-        };
         const size_t plateWords = plates * sizeof(uint32_t);
-        const std::array<ZeroBufferSpec, 9> zeroed
+        const std::array<ZeroBufferSpec, 8> zeroed
         {
             ZeroBufferSpec{ "PlateCapCenters", plates * 4u * sizeof(float), true },
             ZeroBufferSpec{ "PlateCapSpread", plateWords, true },
@@ -121,7 +116,7 @@ namespace planet
         GpuBuffers buffers(context.Session.Resources());
 
         if (!AddParamsUniform(buffers, **shaders, "CountLiveCellsCS", size) ||
-            !AddReferenceBuffers(buffers, context.Reference, storage, inputs) ||
+            !AddCrustFlagsBuffer(buffers, context.Reference, storage, "p3_ref_alive", "p3_ref_continental", false) ||
             !AddZeroedBuffers(buffers, zeroed))
         {
             return false;
@@ -217,29 +212,23 @@ namespace planet
         }
 
         const CrustFlagStorage storage = (*shaders)->CrustFlags();
-        const CrustFlagBuffers flagNames = CrustFlagBufferNames(storage);
         const StepSize size{ static_cast<uint32_t>(pointCount), static_cast<uint32_t>(plateCount) };
-        const std::array<ReferenceBufferSpec, 3> inputs
-        {
-            ReferenceBufferSpec{ "FrontSubduction", "front_subduction", ReferenceArrayForm::Word, false },
-            ReferenceBufferSpec{ "Pass3Plate", "p3_plate", ReferenceArrayForm::Int, false },
-            ReferenceBufferSpec{ flagNames.Alive, "p3_ref_alive", ReferenceArrayForm::Flag, false },
-        };
         const size_t plateWords = plates * sizeof(uint32_t);
-        const std::array<ZeroBufferSpec, 6> zeroed
+        const std::array<ZeroBufferSpec, 5> zeroed
         {
             ZeroBufferSpec{ "PlateFrontPointCount", plateWords, true },
             ZeroBufferSpec{ "PlateFrontPointCursor", plateWords, false },
             ZeroBufferSpec{ "PlateFrontPointOffset", (plates + 1u) * sizeof(uint32_t), true },
             ZeroBufferSpec{ "FrontPoints", points * k_FrontPointWords * sizeof(uint32_t), true },
-            ZeroBufferSpec{ "CellFrontPoint", cellCount * sizeof(int32_t), true },
-            ZeroBufferSpec{ "CellDistance", cellCount * sizeof(float), true },
+            ZeroBufferSpec{ "CellFronts", cellCount * 2u * sizeof(int32_t), true },
         };
         GpuBuffers buffers(context.Session.Resources());
 
         if (!AddParamsUniform(buffers, **shaders, "CountFrontPointsCS", size) ||
             !AddRotationsBuffer(buffers, context.Reference) ||
-            !AddReferenceBuffers(buffers, context.Reference, storage, inputs) ||
+            !AddFrontDataBuffer(buffers, context.Reference, "", "", "", "front_subduction", false) ||
+            !AddOwnersBuffer(buffers, context.Reference, "p3_plate", "", "", "", false) ||
+            !AddCrustFlagsBuffer(buffers, context.Reference, storage, "p3_ref_alive", "p3_ref_continental", false) ||
             !AddHostLiveList(buffers, *live) ||
             !AddZeroedBuffers(buffers, zeroed))
         {
@@ -263,11 +252,10 @@ namespace planet
         const PlanetGpuResult<std::vector<uint32_t>> counts = buffers.ReadWords("PlateFrontPointCount");
         const PlanetGpuResult<std::vector<uint32_t>> offsets = buffers.ReadWords("PlateFrontPointOffset");
         const PlanetGpuResult<std::vector<uint32_t>> frontPointWords = buffers.ReadWords("FrontPoints");
-        const PlanetGpuResult<std::vector<int32_t>> cellFrontPoints = buffers.ReadInts("CellFrontPoint");
-        const PlanetGpuResult<std::vector<float>> cellDistances = buffers.ReadFloats("CellDistance");
+        const PlanetGpuResult<std::vector<int32_t>> cellFronts = buffers.ReadInts("CellFronts");
 
         if (!counts.has_value() || !offsets.has_value() || !frontPointWords.has_value() ||
-            !cellFrontPoints.has_value() || !cellDistances.has_value())
+            !cellFronts.has_value() || cellFronts->size() != cellCount * 2u)
         {
             return false;
         }
@@ -343,9 +331,9 @@ namespace planet
             }
 
             const int32_t expected = (*expectedFrontPoint)[flatIndex];
-            const int32_t actual = (*cellFrontPoints)[flatIndex];
+            const int32_t actual = (*cellFronts)[flatIndex * 2u];
             const float expectedKm = (*expectedDistance)[flatIndex];
-            const float actualKm = (*cellDistances)[flatIndex];
+            const float actualKm = std::bit_cast<float>((*cellFronts)[flatIndex * 2u + 1u]);
             const double allowedKm = std::max(0.01 * spacingKm, 1.0e-4 * static_cast<double>(expectedKm));
 
             if (actual != expected && (actual < 0 || expected < 0))
@@ -391,28 +379,19 @@ namespace planet
         }
 
         const CrustFlagStorage storage = (*shaders)->CrustFlags();
-        const CrustFlagBuffers flagNames = CrustFlagBufferNames(storage);
         const StepSize size
         {
             static_cast<uint32_t>(context.Reference.PointCount()),
             static_cast<uint32_t>(context.Reference.PlateCount()),
         };
-        const std::array<ReferenceBufferSpec, 8> inputs
-        {
-            ReferenceBufferSpec{ "CellFrontPoint", "p4_cell_front_point", ReferenceArrayForm::Int, false },
-            ReferenceBufferSpec{ "CellDistance", "p4_cell_distance", ReferenceArrayForm::Float, false },
-            ReferenceBufferSpec{ "FrontStrength", "front_strength", ReferenceArrayForm::Float, false },
-            ReferenceBufferSpec{ flagNames.Alive, "p3_ref_alive", ReferenceArrayForm::Flag, false },
-            ReferenceBufferSpec{ flagNames.Continental, "p3_ref_continental", ReferenceArrayForm::Flag, true },
-            ReferenceBufferSpec{ "CrustRelief", "p3_ref_relief", ReferenceArrayForm::Float, true },
-            ReferenceBufferSpec{ "CrustOrogeny", "p3_ref_orogeny", ReferenceArrayForm::Int, true },
-            ReferenceBufferSpec{ "CrustOrogenyTime", "p3_ref_orogeny_time", ReferenceArrayForm::Float, true },
-        };
         GpuBuffers buffers(context.Session.Resources());
 
         if (!AddParamsUniform(buffers, **shaders, "UpliftCS", size) ||
             !AddTimeUniform(buffers, **shaders, "UpliftCS", "UpliftConstants", context.Reference.Time()) ||
-            !AddReferenceBuffers(buffers, context.Reference, storage, inputs) ||
+            !AddCellFrontsBuffer(buffers, context.Reference, "p4_cell_front_point", "p4_cell_distance", false) ||
+            !AddFrontDataBuffer(buffers, context.Reference, "front_strength", "", "", "", false) ||
+            !AddCrustFlagsBuffer(buffers, context.Reference, storage, "p3_ref_alive", "p3_ref_continental", true) ||
+            !AddCrustStateBuffer(buffers, context.Reference, "p3_ref_relief", "p3_ref_birth", "p3_ref_orogeny_time", "p3_ref_orogeny", true) ||
             !AddHostLiveList(buffers, *live))
         {
             return false;
@@ -428,20 +407,9 @@ namespace planet
             return false;
         }
 
-        const std::array<ArrayCompareSpec, 4> comparisons
-        {
-            ArrayCompareSpec{ flagNames.Continental, "p5_ref_continental", ReferenceArrayForm::Flag, 0.0f, 0.0f, 1, true },
-            ArrayCompareSpec{ "CrustRelief", "p5_ref_relief", ReferenceArrayForm::Float, 1.0e-5f, 1.0e-4f, 1, true },
-            ArrayCompareSpec{ "CrustOrogeny", "p5_ref_orogeny", ReferenceArrayForm::Int, 0.0f, 0.0f, 1, true },
-            ArrayCompareSpec{ "CrustOrogenyTime", "p5_ref_orogeny_time", ReferenceArrayForm::Float, 1.0e-5f, 1.0e-4f, 1, true },
-        };
         bool passed = true;
-
-        for (const ArrayCompareSpec& spec : comparisons)
-        {
-            passed = CompareArray("uplift", buffers, context.Reference, storage, spec, live->Alive) && passed;
-        }
-
+        passed = CompareCrustFlags("uplift", buffers, context.Reference, storage, "", "p5_ref_continental", live->Alive) && passed;
+        passed = CompareCrustState("uplift", buffers, context.Reference, "p5_ref_relief", "", "p5_ref_orogeny_time", "p5_ref_orogeny", live->Alive, 1.0e-5f, 1.0e-4f) && passed;
         return passed;
     }
 
@@ -460,29 +428,20 @@ namespace planet
         const int32_t plateCount = context.Reference.PlateCount();
         const size_t plates = static_cast<size_t>(plateCount);
         const CrustFlagStorage storage = (*shaders)->CrustFlags();
-        const CrustFlagBuffers flagNames = CrustFlagBufferNames(storage);
         const StepSize size{ static_cast<uint32_t>(pointCount), static_cast<uint32_t>(plateCount) };
-        const std::array<ReferenceBufferSpec, 6> inputs
+        const std::array<ZeroBufferSpec, 3> zeroed
         {
-            ReferenceBufferSpec{ "FrontSubduction", "front_subduction", ReferenceArrayForm::Word, false },
-            ReferenceBufferSpec{ "SecondPlate", "front_second_plate", ReferenceArrayForm::Int, false },
-            ReferenceBufferSpec{ "FrontSpeed", "front_speed", ReferenceArrayForm::Float, false },
-            ReferenceBufferSpec{ "FrontSlabAge", "front_slab_age", ReferenceArrayForm::Float, false },
-            ReferenceBufferSpec{ flagNames.Alive, "p3_ref_alive", ReferenceArrayForm::Flag, false },
-            ReferenceBufferSpec{ flagNames.Continental, "p3_ref_continental", ReferenceArrayForm::Flag, false },
-        };
-        const std::array<ZeroBufferSpec, 4> zeroed
-        {
-            ZeroBufferSpec{ "PlateCellCount", plates * sizeof(uint32_t), true },
             ZeroBufferSpec{ "PlateContinentalCount", plates * sizeof(uint32_t), true },
-            ZeroBufferSpec{ "PlatePositionSum", plates * 3u * sizeof(int32_t), true },
+            ZeroBufferSpec{ "PlateCounters", plates * 4u * sizeof(int32_t), true },
             ZeroBufferSpec{ "PlatePull", plates * 3u * sizeof(int32_t), true },
         };
         GpuBuffers buffers(context.Session.Resources());
 
         if (!AddParamsUniform(buffers, **shaders, "CountLiveCellsCS", size) ||
             !AddRotationsBuffer(buffers, context.Reference) ||
-            !AddReferenceBuffers(buffers, context.Reference, storage, inputs) ||
+            !AddFrontDataBuffer(buffers, context.Reference, "", "front_speed", "front_slab_age", "front_subduction", false) ||
+            !AddOwnersBuffer(buffers, context.Reference, "", "", "front_second_plate", "", false) ||
+            !AddCrustFlagsBuffer(buffers, context.Reference, storage, "p3_ref_alive", "p3_ref_continental", false) ||
             !AddZeroedBuffers(buffers, zeroed))
         {
             return false;
@@ -559,27 +518,38 @@ namespace planet
         }
 
         const CrustFlagStorage storage = (*shaders)->CrustFlags();
-        const CrustFlagBuffers flagNames = CrustFlagBufferNames(storage);
         const int64_t allowedOwners = std::max<int64_t>(pointCount / 10000, 1);
-        const std::array<ArrayCompareSpec, 11> comparisons
-        {
-            ArrayCompareSpec{ "Pass3Plate", "p3_plate", ReferenceArrayForm::Int, 0.0f, 0.0f, allowedOwners, false },
-            ArrayCompareSpec{ "Pass3Cell", "p3_cell", ReferenceArrayForm::Int, 0.0f, 0.0f, allowedOwners, false },
-            ArrayCompareSpec{ "FrontSubduction", "front_subduction", ReferenceArrayForm::Int, 0.0f, 0.0f, 1, false },
-            ArrayCompareSpec{ "FrontStrength", "front_strength", ReferenceArrayForm::Float, 1.0e-4f, 1.0e-6f, 1, false },
-            ArrayCompareSpec{ flagNames.Alive, "p3_ref_alive", ReferenceArrayForm::Flag, 0.0f, 0.0f, 1, false },
-            ArrayCompareSpec{ "CrustBirth", "p3_ref_birth", ReferenceArrayForm::Float, 0.0f, 0.0f, 1, false },
-            ArrayCompareSpec{ flagNames.Continental, "p5_ref_continental", ReferenceArrayForm::Flag, 0.0f, 0.0f, 1, true },
-            ArrayCompareSpec{ "CrustRelief", "p5_ref_relief", ReferenceArrayForm::Float, 1.0e-5f, 1.0e-4f, 1, true },
-            ArrayCompareSpec{ "CrustOrogeny", "p5_ref_orogeny", ReferenceArrayForm::Int, 0.0f, 0.0f, 1, true },
-            ArrayCompareSpec{ "CrustOrogenyTime", "p5_ref_orogeny_time", ReferenceArrayForm::Float, 1.0e-5f, 1.0e-4f, 1, true },
-            ArrayCompareSpec{ "CellFrontPoint", "p4_cell_front_point", ReferenceArrayForm::Int, 0.0f, 0.0f, k_AllowedFrontPointTies, true },
-        };
         bool passed = true;
+        passed = CompareOwnersXY("chain", buffers, context.Reference, "p3_plate", "p3_cell", allowedOwners) && passed;
+        passed = CompareFrontData("chain", buffers, context.Reference, false) && passed;
+        passed = CompareCrustFlags("chain", buffers, context.Reference, storage, "p3_ref_alive", "", {}) && passed;
+        passed = CompareCrustFlags("chain", buffers, context.Reference, storage, "", "p5_ref_continental", *alive) && passed;
+        passed = CompareCrustState("chain", buffers, context.Reference, "", "p3_ref_birth", "", "", {}, 0.0f, 0.0f) && passed;
+        passed = CompareCrustState("chain", buffers, context.Reference, "p5_ref_relief", "", "p5_ref_orogeny_time", "p5_ref_orogeny", *alive, 1.0e-5f, 1.0e-4f) && passed;
 
-        for (const ArrayCompareSpec& spec : comparisons)
+        const PlanetGpuResult<std::vector<int32_t>> cellFronts = buffers.ReadInts("CellFronts");
+        const std::optional<std::vector<int32_t>> expectedFrontPoint = context.Reference.Ints("p4_cell_front_point");
+
+        if (!cellFronts.has_value() || !expectedFrontPoint.has_value() ||
+            cellFronts->size() != expectedFrontPoint->size() * 2u ||
+            alive->size() != expectedFrontPoint->size())
         {
-            passed = CompareArray("chain", buffers, context.Reference, storage, spec, *alive) && passed;
+            passed = false;
+        }
+        else
+        {
+            int64_t frontPointDiff = 0;
+
+            for (size_t flat = 0u; flat < expectedFrontPoint->size(); ++flat)
+            {
+                if ((*alive)[flat] != 0u && (*cellFronts)[flat * 2u] != (*expectedFrontPoint)[flat])
+                {
+                    ++frontPointDiff;
+                }
+            }
+
+            std::println("chain p4_cell_front_point: {} differ (allowed fewer than {})", frontPointDiff, k_AllowedFrontPointTies);
+            passed = (frontPointDiff < k_AllowedFrontPointTies) && passed;
         }
 
         return CompareTorqueSums("chain p6", buffers, context.Reference) && passed;

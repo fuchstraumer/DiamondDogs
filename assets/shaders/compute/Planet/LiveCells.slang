@@ -46,6 +46,8 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
     GroupMemoryBarrierWithGroupSync();
 
     uint live = 0u;
+    // stores live mask and continental mask for cells this thread reads
+    // liveMask[step][0] = live, liveMask[step][1] = continental
     uint liveMask = 0u;
     [unroll(CellsPerThread)]
     for (uint step = 0u; step < CellsPerThread; ++step)
@@ -57,41 +59,52 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
         }
 
         const uint flattenedIndex = liveGroup.Plate * Params.PointCount + cellIndex;
-        if (LoadAlive(flattenedIndex) != 0u)
-        {
-            liveMask |= (1u << step);
-        }
+        const CrustFlagBits crustFlags = LoadCrustFlagsIn(flattenedIndex);
+        // easiest way to pack the crustFlags - returned to us already as a bitmask - is 
+        // shifting it into the appropriate bit position for this step in the liveMask variable
+        uint crustFlagBitsShifted = crustFlags.Bits << (step * 2u);
+        liveMask |= crustFlagBitsShifted;
     }
 
     uint continental = 0u;
     int3 position = int3(0,0,0);
+
+    // test 0b01010101 pattern to check for any live cells, so we can skip this work if not
+    const uint anyLiveMask = 0x55u; 
     // now use live mask to determine which cells are alive without redundant loads
-    for (uint step = 0u; step < CellsPerThread; ++step)
+    if ((liveMask & anyLiveMask) != 0u)
     {
-        const uint cellIndex = liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x;
-        if (cellIndex >= Params.PointCount)
+        [unroll(CellsPerThread)]
+        for (uint step = 0u; step < CellsPerThread; ++step)
         {
-            break;
-        }
+            const uint cellIndex = liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x;
+            if (cellIndex >= Params.PointCount)
+            {
+                break;
+            }
 
-        const uint flattenedIndex = liveGroup.Plate * Params.PointCount + cellIndex;
-        if ((liveMask & (1u << step)) == 0u)
-        {
-            continue;
-        }
+            const uint flattenedIndex = liveGroup.Plate * Params.PointCount + cellIndex;
+            // easiest path to test live mask - "consume" it by shifting per-step!
+            const uint stepMask = (liveMask >> (step * 2u)) & 0x3u; // lower 2 bits for this step
 
-        live += 1u;
-        const bool isContinental = LoadContinental(flattenedIndex) != 0u;
-        continental += isContinental ? 1u : 0u;
-        const float3 latticePoint = LatticePoint(int(cellIndex), int(Params.PointCount));
-        position += int3(round(latticePoint * PositionSumScale));
+            if ((stepMask & 0x1u) == 0u)
+            {
+                continue;
+            }
+
+            live += 1u;
+            const bool isContinental = (stepMask & 0x2u) != 0u;
+            continental += isContinental ? 1u : 0u;
+            const float3 latticePoint = LatticePoint(int(cellIndex), int(Params.PointCount));
+            position += int3(round(latticePoint * PositionSumScale));
+        }
     }
 
     const uint waveLive = WaveActiveSum(live);
     const uint waveContinental = WaveActiveSum(continental);
     const int3 wavePosition = WaveActiveSum(position);
 
-    if (WaveIsFirstLane())
+    if (WaveIsFirstLane() && waveLive > 0u)
     {
         InterlockedAdd(GroupLive, waveLive);
         InterlockedAdd(GroupContinental, waveContinental);
@@ -118,7 +131,7 @@ void OffsetLiveCellsCS(uint3 threadID : SV_DispatchThreadID)
     // non-active threads here just won't do any work
     const bool isActive = plate < Params.PlateCount;
 
-    const int4 plateCounters = isActive ? LoadPlateCountersIn(plate * 4u) : 0.xxxx;
+    const int4 plateCounters = isActive ? LoadPlateCountersIn(plate) : 0.xxxx;
     const uint count = isActive ? uint(plateCounters.w) : 0u;
     const uint waveOffset = WavePrefixSum(count);
     const uint total = WaveActiveSum(count);
@@ -174,8 +187,14 @@ void ScatterLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_Group
     for (uint step = 0u; step < CellsPerThread; ++step)
     {
         const uint cellIndex = liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x;
+        if (cellIndex >= Params.PointCount)
+        {
+            break;
+        }
+
         const uint flattenedIndex = liveGroup.Plate * Params.PointCount + cellIndex;
-        if (cellIndex < Params.PointCount && LoadAlive(flattenedIndex) != 0u)
+        const CrustFlagBits crustFlags = LoadCrustFlagsIn(flattenedIndex);
+        if (crustFlags.IsAlive())
         {
             live += 1u;
             liveMask |= (1u << step);

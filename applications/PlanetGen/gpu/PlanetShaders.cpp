@@ -2,22 +2,36 @@
 #include "CommandBuffer.hpp"
 #include "Device.hpp"
 #include "DeviceStage.hpp"
+#include "ManifestDescriptors.hpp"
+#include "PlanetGpuErrors.hpp"
 #include "RhiAssert.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
 #include "RhiTypes.hpp"
 #include "ShaderLibrary.hpp"
 #include "ShaderManifest.hpp"
+#include "ShaderManifestFormat.hpp"
 #include "ShaderManifestIndex.hpp"
+#include "ShaderManifestLayout.hpp"
 #include "ShaderProgram.hpp"
 #include "VariantKey.hpp"
 #include <algorithm>
 #include <array>
 #include <bit>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <expected>
+#include <memory>
+#include <optional>
 #include <print>
+#include <span>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 #include <vulkan/vulkan_core.h>
 
 namespace planet
@@ -87,14 +101,14 @@ namespace planet
         ~PassBindingsImpl();
     };
 
-    CrustFlagBuffers CrustFlagBufferNames(CrustFlagStorage storage) noexcept
+    std::string_view CrustFlagBufferNames(CrustFlagStorage storage) noexcept
     {
         if (storage == CrustFlagStorage::Bytes)
         {
-            return CrustFlagBuffers{ "CrustAliveBytes", "CrustContinentalBytes" };
+            return "CrustFlags";
         }
 
-        return CrustFlagBuffers{ "CrustAliveWords", "CrustContinentalWords" };
+        return "CrustFlagsWords";
     }
 
     std::string_view ToString(CrustFlagStorage storage) noexcept

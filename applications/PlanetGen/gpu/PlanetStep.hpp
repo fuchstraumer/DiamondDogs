@@ -73,6 +73,7 @@ namespace planet
         PlatesTimes3,
         PlatesTimes4,
         Cells,
+        CellsTimes2, // for CellFronts, int2 per cell
         IndirectDispatch,
     };
 
@@ -137,7 +138,7 @@ namespace planet
     };
 
     /** @brief The crust arrays that RecordReset restores, in the flag storage `storage`. */
-    [[nodiscard]] std::array<std::string_view, 6> StepCrustArrays(CrustFlagStorage storage) noexcept;
+    [[nodiscard]] std::array<std::string_view, 2> StepCrustArrays(CrustFlagStorage storage) noexcept;
 
     /** @brief The plate caps that pass 3b writes for the next step's OwnersCS. They carry from one step to the next, so
      *  RecordReset restores them from their initial copies, as it does the crust arrays. */

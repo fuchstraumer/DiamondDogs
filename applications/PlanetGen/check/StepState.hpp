@@ -1,6 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_PLANET_STEP_STATE_HPP
 #define DIAMOND_DOGS_PLANET_STEP_STATE_HPP
+#include "PlanetShaders.hpp"
 #include "PlanetStep.hpp"
 #include "math/MathStorage.hpp"
 #include <cstddef>
@@ -80,10 +81,62 @@ namespace planet
                                       float time);
     [[nodiscard]] bool AddRotationsBuffer(GpuBuffers& buffers, const ReferenceSet& reference);
 
+    /** HEALPix pixels for each lattice point when HealpixPointOrder sorts the points. 16 keeps most pixels to one
+     *  point, so the sort follows the curve closely. */
+    inline constexpr uint32_t k_OrderPixelsPerPoint = 16u;
+
+    /** @brief The lattice points sorted by their HEALPix nested index. Entry i is the point that thread i of OwnersCS
+     *  takes, so the 32 points of a wave are one compact patch. Equal indices keep the lattice order. */
+    [[nodiscard]] std::vector<uint32_t> HealpixPointOrder(int32_t point_count);
+    /** @brief Creates OwnersOrder from HealpixPointOrder. */
+    [[nodiscard]] bool AddOwnersOrderBuffer(GpuBuffers& buffers, int32_t point_count);
+
     /** @brief Creates every buffer that PlanetStep binds, from the reference state at the start of the step: the inputs,
      *  the crust arrays and the plate caps with their initial copies, the uniform buffers, and the outputs and counters (zero). The crust
      *  flags use the storage of `shaders`. Prints the cause and returns false when a file or a buffer fails. */
     [[nodiscard]] bool AddStepBuffers(GpuBuffers& buffers, const PlanetShaders& shaders, const ReferenceSet& reference, StepReadback readback);
+
+    [[nodiscard]] bool AddCrustFlagsBuffer(GpuBuffers& buffers,
+                                           const ReferenceSet& reference,
+                                           CrustFlagStorage storage,
+                                           std::string_view alive_file,
+                                           std::string_view continental_file,
+                                           bool readable,
+                                           bool with_initial = false);
+
+    [[nodiscard]] bool AddCrustStateBuffer(GpuBuffers& buffers,
+                                           const ReferenceSet& reference,
+                                           std::string_view relief_file,
+                                           std::string_view birth_file,
+                                           std::string_view orogeny_time_file,
+                                           std::string_view orogeny_file,
+                                           bool readable,
+                                           bool with_initial = false);
+
+    [[nodiscard]] bool AddPoleRatesBuffer(GpuBuffers& buffers, const ReferenceSet& reference);
+
+    [[nodiscard]] bool AddOwnersBuffer(GpuBuffers& buffers,
+                                       const ReferenceSet& reference,
+                                       std::string_view best_plate_file,
+                                       std::string_view best_cell_file,
+                                       std::string_view second_plate_file,
+                                       std::string_view second_cell_file,
+                                       bool readable);
+
+    [[nodiscard]] bool AddFrontDataBuffer(GpuBuffers& buffers,
+                                          const ReferenceSet& reference,
+                                          std::string_view strength_file,
+                                          std::string_view speed_file,
+                                          std::string_view slab_age_file,
+                                          std::string_view subduction_file,
+                                          bool readable);
+
+    [[nodiscard]] bool AddCellFrontsBuffer(GpuBuffers& buffers,
+                                           const ReferenceSet& reference,
+                                           std::string_view front_point_file,
+                                           std::string_view distance_file,
+                                           bool readable);
+
 }
 
 #endif // !DIAMOND_DOGS_PLANET_STEP_STATE_HPP

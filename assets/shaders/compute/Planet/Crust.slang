@@ -12,30 +12,21 @@ struct Pass3Params
 
 ConstantBuffer<Pass3Params> Pass3Constants;
 
-FloatsIn Poles;
-FloatsIn Rates;
-
-Floats CrustRelief;
-Ints CrustOrogeny;
-Floats CrustOrogenyTime;
-
-Ints Pass3Plate;
-Ints Pass3Cell;
-
-Words FrontSubduction;
-Floats FrontStrength;
-Floats FrontSpeed;
-Floats FrontSlabAge;
-
 static const float PlanetRadiusKm = 6370.0f;
 static const float MaximumPlateSpeed = 100.0f;
 static const float MantleVigor = 1.0f;
 static const float TrenchElevation = -10.0f;
 static const float PeakElevation = 10.0f;
 
-float3 LoadPole(uint plate);
+float4 LoadPoleRates(uint plate);
 void WriteNewOceanCrust(uint flat);
-void WriteFrontValues(uint point, float3 worldPoint, int topPlate, int underPlate, uint underFlat);
+FrontState ComputeFrontValues(in CrustFlagBits crustFlagsUnder,
+                              in uint point,
+                              in float3 worldPoint,
+                              in int topPlate,
+                              in int underPlate,
+                              in uint underFlat,
+                              in uint subduction);
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
@@ -47,8 +38,9 @@ void FillGapsCS(uint3 threadId : SV_DispatchThreadID)
         return;
     }
 
-    int plate = BestPlate.Load(point);
-    int cell = BestCell.Load(point);
+    const OwnersData owners = LoadOwners(point);
+    int plate = owners.GetBestPlate();
+    int cell = owners.GetBestCell();
 
     if (plate == -1)
     {
@@ -59,10 +51,8 @@ void FillGapsCS(uint3 threadId : SV_DispatchThreadID)
         worldPoint = WorldToPlate(worldPoint, rotation);
         cell = FibonacciNearest(worldPoint, count);
         WriteNewOceanCrust(uint(plate) * Params.PointCount + uint(cell));
+        StoreOwners(point, int2(plate, cell), owners.Data.zw);
     }
-
-    Pass3Plate.Store(point, plate);
-    Pass3Cell.Store(point, cell);
 }
 
 [shader("compute")]
@@ -75,67 +65,72 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
         return;
     }
 
-    FrontSubduction.Store(point, 0u);
-    FrontStrength.Store(point, 0.0f);
-    FrontSpeed.Store(point, 0.0f);
-    FrontSlabAge.Store(point, 0.0f);
+    FrontState frontState = ZeroFrontState();
 
-    const int underPlate = SecondPlate.Load(point);
-    if (underPlate < 0)
+
+    const OwnersData owners = LoadOwnersIn(point);
+    const int underPlate = owners.GetSecondPlate();
+    if (underPlate >= 0)
     {
-        return;
+        const int topPlate = owners.GetBestPlate();
+        const uint topFlat = uint(topPlate) * Params.PointCount + uint(owners.GetBestCell());
+        const uint underFlat = uint(underPlate) * Params.PointCount + uint(owners.GetSecondCell());
+        const CrustFlagBits crustFlagsTop = LoadCrustFlags(topFlat);
+        const CrustFlagBits crustFlagsUnder = LoadCrustFlags(underFlat);
+        const bool collision = crustFlagsTop.IsContinental() && crustFlagsUnder.IsContinental();
+        const float3 worldPoint = LatticePoint(int(point), int(Params.PointCount));
+        frontState = ComputeFrontValues(crustFlagsUnder,
+                                        point,
+                                        worldPoint,
+                                        topPlate,
+                                        underPlate,
+                                        underFlat,
+                                        collision ? 0u : 1u);
+
+        if (!collision)
+        {
+            StoreCrustFlags(underFlat, PackCrustFlags(false, crustFlagsUnder.IsContinental()));
+        }
     }
 
-    const int topPlate = Pass3Plate.Load(point);
-    const uint topFlat = uint(topPlate) * Params.PointCount + uint(Pass3Cell.Load(point));
-    const uint underFlat = uint(underPlate) * Params.PointCount + uint(SecondCell.Load(point));
-    const bool collision = LoadContinental(topFlat) != 0u && LoadContinental(underFlat) != 0u;
-
-    WriteFrontValues(point, LatticePoint(int(point), int(Params.PointCount)), topPlate, underPlate, underFlat);
-
-    if (collision)
-    {
-        return;
-    }
-
-    FrontSubduction.Store(point, 1u);
-    StoreAlive(underFlat, 0u);
+    StoreFrontState(point, frontState);
 }
 
-float3 LoadPole(uint plate)
+float4 LoadPoleRates(uint plate)
 {
-    const uint base = plate * 3u;
-    return float3(Poles.Load(base), Poles.Load(base + 1u), Poles.Load(base + 2u));
+    return PoleRatesIn.Load(plate);
 }
 
 void WriteNewOceanCrust(uint flat)
 {
-    StoreAlive(flat, 1u);
-    StoreContinental(flat, 0u);
-    CrustBirth.Store(flat, Pass3Constants.Time);
-    CrustRelief.Store(flat, 0.0f);
-    CrustOrogeny.Store(flat, 0);
-    CrustOrogenyTime.Store(flat, Pass3Constants.Time);
+    const uint newFlagBits = PackCrustFlags(true, false);
+    StoreCrustFlags(flat, newFlagBits);
+    StoreCrustState(flat, 0.0f, Pass3Constants.Time, Pass3Constants.Time, 0);
 }
 
-void WriteFrontValues(uint point, float3 worldPoint, int topPlate, int underPlate, uint underFlat)
+FrontState ComputeFrontValues(in CrustFlagBits crustFlagsUnder,
+                              in uint point,
+                              in float3 worldPoint,
+                              in int topPlate,
+                              in int underPlate,
+                              in uint underFlat,
+                              in uint subduction)
 {
-    const float age = Pass3Constants.Time - CrustBirth.Load(underFlat);
+    const CrustStateData crustState = LoadCrustStateIn(underFlat);
+    const float age = Pass3Constants.Time - crustState.GetBirth();
     float base = 0.5f;
-    if (LoadContinental(underFlat) == 0u)
+    if (!crustFlagsUnder.IsContinental())
     {
         base = max(-(2.6f + 0.345f * sqrt(age)), -6.0f);
     }
 
-    const float height = (base + CrustRelief.Load(underFlat) - TrenchElevation) / (PeakElevation - TrenchElevation);
+    const float height = (base + crustState.GetRelief() - TrenchElevation) / (PeakElevation - TrenchElevation);
     const float transferBase = clamp(height, 0.0f, 1.0f);
     const float transfer = transferBase * transferBase;
-
-    const float3 spin = LoadPole(uint(topPlate)) * Rates.Load(uint(topPlate)) - LoadPole(uint(underPlate)) * Rates.Load(uint(underPlate));
+    const float4 poleRatesTop = LoadPoleRates(uint(topPlate));
+    const float4 poleRatesUnder = LoadPoleRates(uint(underPlate));
+    const float3 spin = (poleRatesTop.xyz * poleRatesTop.w) - (poleRatesUnder.xyz * poleRatesUnder.w);
     const float speed = length(cross(spin, worldPoint)) * PlanetRadiusKm;
     const float strength = clamp(speed / MaximumPlateSpeed, 0.0f, MantleVigor) * transfer;
-
-    FrontSlabAge.Store(point, age);
-    FrontSpeed.Store(point, speed);
-    FrontStrength.Store(point, strength);
+    return { float4(strength, speed, age, asfloat(subduction)) };
 }

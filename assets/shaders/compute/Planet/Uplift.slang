@@ -48,28 +48,31 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
     }
     
     const uint flattenedPt = LiveCell.Load(threadID.x);
-    const bool isContinental = LoadContinental(flattenedPt) != 0u;
-    float relief = CrustRelief.Load(flattenedPt);
+    const CrustFlagBits crustFlags = LoadCrustFlags(flattenedPt);
+    const bool isContinental = crustFlags.IsContinental();
+    CrustStateData crustState = LoadCrustState(flattenedPt);
+    float relief = crustState.GetRelief();
 
     // now use the output of the last pass - a cell with a front point
     // rises by the profile function times the points strength. a fast 
     // uplift will mark this cell as an active mountain range, stamped
     // with the time
-    const int frontPoint = CellFrontPoint.Load(flattenedPt);
+    const CellState cellState = LoadCellState(flattenedPt);
+    const int frontPoint = cellState.GetFrontPoint();
     if (frontPoint >= 0)
     {
         const float reach = isContinental ? ContinentalReachKm : IslandArcReachKm;
         // note: this is the *cell* distance, it comes from the cell index not frontPoint
-        const float cellDistance = CellDistance.Load(flattenedPt);
-        const float shape = SubductionProfile(cellDistance, reach);
-        const float frontStrength = FrontStrength.Load(frontPoint);
-        const float rate = BaseUplift * shape * frontStrength;
+        const float shape = SubductionProfile(cellState.GetDistance(), reach);
+        const FrontState frontState = LoadFrontStateIn(frontPoint);
+        const float rate = BaseUplift * shape * frontState.GetStrength();
         relief += rate * TimeStepMy;
 
         if (rate > ActiveUplift)
         {
-            CrustOrogeny.Store(flattenedPt, isContinental ? OrogenyAndean : OrogenyIslandArc);
-            CrustOrogenyTime.Store(flattenedPt, UpliftConstants.Time);
+            const int updatedOrogeny = isContinental ? OrogenyAndean : OrogenyIslandArc;
+            crustState.SetOrogenyType(updatedOrogeny);
+            crustState.SetOrogenyTime(UpliftConstants.Time);
         }
     }
 
@@ -85,9 +88,11 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
     // a tall ocean island arc is upgraded to a continent at this point
     if (!isContinental && (relief > AccretionRelief))
     {
-        StoreContinental(flattenedPt, 1u);
+        uint flagBits = PackCrustFlags(crustFlags.IsAlive(), true);
+        StoreCrustFlags(flattenedPt, flagBits);
         relief = AccretionStartRelief;
     }
 
-    CrustRelief.Store(flattenedPt, relief);
+    crustState.SetRelief(relief);
+    StoreCrustState(flattenedPt, crustState);
 }

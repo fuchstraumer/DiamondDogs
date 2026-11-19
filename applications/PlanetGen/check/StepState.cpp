@@ -1,15 +1,19 @@
 #include "StepState.hpp"
 #include "GpuBuffers.hpp"
+#include "Healpix.hpp"
+#include "PlanetGpuErrors.hpp"
 #include "PlanetMath.hpp"
 #include "PlanetShaders.hpp"
 #include "PlanetStep.hpp"
 #include "ReferenceSet.hpp"
+#include "math/MathStorage.hpp"
 #include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <limits>
 #include <optional>
 #include <print>
@@ -214,6 +218,48 @@ namespace planet
         return buffers.AddStorage("Rotations", std::as_bytes(std::span{ rows }), false) == PlanetGpuError::Success;
     }
 
+    std::vector<uint32_t> HealpixPointOrder(int32_t point_count)
+    {
+        struct KeyedPoint
+        {
+            uint64_t Pixel{ 0u };
+            uint32_t Point{ 0u };
+        };
+
+        const uint32_t order = HealpixOrderFor(static_cast<uint32_t>(point_count), k_OrderPixelsPerPoint);
+        std::vector<KeyedPoint> keyed;
+        keyed.reserve(static_cast<size_t>(point_count));
+
+        for (int32_t point = 0; point < point_count; ++point)
+        {
+            const Double3 direction = LatticePointDouble(point, point_count);
+            keyed.push_back(KeyedPoint{ HealpixNestedIndex(direction.X, direction.Y, direction.Z, order), static_cast<uint32_t>(point) });
+        }
+
+        const auto byPixelThenPoint = [](const KeyedPoint& lhs, const KeyedPoint& rhs)
+        {
+            return lhs.Pixel != rhs.Pixel ? lhs.Pixel < rhs.Pixel : lhs.Point < rhs.Point;
+        };
+
+        std::ranges::sort(keyed, byPixelThenPoint);
+
+        std::vector<uint32_t> result;
+        result.reserve(keyed.size());
+
+        for (const KeyedPoint& entry : keyed)
+        {
+            result.push_back(entry.Point);
+        }
+
+        return result;
+    }
+
+    bool AddOwnersOrderBuffer(GpuBuffers& buffers, int32_t point_count)
+    {
+        const std::vector<uint32_t> order = HealpixPointOrder(point_count);
+        return buffers.AddStorage("OwnersOrder", std::as_bytes(std::span{ order }), false) == PlanetGpuError::Success;
+    }
+
     bool AddStepBuffers(GpuBuffers& buffers, const PlanetShaders& shaders, const ReferenceSet& reference, StepReadback readback)
     {
         const StepSize size
@@ -222,7 +268,6 @@ namespace planet
             static_cast<uint32_t>(reference.PlateCount()),
         };
         const CrustFlagStorage storage = shaders.CrustFlags();
-        const CrustFlagBuffers flagNames = CrustFlagBufferNames(storage);
         const bool readable = readback == StepReadback::Outputs;
 
         // the uniform buffers: the sizes, and the time of the step for passes 3 and 5
@@ -234,40 +279,19 @@ namespace planet
         }
 
         // the inputs that no pass writes
-        const std::array<ReferenceBufferSpec, 3> inputs
+        const std::array<ReferenceBufferSpec, 1> inputs
         {
             ReferenceBufferSpec{ "PreviousPlate", "previous_plate", ReferenceArrayForm::Int, false },
-            ReferenceBufferSpec{ "Poles", "poles", ReferenceArrayForm::Float, false },
-            ReferenceBufferSpec{ "Rates", "rates", ReferenceArrayForm::Float, false },
         };
 
-        if (!AddRotationsBuffer(buffers, reference) || !AddReferenceBuffers(buffers, reference, storage, inputs))
+        if (!AddRotationsBuffer(buffers, reference) ||
+            !AddOwnersOrderBuffer(buffers, reference.PointCount()) ||
+            !AddReferenceBuffers(buffers, reference, storage, inputs) ||
+            !AddPoleRatesBuffer(buffers, reference) ||
+            !AddCrustFlagsBuffer(buffers, reference, storage, "ref_alive", "ref_continental", readable, true) ||
+            !AddCrustStateBuffer(buffers, reference, "ref_relief", "ref_birth", "ref_orogeny_time", "ref_orogeny", readable, true))
         {
             return false;
-        }
-
-        // the crust arrays, each with the initial copy that RecordReset restores it from
-        const std::array<ReferenceBufferSpec, 6> crust
-        {
-            ReferenceBufferSpec{ flagNames.Alive, "ref_alive", ReferenceArrayForm::Flag, readable },
-            ReferenceBufferSpec{ flagNames.Continental, "ref_continental", ReferenceArrayForm::Flag, readable },
-            ReferenceBufferSpec{ "CrustBirth", "ref_birth", ReferenceArrayForm::Float, readable },
-            ReferenceBufferSpec{ "CrustRelief", "ref_relief", ReferenceArrayForm::Float, readable },
-            ReferenceBufferSpec{ "CrustOrogeny", "ref_orogeny", ReferenceArrayForm::Int, readable },
-            ReferenceBufferSpec{ "CrustOrogenyTime", "ref_orogeny_time", ReferenceArrayForm::Float, readable },
-        };
-
-        for (const ReferenceBufferSpec& input : crust)
-        {
-            const std::optional<std::vector<std::byte>> bytes =
-                ReadReferenceBytes(reference, input.FileName, input.Form, storage);
-
-            if (!bytes.has_value() ||
-                buffers.AddStorage(input.BufferName, *bytes, input.Readable) != PlanetGpuError::Success ||
-                buffers.AddStorage(InitialName(input.BufferName), *bytes, false) != PlanetGpuError::Success)
-            {
-                return false;
-            }
         }
 
         // the plate caps of the start state, with their initial copies: pass 3b of each step writes the next step's caps
@@ -318,6 +342,226 @@ namespace planet
         // entries, so the reset does not clear it
         const size_t cellBytes = StepBufferWordCount(BufferExtent::Cells, size) * sizeof(uint32_t);
         return buffers.AddZeroedStorage("LiveCell", cellBytes, readable) == PlanetGpuError::Success;
+    }
+
+    bool AddCrustFlagsBuffer(GpuBuffers& buffers,
+                             const ReferenceSet& reference,
+                             CrustFlagStorage storage,
+                             std::string_view alive_file,
+                             std::string_view continental_file,
+                             bool readable,
+                             bool with_initial)
+    {
+        const auto alive = reference.Bytes(alive_file);
+        const auto continental = reference.Bytes(continental_file);
+
+        if (!alive.has_value() ||
+            !continental.has_value() ||
+            (alive->size() != continental->size()))
+        {
+            return false;
+        }
+
+        const std::vector<uint8_t>& aliveBytes = *alive;
+        const std::vector<uint8_t>& continentalBytes = *continental;
+
+        const std::string_view bufferName = CrustFlagBufferNames(storage);
+        std::vector<std::byte> bufferBytes;
+        if (storage == CrustFlagStorage::Bytes)
+        {
+            std::vector<uint8_t> packed(aliveBytes.size());
+            for (size_t i = 0; i < aliveBytes.size(); ++i)
+            {
+                const uint8_t aliveVal = aliveBytes[i] ? 1u : 0u;
+                const uint8_t continentalVal = continentalBytes[i] ? 2u : 0u;
+                packed[i] = static_cast<uint8_t>(aliveVal | continentalVal);
+            }
+
+            bufferBytes = ToBytes(packed);
+        }
+        else
+        {
+            std::vector<uint32_t> packed(aliveBytes.size());
+            for (size_t i = 0; i < aliveBytes.size(); ++i)
+            {
+                const uint8_t aliveVal = aliveBytes[i] ? 1u : 0u;
+                const uint8_t continentalVal = continentalBytes[i] ? 2u : 0u;
+                packed[i] = static_cast<uint32_t>(aliveVal | continentalVal);
+            }
+
+            bufferBytes = ToBytes(packed);
+        }
+
+        if (buffers.AddStorage(bufferName, bufferBytes, readable) != PlanetGpuError::Success)
+        {
+            return false;
+        }
+
+        return !with_initial || buffers.AddStorage(InitialName(bufferName), bufferBytes, false) == PlanetGpuError::Success;
+    }
+
+    bool AddCrustStateBuffer(GpuBuffers& buffers,
+                             const ReferenceSet& reference,
+                             std::string_view relief_file,
+                             std::string_view birth_file,
+                             std::string_view orogeny_time_file,
+                             std::string_view orogeny_file,
+                             bool readable,
+                             bool with_initial)
+    {
+        const size_t cellCount = static_cast<size_t>(reference.PlateCount()) * static_cast<size_t>(reference.PointCount());
+        const auto relief = relief_file.empty() ? std::optional<std::vector<float>>{} : reference.Floats(relief_file);
+        const auto birth = birth_file.empty() ? std::optional<std::vector<float>>{} : reference.Floats(birth_file);
+        const auto orogenyTime = orogeny_time_file.empty() ? std::optional<std::vector<float>>{} : reference.Floats(orogeny_time_file);
+        const auto orogeny = orogeny_file.empty() ? std::optional<std::vector<int32_t>>{} : reference.Ints(orogeny_file);
+
+        if ((!relief_file.empty() && (!relief.has_value() || relief->size() != cellCount)) ||
+            (!birth_file.empty() && (!birth.has_value() || birth->size() != cellCount)) ||
+            (!orogeny_time_file.empty() && (!orogenyTime.has_value() || orogenyTime->size() != cellCount)) ||
+            (!orogeny_file.empty() && (!orogeny.has_value() || orogeny->size() != cellCount)))
+        {
+            return false;
+        }
+
+        std::vector<math::Float4> packed(cellCount);
+
+        for (size_t i = 0u; i < cellCount; ++i)
+        {
+            const float reliefVal = relief.has_value() ? (*relief)[i] : 0.0f;
+            const float birthVal = birth.has_value() ? (*birth)[i] : 0.0f;
+            const float orogenyTimeVal = orogenyTime.has_value() ? (*orogenyTime)[i] : 0.0f;
+            const int32_t orogenyVal = orogeny.has_value() ? (*orogeny)[i] : 0;
+            packed[i] = math::Float4{ reliefVal, birthVal, orogenyTimeVal, std::bit_cast<float>(orogenyVal) };
+        }
+
+        const std::span<const std::byte> bytes = std::as_bytes(std::span{ packed });
+
+        if (buffers.AddStorage("CrustState", bytes, readable) != PlanetGpuError::Success)
+        {
+            return false;
+        }
+
+        return !with_initial || buffers.AddStorage(InitialName("CrustState"), bytes, false) == PlanetGpuError::Success;
+    }
+
+    bool AddPoleRatesBuffer(GpuBuffers& buffers, const ReferenceSet& reference)
+    {
+        const auto poles = reference.Float3s("poles");
+        const auto rates = reference.Floats("rates");
+
+        if (!poles.has_value() || !rates.has_value() || poles->size() != rates->size())
+        {
+            return false;
+        }
+
+        std::vector<math::Float4> packed;
+        packed.reserve(poles->size());
+
+        for (size_t i = 0u; i < poles->size(); ++i)
+        {
+            packed.emplace_back((*poles)[i], (*rates)[i]);
+        }
+
+        return buffers.AddStorage("PoleRatesIn", std::as_bytes(std::span{ packed }), false) == PlanetGpuError::Success;
+    }
+
+    bool AddOwnersBuffer(GpuBuffers& buffers,
+                         const ReferenceSet& reference,
+                         std::string_view best_plate_file,
+                         std::string_view best_cell_file,
+                         std::string_view second_plate_file,
+                         std::string_view second_cell_file,
+                         bool readable)
+    {
+        const size_t pointCount = static_cast<size_t>(reference.PointCount());
+        const auto bestPlate = best_plate_file.empty() ? std::optional<std::vector<int32_t>>{} : reference.Ints(best_plate_file);
+        const auto bestCell = best_cell_file.empty() ? std::optional<std::vector<int32_t>>{} : reference.Ints(best_cell_file);
+        const auto secondPlate = second_plate_file.empty() ? std::optional<std::vector<int32_t>>{} : reference.Ints(second_plate_file);
+        const auto secondCell = second_cell_file.empty() ? std::optional<std::vector<int32_t>>{} : reference.Ints(second_cell_file);
+
+        if ((!best_plate_file.empty() && (!bestPlate.has_value() || bestPlate->size() != pointCount)) ||
+            (!best_cell_file.empty() && (!bestCell.has_value() || bestCell->size() != pointCount)) ||
+            (!second_plate_file.empty() && (!secondPlate.has_value() || secondPlate->size() != pointCount)) ||
+            (!second_cell_file.empty() && (!secondCell.has_value() || secondCell->size() != pointCount)))
+        {
+            return false;
+        }
+
+        std::vector<math::Int4> packed(pointCount);
+
+        for (size_t i = 0u; i < pointCount; ++i)
+        {
+            packed[i] = math::Int4
+            {
+                bestPlate.has_value() ? (*bestPlate)[i] : -1,
+                bestCell.has_value() ? (*bestCell)[i] : -1,
+                secondPlate.has_value() ? (*secondPlate)[i] : -1,
+                secondCell.has_value() ? (*secondCell)[i] : -1,
+            };
+        }
+
+        return buffers.AddStorage("Owners", std::as_bytes(std::span{ packed }), readable) == PlanetGpuError::Success;
+    }
+
+    bool AddFrontDataBuffer(GpuBuffers& buffers,
+                            const ReferenceSet& reference,
+                            std::string_view strength_file,
+                            std::string_view speed_file,
+                            std::string_view slab_age_file,
+                            std::string_view subduction_file,
+                            bool readable)
+    {
+        const size_t pointCount = static_cast<size_t>(reference.PointCount());
+        const auto strength = strength_file.empty() ? std::optional<std::vector<float>>{} : reference.Floats(strength_file);
+        const auto speed = speed_file.empty() ? std::optional<std::vector<float>>{} : reference.Floats(speed_file);
+        const auto slabAge = slab_age_file.empty() ? std::optional<std::vector<float>>{} : reference.Floats(slab_age_file);
+        const auto subduction = subduction_file.empty() ? std::optional<std::vector<uint32_t>>{} : reference.Words(subduction_file);
+
+        if ((!strength_file.empty() && (!strength.has_value() || strength->size() != pointCount)) ||
+            (!speed_file.empty() && (!speed.has_value() || speed->size() != pointCount)) ||
+            (!slab_age_file.empty() && (!slabAge.has_value() || slabAge->size() != pointCount)) ||
+            (!subduction_file.empty() && (!subduction.has_value() || subduction->size() != pointCount)))
+        {
+            return false;
+        }
+
+        std::vector<math::Float4> packed(pointCount);
+
+        for (size_t i = 0u; i < pointCount; ++i)
+        {
+            const float strengthVal = strength.has_value() ? (*strength)[i] : 0.0f;
+            const float speedVal = speed.has_value() ? (*speed)[i] : 0.0f;
+            const float slabAgeVal = slabAge.has_value() ? (*slabAge)[i] : 0.0f;
+            const uint32_t subductionVal = subduction.has_value() ? (*subduction)[i] : 0u;
+            packed[i] = math::Float4{ strengthVal, speedVal, slabAgeVal, std::bit_cast<float>(subductionVal) };
+        }
+
+        return buffers.AddStorage("FrontData", std::as_bytes(std::span{ packed }), readable) == PlanetGpuError::Success;
+    }
+
+    bool AddCellFrontsBuffer(GpuBuffers& buffers,
+                             const ReferenceSet& reference,
+                             std::string_view front_point_file,
+                             std::string_view distance_file,
+                             bool readable)
+    {
+        const auto frontPoints = reference.Ints(front_point_file);
+        const auto distances = reference.Floats(distance_file);
+
+        if (!frontPoints.has_value() || !distances.has_value() || frontPoints->size() != distances->size())
+        {
+            return false;
+        }
+
+        std::vector<int32_t> packed(frontPoints->size() * 2u);
+
+        for (size_t i = 0u; i < frontPoints->size(); ++i)
+        {
+            packed[i * 2u + 0u] = (*frontPoints)[i];
+            packed[i * 2u + 1u] = std::bit_cast<int32_t>((*distances)[i]);
+        }
+
+        return buffers.AddStorage("CellFronts", std::as_bytes(std::span{ packed }), readable) == PlanetGpuError::Success;
     }
 
     namespace

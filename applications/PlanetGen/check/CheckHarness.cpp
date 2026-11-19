@@ -6,13 +6,23 @@
 #include "PlanetSession.hpp"
 #include "PlanetShaders.hpp"
 #include "ReferenceSet.hpp"
+#include "StepState.hpp"
+#include "math/MathStorage.hpp"
 #include <algorithm>
+#include <bit>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <print>
+#include <span>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace planet
 {
@@ -33,6 +43,20 @@ namespace planet
                                                   double scale,
                                                   std::span<const math::Float3> expected,
                                                   int32_t plate) noexcept;
+        [[nodiscard]] bool CompareCrustFlagBit(std::string_view label_prefix,
+                                               std::span<const uint8_t> actual_flags,
+                                               uint8_t bit_mask,
+                                               const ReferenceSet& reference,
+                                               std::string_view expected_file,
+                                               std::span<const uint8_t> live_mask);
+        [[nodiscard]] bool CompareFloat4Component(std::string_view label_prefix,
+                                                  std::span<const math::Float4> actual_values,
+                                                  size_t component,
+                                                  const ReferenceSet& reference,
+                                                  std::string_view expected_file,
+                                                  std::span<const uint8_t> live_mask,
+                                                  float relative_tolerance,
+                                                  float absolute_tolerance);
     }
 
     bool AddZeroedBuffers(GpuBuffers& buffers, std::span<const ZeroBufferSpec> specs)
@@ -201,33 +225,53 @@ namespace planet
                            const GpuBuffers& buffers,
                            const ReferenceSet& reference)
     {
-        const PlanetGpuResult<std::vector<int32_t>> cells = buffers.ReadInts("PlateCellCount");
+        const PlanetGpuResult<std::vector<math::Int4>> plateCellCounters = buffers.ReadInt4s("PlateCounters");
         const PlanetGpuResult<std::vector<int32_t>> continental = buffers.ReadInts("PlateContinentalCount");
-        const PlanetGpuResult<std::vector<int32_t>> positions = buffers.ReadInts("PlatePositionSum");
         const PlanetGpuResult<std::vector<int32_t>> pull = buffers.ReadInts("PlatePull");
         const std::optional<std::vector<int32_t>> expectedCells = reference.Ints("p6_cell_count");
         const std::optional<std::vector<int32_t>> expectedContinental = reference.Ints("p6_continental_count");
         const std::optional<std::vector<math::Float3>> expectedPositions = reference.Float3s("p6_position_sum");
         const std::optional<std::vector<math::Float3>> expectedPull = reference.Float3s("p6_pull");
 
-        if (!cells.has_value() || !continental.has_value() || !positions.has_value() || !pull.has_value() ||
-            !expectedCells.has_value() || !expectedContinental.has_value() || !expectedPositions.has_value() ||
+        if (!plateCellCounters.has_value() ||
+            !continental.has_value() ||
+            !pull.has_value() ||
+            !expectedCells.has_value() ||
+            !expectedContinental.has_value() ||
+            !expectedPositions.has_value() ||
             !expectedPull.has_value())
         {
             return false;
         }
 
         const int32_t plateCount = reference.PlateCount();
-        const int64_t cellsWrong = CountDifferentInts(*cells, *expectedCells);
+        const size_t counterCount = plateCellCounters->size();
+        // need to extract the .w component from each Int4 to get the actual cell count
+        std::vector<int32_t> cells(counterCount);
+        for (size_t i = 0; i < plateCellCounters->size(); ++i)
+        {
+            cells[i] = (*plateCellCounters)[i].w;
+        }
+
+        const int64_t cellsWrong = CountDifferentInts(cells, *expectedCells);
         const int64_t continentalWrong = CountDifferentInts(*continental, *expectedContinental);
         int64_t positionsWrong = 0;
         int64_t pullWrong = 0;
         double largestPosition = 0.0;
         double largestPull = 0.0;
 
+        const size_t storageSize = counterCount * 3u;
+        std::vector<int32_t> positionsExtracted(storageSize, 0);
+        for (size_t i = 0; i < counterCount; ++i)
+        {
+            positionsExtracted[(i * 3u) + 0u] = (*plateCellCounters)[i].x;
+            positionsExtracted[(i * 3u) + 1u] = (*plateCellCounters)[i].y;
+            positionsExtracted[(i * 3u) + 2u] = (*plateCellCounters)[i].z;
+        }
+
         for (int32_t plate = 0; plate < plateCount; ++plate)
         {
-            const double positionDifference = LargestRowDifference(*positions, k_PositionSumScale, *expectedPositions, plate);
+            const double positionDifference = LargestRowDifference(positionsExtracted, k_PositionSumScale, *expectedPositions, plate);
             const double pullDifference = LargestRowDifference(*pull, k_PullScale, *expectedPull, plate);
             largestPosition = std::max(largestPosition, positionDifference);
             largestPull = std::max(largestPull, pullDifference);
@@ -240,6 +284,220 @@ namespace planet
         std::println("{}: position sums {} plates outside 1e-4 (largest {:.3g}), pulls {} plates outside 1e-4 (largest {:.3g})",
                      label_prefix, positionsWrong, largestPosition, pullWrong, largestPull);
         return cellsWrong == 0 && continentalWrong == 0 && positionsWrong == 0 && pullWrong == 0;
+    }
+
+    bool CompareCrustFlags(std::string_view label_prefix,
+                           const GpuBuffers& buffers,
+                           const ReferenceSet& reference,
+                           CrustFlagStorage storage,
+                           std::string_view alive_file,
+                           std::string_view continental_file,
+                           std::span<const uint8_t> live_mask)
+    {
+        const std::string_view bufferName = CrustFlagBufferNames(storage);
+        std::vector<uint8_t> actualFlags;
+
+        if (storage == CrustFlagStorage::Bytes)
+        {
+            const PlanetGpuResult<std::vector<std::byte>> actualBytes = buffers.Read(bufferName);
+
+            if (!actualBytes.has_value())
+            {
+                return false;
+            }
+
+            actualFlags.resize(actualBytes->size());
+
+            for (size_t i = 0u; i < actualBytes->size(); ++i)
+            {
+                actualFlags[i] = std::to_integer<uint8_t>((*actualBytes)[i]);
+            }
+        }
+        else
+        {
+            const PlanetGpuResult<std::vector<uint32_t>> actualWords = buffers.ReadWords(bufferName);
+
+            if (!actualWords.has_value())
+            {
+                return false;
+            }
+
+            actualFlags.resize(actualWords->size());
+
+            for (size_t i = 0u; i < actualWords->size(); ++i)
+            {
+                actualFlags[i] = static_cast<uint8_t>((*actualWords)[i] & 0xFFu);
+            }
+        }
+
+        bool passed = true;
+
+        if (!alive_file.empty())
+        {
+            passed = CompareCrustFlagBit(label_prefix, actualFlags, 1u, reference, alive_file, live_mask) && passed;
+        }
+
+        if (!continental_file.empty())
+        {
+            passed = CompareCrustFlagBit(label_prefix, actualFlags, 2u, reference, continental_file, live_mask) && passed;
+        }
+
+        return passed;
+    }
+
+    bool CompareCrustState(std::string_view label_prefix,
+                           const GpuBuffers& buffers,
+                           const ReferenceSet& reference,
+                           std::string_view relief_file,
+                           std::string_view birth_file,
+                           std::string_view orogeny_time_file,
+                           std::string_view orogeny_file,
+                           std::span<const uint8_t> live_mask,
+                           float relative_tolerance,
+                           float absolute_tolerance)
+    {
+        const PlanetGpuResult<std::vector<math::Float4>> actual = buffers.ReadFloat4s("CrustState");
+
+        if (!actual.has_value())
+        {
+            return false;
+        }
+
+        bool passed = true;
+
+        if (!relief_file.empty())
+        {
+            passed = CompareFloat4Component(label_prefix, *actual, 0u, reference, relief_file, live_mask,
+                                            relative_tolerance, absolute_tolerance) && passed;
+        }
+
+        if (!birth_file.empty())
+        {
+            passed = CompareFloat4Component(label_prefix, *actual, 1u, reference, birth_file, live_mask,
+                                            relative_tolerance, absolute_tolerance) && passed;
+        }
+
+        if (!orogeny_time_file.empty())
+        {
+            passed = CompareFloat4Component(label_prefix, *actual, 2u, reference, orogeny_time_file, live_mask,
+                                            relative_tolerance, absolute_tolerance) && passed;
+        }
+
+        if (!orogeny_file.empty())
+        {
+            const std::optional<std::vector<int32_t>> expected = reference.Ints(orogeny_file);
+
+            if (!expected.has_value() || actual->size() != expected->size() ||
+                (!live_mask.empty() && live_mask.size() != expected->size()))
+            {
+                return false;
+            }
+
+            int64_t different = 0;
+
+            for (size_t i = 0u; i < expected->size(); ++i)
+            {
+                if (!live_mask.empty() && live_mask[i] == 0u)
+                {
+                    continue;
+                }
+
+                if (std::bit_cast<int32_t>((*actual)[i].w) != (*expected)[i])
+                {
+                    ++different;
+                }
+            }
+
+            std::println("{} {}: {} differ", label_prefix, orogeny_file, different);
+            passed = (different == 0) && passed;
+        }
+
+        return passed;
+    }
+
+    bool CompareFrontData(std::string_view label_prefix,
+                          const GpuBuffers& buffers,
+                          const ReferenceSet& reference,
+                          bool check_speed_and_age)
+    {
+        constexpr float k_FrontRelTol = 1.0e-4f;
+        constexpr float k_FrontAbsTol = 1.0e-6f;
+        const PlanetGpuResult<std::vector<math::Float4>> actual = buffers.ReadFloat4s("FrontData");
+        const std::optional<std::vector<uint32_t>> expectedSubduction = reference.Words("front_subduction");
+
+        if (!actual.has_value() || !expectedSubduction.has_value() || actual->size() != expectedSubduction->size())
+        {
+            return false;
+        }
+
+        int64_t subductionDiff = 0;
+
+        for (size_t i = 0u; i < expectedSubduction->size(); ++i)
+        {
+            if (std::bit_cast<uint32_t>((*actual)[i].w) != (*expectedSubduction)[i])
+            {
+                ++subductionDiff;
+            }
+        }
+
+        std::println("{} front_subduction: {} differ", label_prefix, subductionDiff);
+        bool passed = subductionDiff == 0;
+        passed = CompareFloat4Component(label_prefix, *actual, 0u, reference, "front_strength", {}, k_FrontRelTol, k_FrontAbsTol) && passed;
+
+        if (check_speed_and_age)
+        {
+            passed = CompareFloat4Component(label_prefix, *actual, 1u, reference, "front_speed", {}, k_FrontRelTol, k_FrontAbsTol) && passed;
+            passed = CompareFloat4Component(label_prefix, *actual, 2u, reference, "front_slab_age", {}, k_FrontRelTol, k_FrontAbsTol) && passed;
+        }
+
+        return passed;
+    }
+
+    bool CompareOwnersXY(std::string_view label_prefix,
+                         const GpuBuffers& buffers,
+                         const ReferenceSet& reference,
+                         std::string_view plate_file,
+                         std::string_view cell_file,
+                         int64_t allowed_differences)
+    {
+        const PlanetGpuResult<std::vector<math::Int4>> actual = buffers.ReadInt4s("Owners");
+        const std::optional<std::vector<int32_t>> expectedPlate = reference.Ints(plate_file);
+        const std::optional<std::vector<int32_t>> expectedCell = reference.Ints(cell_file);
+
+        if (!actual.has_value() || !expectedPlate.has_value() || !expectedCell.has_value() ||
+            actual->size() != expectedPlate->size() || actual->size() != expectedCell->size())
+        {
+            return false;
+        }
+
+        int64_t plateDiff = 0;
+        int64_t cellDiff = 0;
+
+        for (size_t i = 0u; i < actual->size(); ++i)
+        {
+            if ((*actual)[i].x != (*expectedPlate)[i])
+            {
+                ++plateDiff;
+            }
+
+            if ((*actual)[i].y != (*expectedCell)[i])
+            {
+                ++cellDiff;
+            }
+        }
+
+        if (allowed_differences > 1)
+        {
+            std::println("{} {}: {} differ (allowed fewer than {})", label_prefix, plate_file, plateDiff, allowed_differences);
+            std::println("{} {}: {} differ (allowed fewer than {})", label_prefix, cell_file, cellDiff, allowed_differences);
+        }
+        else
+        {
+            std::println("{} {}: {} differ", label_prefix, plate_file, plateDiff);
+            std::println("{} {}: {} differ", label_prefix, cell_file, cellDiff);
+        }
+
+        return plateDiff < allowed_differences && cellDiff < allowed_differences;
     }
 
     namespace
@@ -327,6 +585,84 @@ namespace planet
             }
 
             return largestDifference / largestComponent;
+        }
+
+        bool CompareCrustFlagBit(std::string_view label_prefix,
+                                 std::span<const uint8_t> actual_flags,
+                                 uint8_t bit_mask,
+                                 const ReferenceSet& reference,
+                                 std::string_view expected_file,
+                                 std::span<const uint8_t> live_mask)
+        {
+            const std::optional<std::vector<uint8_t>> expected = reference.Bytes(expected_file);
+
+            if (!expected.has_value() || actual_flags.size() != expected->size() ||
+                (!live_mask.empty() && live_mask.size() != expected->size()))
+            {
+                return false;
+            }
+
+            int64_t different = 0;
+
+            for (size_t i = 0u; i < expected->size(); ++i)
+            {
+                if (!live_mask.empty() && live_mask[i] == 0u)
+                {
+                    continue;
+                }
+
+                const bool actualBit = (actual_flags[i] & bit_mask) != 0u;
+                const bool expectedBit = (*expected)[i] != 0u;
+
+                if (actualBit != expectedBit)
+                {
+                    ++different;
+                }
+            }
+
+            std::println("{} {}: {} differ", label_prefix, expected_file, different);
+            return different == 0;
+        }
+
+        bool CompareFloat4Component(std::string_view label_prefix,
+                                    std::span<const math::Float4> actual_values,
+                                    size_t component,
+                                    const ReferenceSet& reference,
+                                    std::string_view expected_file,
+                                    std::span<const uint8_t> live_mask,
+                                    float relative_tolerance,
+                                    float absolute_tolerance)
+        {
+            const std::optional<std::vector<float>> expected = reference.Floats(expected_file);
+
+            if (!expected.has_value() || actual_values.size() != expected->size() ||
+                (!live_mask.empty() && live_mask.size() != expected->size()))
+            {
+                return false;
+            }
+
+            int64_t different = 0;
+            double largest = 0.0;
+
+            for (size_t i = 0u; i < expected->size(); ++i)
+            {
+                if (!live_mask.empty() && live_mask[i] == 0u)
+                {
+                    continue;
+                }
+
+                const float actual = actual_values[i][component];
+                const float target = (*expected)[i];
+                largest = std::max(largest, std::fabs(static_cast<double>(actual) - static_cast<double>(target)));
+
+                if (!IsClose(actual, target, relative_tolerance, absolute_tolerance))
+                {
+                    ++different;
+                }
+            }
+
+            std::println("{} {}: {} differ, largest difference {:.3g}", label_prefix, expected_file, different, largest);
+            return different == 0;
         }
     }
 }

@@ -1,5 +1,5 @@
 #include "CheckHarness.hpp"
-#include "PassChecks.hpp"
+#include "StepChecks.hpp"
 #include "PlanetGpuErrors.hpp"
 #include "PlanetSession.hpp"
 #include "PlanetShaders.hpp"

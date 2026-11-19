@@ -14,23 +14,29 @@ extern static const bool CRUST_FLAG_BYTES = true;
 
 extern struct FloatsIn : IReadBuffer<float>;
 extern struct IntsIn : IReadBuffer<int>;
-extern struct Floats : IReadWriteBuffer<float>;
-extern struct Ints : IReadWriteBuffer<int>;
 extern struct Words : IReadWriteBuffer<uint>;
 extern struct WordsIn : IReadBuffer<uint>;
 extern struct FlagBytes : IReadWriteBuffer<uint8_t>;
+extern struct FlagBytesIn : IReadBuffer<uint8_t>;
 extern struct Counters : IAtomicBuffer<uint>;
 // signed counters used during TorqueSum
 extern struct SignedCounters : IAtomicBuffer<int>;
 extern struct Points : IReadWriteBuffer<float4>;
 extern struct PointsIn : IReadBuffer<float4>;
+extern struct IntPoints : IReadWriteBuffer<int4>;
+extern struct IntPointsIn : IReadBuffer<int4>;
+// only two passes use this, and they can get by with just two packed points
+extern struct CellPoints : IReadWriteBuffer<int2>;
 
-// The crust in the plate frames, [plate][cell] flat. Passes 1 and 2 read it, and pass 3 writes it.
-FlagBytes CrustAliveBytes;
-FlagBytes CrustContinentalBytes;
-Words CrustAliveWords;
-Words CrustContinentalWords;
-Floats CrustBirth;
+// stores alive and continental bits: bit 0 = alive, bit 1 = continental
+FlagBytes CrustFlags;
+[ls_resource_tags("Aliased:CrustFlags")]
+FlagBytesIn CrustFlagsIn;
+
+Words CrustFlagsWords;
+[ls_resource_tags("Aliased:CrustFlagsWords")]
+WordsIn CrustFlagsWordsIn;
+
 Points LatticePoints;
 Counters PlateLiveCursor;
 Words PlateLiveOffset;
@@ -58,10 +64,6 @@ Counters PlateCapSpread;
 // from it, since the Owners.slang is just trying to *only* read without needing atomicity
 [ls_resource_tags("Aliased:PlateCapSpread")]
 WordsIn PlateCapSpreadIn; // read by OwnersCS
-[ls_resource_tags("Aliased:PlateCellCount")]
-WordsIn PlateCellCountIn; // read by OffsetLiveCellsCS, SumPullCS
-[ls_resource_tags("Aliased:PlatePositionSum")]
-IntsIn PlatePositionSumIn; // read by OffsetLiveCellsCS, SumPullCS
 [ls_resource_tags("Aliased:PlateFrontPointCount")]
 WordsIn PlateFrontPointCountIn; // read by OffsetFrontPointsCS
 [ls_resource_tags("Aliased:PairVotes")]
@@ -69,50 +71,98 @@ WordsIn PairVotesIn; // read by SwapToMajorityCS
 [ls_resource_tags("Aliased:LowVotes")]
 WordsIn LowVotesIn; // read by SwapToMajorityCS
 
+// Used by Owners.slang
+IntsIn PreviousPlate;
+
+// .x = BestPlate, .y = BestCell, .z = SecondPlate, .w = SecondCell
+IntPoints Owners;
+[ls_resource_tags("Aliased:Owners")]
+IntPointsIn OwnersIn;
+
+// Used by Front.slang
+// P * P integer counts, indexed by low * PlateCount + high. The host clears both to zero before the first dispatch.
+// Each vote is one plain atomic add, not AtomicAddWaveAggregated: the pair changes from lane to lane, and about one
+// lane in a wave votes (808 of 100 000 points in the reference capture).
+Counters PairVotes;
+Counters LowVotes;
+
+// Used by Crust.slang entrypoints (FillGapsCS, RemoveSubductedCS, and related functions)
+PointsIn PoleRatesIn; // this is readonly for now: mantle plume or editor could mean we need mutable tho
+Points CrustState;
+[ls_resource_tags("Aliased:CrustState")]
+PointsIn CrustStateIn;
+
+Points FrontData;
+[ls_resource_tags("Aliased:FrontData")]
+PointsIn FrontDataIn;
+
+// Used by FrontPoints.slang and Uplift.slang
+Counters PlateFrontPointCount;
+Counters PlateFrontPointCursor;
+Words PlateFrontPointOffset;
+
+CellPoints CellFronts;
+Points FrontPoints;
+
 internal static const float PlateCapNone = 0.0f;
 internal static const float PlateCapValid = 1.0f;
 internal static const float PlateCapEmpty = 2.0f;
+internal static const uint CrustFlagAlive = 1u << 0u;
+internal static const uint CrustFlagContinental = 1u << 1u;
 
-internal uint LoadAlive(uint flat)
+internal struct CrustFlagBits
 {
-    if (CRUST_FLAG_BYTES)
+    uint Bits;
+    bool IsAlive()
     {
-        return uint(CrustAliveBytes.Load(flat));
+        return (Bits & CrustFlagAlive) != 0u;
     }
-
-    return CrustAliveWords.Load(flat);
+    bool IsContinental()
+    {
+        return (Bits & CrustFlagContinental) != 0u;
+    }
 }
 
-internal uint LoadContinental(uint flat)
+internal CrustFlagBits LoadCrustFlags(uint where)
 {
+    // using an explicit branch because this is a compile-time static branch
     if (CRUST_FLAG_BYTES)
     {
-        return uint(CrustContinentalBytes.Load(flat));
+        return { uint(CrustFlags.Load(where)) };
     }
-
-    return CrustContinentalWords.Load(flat);
+    else
+    {
+        return { CrustFlagsWords.Load(where) };
+    }
 }
 
-internal void StoreAlive(uint flat, uint value)
+internal CrustFlagBits LoadCrustFlagsIn(uint where)
 {
     if (CRUST_FLAG_BYTES)
     {
-        CrustAliveBytes.Store(flat, uint8_t(value));
-        return;
+        return { uint(CrustFlagsIn.Load(where)) };
     }
-
-    CrustAliveWords.Store(flat, value);
+    else
+    {
+        return { CrustFlagsWordsIn.Load(where) };
+    }
 }
 
-internal void StoreContinental(uint flat, uint value)
+internal uint PackCrustFlags(bool alive, bool continental)
+{
+    return (alive ? CrustFlagAlive : 0u) | (continental ? CrustFlagContinental : 0u);
+}
+
+internal void StoreCrustFlags(uint where, uint bits)
 {
     if (CRUST_FLAG_BYTES)
     {
-        CrustContinentalBytes.Store(flat, uint8_t(value));
-        return;
+        CrustFlags.Store(where, uint8_t(bits));
     }
-
-    CrustContinentalWords.Store(flat, value);
+    else
+    {
+        CrustFlagsWords.Store(where, bits);
+    }
 }
 
 internal void AddPlateCounters(uint where, int4 counters)
@@ -163,4 +213,218 @@ internal float3 PlateToWorld(in float3 platePos, in float3x4 rotation)
 {
     const float3x3 mat = float3x3(rotation[0].xyz, rotation[1].xyz, rotation[2].xyz);
     return mul(mat, platePos);
+}
+
+struct OwnersData
+{
+    int4 Data;
+
+    int GetBestPlate()
+    {
+        return Data.x;
+    }
+
+    int GetBestCell()
+    {
+        return Data.y;
+    }
+
+    int GetSecondPlate()
+    {
+        return Data.z;
+    }
+
+    int GetSecondCell()
+    {
+        return Data.w;
+    }
+
+};
+
+internal OwnersData LoadOwners(uint where)
+{
+    return { Owners.Load(where) };
+}
+
+internal OwnersData LoadOwnersIn(uint where)
+{
+    return { OwnersIn.Load(where) };
+}
+
+internal void StoreOwners(uint where, int2 best, int2 second)
+{
+    Owners.Store(where, int4(best.xy, second.xy));
+}
+
+internal void StoreOwners(uint where, OwnersData owners)
+{
+    Owners.Store(where, owners.Data);
+}
+
+// CrustState gets an actual struct - it's more complex, and it would be too easy for users to mix up
+// the members without direct getters/setters. It's also one of the ones with more tangled read/write
+// access, or just singular reads: most of the rest of our coalesced types always work in batches
+struct CrustStateData
+{
+    float4 Data;
+
+    float GetRelief()
+    {
+        return Data.x;
+    }
+
+    [mutating]
+    void SetRelief(in float relief)
+    {
+        Data.x = relief;
+    }
+
+    float GetBirth()
+    {
+        return Data.y;
+    }
+
+    [mutating]
+    void SetBirth(in float birth)
+    {
+        Data.y = birth;
+    }
+
+    float GetOrogenyTime()
+    {
+        return Data.z;
+    }
+
+    [mutating]
+    void SetOrogenyTime(in float orogenyTime)
+    {
+        Data.z = orogenyTime;
+    }
+
+    int GetOrogenyType()
+    {
+        return asint(Data.w);
+    }
+
+    [mutating]
+    void SetOrogenyType(in int orogenyType)
+    {
+        Data.w = asfloat(orogenyType);
+    }
+};
+
+
+internal CrustStateData LoadCrustState(uint where)
+{
+    return { CrustState.Load(where) };
+}
+
+internal CrustStateData LoadCrustStateIn(uint where)
+{
+    return { CrustStateIn.Load(where) };
+}
+
+internal void StoreCrustState(uint where, float relief, float birth, float orogenyTime, int orogenyType)
+{
+    CrustState.Store(where, float4(relief, birth, orogenyTime, asfloat(orogenyType)));
+}
+
+internal void StoreCrustState(uint where, CrustStateData crustState)
+{
+    CrustState.Store(where, crustState.Data);
+}
+
+struct FrontState
+{
+    float4 Data;
+
+    float GetStrength()
+    {
+        return Data.x;
+    }
+
+    float GetSpeed()
+    {
+        return Data.y;
+    }
+
+    float GetSlabAge()
+    {
+        return Data.z;
+    }
+
+    uint GetSubduction()
+    {
+        return asuint(Data.w);
+    }
+
+    [mutating]
+    void SetStrength(in float strength)
+    {
+        Data.x = strength;
+    }
+
+    [mutating]
+    void SetSpeed(in float speed)
+    {
+        Data.y = speed;
+    }
+
+    [mutating]
+    void SetSlabAge(in float slabAge)
+    {
+        Data.z = slabAge;
+    }
+
+    [mutating]
+    void SetSubduction(in uint subduction)
+    {
+        Data.w = asfloat(subduction);
+    }
+
+};
+
+internal FrontState LoadFrontState(uint where)
+{
+    return { FrontData.Load(where) };
+}
+
+internal FrontState LoadFrontStateIn(uint where)
+{
+    return { FrontDataIn.Load(where) };
+}
+
+internal void StoreFrontState(uint where, FrontState frontState)
+{
+    FrontData.Store(where, frontState.Data);
+}
+
+internal FrontState ZeroFrontState()
+{
+    return { float4(0, 0, 0, 0) };
+}
+
+struct CellState
+{
+    int2 Data;
+
+    int GetFrontPoint()
+    {
+        return Data.x;
+    }
+
+    float GetDistance()
+    {
+        return asfloat(Data.y);
+    }
+};
+
+internal CellState LoadCellState(uint where)
+{
+    return { CellFronts.Load(where) };
+}
+
+internal void StoreCellState(uint where, int frontPoint, float distance)
+{
+    CellFronts.Store(where, int2(frontPoint, asint(distance)));
 }

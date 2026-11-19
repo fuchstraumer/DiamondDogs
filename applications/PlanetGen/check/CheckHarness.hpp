@@ -85,6 +85,37 @@ namespace planet
     [[nodiscard]] bool CompareTorqueSums(std::string_view label_prefix,
                                          const GpuBuffers& buffers,
                                          const ReferenceSet& reference);
+
+    [[nodiscard]] bool CompareCrustFlags(std::string_view label_prefix,
+                                         const GpuBuffers& buffers,
+                                         const ReferenceSet& reference,
+                                         CrustFlagStorage storage,
+                                         std::string_view alive_file,
+                                         std::string_view continental_file,
+                                         std::span<const uint8_t> live_mask);
+
+    [[nodiscard]] bool CompareCrustState(std::string_view label_prefix,
+                                         const GpuBuffers& buffers,
+                                         const ReferenceSet& reference,
+                                         std::string_view relief_file,
+                                         std::string_view birth_file,
+                                         std::string_view orogeny_time_file,
+                                         std::string_view orogeny_file,
+                                         std::span<const uint8_t> live_mask,
+                                         float relative_tolerance,
+                                         float absolute_tolerance);
+
+    [[nodiscard]] bool CompareFrontData(std::string_view label_prefix,
+                                        const GpuBuffers& buffers,
+                                        const ReferenceSet& reference,
+                                        bool check_speed_and_age);
+
+    [[nodiscard]] bool CompareOwnersXY(std::string_view label_prefix,
+                                       const GpuBuffers& buffers,
+                                       const ReferenceSet& reference,
+                                       std::string_view plate_file,
+                                       std::string_view cell_file,
+                                       int64_t allowed_differences);
 }
 
 #endif // !DIAMOND_DOGS_PLANET_CHECK_HARNESS_HPP

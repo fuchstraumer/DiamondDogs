@@ -28,20 +28,10 @@ namespace planet
         // pass 3b writes these, and the next step's OwnersCS reads them
         constexpr std::array<std::string_view, 2> k_CarriedBuffers{ "PlateCapCenters", "PlateCapSpread" };
 
-        constexpr std::array<StepBufferSpec, 24> k_ZeroedBuffers
+        constexpr std::array<StepBufferSpec, 15> k_ZeroedBuffers
         {
-            StepBufferSpec{ "BestPlate", BufferExtent::Points },
-            StepBufferSpec{ "BestCell", BufferExtent::Points },
-            StepBufferSpec{ "SecondPlate", BufferExtent::Points },
-            StepBufferSpec{ "SecondCell", BufferExtent::Points },
             StepBufferSpec{ "PairVotes", BufferExtent::PlatesSquared },
             StepBufferSpec{ "LowVotes", BufferExtent::PlatesSquared },
-            StepBufferSpec{ "Pass3Plate", BufferExtent::Points },
-            StepBufferSpec{ "Pass3Cell", BufferExtent::Points },
-            StepBufferSpec{ "FrontSubduction", BufferExtent::Points },
-            StepBufferSpec{ "FrontStrength", BufferExtent::Points },
-            StepBufferSpec{ "FrontSpeed", BufferExtent::Points },
-            StepBufferSpec{ "FrontSlabAge", BufferExtent::Points },
             StepBufferSpec{ "PlateLiveCursor", BufferExtent::Plates },
             StepBufferSpec{ "PlateLiveOffset", BufferExtent::PlatesPlusOne },
             StepBufferSpec{ "LiveDispatch", BufferExtent::IndirectDispatch },
@@ -49,11 +39,12 @@ namespace planet
             StepBufferSpec{ "PlateFrontPointCursor", BufferExtent::Plates },
             StepBufferSpec{ "PlateFrontPointOffset", BufferExtent::PlatesPlusOne },
             StepBufferSpec{ "FrontPoints", BufferExtent::PointsTimes4 },
-            StepBufferSpec{ "CellFrontPoint", BufferExtent::Cells },
-            StepBufferSpec{ "CellDistance", BufferExtent::Cells },
             StepBufferSpec{ "PlateContinentalCount", BufferExtent::Plates },
             StepBufferSpec{ "PlateCounters", BufferExtent::PlatesTimes4 },
             StepBufferSpec{ "PlatePull", BufferExtent::PlatesTimes3 },
+            StepBufferSpec{ "Owners", BufferExtent::PointsTimes4 },
+            StepBufferSpec{ "FrontData", BufferExtent::PointsTimes4 },
+            StepBufferSpec{ "CellFronts", BufferExtent::CellsTimes2 }
         };
 
         // a GPU timer scope when the caller gave a timer block, and nothing when it did not
@@ -73,10 +64,9 @@ namespace planet
         };
     }
 
-    std::array<std::string_view, 6> StepCrustArrays(CrustFlagStorage storage) noexcept
+    std::array<std::string_view, 2> StepCrustArrays(CrustFlagStorage storage) noexcept
     {
-        const CrustFlagBuffers flags = CrustFlagBufferNames(storage);
-        return { flags.Alive, flags.Continental, "CrustBirth", "CrustRelief", "CrustOrogeny", "CrustOrogenyTime" };
+        return { CrustFlagBufferNames(storage), "CrustState" };
     }
 
     std::string InitialName(std::string_view name)
@@ -109,6 +99,8 @@ namespace planet
             return plates * 4u;
         case BufferExtent::Cells:
             return plates * points;
+        case BufferExtent::CellsTimes2:
+            return plates * points * 2u;
         case BufferExtent::IndirectDispatch:
             return 3u;
         default:

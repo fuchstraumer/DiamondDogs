@@ -1,42 +1,28 @@
 implementing PlanetLab;
 __include Buffers;
 
-Counters PlateFrontPointCount;
-Counters PlateFrontPointCursor;
-Words PlateFrontPointOffset;
-Ints CellFrontPoint;
-Floats CellDistance;
-Points FrontPoints;
 
 static const uint SearchUnrollDepth = 4u;
 
 struct NearestCandidate
 {
-    float Distance;
+    float Cosine;
     int Index;
 };
 
 NearestCandidate NoCandidate()
 {
-    NearestCandidate candidate;
-    candidate.Distance = 3.402823466e+38f; // maximum float value
-    candidate.Index = -1;
-    return candidate;
+    return { -2.0f, -1 };
 }
 
 NearestCandidate MakeCandidate(float3 worldPoint, float4 frontPoint)
 {
-    const float3 delta = worldPoint - frontPoint.xyz;
-    NearestCandidate candidate;
-    candidate.Distance = dot(delta, delta);
-    candidate.Index = int(asuint(frontPoint.w));
-    return candidate;
+    return { dot(worldPoint, frontPoint.xyz), int(asuint(frontPoint.w)) };
 }
 
 NearestCandidate Nearest(NearestCandidate lhs, NearestCandidate rhs)
 {
-    const bool takeRhs = rhs.Distance < lhs.Distance || (rhs.Distance == lhs.Distance && rhs.Index < lhs.Index);
-    return takeRhs ? rhs : lhs;
+    return (rhs.Cosine > lhs.Cosine) ? rhs : lhs;
 }
 
 void StoreFrontPointData(uint where, float3 position, uint point)
@@ -58,12 +44,19 @@ void StoreFrontPointData(uint where, float3 position, uint point)
 void CountFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint point = threadId.x;
-    if (point >= Params.PointCount || FrontSubduction.Load(point) != 1u)
+    if (point >= Params.PointCount)
     {
         return;
     }
 
-    int plate = Pass3Plate.Load(point);
+    const FrontState frontState = LoadFrontStateIn(point);
+    if (frontState.GetSubduction() != 1u)
+    {
+        return;
+    }
+
+    const OwnersData owners = LoadOwnersIn(point);
+    int plate = owners.GetBestPlate();
     PlateFrontPointCount.Add(uint(plate), 1u);
 }
 
@@ -93,9 +86,14 @@ void OffsetFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
 void ScatterFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint point = threadId.x;
-
     // skip points out of range or not on a subduction front
-    if (point >= Params.PointCount || FrontSubduction.Load(point) != 1u)
+    if (point >= Params.PointCount)
+    {
+        return;
+    }
+
+    const FrontState frontState = LoadFrontStateIn(point);
+    if (frontState.GetSubduction() != 1u)
     {
         return;
     }
@@ -103,7 +101,8 @@ void ScatterFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
     // determine which slot this current point goes into - then convert it from the flattened
     // integral slot in the lattice to an actual 3D point in space: write that out, along
     // with it's point index into a dense array of front points for further processing.
-    const uint plate = uint(Pass3Plate.Load(point));
+    const OwnersData owners = LoadOwnersIn(point);
+    const uint plate = uint(owners.GetBestPlate());
     // `PlateFrontPointCursor` is an atomic counter, so multiple threads can increment it concurrently
     // to write to the same plate's front point slots without causing race conditions.
     const uint slot = PlateFrontPointOffset.Load(plate) + PlateFrontPointCursor.Add(plate, 1u);
@@ -199,14 +198,11 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID,
     }
 
     const NearestCandidate best = Nearest(Nearest(nearest0, nearest1), Nearest(nearest2, nearest3));
-
-    CellFrontPoint.Store(flattenedPoint, best.Index);
-    CellDistance.Store(flattenedPoint, asfloat(0x7f800000));
-
+    float distance = asfloat(0x7f800000);
     if (best.Index >= 0)
     {
-        const float bestDistance = 6370.0f * 2.0f * asin(clamp(0.5f * sqrt(best.Distance), 0.0f, 1.0f));
-        CellDistance.Store(flattenedPoint, bestDistance);
+        distance = 6370.0f * acos(clamp(best.Cosine, -1.0f, 1.0f));
     }
 
+    StoreCellState(flattenedPoint, best.Index, distance);
 }

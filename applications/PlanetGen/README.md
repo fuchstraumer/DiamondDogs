@@ -11,7 +11,7 @@ prototype, and git ignores it. Its file `gpu_port/README.md` is the pass specifi
 | `assets/shaders/compute/Planet/` | The Slang module `PlanetLab` (passes 0 to 6). Lodestone cooks it to `ShaderLibrary.ldmanifest` as a build step (target `planet_gen_shaders`). `Buffers.slang` declares the buffer shims and the crust flag axis. |
 | `gpu/` | `planet_gpu`, a static library. `PlanetSession` owns the headless Vulkan boot stages, shader library, and compute command pool. `PlanetShaders` selects a variant for the device, makes one program for each entry point, and writes the descriptor sets by the names that the cook reflected (`WriteManifestDescriptors`). It also writes uniform buffers from the member offsets in the manifest. `GpuBuffers` holds buffers by their shader names, fills and copies them, and reads them back. `PlanetStep` records passes 1 to 6 of one step (see "The step"). |
 | `check/` | `planet_reference`, a static library: `ReferenceSet` reads the reference files, `PlanetMath` holds double-precision lattice and sphere math, and `AddStepBuffers` makes every buffer of one step from them. `PlanetGenCheck`, a headless executable (`CheckHarness`, `PassChecks`, `SurfaceChecks`, `StepChecks`, `main.cpp`): it runs each pass on the reference inputs, and the whole step, and compares the results with the reference outputs. |
-| `bench/` | `PlanetGenBench`, a headless executable: the GPU time of each pass of the step (see "The bench"). |
+| `bench/` | `PlanetGenBench`, a headless executable (`BenchReport`, `main.cpp`): the GPU time of each pass of the step, console table, and JSON Lines output (see "The bench"). |
 
 ## Sources
 
@@ -242,6 +242,84 @@ with a total order (distance, then front point index), so the result does not de
 With pass scopes only, the step is now 127.1 µs at 100 000 points and 60.7 µs at 10 000 (pass 4: 29.7 and 13.3 µs).
 `OwnersCS` (about 45 µs) is the next target: cone culling (see the PlanetLab handoff).
 
+### Cone culling in OwnersCS, and wave-op offsets (2026-11-19)
+
+Pass 3b writes a cap for each plate (`PlateCapCenters`, `PlateCapSpread`) around its live cells. `OwnersCS` of the next
+step puts each plate's cap into groupshared memory, turned to the world frame, with a margin of 2 cells. It skips a
+plate when the point is outside the cap, before it computes `FibonacciNearest` and loads the crust flags. The offset
+passes (`OffsetLiveCellsCS`, `OffsetFrontPointsCS`) are now one wave of 32 threads (`WavePrefixSum`), not one thread.
+
+Medians in µs, the build before these changes against the build after them, alternated runs (`--dispatches`):
+
+| Scope | Before, 100 000 | After, 100 000 | Before, 10 000 | After, 10 000 |
+|---|---|---|---|---|
+| Step (`--dispatches`) | 129.9 | 112.5 | | |
+| Step (pass scopes only) | | 108.1 | 60.2 | 54.3 |
+| `OwnersCS` | 44.1 | 27.8 | 13.6 | 11.2 |
+| `OffsetLiveCellsCS` + `OffsetFrontPointsCS` | 10.2 | 6.2 | | 6.2 |
+| `ScatterLiveCellsCS` (now also makes the cap spread) | 7.7 | 9.3 | | 3.5 |
+| `NearestFrontPointCS` | 18.4 | 18.4 | | 4.1 |
+
+The machine state changes the times: the first runs of the new build on 2026-11-19 gave 125 to 131 µs for the step,
+with about 1 µs more in every dispatch, and the same exe gave 112.5 µs later with no change between. Compare builds only
+in alternated runs.
+
+The shader profiler after the change (100 000 points): `OwnersCS` long scoreboard 46 %, charged to the first uses of
+`LoadAlive` and `LoadContinental` (the crust flag gathers, one of each for each plate that passes the cap test).
+`NearestFrontPointCS` is now issue bound: not selected 22 %, wait 21 %, selected 19 %, on the (distance, index) merge.
+`CountLiveCellsCS` long scoreboard 49 % on the first use of `LoadAlive`: each thread does its four cells one after the
+other, so each step waits for its own load. `ScatterLiveCellsCS` barrier 23 %.
+
+Notes for the mobile target: the offset passes need all plates in one wave. With a subgroup of 16 lanes (some mobile
+GPUs) or more than 32 plates, the prefix sum covers only the first wave, and every first lane writes the total.
+`OwnersCS` keeps at most 64 plates in groupshared memory.
+
+### HEALPix point order for OwnersCS (2026-11-19, not adopted)
+
+OwnersCS took the points in spiral order, so the 32 lanes of a wave cover a thin ring around the planet, and the
+cone cull passes many plates. `HealpixPointOrder` (in `check/StepState.cpp`) sorts the points by their HEALPix nested
+index, and `OwnersOrder[i]` gives thread i its point. The lab script `compare_point_orders.py` measured the cull:
+
+| Order | Plates tested per wave, 100 000 points | 10 000 points |
+|---|---|---|
+| Spiral | 7.96 | 8.27 |
+| HEALPix nested | 2.82 | 3.55 |
+
+(At step 20 of the lab run. 3D Morton and cube plus Morton are within 2 % of HEALPix.)
+
+The bench, 3 alternated runs, median `OwnersCS`: 28.8 to 30.8 µs at 100 000 points (slower), 12.2 to 10.3 µs at
+10 000 (faster). `owners_gather_sectors.py` shows the cause. In spiral order, neighbouring lanes gather neighbouring
+cells, so a tested plate costs about 10 sectors of 32 bytes for each wave. In HEALPix order the lanes are close on the
+sphere but far apart in the spiral numbering, so a tested plate costs about 28 sectors. The traffic for each wave stays
+at about 80 sectors in both orders. The outputs (`BestPlate`, `BestCell`, `SecondPlate`, `SecondCell`) and
+`PreviousPlate` are indexed by point, so they become scattered too. At 10 000 points the crust fits in L2, the sectors
+are cheap, and the fewer compares win.
+
+A point order helps only when the memory order agrees with it. To get both, the lattice itself must be numbered in
+HEALPix order, so that every per-point and per-cell array is stored in that order.
+
+#### How HEALPix builds its mapping
+
+Gorski et al. 2005. `gpu/Healpix.cpp` is a transcription of their `ang2pix_nest`, and the lab script
+`check_healpix.py` tests the Python version (equal area, nesting, base faces, compactness).
+
+1. **12 base faces of equal area.** Cut the sphere at z = 2/3 and z = −2/3. Each band between the cuts then has a third
+   of the area, because on a sphere the area above a height is proportional to the height (Archimedes). The polar caps
+   are split into 4 faces each, and the equatorial belt into 4 more, which sit between them like the faces of a
+   rhombic dodecahedron. Faces 0 to 3 touch the north pole, 4 to 7 are on the equator (centred on longitudes 0°, 90°,
+   180° and 270°), and 8 to 11 touch the south pole.
+2. **Coordinates that keep the area equal.** In the belt, z and the longitude are already equal-area coordinates (a
+   cylindrical equal-area projection). The face edges are diagonals in that projection, so the code turns
+   (longitude, z) into two diagonal coordinates, `jp` and `jm`, scaled by Nside. Their integer parts give the face and
+   the column and row inside it. In the caps, the distance from the pole is proportional to sqrt(1 − |z|), because the
+   area of a cap is proportional to 1 − |z|. Scaling by that root keeps the pixels equal in area as they get close to
+   the pole.
+3. **Nside x Nside pixels in each face.** Each face is a curved square, and (ix, iy) is the pixel inside it. Nside is
+   2^order, so ix and iy have `order` bits each.
+4. **Nested numbering.** The index is face × Nside² plus the bits of ix and iy interleaved (a 2D Morton code). The
+   interleave makes the index a quadtree: index >> 2 is the parent pixel one level coarser, and the 4^k indices under
+   one parent are one compact patch. This is the property that makes runs of consecutive indices local on the sphere.
+
 ## Buffers
 
 Each storage buffer is a Lodestone shim (`IReadBuffer`, `IReadWriteBuffer`, `IAtomicBuffer`). The `spirv` cook binds
@@ -255,7 +333,7 @@ axis `CRUST_FLAG_BYTES` selects the storage of the two flags:
 
 | Value | Buffers | Cost | Device needs |
 |---|---|---|---|
-| `true` | `CrustAliveBytes`, `CrustContinentalBytes`: one byte for each cell | 1 byte | `StorageBuffer8BitAccess`, `UniformAndStorageBuffer8BitAccess`, `Int8` (what the cook recorded) |
+| `true` | `CrustFlagBytes`: one byte for each cell. Alive in bit 0, Continental in bit 1. | 1 byte | `StorageBuffer8BitAccess`, `UniformAndStorageBuffer8BitAccess`, `Int8` (what the cook recorded) |
 | `false` | `CrustAliveWords`, `CrustContinentalWords`: one word for each cell | 4 bytes | nothing more |
 
 A byte store changes only its own byte, so the threads of pass 3 need no atomic in either form. The 8-bit needs are

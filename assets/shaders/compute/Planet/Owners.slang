@@ -13,15 +13,6 @@ struct OwnersParams
 
 ConstantBuffer<OwnersParams> Params;
 
-// [plate][row][column], row-major, 9 floats for each plate
-FloatsIn Rotation;
-IntsIn PreviousPlate;
-
-Ints BestPlate;
-Ints BestCell;
-Ints SecondPlate;
-Ints SecondCell;
-
 static const float ContinentPriority = 1.0e6f;
 static const float NoScore = -3.402823466e+38f;
 
@@ -119,17 +110,22 @@ void OwnersCS(uint3 threadId : SV_DispatchThreadID, uint3 laneInGroup : SV_Group
 
         const int cell = FibonacciNearest(frameDirection, int(count));
         const uint flattenedIdx = plate * Params.PointCount + uint(cell);
-
-        if (LoadAlive(flattenedIdx) == 0u)
+        CrustFlagBits crustFlags = LoadCrustFlagsIn(flattenedIdx);
+        if (!crustFlags.IsAlive())
         {
             continue;
         }
 
-        float score = CrustBirth.Load(flattenedIdx);
-        if (LoadContinental(flattenedIdx) != 0u)
+        float score = 0.0f;
+        if (crustFlags.IsContinental())
         {
             // augment score by continent priority
             score = ContinentPriority + ((previousPlate == int(plate)) ? 0.5f : 0.0f);
+        }
+        else
+        {
+            const CrustStateData oceanCrustState = LoadCrustStateIn(flattenedIdx);
+            score = oceanCrustState.GetBirth();
         }
 
         if (score > bestScore)
@@ -147,10 +143,7 @@ void OwnersCS(uint3 threadId : SV_DispatchThreadID, uint3 laneInGroup : SV_Group
     }
 
     // store the best and second best scores for this point
-    BestPlate.Store(point, best.x);
-    BestCell.Store(point, best.y);
-    SecondPlate.Store(point, second.x);
-    SecondCell.Store(point, second.y);
+    StoreOwners(point, best, second);
 }
 
 bool InsideCap(in float3 direction,

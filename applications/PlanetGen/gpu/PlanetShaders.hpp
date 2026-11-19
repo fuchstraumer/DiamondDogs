@@ -47,14 +47,7 @@ namespace planet
         Words,
     };
 
-    /** The shader names of the two crust flag buffers in one storage. */
-    struct CrustFlagBuffers
-    {
-        std::string_view Alive;
-        std::string_view Continental;
-    };
-
-    [[nodiscard]] CrustFlagBuffers CrustFlagBufferNames(CrustFlagStorage storage) noexcept;
+    [[nodiscard]] std::string_view CrustFlagBufferNames(CrustFlagStorage storage) noexcept;
     [[nodiscard]] std::string_view ToString(CrustFlagStorage storage) noexcept;
 
     /** One member of a uniform buffer, as raw bits. UniformFloat and UniformUint make it. */
