@@ -1,4 +1,5 @@
 #pragma once
+#include <tuple>
 #ifndef DIAMONDDOGS_FOUNDATION_MATH_STORAGE_HPP
 #define DIAMONDDOGS_FOUNDATION_MATH_STORAGE_HPP
 #include <array>
@@ -273,6 +274,30 @@ public:
         struct { float x, y, z, w; };
         struct { float r, g, b, a; };
         struct { float u, v, s, t; };
+    };
+};
+
+struct Int4
+{
+    constexpr Int4() noexcept : x(0), y(0), z(0), w(0) {}
+    constexpr Int4(int32_t x, int32_t y, int32_t z, int32_t w) noexcept : x(x), y(y), z(z), w(w) {}
+    constexpr Int4(const Int4& other) noexcept = default;
+    constexpr Int4(Int4&& other) noexcept = default;
+    constexpr Int4& operator=(const Int4& other) noexcept = default;
+    constexpr Int4& operator=(Int4&& other) noexcept = default;
+    // use spaceship operator since that's trivial with integral vector types
+    constexpr auto operator<=>(const Int4& other) const noexcept
+    {
+        // only condition - we can't fully default, bc we want the comparison to run on specifically
+        // one member of the untagged union (oops)
+        return std::tie(x, y, z, w) <=> std::tie(other.x, other.y, other.z, other.w);
+    }
+    
+    union
+    {
+        struct { int32_t x, y, z, w; };
+        struct { int32_t r, g, b, a; };
+        struct { int32_t u, v, s, t; };
     };
 };
 

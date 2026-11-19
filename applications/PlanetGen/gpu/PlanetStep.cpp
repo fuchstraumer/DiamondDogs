@@ -28,7 +28,7 @@ namespace planet
         // pass 3b writes these, and the next step's OwnersCS reads them
         constexpr std::array<std::string_view, 2> k_CarriedBuffers{ "PlateCapCenters", "PlateCapSpread" };
 
-        constexpr std::array<StepBufferSpec, 25> k_ZeroedBuffers
+        constexpr std::array<StepBufferSpec, 24> k_ZeroedBuffers
         {
             StepBufferSpec{ "BestPlate", BufferExtent::Points },
             StepBufferSpec{ "BestCell", BufferExtent::Points },
@@ -51,9 +51,8 @@ namespace planet
             StepBufferSpec{ "FrontPoints", BufferExtent::PointsTimes4 },
             StepBufferSpec{ "CellFrontPoint", BufferExtent::Cells },
             StepBufferSpec{ "CellDistance", BufferExtent::Cells },
-            StepBufferSpec{ "PlateCellCount", BufferExtent::Plates },
             StepBufferSpec{ "PlateContinentalCount", BufferExtent::Plates },
-            StepBufferSpec{ "PlatePositionSum", BufferExtent::PlatesTimes3 },
+            StepBufferSpec{ "PlateCounters", BufferExtent::PlatesTimes4 },
             StepBufferSpec{ "PlatePull", BufferExtent::PlatesTimes3 },
         };
 
@@ -106,6 +105,8 @@ namespace planet
             return plates * plates;
         case BufferExtent::PlatesTimes3:
             return plates * 3u;
+        case BufferExtent::PlatesTimes4:
+            return plates * 4u;
         case BufferExtent::Cells:
             return plates * points;
         case BufferExtent::IndirectDispatch:

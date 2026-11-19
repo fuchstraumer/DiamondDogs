@@ -71,6 +71,7 @@ namespace planet
         PlatesPlusOne,
         PlatesSquared,
         PlatesTimes3,
+        PlatesTimes4,
         Cells,
         IndirectDispatch,
     };

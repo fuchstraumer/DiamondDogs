@@ -36,9 +36,12 @@ Counters PlateLiveCursor;
 Words PlateLiveOffset;
 Words LiveCell;
 Words LiveDispatch;
-SignedCounters PlatePositionSum;
+// PlateCounters stores per-plate counters into what is effectively an int4 array, indexed
+// as scalar only because of the atomics required. xyz = PlatePositionSum, w = PlateCellCount
+SignedCounters PlateCounters;
+[ls_resource_tags("Aliased:PlateCounters")]
+IntPointsIn PlateCountersIn;
 SignedCounters PlatePull;
-Counters PlateCellCount;
 Counters PlateContinentalCount;
 // stores per-plate rotations as float4x3s, so we only need 3 loads
 PointsIn Rotations;
@@ -112,30 +115,17 @@ internal void StoreContinental(uint flat, uint value)
     CrustContinentalWords.Store(flat, value);
 }
 
-internal void AddPlatePositionSum(uint where, int3 position)
+internal void AddPlateCounters(uint where, int4 counters)
 {
-    PlatePositionSum.Add(where, position.x);
-    PlatePositionSum.Add(where + 1u, position.y);
-    PlatePositionSum.Add(where + 2u, position.z);
+    PlateCounters.Add(where + 0u, counters.x);
+    PlateCounters.Add(where + 1u, counters.y);
+    PlateCounters.Add(where + 2u, counters.z);
+    PlateCounters.Add(where + 3u, counters.w);
 }
 
-// todo: Can we coalesce this load somehow, but keep things atomic?
-internal int3 LoadPlatePositionSum(uint where)
+internal int4 LoadPlateCountersIn(uint where)
 {
-    int3 position;
-    position.x = PlatePositionSum.Load(where);
-    position.y = PlatePositionSum.Load(where + 1u);
-    position.z = PlatePositionSum.Load(where + 2u);
-    return position;
-}
-
-internal int3 LoadPlatePositionSumIn(uint where)
-{
-    int3 position;
-    position.x = PlatePositionSumIn.Load(where);
-    position.y = PlatePositionSumIn.Load(where + 1u);
-    position.z = PlatePositionSumIn.Load(where + 2u);
-    return position;
+    return PlateCountersIn.Load(where);
 }
 
 internal void AddPlatePull(uint where, int3 pull)

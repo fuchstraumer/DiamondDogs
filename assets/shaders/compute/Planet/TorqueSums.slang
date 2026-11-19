@@ -29,7 +29,8 @@ void SumPullCS(uint3 threadID : SV_DispatchThreadID)
 
     // torque balance is influenced by the plate going underneath this front subduction point
     const uint underPlate = uint(SecondPlate.Load(pointID));
-    const uint cellCount = PlateCellCountIn.Load(underPlate);
+    const int4 plateCounters = LoadPlateCountersIn(underPlate * 4u);
+    const uint cellCount = uint(plateCounters.w);
     if (cellCount == 0u)
     {
         return;
@@ -39,7 +40,7 @@ void SumPullCS(uint3 threadID : SV_DispatchThreadID)
     // the centroid comes from the first dispatch: we get it back into floating point,
     // average it, and then rotate it to the world frame. we then adjust the trench amount
     // based on the plates speed and age
-    const int3 positionSumInt = LoadPlatePositionSumIn(underPlate * 3u);
+    const int3 positionSumInt = plateCounters.xyz;
     const float3 positionSum = (float3(positionSumInt) * PositionSumScaleInv);
 
     const float3 centroidLocal = positionSum / float(cellCount);

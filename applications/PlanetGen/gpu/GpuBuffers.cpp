@@ -10,12 +10,14 @@
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
 #include "RhiTypes.hpp"
+#include "math/MathStorage.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <expected>
+#include <optional>
 #include <print>
 #include <span>
 #include <string>
@@ -266,6 +268,11 @@ namespace planet
     PlanetGpuResult<std::vector<math::Float4>> GpuBuffers::ReadFloat4s(std::string_view name) const
     {
         return ReadTyped<math::Float4>(*this, name);
+    }
+
+    PlanetGpuResult<std::vector<math::Int4>> GpuBuffers::ReadInt4s(std::string_view name) const
+    {
+        return ReadTyped<math::Int4>(*this, name);
     }
 
     PlanetGpuResult<GraphicsResource> GpuBuffers::create(const BufferCreateInfo& create_info, std::span<const std::byte> data)

@@ -2,15 +2,18 @@
 #include "CheckHarness.hpp"
 #include "CommandBuffer.hpp"
 #include "GpuBuffers.hpp"
+#include "PlanetGpuErrors.hpp"
 #include "PlanetMath.hpp"
 #include "PlanetSession.hpp"
 #include "PlanetShaders.hpp"
 #include "PlanetStep.hpp"
 #include "ReferenceSet.hpp"
 #include "StepState.hpp"
+#include "math/MathStorage.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -108,9 +111,8 @@ namespace planet
         {
             ZeroBufferSpec{ "PlateCapCenters", plates * 4u * sizeof(float), true },
             ZeroBufferSpec{ "PlateCapSpread", plateWords, true },
-            ZeroBufferSpec{ "PlateCellCount", plateWords, true },
             ZeroBufferSpec{ "PlateContinentalCount", plateWords, false },
-            ZeroBufferSpec{ "PlatePositionSum", plates * 3u * sizeof(int32_t), false },
+            ZeroBufferSpec{ "PlateCounters", plates * 4u * sizeof(int32_t), true },
             ZeroBufferSpec{ "PlateLiveCursor", plateWords, false },
             ZeroBufferSpec{ "PlateLiveOffset", (plates + 1u) * sizeof(uint32_t), true },
             ZeroBufferSpec{ "LiveDispatch", 3u * sizeof(uint32_t), true },
@@ -140,7 +142,7 @@ namespace planet
 
         const PlanetGpuResult<std::vector<math::Float4>> centres = buffers.ReadFloat4s("PlateCapCenters");
         const PlanetGpuResult<std::vector<float>> spreads = buffers.ReadFloats("PlateCapSpread");
-        const PlanetGpuResult<std::vector<uint32_t>> counts = buffers.ReadWords("PlateCellCount");
+        const PlanetGpuResult<std::vector<uint32_t>> counts = buffers.ReadWords("PlateCounters");
         const PlanetGpuResult<std::vector<uint32_t>> offsets = buffers.ReadWords("PlateLiveOffset");
         const PlanetGpuResult<std::vector<uint32_t>> dispatch = buffers.ReadWords("LiveDispatch");
         const PlanetGpuResult<std::vector<uint32_t>> list = buffers.ReadWords("LiveCell");
@@ -166,7 +168,8 @@ namespace planet
             const size_t plateIndex = static_cast<size_t>(plate);
             const uint32_t begin = expected->Offsets[plateIndex];
             const uint32_t end = expected->Offsets[plateIndex + 1u];
-            countsWrong += (*counts)[plateIndex] != end - begin ? 1 : 0;
+            // plateCellCount is at .w component of the PlateCounters buffer, instead of being a single scalar buffer
+            countsWrong += (*counts)[(plateIndex * 4) + 3] != end - begin ? 1 : 0;
 
             if ((*offsets)[plateIndex] != begin)
             {

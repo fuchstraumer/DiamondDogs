@@ -67,6 +67,7 @@ namespace planet
         [[nodiscard]] PlanetGpuResult<std::vector<uint32_t>> ReadWords(std::string_view name) const;
         [[nodiscard]] PlanetGpuResult<std::vector<float>> ReadFloats(std::string_view name) const;
         [[nodiscard]] PlanetGpuResult<std::vector<math::Float4>> ReadFloat4s(std::string_view name) const;
+        [[nodiscard]] PlanetGpuResult<std::vector<math::Int4>> ReadInt4s(std::string_view name) const;
 
     private:
         struct Entry
