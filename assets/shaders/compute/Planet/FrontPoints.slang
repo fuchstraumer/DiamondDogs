@@ -201,7 +201,8 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID,
     float distance = asfloat(0x7f800000);
     if (best.Index >= 0)
     {
-        distance = 6370.0f * acos(clamp(best.Cosine, -1.0f, 1.0f));
+        const float3 delta = worldPoint - LatticePoint(best.Index, int(Params.PointCount));
+        distance = 6370.0f * 2.0f * asin(clamp(0.5f * length(delta), 0.0f, 1.0f));
     }
 
     StoreCellState(flattenedPoint, best.Index, distance);

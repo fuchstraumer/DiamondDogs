@@ -32,6 +32,8 @@ extern struct CellPoints : IReadWriteBuffer<int2>;
 FlagBytes CrustFlags;
 [ls_resource_tags("Aliased:CrustFlags")]
 FlagBytesIn CrustFlagsIn;
+[ls_resource_tags("Aliased:CrustFlags")]
+WordsIn CrustFlagsPackedIn;
 
 Words CrustFlagsWords;
 [ls_resource_tags("Aliased:CrustFlagsWords")]
