@@ -30,6 +30,15 @@ namespace planet
         "SumPullCS", "UpliftCS",
     };
 
+    /** The entry points of one live simulation step: passes 1 to 6 plus MovePlatesAndClearCountersCS. */
+    inline constexpr std::array<std::string_view, 15> k_LiveStepEntryPoints
+    {
+        "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
+        "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
+        "CountFrontPointsCS", "OffsetFrontPointsCS", "ScatterFrontPointsCS", "NearestFrontPointCS",
+        "SumPullCS", "UpliftCS", "MovePlatesAndClearCountersCS",
+    };
+
     /** The live cell passes (LiveCells.slang): a group of 256 threads covers 1024 cells of one plate. */
     inline constexpr uint32_t k_LiveGroupSize = 256u;
     inline constexpr uint32_t k_LiveGroupCells = 1024u;
@@ -110,6 +119,15 @@ namespace planet
 
         /** @brief Records the passes, with a barrier between each two dispatches. */
         void RecordStep(rhi::CommandBuffer& command_buffer) const;
+
+        /** @brief Records RecordStep, a compute barrier, and MovePlatesAndClearCountersCS for live stepping. */
+        void RecordLiveStep(rhi::CommandBuffer& command_buffer) const;
+
+        /** @brief Dispatches a 2D entry point (such as RenderMapCS) using this step's bound descriptor sets. */
+        void RecordDispatch2D(rhi::CommandBuffer& command_buffer,
+                              std::string_view entry_point,
+                              uint32_t width,
+                              uint32_t height) const;
 
         /** @brief Records the passes as RecordStep does, with a GPU timer scope for the step and for each pass
          *  (k_StepScope, k_StepScopes), and for each dispatch when `detail` is Dispatches. */

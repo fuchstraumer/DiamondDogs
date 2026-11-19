@@ -53,6 +53,8 @@ void FillGapsCS(uint3 threadId : SV_DispatchThreadID)
         WriteNewOceanCrust(uint(plate) * Params.PointCount + uint(cell));
         StoreOwners(point, int2(plate, cell), owners.Data.zw);
     }
+
+    PreviousPlate.Store(point, plate);
 }
 
 [shader("compute")]

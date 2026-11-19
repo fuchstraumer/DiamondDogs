@@ -9,7 +9,6 @@ __include Buffers;
 struct MovePlatesParams
 {
     float Time;
-    float TimeStepMy;
 };
 
 ConstantBuffer<MovePlatesParams> MovePlatesConstants;
@@ -52,7 +51,7 @@ float3x3 Reorthogonalize(in float3x3 mat)
 void MovePlatesAndClearCountersCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint plateCount = Params.PlateCount;
-    const float dt = MovePlatesConstants.TimeStepMy;
+    const float dt = Params.TimeStepMy;
 
     for (uint plate = threadId.x; plate < plateCount; plate += MovePlatesGroupSize)
     {

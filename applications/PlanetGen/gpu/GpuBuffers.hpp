@@ -1,6 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_PLANET_GPU_BUFFERS_HPP
 #define DIAMOND_DOGS_PLANET_GPU_BUFFERS_HPP
+#include "ImageDataFormats.hpp"
 #include "ManifestDescriptors.hpp"
 #include "PlanetGpuErrors.hpp"
 #include "ResourceTypes.hpp"
@@ -50,6 +51,15 @@ namespace planet
                                                     std::string_view entry_point,
                                                     std::string_view resource,
                                                     std::span<const UniformValue> values);
+        /** @brief Overwrites an existing host-visible uniform buffer with `data`. */
+        [[nodiscard]] PlanetGpuError UpdateUniform(std::string_view name, std::span<const std::byte> data) const;
+        /** @brief Packs `values` for `resource` in `entry_point` and updates an existing host-visible uniform buffer. */
+        [[nodiscard]] PlanetGpuError UpdateUniformFrom(const PlanetShaders& shaders,
+                                                       std::string_view entry_point,
+                                                       std::string_view resource,
+                                                       std::span<const UniformValue> values) const;
+        /** @brief A device-local 2D storage image with compute UAV and transfer source usage. */
+        [[nodiscard]] PlanetGpuError AddStorageImage(std::string_view name, uint32_t width, uint32_t height, ImageFormat format);
 
         [[nodiscard]] const BoundResources& Bound() const noexcept;
         /** @brief Records a copy of each readable buffer to its readback buffer, with the barriers before and after. */
@@ -61,6 +71,8 @@ namespace planet
         [[nodiscard]] PlanetGpuError RecordCopy(rhi::CommandBuffer& command_buffer, std::string_view source, std::string_view destination) const;
         /** @brief The buffer `name`, for a command that takes a buffer (an indirect dispatch), or nothing. */
         [[nodiscard]] std::optional<rhi::BufferHandle> Handle(std::string_view name) const;
+        /** @brief The image `name`, for a barrier or capture, or nothing. */
+        [[nodiscard]] std::optional<rhi::ImageHandle> ImageHandle(std::string_view name) const;
         /** @brief The bytes of a readable buffer. Call it after the submit that holds RecordReadbackCopies finished. */
         [[nodiscard]] PlanetGpuResult<std::vector<std::byte>> Read(std::string_view name) const;
         [[nodiscard]] PlanetGpuResult<std::vector<int32_t>> ReadInts(std::string_view name) const;

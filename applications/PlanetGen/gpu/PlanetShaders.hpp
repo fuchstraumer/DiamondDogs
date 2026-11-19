@@ -112,6 +112,12 @@ namespace planet
                             const PassBindings& bindings,
                             std::string_view entry_point,
                             uint32_t thread_count) const;
+        /** @brief Binds the program and its set, and dispatches enough workgroups for `width` x `height` threads in xy. */
+        void RecordDispatch2D(rhi::CommandBuffer& command_buffer,
+                              const PassBindings& bindings,
+                              std::string_view entry_point,
+                              uint32_t width,
+                              uint32_t height) const;
         /** @brief Binds the program and its set, and dispatches the group counts at `offset` in `arguments`, which an
          *  earlier pass wrote. RecordIndirectBarrier must come between that pass and this dispatch. */
         void RecordDispatchIndirect(rhi::CommandBuffer& command_buffer,

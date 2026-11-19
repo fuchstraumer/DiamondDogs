@@ -13,6 +13,7 @@ import LodestoneShims;
 extern static const bool CRUST_FLAG_BYTES = true;
 
 extern struct FloatsIn : IReadBuffer<float>;
+extern struct Ints : IReadWriteBuffer<int>;
 extern struct IntsIn : IReadBuffer<int>;
 extern struct Words : IReadWriteBuffer<uint>;
 extern struct WordsIn : IReadBuffer<uint>;
@@ -75,8 +76,10 @@ WordsIn PairVotesIn; // read by SwapToMajorityCS
 [ls_resource_tags("Aliased:LowVotes")]
 WordsIn LowVotesIn; // read by SwapToMajorityCS
 
-// Used by Owners.slang
-IntsIn PreviousPlate;
+// Used by Owners.slang (readonly via PreviousPlateIn) and FillGapsCS (updated in-place for next tick)
+Ints PreviousPlate;
+[ls_resource_tags("Aliased:PreviousPlate")]
+IntsIn PreviousPlateIn;
 
 // .x = BestPlate, .y = BestCell, .z = SecondPlate, .w = SecondCell
 IntPoints Owners;

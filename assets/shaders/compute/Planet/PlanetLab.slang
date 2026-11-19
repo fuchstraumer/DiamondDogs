@@ -13,3 +13,4 @@ __include Uplift;
 __include TorqueSums;
 __include LiveCells;
 __include MovePlates;
+__include RenderMap;

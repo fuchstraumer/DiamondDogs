@@ -176,12 +176,14 @@ namespace planet
     bool AddParamsUniform(GpuBuffers& buffers,
                           const PlanetShaders& shaders,
                           std::string_view entry_point,
-                          StepSize size)
+                          StepSize size,
+                          float time_step_my)
     {
-        const std::array<UniformValue, 2> values
+        const std::array<UniformValue, 3> values
         {
             UniformUint("PointCount", size.PointCount),
             UniformUint("PlateCount", size.PlateCount),
+            UniformFloat("TimeStepMy", time_step_my),
         };
         return buffers.AddUniformFrom(shaders, entry_point, "Params", values) == PlanetGpuError::Success;
     }
@@ -260,7 +262,11 @@ namespace planet
         return buffers.AddStorage("OwnersOrder", std::as_bytes(std::span{ order }), false) == PlanetGpuError::Success;
     }
 
-    bool AddStepBuffers(GpuBuffers& buffers, const PlanetShaders& shaders, const ReferenceSet& reference, StepReadback readback)
+    bool AddStepBuffers(GpuBuffers& buffers,
+                        const PlanetShaders& shaders,
+                        const ReferenceSet& reference,
+                        StepReadback readback,
+                        float time_step_my)
     {
         const StepSize size
         {
@@ -271,22 +277,15 @@ namespace planet
         const bool readable = readback == StepReadback::Outputs;
 
         // the uniform buffers: the sizes, and the time of the step for passes 3 and 5
-        if (!AddParamsUniform(buffers, shaders, "OwnersCS", size) ||
+        if (!AddParamsUniform(buffers, shaders, "OwnersCS", size, time_step_my) ||
             !AddTimeUniform(buffers, shaders, "FillGapsCS", "Pass3Constants", reference.Time()) ||
             !AddTimeUniform(buffers, shaders, "UpliftCS", "UpliftConstants", reference.Time()))
         {
             return false;
         }
 
-        // the inputs that no pass writes
-        const std::array<ReferenceBufferSpec, 1> inputs
-        {
-            ReferenceBufferSpec{ "PreviousPlate", "previous_plate", ReferenceArrayForm::Int, false },
-        };
-
         if (!AddRotationsBuffer(buffers, reference) ||
             !AddOwnersOrderBuffer(buffers, reference.PointCount()) ||
-            !AddReferenceBuffers(buffers, reference, storage, inputs) ||
             !AddPoleRatesBuffer(buffers, reference) ||
             !AddCrustFlagsBuffer(buffers, reference, storage, "ref_alive", "ref_continental", readable, true) ||
             !AddCrustStateBuffer(buffers, reference, "ref_relief", "ref_birth", "ref_orogeny_time", "ref_orogeny", readable, true))
@@ -294,25 +293,28 @@ namespace planet
             return false;
         }
 
-        // the plate caps of the start state, with their initial copies: pass 3b of each step writes the next step's caps
+        // the plate caps and previous plate of the start state, with their initial copies: passes 3 and 3b write the next step's
         const std::optional<std::vector<uint8_t>> alive = reference.Bytes("ref_alive");
+        const std::optional<std::vector<std::byte>> previousPlate =
+            ReadReferenceBytes(reference, "previous_plate", ReferenceArrayForm::Int, storage);
 
-        if (!alive.has_value())
+        if (!alive.has_value() || !previousPlate.has_value())
         {
             return false;
         }
 
         const PlateCaps caps = ComputePlateCaps(*alive, reference.PointCount(), reference.PlateCount());
         const std::span<const std::string_view> carried = StepCarriedBuffers();
-        const std::array<std::span<const std::byte>, 2> capBytes
+        const std::array<std::span<const std::byte>, 3> carriedBytes
         {
             std::as_bytes(std::span{ caps.Centres }),
             std::as_bytes(std::span{ caps.Spreads }),
+            std::span<const std::byte>{ *previousPlate },
         };
 
-        if (carried.size() != capBytes.size())
+        if (carried.size() != carriedBytes.size())
         {
-            std::println(stderr, "AddStepBuffers: the plate caps differ from StepCarriedBuffers");
+            std::println(stderr, "AddStepBuffers: the carried buffers differ from StepCarriedBuffers");
             return false;
         }
 
@@ -320,11 +322,18 @@ namespace planet
         {
             const size_t entry = static_cast<size_t>(index);
 
-            if (buffers.AddStorage(carried[entry], capBytes[entry], readable) != PlanetGpuError::Success ||
-                buffers.AddStorage(InitialName(carried[entry]), capBytes[entry], false) != PlanetGpuError::Success)
+            if (buffers.AddStorage(carried[entry], carriedBytes[entry], readable) != PlanetGpuError::Success ||
+                buffers.AddStorage(InitialName(carried[entry]), carriedBytes[entry], false) != PlanetGpuError::Success)
             {
                 return false;
             }
+        }
+
+        const size_t riftBytes = static_cast<size_t>(reference.PlateCount()) * 4u * sizeof(float);
+
+        if (buffers.AddZeroedStorage("PlateRiftIn", riftBytes, false) != PlanetGpuError::Success)
+        {
+            return false;
         }
 
         // the outputs and counters, as 32-bit words. RecordReset zeroes them again before each step

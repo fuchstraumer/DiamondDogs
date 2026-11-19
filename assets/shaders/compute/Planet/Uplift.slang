@@ -66,7 +66,8 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
         const float shape = SubductionProfile(cellState.GetDistance(), reach);
         const FrontState frontState = LoadFrontStateIn(frontPoint);
         const float rate = BaseUplift * shape * frontState.GetStrength();
-        relief += rate * TimeStepMy;
+        const float dt = Params.TimeStepMy;
+        relief += rate * dt;
 
         if (rate > ActiveUplift)
         {
@@ -79,7 +80,7 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
     // slight erosion: cap, accrete, store
     if (isContinental)
     {
-        relief *= 1.0f - ContinentErosion * TimeStepMy / PeakElevation;
+        relief *= 1.0f - ContinentErosion * Params.TimeStepMy / PeakElevation;
     }
 
     // peak elevation will also need to adjust for gravity: Olympus Mons vs Everest, for example!

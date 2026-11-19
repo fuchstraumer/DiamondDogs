@@ -300,10 +300,11 @@ namespace planet
         auto bindings = std::make_unique<PassBindingsImpl>();
         bindings->Device = impl->Device;
         const uint32_t setCount = static_cast<uint32_t>(impl->Passes.size());
-        const std::array<VkDescriptorPoolSize, 2> poolSizes
+        const std::array<VkDescriptorPoolSize, 3> poolSizes
         {
             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, k_StorageBuffersPerSet * setCount },
             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, k_UniformBuffersPerSet * setCount },
+            VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2u * setCount },
         };
         const VkDescriptorPoolCreateInfo poolInfo
         {
@@ -357,6 +358,26 @@ namespace planet
         RhiAssert(command_buffer.BindShaders(pass->Program->Program()));
         command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Compute, pass->Program->PipelineLayout(), 0, std::span{ &set, 1 });
         command_buffer.Dispatch((thread_count + workgroupX - 1u) / workgroupX, 1, 1);
+    }
+
+    void PlanetShaders::RecordDispatch2D(rhi::CommandBuffer& command_buffer,
+                                         const PassBindings& bindings,
+                                         std::string_view entry_point,
+                                         uint32_t width,
+                                         uint32_t height) const
+    {
+        const PlanetShadersImpl::Pass* pass = impl->Find(entry_point);
+        // a name that Create did not get is a programming error
+        assert(pass != nullptr);
+        const size_t passIndex = static_cast<size_t>(pass - impl->Passes.data());
+        const rhi::DescriptorSetHandle set{ reinterpret_cast<uint64_t>(bindings.impl->Sets[passIndex]) };
+        const std::array<uint32_t, 3> workgroup = pass->Program->Workgroup();
+        const uint32_t wgX = workgroup[0];
+        const uint32_t wgY = workgroup[1];
+
+        RhiAssert(command_buffer.BindShaders(pass->Program->Program()));
+        command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Compute, pass->Program->PipelineLayout(), 0, std::span{ &set, 1 });
+        command_buffer.Dispatch((width + wgX - 1u) / wgX, (height + wgY - 1u) / wgY, 1u);
     }
 
     void PlanetShaders::RecordDispatchIndirect(rhi::CommandBuffer& command_buffer,

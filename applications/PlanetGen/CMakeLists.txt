@@ -68,3 +68,10 @@ add_executable(PlanetGenBench
 target_link_libraries(PlanetGenBench PRIVATE planet_reference planet_gpu bootstrap_vulkan)
 set_target_properties(PlanetGenBench PROPERTIES FOLDER "Applications/PlanetGen" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(PlanetGenBench LIBRARY)
+
+# PlanetGenTimelapse: live plate stepping with headless FrameCapture PNG output.
+add_executable(PlanetGenTimelapse
+    "timelapse/main.cpp")
+target_link_libraries(PlanetGenTimelapse PRIVATE planet_reference planet_gpu frame_capture bootstrap_vulkan)
+set_target_properties(PlanetGenTimelapse PROPERTIES FOLDER "Applications/PlanetGen" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+diamond_dogs_add_pch(PlanetGenTimelapse LIBRARY)

@@ -25,8 +25,8 @@ namespace planet
     {
         constexpr std::string_view k_LiveDispatchBuffer{ "LiveDispatch" };
 
-        // pass 3b writes these, and the next step's OwnersCS reads them
-        constexpr std::array<std::string_view, 2> k_CarriedBuffers{ "PlateCapCenters", "PlateCapSpread" };
+        // pass 3 and 3b write these, and the next step's OwnersCS / FillGapsCS read them
+        constexpr std::array<std::string_view, 3> k_CarriedBuffers{ "PlateCapCenters", "PlateCapSpread", "PreviousPlate" };
 
         constexpr std::array<StepBufferSpec, 15> k_ZeroedBuffers
         {
@@ -216,6 +216,21 @@ namespace planet
     void PlanetStep::RecordStep(rhi::CommandBuffer& command_buffer) const
     {
         recordPasses(command_buffer, nullptr, StepTimerDetail::Passes);
+    }
+
+    void PlanetStep::RecordLiveStep(rhi::CommandBuffer& command_buffer) const
+    {
+        RecordStep(command_buffer);
+        RecordComputeBarrier(command_buffer);
+        shaders.RecordDispatch(command_buffer, *bindings, "MovePlatesAndClearCountersCS", 1u);
+    }
+
+    void PlanetStep::RecordDispatch2D(rhi::CommandBuffer& command_buffer,
+                                      std::string_view entry_point,
+                                      uint32_t width,
+                                      uint32_t height) const
+    {
+        shaders.RecordDispatch2D(command_buffer, *bindings, entry_point, width, height);
     }
 
     void PlanetStep::RecordStep(rhi::CommandBuffer& command_buffer, rhi::GpuTimerBlock& timers, StepTimerDetail detail) const

@@ -1,5 +1,6 @@
 #include "GpuBuffers.hpp"
 #include "CommandBuffer.hpp"
+#include "ImageDataFormats.hpp"
 #include "ManifestDescriptors.hpp"
 #include "PlanetGpuErrors.hpp"
 #include "PlanetShaders.hpp"
@@ -142,6 +143,96 @@ namespace planet
         return AddUniform(resource, *bytes);
     }
 
+    PlanetGpuError GpuBuffers::UpdateUniform(std::string_view name, std::span<const std::byte> data) const
+    {
+        const Entry* entry = find(name);
+
+        if (entry == nullptr || data.size() > entry->ByteSize)
+        {
+            std::println(stderr, "GpuBuffers: cannot update uniform {} (missing, or size mismatch)", name);
+            return PlanetGpuError::BufferNotFound;
+        }
+
+        if (data.empty())
+        {
+            return PlanetGpuError::Success;
+        }
+
+        rhi::ResourceFuture<void*> mapped = resources.MapBuffer(entry->Buffer, data.size(), 0u);
+
+        if (resources.Wait(mapped, k_TimeoutNs) != rhi::FutureState::Complete)
+        {
+            std::println(stderr, "GpuBuffers: MapBuffer failed on {}", name);
+            return PlanetGpuError::ReadbackFailed;
+        }
+
+        std::memcpy(mapped.Get(), data.data(), data.size());
+        rhi::OperationFuture unmapped = resources.UnmapBuffer(entry->Buffer, data.size(), 0u);
+
+        if (resources.Wait(unmapped, k_TimeoutNs) != rhi::FutureState::Complete)
+        {
+            std::println(stderr, "GpuBuffers: UnmapBuffer failed on {}", name);
+            return PlanetGpuError::ReadbackFailed;
+        }
+
+        return PlanetGpuError::Success;
+    }
+
+    PlanetGpuError GpuBuffers::UpdateUniformFrom(const PlanetShaders& shaders,
+                                                 std::string_view entry_point,
+                                                 std::string_view resource,
+                                                 std::span<const UniformValue> values) const
+    {
+        const PlanetGpuResult<std::vector<std::byte>> bytes = shaders.UniformBytes(entry_point, resource, values);
+
+        if (!bytes.has_value())
+        {
+            return bytes.error();
+        }
+
+        return UpdateUniform(resource, *bytes);
+    }
+
+    PlanetGpuError GpuBuffers::AddStorageImage(std::string_view name, uint32_t width, uint32_t height, ImageFormat format)
+    {
+        ImageCreateInfo createInfo{};
+        createInfo.Domain = ResourceDomain::GPUOnly;
+        createInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::TransferSource;
+        createInfo.Type = ImageType::Type2D;
+        createInfo.Format = format;
+        createInfo.Width = width;
+        createInfo.Height = height;
+        createInfo.Depth = 1u;
+        createInfo.MipLevels = 1u;
+        createInfo.ArrayLayers = 1u;
+        createInfo.SampleCount = 1u;
+        createInfo.ViewInfo = ImageViewCreateInfo
+        {
+            .ViewType = ImageViewType::Type2D,
+            .Range = ImageRange
+            {
+                .AspectMask = ImageAspectFlags::Color,
+                .BaseMipLevel = 0u,
+                .LevelCount = 1u,
+                .BaseArrayLayer = 0u,
+                .LayerCount = 1u,
+            },
+        };
+        createInfo.Name = name;
+
+        rhi::ResourceFuture<GraphicsResource> image = resources.CreateImage(createInfo);
+
+        if (resources.Wait(image, k_TimeoutNs) != rhi::FutureState::Complete)
+        {
+            std::println(stderr, "GpuBuffers: ResourceContext did not create image {} ({}x{})", name, width, height);
+            return PlanetGpuError::BufferCreationFailed;
+        }
+
+        Entry& entry = entries.emplace_back(Entry{ std::string{ name }, image.Get(), GraphicsResource::Null(), 0u });
+        bound.emplace(entry.Name, BoundResource{ .Resource = entry.Buffer });
+        return PlanetGpuError::Success;
+    }
+
     const BoundResources& GpuBuffers::Bound() const noexcept
     {
         return bound;
@@ -217,6 +308,18 @@ namespace planet
         }
 
         return rhi::BufferHandle{ entry->Buffer.VkHandle };
+    }
+
+    std::optional<rhi::ImageHandle> GpuBuffers::ImageHandle(std::string_view name) const
+    {
+        const Entry* entry = find(name);
+
+        if (entry == nullptr)
+        {
+            return std::nullopt;
+        }
+
+        return rhi::ImageHandle{ entry->Buffer.VkHandle };
     }
 
     PlanetGpuResult<std::vector<std::byte>> GpuBuffers::Read(std::string_view name) const

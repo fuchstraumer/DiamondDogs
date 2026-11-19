@@ -73,7 +73,8 @@ namespace planet
     [[nodiscard]] bool AddParamsUniform(GpuBuffers& buffers,
                                         const PlanetShaders& shaders,
                                         std::string_view entry_point,
-                                        StepSize size);
+                                        StepSize size,
+                                        float time_step_my = 2.0f);
     [[nodiscard]] bool AddTimeUniform(GpuBuffers& buffers,
                                       const PlanetShaders& shaders,
                                       std::string_view entry_point,
@@ -94,7 +95,11 @@ namespace planet
     /** @brief Creates every buffer that PlanetStep binds, from the reference state at the start of the step: the inputs,
      *  the crust arrays and the plate caps with their initial copies, the uniform buffers, and the outputs and counters (zero). The crust
      *  flags use the storage of `shaders`. Prints the cause and returns false when a file or a buffer fails. */
-    [[nodiscard]] bool AddStepBuffers(GpuBuffers& buffers, const PlanetShaders& shaders, const ReferenceSet& reference, StepReadback readback);
+    [[nodiscard]] bool AddStepBuffers(GpuBuffers& buffers,
+                                      const PlanetShaders& shaders,
+                                      const ReferenceSet& reference,
+                                      StepReadback readback,
+                                      float time_step_my = 2.0f);
 
     [[nodiscard]] bool AddCrustFlagsBuffer(GpuBuffers& buffers,
                                            const ReferenceSet& reference,

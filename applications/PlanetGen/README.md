@@ -328,19 +328,18 @@ Slang; the host side here writes descriptors only.
 
 ### Storage of the crust flags
 
-All passes read and write one set of crust arrays: `CrustAlive`, `CrustContinental` and `CrustBirth`. The Capability
-axis `CRUST_FLAG_BYTES` selects the storage of the two flags:
+The Capability axis `CRUST_FLAG_BYTES` selects the storage of the packed crust flags (`bit 0` = alive, `bit 1` = continental):
 
-| Value | Buffers | Cost | Device needs |
+| Value | Buffer | Cost | Device needs |
 |---|---|---|---|
-| `true` | `CrustFlagBytes`: one byte for each cell. Alive in bit 0, Continental in bit 1. | 1 byte | `StorageBuffer8BitAccess`, `UniformAndStorageBuffer8BitAccess`, `Int8` (what the cook recorded) |
-| `false` | `CrustAliveWords`, `CrustContinentalWords`: one word for each cell | 4 bytes | nothing more |
+| `true` | `CrustFlags`: one byte for each cell (aliased as `CrustFlagsIn` for 1-byte RO loads and `CrustFlagsPackedIn` as `WordsIn` for 4-byte coalesced loads in `LiveCells.slang`). | 1 byte | `StorageBuffer8BitAccess`, `UniformAndStorageBuffer8BitAccess`, `Int8` |
+| `false` | `CrustFlagsWords`: one 32-bit word for each cell (aliased as `CrustFlagsWordsIn`). | 4 bytes | nothing more |
 
 A byte store changes only its own byte, so the threads of pass 3 need no atomic in either form. The 8-bit needs are
 `Wanted`, not `Required`, because only one value of a Capability axis needs them. `PlanetShaders::Create` with
 `CrustFlagChoice::BestForDevice` uses `PreferCapable`, so it takes bytes when the device was created with 8-bit
-storage. `PlanetShaders::CrustFlags()` tells the host which buffers to create; `CrustFlagBufferNames` gives their
-names. Each variant binds only the buffers of its own storage.
+storage. `PlanetShaders::CrustFlags()` tells the host which buffer to create; `CrustFlagBufferNames` gives its
+name. Each variant binds only the buffers of its own storage.
 
 ### Votes
 
@@ -348,3 +347,24 @@ Pass 2 counts votes with `IAtomicBuffer<uint>.Add`, one atomic for each vote. `A
 it needs one index on every lane, and the pair index changes from lane to lane. It would also save little. In the
 100 000-point capture, 808 points vote (0.8 %), a wave of 32 that has a voter has 1.1 voters on average, and a perfect
 aggregation would remove 18 of the 808 atomics.
+
+---
+
+### Tail Pointer Updates
+
+#### 2026-11-19 14:35 (Gemini)
+- **Packed buffer layout & read-only aliasing (`[ls_resource_tags("Aliased:...")]`):**
+  - Coalesced split buffers into 16-byte/8-byte vector buffers: `Owners` (`int4`, updated in-place by `FillGapsCS`, replacing `BestPlate`/`BestCell`/`SecondPlate`/`SecondCell`/`Pass3Plate`/`Pass3Cell`), `CrustFlags` (1-byte bitfield), `CrustState` (`float4`: relief, birth, orogenyTime, `asfloat(orogeny)`), `FrontData` (`float4`: strength, speed, slabAge, `asfloat(subduction)`), `CellFronts` (`int2`: frontPoint, `asint(distance)`), `PlateCounters` (`int4`: positionSum.xyz, cellCount), `PoleRatesIn` (`float4`: pole.xyz, rate), `Rotations` (`3 × float4` per plate).
+  - `ManifestDescriptors.cpp` resolves `Aliased:<Target>` tags and enforces a same-dispatch aliasing guard.
+- **Shader optimizations (100 000 points, RTX 4080, RelWithDebInfo, bytes):**
+  - `OwnersCS`: `groupshared` world-space cap prologue + `Aliased:PlateCapSpread` RO view + skip `LoadCrustStateIn` on continental cells (`47.1 µs → 24.6 µs` bench).
+  - `LiveCells.slang`: `CrustFlagsPackedIn` (`WordsIn` alias of `CrustFlags`) loads 4 contiguous cells in one `LDG.E.32`, skips dead chunks with `(packed4 & 0x01010101u) == 0u`, uses `countbits` + uniform `GroupCursor == 0u` early-out (`CountLiveCellsCS` `8.2 µs`, `ScatterLiveCellsCS` `7.8 µs`).
+  - `NearestFrontPointCS`: maximizes `dot(worldPoint, frontPoint.xyz)` without per-candidate tie-breaker, recomputing exact chord `asin` once after the loop (`20.5 µs → 14.3 µs` bench; `21.6 µs → 16.9 µs` locked 2205 MHz).
+  - `RemoveSubductedCS`: linearized single `STG.128` write to `FrontData`; `FillGapsCS` skips non-gap `Owners` writes and updates `PreviousPlate` in-place.
+  - **Bench median:** `106.5 µs` (`96.3 µs` min), down from `339.5 µs` baseline (**3.18× speedup**). Locked-clock Nsight GPU Trace runs 1–5 live in `build/profiler_captures/planetgen_diag.db`.
+- **Live multi-step & visualization (`MovePlates.slang`, `RenderMap.slang`, `PlanetGenTimelapse`):**
+  - Added `MovePlatesAndClearCountersCS` (1-workgroup, wave-size agnostic): advances `PoleRatesRW` and `RotationsRW` (slab pull + `PlateRiftIn` rift push + basal/keel drag + Rodrigues + Gram-Schmidt) and clears all 8 per-plate/per-pair atomic counters in one dispatch.
+  - Added `Params.TimeStepMy` so sub-stepping (`--dt`) scales uplift, erosion, trench area, and plate motion uniformly.
+  - Added `RenderMapCS` (`RWTexture2D<float4> MapOutput`) and `PlanetGenTimelapse` wired to `modules/FrameCapture` for headless PNG dumps.
+- **Next steps / TODOs:**
+  - See [HANDOFF.md](HANDOFF.md) for detailed next steps: coastal shelf/slope elevation pass, GBuffer-style debug visualization modes + `AgentTools` / `FrameCapture` subregion inspection, WebGPU wave-size portability (`Offset*CS`, `LiveCells.slang`), and RenderGraph integration.

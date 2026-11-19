@@ -9,6 +9,7 @@ struct OwnersParams
 {
     uint PointCount;
     uint PlateCount;
+    float TimeStepMy;
 };
 
 ConstantBuffer<OwnersParams> Params;
@@ -86,7 +87,7 @@ void OwnersCS(uint3 threadId : SV_DispatchThreadID, uint3 laneInGroup : SV_Group
     // todo-ship: store point indices in morton-order so all 32 lanes in a warp will be in a tight 2D patch,
     // as right now they're effectively covering a 360 degree ring
     const float3 worldPoint = LatticePoint(int(point), count);
-    const int previousPlate = PreviousPlate.Load(point);
+    const int previousPlate = PreviousPlateIn.Load(point);
 
     float bestScore = NoScore;
     float secondScore = NoScore;
