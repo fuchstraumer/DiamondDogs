@@ -24,21 +24,25 @@ namespace planet
     namespace
     {
         constexpr std::string_view k_LiveDispatchBuffer{ "LiveDispatch" };
+        constexpr std::string_view k_FrontTileDispatchBuffer{ "FrontTileDispatch" };
 
         // pass 3 and 3b write these, and the next step's OwnersCS / FillGapsCS read them
         constexpr std::array<std::string_view, 3> k_CarriedBuffers{ "PlateCapCenters", "PlateCapSpread", "PreviousPlate" };
 
-        constexpr std::array<StepBufferSpec, 15> k_ZeroedBuffers
+        constexpr std::array<StepBufferSpec, 18> k_ZeroedBuffers
         {
             StepBufferSpec{ "PairVotes", BufferExtent::PlatesSquared },
             StepBufferSpec{ "LowVotes", BufferExtent::PlatesSquared },
             StepBufferSpec{ "PlateLiveCursor", BufferExtent::Plates },
             StepBufferSpec{ "PlateLiveOffset", BufferExtent::PlatesPlusOne },
             StepBufferSpec{ "LiveDispatch", BufferExtent::IndirectDispatch },
+            StepBufferSpec{ "LiveGroupCounts", BufferExtent::LiveGroups },
             StepBufferSpec{ "PlateFrontPointCount", BufferExtent::Plates },
             StepBufferSpec{ "PlateFrontPointCursor", BufferExtent::Plates },
             StepBufferSpec{ "PlateFrontPointOffset", BufferExtent::PlatesPlusOne },
             StepBufferSpec{ "FrontPoints", BufferExtent::PointsTimes4 },
+            StepBufferSpec{ "FrontTileCaps", BufferExtent::FrontTilesTimes4 },
+            StepBufferSpec{ "FrontTileDispatch", BufferExtent::IndirectDispatch },
             StepBufferSpec{ "PlateContinentalCount", BufferExtent::Plates },
             StepBufferSpec{ "PlateCounters", BufferExtent::PlatesTimes4 },
             StepBufferSpec{ "PlatePull", BufferExtent::PlatesTimes3 },
@@ -101,6 +105,10 @@ namespace planet
             return plates * points;
         case BufferExtent::CellsTimes2:
             return plates * points * 2u;
+        case BufferExtent::LiveGroups:
+            return static_cast<size_t>(LiveGroupCount(size));
+        case BufferExtent::FrontTilesTimes4:
+            return ((points + 63u) / 64u) * 4u;
         case BufferExtent::IndirectDispatch:
             return 3u;
         default:
@@ -139,6 +147,14 @@ namespace planet
             return std::unexpected(PlanetGpuError::BufferNotFound);
         }
 
+        const std::optional<rhi::BufferHandle> frontTileDispatch = buffers.Handle(k_FrontTileDispatchBuffer);
+
+        if (!frontTileDispatch.has_value())
+        {
+            std::println(stderr, "PlanetStep: no buffer {}", k_FrontTileDispatchBuffer);
+            return std::unexpected(PlanetGpuError::BufferNotFound);
+        }
+
         PlanetGpuResult<std::unique_ptr<PassBindings>> bound = shaders.Bind(buffers.Bound());
 
         if (!bound.has_value())
@@ -146,18 +162,20 @@ namespace planet
             return std::unexpected(bound.error());
         }
 
-        return std::make_unique<PlanetStep>(shaders, buffers, std::move(*bound), *liveDispatch, size);
+        return std::make_unique<PlanetStep>(shaders, buffers, std::move(*bound), *liveDispatch, *frontTileDispatch, size);
     }
 
     PlanetStep::PlanetStep(const PlanetShaders& _shaders,
                            const GpuBuffers& _buffers,
                            std::unique_ptr<PassBindings>&& _bindings,
                            rhi::BufferHandle _live_dispatch,
+                           rhi::BufferHandle _front_tile_dispatch,
                            StepSize _size) noexcept :
         shaders{ _shaders },
         buffers{ _buffers },
         bindings{ std::move(_bindings) },
         liveDispatch{ _live_dispatch },
+        frontTileDispatch{ _front_tile_dispatch },
         size{ _size }
     {}
 
@@ -292,13 +310,11 @@ namespace planet
         // OffsetFrontPointsCS is one workgroup: a thread count of 1 dispatches one group, whatever its size
         {
             const OptionalScope pass(timers, k_StepScopes[4]);
-            recordDispatch(command_buffer, timers, detail, "CountFrontPointsCS", points);
-            RecordComputeBarrier(command_buffer);
             recordDispatch(command_buffer, timers, detail, "OffsetFrontPointsCS", 1u);
             RecordComputeBarrier(command_buffer);
             recordDispatch(command_buffer, timers, detail, "ScatterFrontPointsCS", points);
-            RecordComputeBarrier(command_buffer);
-            recordListDispatch(command_buffer, timers, detail, "NearestFrontPointCS");
+            RecordIndirectBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "BuildFrontTileCapsCS", frontTileDispatch);
         }
 
         RecordComputeBarrier(command_buffer);
@@ -312,7 +328,7 @@ namespace planet
 
         {
             const OptionalScope pass(timers, k_StepScopes[6]);
-            recordListDispatch(command_buffer, timers, detail, "UpliftCS");
+            recordIndirectDispatch(command_buffer, timers, detail, "FrontDistanceAndUpliftCS", liveDispatch);
         }
     }
 
@@ -327,13 +343,14 @@ namespace planet
         shaders.RecordDispatch(command_buffer, *bindings, entry_point, thread_count);
     }
 
-    void PlanetStep::recordListDispatch(rhi::CommandBuffer& command_buffer,
-                                        rhi::GpuTimerBlock* timers,
-                                        StepTimerDetail detail,
-                                        std::string_view entry_point) const
+    void PlanetStep::recordIndirectDispatch(rhi::CommandBuffer& command_buffer,
+                                            rhi::GpuTimerBlock* timers,
+                                            StepTimerDetail detail,
+                                            std::string_view entry_point,
+                                            rhi::BufferHandle arguments) const
     {
         rhi::GpuTimerBlock* dispatchTimers = detail == StepTimerDetail::Dispatches ? timers : nullptr;
         const OptionalScope scope(dispatchTimers, entry_point);
-        shaders.RecordDispatchIndirect(command_buffer, *bindings, entry_point, liveDispatch, 0u);
+        shaders.RecordDispatchIndirect(command_buffer, *bindings, entry_point, arguments, 0u);
     }
 }

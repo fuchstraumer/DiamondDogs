@@ -348,7 +348,7 @@ namespace planet
         // the uniform buffers: the sizes, and the time of the step for passes 3 and 5
         if (!AddParamsUniform(buffers, shaders, "OwnersCS", size, time_step_my) ||
             !AddTimeUniform(buffers, shaders, "FillGapsCS", "Pass3Constants", reference.Time()) ||
-            !AddTimeUniform(buffers, shaders, "UpliftCS", "UpliftConstants", reference.Time()))
+            !AddTimeUniform(buffers, shaders, "FrontDistanceAndUpliftCS", "UpliftConstants", reference.Time()))
         {
             return false;
         }
@@ -396,7 +396,7 @@ namespace planet
 
         if (!AddParamsUniform(buffers, shaders, "OwnersCS", size, time_step_my, order) ||
             !AddTimeUniform(buffers, shaders, "FillGapsCS", "Pass3Constants", reference.Time()) ||
-            !AddTimeUniform(buffers, shaders, "UpliftCS", "UpliftConstants", reference.Time()))
+            !AddTimeUniform(buffers, shaders, "FrontDistanceAndUpliftCS", "UpliftConstants", reference.Time()))
         {
             return false;
         }

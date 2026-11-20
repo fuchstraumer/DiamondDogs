@@ -290,9 +290,10 @@ namespace planet
         {
             ReferenceBufferSpec{ "PreviousPlate", "previous_plate", ReferenceArrayForm::Int, false },
         };
-        const std::array<ZeroBufferSpec, 1> zeroed
+        const std::array<ZeroBufferSpec, 2> zeroed
         {
             ZeroBufferSpec{ "FrontData", static_cast<size_t>(pointCount) * 4u * sizeof(float), true },
+            ZeroBufferSpec{ "PlateFrontPointCount", static_cast<size_t>(plateCount) * sizeof(uint32_t), false },
         };
         GpuBuffers buffers(context.Session.Resources());
 

@@ -27,12 +27,12 @@ namespace planet
 {
     namespace
     {
-        constexpr std::array<std::string_view, 15> k_AllEntryPoints
+        constexpr std::array<std::string_view, 17> k_AllEntryPoints
         {
             "MapProbeCS", "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
             "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
             "CountFrontPointsCS", "OffsetFrontPointsCS", "ScatterFrontPointsCS", "NearestFrontPointCS",
-            "SumPullCS", "UpliftCS",
+            "BuildFrontTileCapsCS", "FrontDistanceAndUpliftCS", "SumPullCS", "UpliftCS",
         };
 
         constexpr std::array<NamedCheck, 10> k_AllChecks
@@ -103,7 +103,7 @@ namespace planet
         const CrustFlagStorage storage = (*shaders)->CrustFlags();
         const StepSize size{ static_cast<uint32_t>(pointCount), static_cast<uint32_t>(plateCount) };
         const size_t plateWords = plates * sizeof(uint32_t);
-        const std::array<ZeroBufferSpec, 8> zeroed
+        const std::array<ZeroBufferSpec, 9> zeroed
         {
             ZeroBufferSpec{ "PlateCapCenters", plates * 4u * sizeof(float), true },
             ZeroBufferSpec{ "PlateCapSpread", plateWords, true },
@@ -112,6 +112,7 @@ namespace planet
             ZeroBufferSpec{ "PlateLiveCursor", plateWords, false },
             ZeroBufferSpec{ "PlateLiveOffset", (plates + 1u) * sizeof(uint32_t), true },
             ZeroBufferSpec{ "LiveDispatch", 3u * sizeof(uint32_t), true },
+            ZeroBufferSpec{ "LiveGroupCounts", LiveGroupCount(size) * sizeof(uint32_t), false },
             ZeroBufferSpec{ "LiveCell", plates * points * sizeof(uint32_t), true },
         };
         GpuBuffers buffers(context.Session.Resources());
@@ -215,11 +216,12 @@ namespace planet
         const CrustFlagStorage storage = (*shaders)->CrustFlags();
         const StepSize size{ static_cast<uint32_t>(pointCount), static_cast<uint32_t>(plateCount) };
         const size_t plateWords = plates * sizeof(uint32_t);
-        const std::array<ZeroBufferSpec, 5> zeroed
+        const std::array<ZeroBufferSpec, 6> zeroed
         {
             ZeroBufferSpec{ "PlateFrontPointCount", plateWords, true },
             ZeroBufferSpec{ "PlateFrontPointCursor", plateWords, false },
             ZeroBufferSpec{ "PlateFrontPointOffset", (plates + 1u) * sizeof(uint32_t), true },
+            ZeroBufferSpec{ "FrontTileDispatch", 3u * sizeof(uint32_t), false },
             ZeroBufferSpec{ "FrontPoints", points * k_FrontPointWords * sizeof(uint32_t), true },
             ZeroBufferSpec{ "CellFronts", cellCount * 2u * sizeof(int32_t), true },
         };
@@ -430,8 +432,11 @@ namespace planet
         const size_t plates = static_cast<size_t>(plateCount);
         const CrustFlagStorage storage = (*shaders)->CrustFlags();
         const StepSize size{ static_cast<uint32_t>(pointCount), static_cast<uint32_t>(plateCount) };
-        const std::array<ZeroBufferSpec, 3> zeroed
+        const std::array<ZeroBufferSpec, 6> zeroed
         {
+            ZeroBufferSpec{ "PlateCapCenters", plates * 4u * sizeof(float), false },
+            ZeroBufferSpec{ "PlateCapSpread", plates * sizeof(uint32_t), false },
+            ZeroBufferSpec{ "LiveGroupCounts", LiveGroupCount(size) * sizeof(uint32_t), false },
             ZeroBufferSpec{ "PlateContinentalCount", plates * sizeof(uint32_t), true },
             ZeroBufferSpec{ "PlateCounters", plates * 4u * sizeof(int32_t), true },
             ZeroBufferSpec{ "PlatePull", plates * 3u * sizeof(int32_t), true },

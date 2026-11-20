@@ -22,21 +22,21 @@ namespace planet
     class GpuBuffers;
 
     /** The entry points of one step, passes 1 to 6. Create PlanetShaders with these. */
-    inline constexpr std::array<std::string_view, 14> k_StepEntryPoints
+    inline constexpr std::array<std::string_view, 13> k_StepEntryPoints
     {
         "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
         "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
-        "CountFrontPointsCS", "OffsetFrontPointsCS", "ScatterFrontPointsCS", "NearestFrontPointCS",
-        "SumPullCS", "UpliftCS",
+        "OffsetFrontPointsCS", "ScatterFrontPointsCS", "BuildFrontTileCapsCS",
+        "SumPullCS", "FrontDistanceAndUpliftCS",
     };
 
     /** The entry points of one live simulation step: passes 1 to 6 plus MovePlatesAndClearCountersCS. */
-    inline constexpr std::array<std::string_view, 15> k_LiveStepEntryPoints
+    inline constexpr std::array<std::string_view, 14> k_LiveStepEntryPoints
     {
         "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
         "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
-        "CountFrontPointsCS", "OffsetFrontPointsCS", "ScatterFrontPointsCS", "NearestFrontPointCS",
-        "SumPullCS", "UpliftCS", "MovePlatesAndClearCountersCS",
+        "OffsetFrontPointsCS", "ScatterFrontPointsCS", "BuildFrontTileCapsCS",
+        "SumPullCS", "FrontDistanceAndUpliftCS", "MovePlatesAndClearCountersCS",
     };
 
     /** The live cell passes (LiveCells.slang): a group of 256 threads covers 1024 cells of one plate. */
@@ -46,7 +46,7 @@ namespace planet
     /** The GPU timer scope of each pass, in the order that RecordStep runs them. */
     inline constexpr std::array<std::string_view, 7> k_StepScopes
     {
-        "1 Owners", "2 One plate on top", "3 Crust", "3b Live cells", "4 Front distance", "6 Torque pull", "5 Uplift",
+        "1 Owners", "2 One plate on top", "3 Crust", "3b Live cells", "4 Front points", "6 Torque pull", "4+5 Front uplift",
     };
 
     /** The scope around the whole step, outside the pass scopes. */
@@ -83,6 +83,8 @@ namespace planet
         PlatesTimes4,
         Cells,
         CellsTimes2, // for CellFronts, int2 per cell
+        LiveGroups,
+        FrontTilesTimes4,
         IndirectDispatch,
     };
 
@@ -107,6 +109,7 @@ namespace planet
                    const GpuBuffers& _buffers,
                    std::unique_ptr<PassBindings>&& _bindings,
                    rhi::BufferHandle _live_dispatch,
+                   rhi::BufferHandle _front_tile_dispatch,
                    StepSize _size) noexcept;
         ~PlanetStep();
         PlanetStep(const PlanetStep&) = delete;
@@ -142,16 +145,18 @@ namespace planet
                             StepTimerDetail detail,
                             std::string_view entry_point,
                             uint32_t thread_count) const;
-        void recordListDispatch(rhi::CommandBuffer& command_buffer,
-                                rhi::GpuTimerBlock* timers,
-                                StepTimerDetail detail,
-                                std::string_view entry_point) const;
+        void recordIndirectDispatch(rhi::CommandBuffer& command_buffer,
+                                    rhi::GpuTimerBlock* timers,
+                                    StepTimerDetail detail,
+                                    std::string_view entry_point,
+                                    rhi::BufferHandle arguments) const;
 
         const PlanetShaders& shaders;
         const GpuBuffers& buffers;
         std::unique_ptr<PassBindings> bindings;
-        // the group counts of the dispatches on the live cell list, which OffsetLiveCellsCS writes
+        // the group counts of the dispatches on the live cell list and front tile caps
         rhi::BufferHandle liveDispatch;
+        rhi::BufferHandle frontTileDispatch;
         StepSize size;
     };
 

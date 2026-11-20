@@ -417,7 +417,7 @@ namespace
         };
 
         return buffers.UpdateUniformFrom(shaders, "FillGapsCS", "Pass3Constants", timeValues) == planet::PlanetGpuError::Success &&
-               buffers.UpdateUniformFrom(shaders, "UpliftCS", "UpliftConstants", timeValues) == planet::PlanetGpuError::Success &&
+               buffers.UpdateUniformFrom(shaders, "FrontDistanceAndUpliftCS", "UpliftConstants", timeValues) == planet::PlanetGpuError::Success &&
                buffers.UpdateUniformFrom(shaders, "MovePlatesAndClearCountersCS", "MovePlatesConstants", timeValues) == planet::PlanetGpuError::Success;
     }
 
