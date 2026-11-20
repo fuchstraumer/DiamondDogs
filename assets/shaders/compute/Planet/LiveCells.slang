@@ -65,6 +65,44 @@ uint LoadPacked4Flags(uint plate, uint cellBase)
 void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupThreadID)
 {
     const LiveGroup liveGroup = FindLiveGroup(groupID.x);
+    if (Params.HealpixOrder >= 5u)
+    {
+        const float4 cap = PlateCapCenters.Load(liveGroup.Plate);
+        if (cap.w == PlateCapEmpty)
+        {
+
+            if (laneInGroup.x == 0u)
+            {
+                LiveGroupCounts.Store(groupID.x, 0u);
+            }
+
+            return;
+        }
+
+        if (cap.w == PlateCapValid)
+        {
+            const uint coarseOrder = Params.HealpixOrder - 5u;
+            const uint coarseTileIdx = liveGroup.FirstCell >> 10u;
+            const float3 tileCenter = HealpixPixToVec(coarseTileIdx, coarseOrder);
+            const float capSpread = asfloat(PlateCapSpreadIn.Load(liveGroup.Plate));
+            const float capAngle = acos(clamp(1.0f - capSpread, -1.0f, 1.0f));
+            const float tileRadiusAngle = 2.0f * sqrt(4.0f * 3.14159265f / float(12u << (2u * coarseOrder)));
+            const float maxAngle = min(3.14159265f, capAngle + tileRadiusAngle);
+
+            if (dot(tileCenter, cap.xyz) < cos(maxAngle))
+            {
+
+                if (laneInGroup.x == 0u)
+                {
+                    LiveGroupCounts.Store(groupID.x, 0u);
+                }
+
+                return;
+            }
+            
+        }
+    }
+
     if (laneInGroup.x == 0u)
     {
         GroupLive = 0u;
@@ -162,11 +200,15 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
 
     GroupMemoryBarrierWithGroupSync();
 
-    if (laneInGroup.x == 0u && GroupLive > 0u)
+    if (laneInGroup.x == 0u)
     {
-        PlateContinentalCount.Add(liveGroup.Plate, GroupContinental);
-        const int4 plateCounters = int4(GroupPosition[0], GroupPosition[1], GroupPosition[2], GroupLive);
-        AddPlateCounters(liveGroup.Plate * 4u, plateCounters);
+        LiveGroupCounts.Store(groupID.x, GroupLive);
+        if (GroupLive > 0u)
+        {
+            PlateContinentalCount.Add(liveGroup.Plate, GroupContinental);
+            const int4 plateCounters = int4(GroupPosition[0], GroupPosition[1], GroupPosition[2], GroupLive);
+            AddPlateCounters(liveGroup.Plate * 4u, plateCounters);
+        }
     }
 }
 
@@ -219,6 +261,12 @@ void OffsetLiveCellsCS(uint3 threadID : SV_DispatchThreadID)
 [shader("compute")][numthreads(256,1,1)]
 void ScatterLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupThreadID)
 {
+    const uint groupLive = LiveGroupCounts.Load(groupID.x);
+    if (groupLive == 0u)
+    {
+        return;
+    }
+
     const LiveGroup liveGroup = FindLiveGroup(groupID.x);
 
     if (laneInGroup.x == 0u)

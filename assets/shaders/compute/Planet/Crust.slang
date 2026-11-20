@@ -91,6 +91,7 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
         if (!collision)
         {
             StoreCrustFlags(underFlat, PackCrustFlags(false, crustFlagsUnder.IsContinental()));
+            PlateFrontPointCount.Add(uint(topPlate), 1u);
         }
     }
 

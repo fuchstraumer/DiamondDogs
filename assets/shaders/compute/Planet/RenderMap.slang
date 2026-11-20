@@ -214,7 +214,33 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
 
         const float dEdU = lerp(s10.x - s00.x, s11.x - s01.x, fracUV.y);
         const float dEdV = lerp(s01.x - s00.x, s11.x - s10.x, fracUV.x);
-        rgb *= clamp(1.0f + 0.14f * (dEdU - dEdV), 0.78f, 1.22f);
+
+        float3 v00 = (p00 >= 0) ? HealpixPixToVec(uint(p00), Params.HealpixOrder) : float3(0.0f);
+        float3 v10 = (p10 >= 0) ? HealpixPixToVec(uint(p10), Params.HealpixOrder) : float3(0.0f);
+        float3 v01 = (p01 >= 0) ? HealpixPixToVec(uint(p01), Params.HealpixOrder) : float3(0.0f);
+        float3 v11 = (p11 >= 0) ? HealpixPixToVec(uint(p11), Params.HealpixOrder) : float3(0.0f);
+        if (p00 < 0) v00 = normalize(v10 + v01);
+        if (p10 < 0) v10 = normalize(v00 + v11);
+        if (p01 < 0) v01 = normalize(v00 + v11);
+        if (p11 < 0) v11 = normalize(v10 + v01);
+
+        const float3 dPdU = lerp(v10 - v00, v11 - v01, fracUV.y);
+        const float3 dPdV = lerp(v01 - v00, v11 - v10, fracUV.x);
+        const float3 tU = dPdU - worldPoint * dot(worldPoint, dPdU);
+        const float3 tV = dPdV - worldPoint * dot(worldPoint, dPdV);
+        const float3 perpA = cross(worldPoint, tU);
+        const float3 perpB = cross(worldPoint, tV);
+        const float det = dot(tU, perpB);
+
+        float shade = 1.0f;
+        if (abs(det) > 1e-12f)
+        {
+            const float3 gradWorld = (dEdU * perpB - dEdV * perpA) / det;
+            const float cellScale = sqrt(4.0f * Pi / float(Params.PointCount));
+            const float3 sunDir = normalize(float3(0.6f, 0.4f, 0.7f));
+            shade = clamp(1.0f - 0.14f * dot(gradWorld * cellScale, sunDir), 0.78f, 1.22f);
+        }
+        rgb *= shade;
 
         MapOutput[threadId.xy] = float4(rgb, 1.0f);
         return;

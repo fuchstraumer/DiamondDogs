@@ -78,6 +78,9 @@ void OffsetFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
     if (WaveIsFirstLane())
     {
         PlateFrontPointOffset.Store(Params.PlateCount, waveTotal);
+        FrontTileDispatch.Store(0u, (waveTotal + 63u) / 64u);
+        FrontTileDispatch.Store(1u, 1u);
+        FrontTileDispatch.Store(2u, 1u);
     }
 }
 
@@ -122,6 +125,284 @@ groupshared float3 SharedTileCenterSum[MaxWavesPerGroup];
 groupshared float SharedTileMinCos[MaxWavesPerGroup];
 groupshared float3 SharedTileCenter;
 groupshared float SharedTileAngle;
+groupshared uint SharedGroupHasContinentWaves[MaxWavesPerGroup];
+groupshared uint SharedGroupHasContinent;
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void BuildFrontTileCapsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupThreadID)
+{
+    const uint totalFronts = PlateFrontPointOffset.Load(Params.PlateCount);
+    const uint slot = groupID.x * SearchBlockSize + laneInGroup.x;
+    const bool valid = slot < totalFronts;
+    const float3 pt = valid ? FrontPoints.Load(slot).xyz : float3(0.0f, 0.0f, 0.0f);
+
+    const uint waveSize = WaveGetLaneCount();
+    const uint waveCount = (SearchBlockSize + waveSize - 1u) / waveSize;
+    const uint waveIndex = laneInGroup.x / waveSize;
+
+    const float3 waveSum = WaveActiveSum(pt);
+    if (WaveIsFirstLane())
+    {
+        SharedTileCenterSum[waveIndex] = waveSum;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (laneInGroup.x == 0u)
+    {
+        float3 sum = float3(0.0f, 0.0f, 0.0f);
+        for (uint w = 0u; w < waveCount; ++w)
+        {
+            sum += SharedTileCenterSum[w];
+        }
+        const float len = length(sum);
+        if (len < 1e-5f)
+        {
+            SharedTileCenter = float3(0.0f, 0.0f, 1.0f);
+            SharedTileAngle = 3.14159265f;
+        }
+        else
+        {
+            SharedTileCenter = sum / len;
+            SharedTileAngle = 0.0f;
+        }
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    const float3 tileCenter = SharedTileCenter;
+    const float tileCos = valid ? dot(pt, tileCenter) : 1.0f;
+    const float waveMinCos = WaveActiveMin(tileCos);
+    if (WaveIsFirstLane())
+    {
+        SharedTileMinCos[waveIndex] = waveMinCos;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (laneInGroup.x == 0u)
+    {
+        float tileAngle = SharedTileAngle;
+        if (tileAngle == 0.0f)
+        {
+            float minCos = 1.0f;
+            for (uint w = 0u; w < waveCount; ++w)
+            {
+                minCos = min(minCos, SharedTileMinCos[w]);
+            }
+            tileAngle = acos(clamp(minCos, -1.0f, 1.0f));
+        }
+        FrontTileCaps.Store(groupID.x, float4(tileCenter, tileAngle));
+    }
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
+                              uint3 groupID : SV_GroupID,
+                              uint3 laneInGroup : SV_GroupThreadID)
+{
+    const uint idxLimit = PlateLiveOffset.Load(Params.PlateCount);
+    const bool isLive = threadId.x < idxLimit;
+
+    const uint groupFirstCell = groupID.x * SearchBlockSize;
+    const uint groupLastCell = min(groupFirstCell + SearchBlockSize, idxLimit) - 1u;
+    const uint firstPlate = LiveCell.Load(groupFirstCell) / Params.PointCount;
+    const uint sharedBegin = PlateFrontPointOffset.Load(firstPlate);
+    const uint lastPlate = (LiveCell.Load(groupLastCell) / Params.PointCount) + 1u;
+    const uint sharedEnd = PlateFrontPointOffset.Load(lastPlate);
+
+    uint flattenedPoint = 0u;
+    float3 worldPoint = float3(0.0f, 0.0f, 0.0f);
+    uint begin = 0u;
+    uint end = 0u;
+    CrustFlagBits crustFlags = { 0u };
+    bool isContinental = false;
+
+    if (isLive)
+    {
+        flattenedPoint = LiveCell.Load(threadId.x);
+        crustFlags = LoadCrustFlags(flattenedPoint);
+        isContinental = crustFlags.IsContinental();
+        const uint plateIdx = flattenedPoint / Params.PointCount;
+        const uint plateCell = flattenedPoint % Params.PointCount;
+        const float3x4 plateTransform = LoadRotation(plateIdx);
+        const float3 latticePoint = HealpixPixToVec(uint(plateCell), Params.HealpixOrder);
+        worldPoint = PlateToWorld(latticePoint, plateTransform);
+        begin = PlateFrontPointOffset.Load(plateIdx);
+        end = PlateFrontPointOffset.Load(plateIdx + 1u);
+    }
+
+    const uint waveSize = WaveGetLaneCount();
+    const uint waveCount = (SearchBlockSize + waveSize - 1u) / waveSize;
+    const uint waveIndex = laneInGroup.x / waveSize;
+
+    const float3 waveGroupSum = WaveActiveSum(worldPoint);
+    const bool waveAnyContinent = WaveActiveAnyTrue(isContinental);
+    if (WaveIsFirstLane())
+    {
+        SharedGroupCenterSum[waveIndex] = waveGroupSum;
+        SharedGroupHasContinentWaves[waveIndex] = waveAnyContinent ? 1u : 0u;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (laneInGroup.x == 0u)
+    {
+        float3 sum = float3(0.0f, 0.0f, 0.0f);
+        uint anyCont = 0u;
+        for (uint w = 0u; w < waveCount; ++w)
+        {
+            sum += SharedGroupCenterSum[w];
+            anyCont |= SharedGroupHasContinentWaves[w];
+        }
+        SharedGroupHasContinent = anyCont;
+        const float len = length(sum);
+        if (len < 1e-5f)
+        {
+            SharedGroupCenter = float3(0.0f, 0.0f, 1.0f);
+            SharedGroupAngle = 3.14159265f;
+        }
+        else
+        {
+            SharedGroupCenter = sum / len;
+            SharedGroupAngle = 0.0f;
+        }
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    const float3 groupCenter = SharedGroupCenter;
+    const bool groupHasContinent = SharedGroupHasContinent != 0u;
+    const float groupCos = isLive ? dot(worldPoint, groupCenter) : 1.0f;
+    const float waveGroupMinCos = WaveActiveMin(groupCos);
+    if (WaveIsFirstLane())
+    {
+        SharedGroupMinCos[waveIndex] = waveGroupMinCos;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (laneInGroup.x == 0u && SharedGroupAngle == 0.0f)
+    {
+        float minCos = 1.0f;
+        for (uint w = 0u; w < waveCount; ++w)
+        {
+            minCos = min(minCos, SharedGroupMinCos[w]);
+        }
+        SharedGroupAngle = acos(clamp(minCos, -1.0f, 1.0f));
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    const float groupAngle = SharedGroupAngle;
+    const float groupReachRad = groupHasContinent ? (1850.0f / 6370.0f) : (500.0f / 6370.0f);
+
+    NearestCandidate nearest0 = NoCandidate();
+    NearestCandidate nearest1 = NoCandidate();
+    NearestCandidate nearest2 = NoCandidate();
+    NearestCandidate nearest3 = NoCandidate();
+
+    if (sharedBegin < sharedEnd)
+    {
+        const uint alignedSharedBegin = sharedBegin & ~63u;
+        for (uint sharedStart = alignedSharedBegin; sharedStart < sharedEnd; sharedStart += SearchBlockSize)
+        {
+            const float4 tileCap = FrontTileCaps.Load(sharedStart >> 6u);
+            const float maxAllowed = min(3.14159265f, groupReachRad + groupAngle + tileCap.w);
+            if (clamp(dot(groupCenter, tileCap.xyz), -1.0f, 1.0f) < cos(maxAllowed))
+            {
+                continue;
+            }
+
+            const uint loadSlot = sharedStart + laneInGroup.x;
+            if (loadSlot < sharedEnd)
+            {
+                SharedFrontPoints[laneInGroup.x] = FrontPoints.Load(loadSlot);
+            }
+
+            GroupMemoryBarrierWithGroupSync();
+
+            const uint first = max(begin, sharedStart);
+            const uint last = min(end, min(sharedStart + SearchBlockSize, sharedEnd));
+
+            uint slot = first;
+            for (; slot + SearchUnrollDepth <= last; slot += SearchUnrollDepth)
+            {
+                const uint sharedSlot = slot - sharedStart;
+                nearest0 = Nearest(nearest0, MakeCandidate(worldPoint, SharedFrontPoints[sharedSlot]));
+                nearest1 = Nearest(nearest1, MakeCandidate(worldPoint, SharedFrontPoints[sharedSlot + 1u]));
+                nearest2 = Nearest(nearest2, MakeCandidate(worldPoint, SharedFrontPoints[sharedSlot + 2u]));
+                nearest3 = Nearest(nearest3, MakeCandidate(worldPoint, SharedFrontPoints[sharedSlot + 3u]));
+            }
+
+            for (; slot < last; ++slot)
+            {
+                nearest0 = Nearest(nearest0, MakeCandidate(worldPoint, SharedFrontPoints[slot - sharedStart]));
+            }
+
+            GroupMemoryBarrierWithGroupSync();
+        }
+    }
+
+    if (!isLive)
+    {
+        return;
+    }
+
+    const NearestCandidate best = Nearest(Nearest(nearest0, nearest1), Nearest(nearest2, nearest3));
+    float distance = asfloat(0x7f800000);
+    if (best.Index >= 0)
+    {
+        const float3 delta = worldPoint - HealpixPixToVec(uint(best.Index), Params.HealpixOrder);
+        distance = 6370.0f * 2.0f * asin(clamp(0.5f * length(delta), 0.0f, 1.0f));
+    }
+
+    StoreCellState(flattenedPoint, best.Index, distance);
+
+    if (best.Index < 0 && !isContinental)
+    {
+        return;
+    }
+
+    CrustStateData crustState = LoadCrustState(flattenedPoint);
+    float relief = crustState.GetRelief();
+
+    if (best.Index >= 0)
+    {
+        const float reach = isContinental ? ContinentalReachKm : IslandArcReachKm;
+        const float shape = SubductionProfile(distance, reach);
+        const FrontState frontState = LoadFrontStateIn(uint(best.Index));
+        const float rate = BaseUplift * shape * frontState.GetStrength();
+        const float dt = Params.TimeStepMy;
+        relief += rate * dt;
+
+        if (rate > ActiveUplift)
+        {
+            const int updatedOrogeny = isContinental ? OrogenyAndean : OrogenyIslandArc;
+            crustState.SetOrogenyType(updatedOrogeny);
+            crustState.SetOrogenyTime(UpliftConstants.Time);
+        }
+    }
+
+    if (isContinental)
+    {
+        relief *= 1.0f - ContinentErosion * Params.TimeStepMy / PeakElevation;
+    }
+
+    relief = min(relief, PeakElevation);
+
+    if (!isContinental && (relief > AccretionRelief))
+    {
+        const uint flagBits = PackCrustFlags(crustFlags.IsAlive(), true);
+        StoreCrustFlags(flattenedPoint, flagBits);
+        relief = AccretionStartRelief;
+    }
+
+    crustState.SetRelief(relief);
+    StoreCrustState(flattenedPoint, crustState);
+}
 
 [shader("compute")]
 [numthreads(64, 1, 1)]

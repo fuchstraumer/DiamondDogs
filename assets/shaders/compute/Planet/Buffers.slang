@@ -45,6 +45,7 @@ Counters PlateLiveCursor;
 Words PlateLiveOffset;
 Words LiveCell;
 Words LiveDispatch;
+Words LiveGroupCounts;
 // PlateCounters stores per-plate counters into what is effectively an int4 array, indexed
 // as scalar only because of the atomics required. xyz = PlatePositionSum, w = PlateCellCount
 SignedCounters PlateCounters;
@@ -114,6 +115,8 @@ Words PlateFrontPointOffset;
 
 CellPoints CellFronts;
 Points FrontPoints;
+Points FrontTileCaps;
+Words FrontTileDispatch;
 
 internal static const float PlateCapNone = 0.0f;
 internal static const float PlateCapValid = 1.0f;
