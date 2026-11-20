@@ -102,6 +102,9 @@ namespace loom
                              std::source_location where = std::source_location::current());
         void DispatchIndirect(ResourceKey<Buffer> arguments,
                               std::source_location where = std::source_location::current());
+        // One argument buffer can hold several dispatches. byte_offset is a multiple of 4 (LM109).
+        void DispatchIndirect(ResourceKey<Buffer> arguments, int64_t byte_offset,
+                              std::source_location where = std::source_location::current());
 
     private:
         friend class GraphBuilder;

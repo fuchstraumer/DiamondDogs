@@ -43,6 +43,13 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/resolve/Pins.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/resolve/Variants.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/resolve/Helpers.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bind/BoundGraph.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bind/BindContext.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bind/BoundGraph.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bind/Layout.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bind/Slots.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bind/Params.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bind/Helpers.cpp"
 )
 
 add_module(loom

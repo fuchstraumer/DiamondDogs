@@ -8,10 +8,14 @@
 #include "LoomKeys.hpp"
 #include "Records.hpp"
 #include <algorithm>
+#include <cstdint>
+#include <ranges>
 #include <source_location>
 #include <string_view>
+#include <vector>
 
 // Step 2: check values that need no lookup (LM101, LM108, LM109). Walks the record, so duplicates are checked too.
+// CheckPassBinds (LM113 for binds and params, LM306) runs later, once the binds have resolved.
 namespace loom::freeze
 {
 
@@ -374,6 +378,116 @@ namespace loom::freeze
             }
 
             context.Graph.Pins.push_back(pin);
+        }
+    }
+
+    // The ring depth of a resolved resource. Only a declared buffer or image keeps history: an import, a sampler and an
+    // unresolved key (already an error) have none.
+    inline int32_t HistoryDepthOf(const FrozenGraph& graph, ResourceIndex resource)
+    {
+        if (!resource.IsValid())
+        {
+            return 0;
+        }
+
+        const FrozenResource& row = graph.Resources[resource.Value];
+
+        if (row.Origin != ResourceOrigin::Declared)
+        {
+            return 0;
+        }
+
+        switch (row.Kind)
+        {
+        case ResourceKind::Buffer:
+            return graph.Buffers[row.DeclarationIndex].HistoryDepth;
+        case ResourceKind::Image:
+            return graph.Images[row.DeclarationIndex].Declaration.HistoryDepth;
+        case ResourceKind::Sampler:
+            [[fallthrough]];
+        case ResourceKind::Invalid:
+            break;
+        }
+
+        return 0;
+    }
+
+    // LM113: a binding name bound twice in one pass. Bind maps each name to one slot, so it can assume one bind per name.
+    // Where is the second bind, OtherWhere the first.
+    inline void CheckRepeatedBinds(FreezeContext& context, const FrozenPass& pass, const PassRecord& record)
+    {
+        for (auto&& [bindIdx, bind] : record.Binds | std::views::enumerate)
+        {
+            const auto sameName = [&bind](const BindRecord& earlier)
+            {
+                return earlier.BindingName == bind.BindingName;
+            };
+
+            const auto earlierBinds = record.Binds | std::views::take(bindIdx);
+            const auto earlier = std::ranges::find_if(earlierBinds, sameName);
+
+            if (earlier == earlierBinds.end())
+            {
+                continue;
+            }
+
+            Diagnostic diag = MakeDiagnostic(DiagnosticCode::LM113, bind.Where);
+            diag.OtherWhere = earlier->Where;
+            diag.Pass = pass.Key;
+            diag.Binding = bind.BindingName;
+            context.Sink.Report(diag);
+        }
+    }
+
+    // LM113: Params at most once per pass, since a pass has one block of entry point constants.
+    inline void CheckRepeatedParams(FreezeContext& context, const FrozenPass& pass, const PassRecord& record)
+    {
+        if (record.Params.size() < 2u)
+        {
+            return;
+        }
+
+        for (const ParamsRecord& params : record.Params | std::views::drop(1))
+        {
+            Diagnostic diag = MakeDiagnostic(DiagnosticCode::LM113, params.Where);
+            diag.OtherWhere = record.Params.front().Where;
+            diag.Pass = pass.Key;
+            context.Sink.Report(diag);
+        }
+    }
+
+    // LM306: BindPrevious reads last frame's slot of the history ring, so the resource needs HistoryDepth above 0.
+    inline void CheckHistoryBinds(FreezeContext& context, const FrozenPass& pass, const PassRecord& record)
+    {
+        for (auto&& [bindIdx, bind] : record.Binds | std::views::enumerate)
+        {
+            const ResourceIndex resource = pass.Binds[bindIdx].Resource;
+            const bool hasHistory = HistoryDepthOf(context.Graph, resource) > 0;
+
+            // an unresolved key is already LM103 or LM107: one error per mistake
+            if (!bind.Previous || hasHistory || !resource.IsValid())
+            {
+                continue;
+            }
+
+            Diagnostic diag = MakeDiagnostic(DiagnosticCode::LM306, bind.Where);
+            diag.Pass = pass.Key;
+            diag.Resource = bind.Resource;
+            diag.Binding = bind.BindingName;
+            context.Sink.Report(diag);
+        }
+    }
+
+    // The bind rules that need no shader. Runs after ResolvePasses, which keeps each pass's binds in record order. The
+    // binding names come from the record: the frozen graph is dropped when Freeze fails, and a diagnostic keeps a view.
+    inline void CheckPassBinds(FreezeContext& context, const std::vector<PassSource>& sources)
+    {
+        for (auto&& [passIdx, source] : sources | std::views::enumerate)
+        {
+            const FrozenPass& pass = context.Graph.Passes[passIdx];
+            CheckRepeatedBinds(context, pass, *source.Pass);
+            CheckRepeatedParams(context, pass, *source.Pass);
+            CheckHistoryBinds(context, pass, *source.Pass);
         }
     }
 

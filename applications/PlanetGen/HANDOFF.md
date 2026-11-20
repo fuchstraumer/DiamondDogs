@@ -12,7 +12,7 @@ Current state, performance baselines, buffer contracts, and prioritized next ste
 - **`planet_reference`** (static lib): `ReferenceSet`, `PlanetMath`, `StepState` (`AddStepBuffers` + pack-on-upload helpers).
 - **`PlanetGenCheck`**: validates all 9 checks (`map`, `owners`, `front`, `crust`, `live`, `distance`, `uplift`, `torque`, `chain`) in both `[bytes]` and `[words]` with `Full` Vulkan validation. Currently **100% PASS** on both `reference_10000` and `reference_100000`.
 - **`PlanetGenBench`**: headless GPU-timer benchmark (`RelWithDebInfo`).
-- **`PlanetGenTimelapse`**: headless multi-step runner using `PlanetStep::RecordLiveStep` + `RenderMapCS` + `modules/FrameCapture` (`RGBA8_UNORM` storage image → background-threaded PNG writer).
+- **`PlanetGenTimelapse`**: headless multi-step runner using `PlanetStep::RecordLiveStep` + `RenderMapCS` (6 debug modes: `elevation`, `plates`, `age`, `relief`, `fronts`, `voronoi`) + `modules/FrameCapture` + `modules/AgentTools` (`--tool-port=0` JSON-RPC server exposing `planet.sim`, `planet.step`, `planet.reset`, `planet.capture`, `planet.capture_region`, `planet.quit`).
 
 ---
 
@@ -46,11 +46,14 @@ All read-only/aliased views use `[ls_resource_tags("Aliased:<Target>")]`, resolv
 
 ---
 
-## 3. Performance Baseline (RTX 4080, 100k points, 20 plates, RelWithDebInfo, bytes)
+## 3. Performance Baseline (RTX 4080, 20 plates, RelWithDebInfo, bytes)
 
-- **Unlocked `PlanetGenBench` (`--steps=500 --warmup=500 --dispatches`):**
+- **100k points (`PlanetGenBench`, `--steps=500 --warmup=500 --dispatches`):**
   - **Step:** `106.5 µs` median (`96.3 µs` min), down from `339.5 µs` baseline (**3.18× speedup**).
   - `OwnersCS`: `24.6 µs` | `CountLiveCellsCS`: `8.2 µs` | `ScatterLiveCellsCS`: `7.8 µs` | `NearestFrontPointCS`: `14.3 µs` | `UpliftCS`: `7.2 µs`.
+- **500k points (`build/reference_500000`, `--steps=200 --warmup=200 --dispatches`):**
+  - **Step:** `290.8 µs` median (`284.7 µs` min) — **2.73× time for 5× points** (~3,400 ticks/sec!).
+  - `OwnersCS`: `76.8 µs` | `CountLiveCellsCS`: `25.6 µs` | `ScatterLiveCellsCS`: `23.4 µs` | `NearestFrontPointCS`: `39.9 µs` | `UpliftCS`: `66.6 µs` (jumped 9.5× due to 240 MB `CrustState`+`CellFronts` spilling the 4080's 64 MB L2; moving `LoadCrustState` below `if (frontPoint < 0 && !isContinental) return;` will cut DRAM reads too).
 - **Locked-clock Nsight GPU Trace (`build/profiler_captures/planetgen_diag.db`, 2205 MHz base clock):**
   - Run 1 (`161.8 µs`) → Run 2 (`137.0 µs`) → Run 3 (`130.0 µs`, post-packing) → Run 5 (`127.0 µs`, dot-product `NearestFrontPointCS` before `CrustFlagsPackedIn`).
   - Occupancy is NOT register-limited (`RegStall = 0–1%`); 100k threads (3,125 warps) is simply smaller than one full wave of an RTX 4080 (76 SMs × 48 warps = 3,648 warps).
@@ -58,27 +61,22 @@ All read-only/aliased views use `[ls_resource_tags("Aliased:<Target>")]`, resolv
 
 ---
 
-## 4. Visual Findings from First `RenderMapCS` Dump (`build/timelapse_test/frame_0000.png`)
+## 4. Visual Findings & 500k Timelapse (`build/planet_500k_timelapse.mp4`)
 
-1. **No coastal shallows (and bright mid-ocean ridges / dark nearshore ocean):**
-   - Physically, young ocean crust at mid-ocean ridges (`-2.6 km`) *is* shallower than old ocean crust near continents (`-6.0 km`, Parsons & Sclater $d = 2.6 + 0.345\sqrt{\text{age}}$).
-   - Coastal shelves (`-0.15 km`) and continental slopes (`-1.5 km`) are **not** in the raw crust state — Python's `tectonics.Elevation()` (`applications/PlanetLab/planetlab/tectonics.py:577-607`) computes them as a post-pass using `coast_distance` (`COAST_BLEND_DISTANCE = 300 km`, `SLOPE_BLEND_DISTANCE = 200 km`) plus a Gaussian trench depression (`TRENCH_DEPTH = 3.5 km`, `TRENCH_WIDTH = 90 km`).
-2. **Ridge/trough stair-stepping & distortion:**
-   - At `N = 100,000`, each Fibonacci Voronoi cell is ~71 km wide, and `RenderMapCS` currently does nearest-neighbor lookup (`FibonacciNearest`). Higher-resolution dumps (`2048×1024` / `4096×2048`) + debug layers are needed to separate Voronoi sampling aliasing from any `OwnersCS` / `FillGapsCS` boundary artifacts.
+1. **Debug layers (`build/debug_layers/{plates,age,fronts}` & `build/tool_test/region.png`)**: Zero Z-fighting or simulation bugs; seafloor spreading stripes, subduction trenches, and `NearestFrontPointCS` halos are completely clean.
+2. **500k 10-second timelapse (`build/planet_500k_timelapse.mp4`, 300 frames @ 30 fps, `dt = 0.5 My`, `1920×960`):** Ran 150 My of 100% GPU-only plate drift with zero NaNs/drift, crisp coastlines, island arc accretion, and triple-junction spreading — **and exposed the #1 missing physics feature**:
+   - **Continental collisions currently ghost through each other:** In `RemoveSubductedCS`, `collision == true` sets `subduction = 0` and leaves `underFlat` alive, because `tectonics.Collide()` / `TransferTerrane()` (`applications/PlanetLab/planetlab/tectonics.py:269-379`) is not yet on the GPU.
+3. **No coastal shallows yet:** Python's `tectonics.Elevation()` (`tectonics.py:577-607`) computes coastal shelves (`-0.15 km`) and slopes (`-1.5 km`) via `coast_distance` as a post-pass.
 
 ---
 
 ## 5. Prioritized Next Steps
 
-1. **Visualization Debugging & Inspection:**
-   - Add debug render modes (`RenderMapConstants.Mode`: elevation, plate IDs, ocean age, relief, subduction/collision fronts, `SecondPlate` overlaps, Voronoi cell index) — GBuffer-style debug layers.
-   - Integrate `modules/AgentTools` (`ToolServer` / `ToolRegistry`) + `FrameCapture` subregion/downsample captures (`CaptureSource::OffsetX/Y/Width/Height/Downsample`) so agents can inspect downsampled full-planet maps and zoom into full-res problem regions along ridges/trenches.
-   - Port `tectonics.Elevation()`'s coastal shelf/slope blend + smooth trench profile (and optional multi-neighbor interpolation in `RenderMapCS` to eliminate Voronoi stair-stepping).
-2. **WebGPU Portability:**
-   - Make `OffsetLiveCellsCS`, `OffsetFrontPointsCS`, `CountLiveCellsCS`, and `ScatterLiveCellsCS` wave-size agnostic (supporting subgroup sizes 16 / 32 / 64 and `PlateCount > waveSize`, matching the `OceanFft` IDFT pattern).
-   - Audit `CRUST_FLAG_BYTES` fallback (`Words`) and storage buffer limits for WebGPU.
-3. **RenderGraph & Interactive Editor:**
-   - Migrate binding/barriers from `WriteManifestDescriptors` + manual barriers into `modules/RenderGraph` (also clarifying the command/resource surface needed for the WebGPU RHI).
-   - Add timeline keyframe ringbuffer (~34.4 MB/keyframe every ~20–50 ticks; <2 ms GPU resim on scrub) and art-direction controls (constant-buffer shaping parameters, per-plate overrides, mantle plumes, interactive brushes).
-4. **Validation of `MovePlatesAndClearCountersCS`:**
-   - Add a `PlanetGenCheck` unit check comparing GPU `MovePlatesAndClearCountersCS` output (`PoleRatesRW`, `RotationsRW`) against Python `tectonics.MovePlates` (including `rift_axis` / `rift_time` once exported by `write_gpu_reference.py`).
+1. **Immediate Next Task — Pure-GPU Continental Collision & Terrane Transfer (`Collide`):**
+   - Design and prototype a **GPU connected-component flood-fill / label-propagation** (e.g. CUDA-style Shiloach-Vishkin / pointer-jumping union-find or frontier BFS on the Fibonacci sphere neighbor graph) to detect colliding continental terranes (`TERRANE_PENETRATION = 300 km`), transfer terranes to the overriding plate, and apply Himalayan orogeny uplift (`OrogenyHimalayan = 2`, surge).
+   - Keep everything 100% on the GPU (no CPU readback).
+2. **Visualization Lookdev & Upscaling:**
+   - Domain-warped 4-corner Fibonacci IDW interpolation + 3D fBm detail in `RenderMapCS` for crisp 1440p/4K coastlines + automatic coastal shelf/slope blend + optional Slang `[Differentiable]` / `fwd_diff` normals & curvature hillshading.
+3. **WebGPU Portability & RenderGraph:**
+   - Make `OffsetLiveCellsCS`, `OffsetFrontPointsCS`, `CountLiveCellsCS`, and `ScatterLiveCellsCS` wave-size agnostic (16 / 32 / 64 lanes, `PlateCount > waveSize`, matching `OceanFft` IDFT).
+   - Migrate bindings/barriers from `WriteManifestDescriptors` into `modules/RenderGraph` for the upcoming WebGPU RHI.

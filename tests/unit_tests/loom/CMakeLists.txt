@@ -11,6 +11,7 @@ set(LOOM_TEST_SOURCES
     test_order.cpp
     test_explain.cpp
     test_resolve.cpp
+    test_bind.cpp
 )
 
 add_unit_test_target(loom_tests
@@ -25,7 +26,7 @@ lodestone_add_shader_cook(loom_test_shaders
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
     TARGETS spirv spirv-modern-mutable
     HOST_TYPES "math/ShaderHostTypes.hpp"
-    MODULES shaders/LoomResolveTest.slang shaders/LoomResolveOther.slang)
+    MODULES shaders/LoomResolveTest.slang shaders/LoomResolveOther.slang shaders/LoomBindTest.slang)
 set_target_properties(loom_test_shaders PROPERTIES FOLDER "Tests/Unit Tests")
 add_dependencies(loom_tests loom_test_shaders)
 target_compile_definitions(loom_tests PRIVATE

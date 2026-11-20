@@ -114,6 +114,7 @@ namespace loom
         int32_t X{ -1 };
         int32_t Y{ -1 };
         int32_t Z{ -1 };
+        int64_t ArgumentOffset{ 0 };        // Indirect: the byte offset of the arguments in the buffer
         std::source_location Where;
     };
 

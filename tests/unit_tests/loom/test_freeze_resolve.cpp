@@ -327,3 +327,54 @@ TEST(Resolve, ImageExtentOfUnknownTargetIsLM103AtTheImage)
     EXPECT_EQ(diag.Resource.Hash, k_UnknownTarget.Hash);
     EXPECT_EQ(diag.Where.line(), imageLine);
 }
+
+// DispatchIndirect with a byte offset: one argument buffer can hold the arguments of several dispatches.
+TEST(Resolve, IndirectOffsetReachesTheFrozenPass)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+
+    const auto build = [](loom::DispatchBuilder& pass)
+    {
+        pass.Shader("Test", "MainCS");
+        pass.DispatchIndirect(k_Data, 24);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, build);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::FrozenGraph> frozen = loom::Freeze(graph.Record(), sink);
+    ASSERT_TRUE(frozen.has_value());
+    EXPECT_TRUE(sink.Diagnostics().empty());
+    EXPECT_EQ(frozen->Passes[0].Dispatch.Form, loom::DispatchForm::Indirect);
+    EXPECT_EQ(frozen->Passes[0].Dispatch.ArgumentOffset, 24);
+}
+
+// vkCmdDispatchIndirect needs a 4-byte aligned, non-negative offset. Either break is LM109 at the statement.
+TEST(Resolve, IndirectOffsetOutOfRangeIsLM109)
+{
+    for (const int64_t offset : { int64_t{ -4 }, int64_t{ 6 } })
+    {
+        loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+        graph.Declare(MakeBuffer());
+        uint32_t line = 0u;
+
+        const auto build = [&line, offset](loom::DispatchBuilder& pass)
+        {
+            pass.Shader("Test", "MainCS");
+            line = std::source_location::current().line() + 1u;
+            pass.DispatchIndirect(k_Data, offset);
+        };
+
+        graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, build);
+
+        loom::CollectingSink sink;
+        EXPECT_FALSE(loom::Freeze(graph.Record(), sink).has_value()) << offset;
+
+        ASSERT_EQ(sink.Diagnostics().size(), 1u) << offset;
+        const loom::Diagnostic& diagnostic = sink.Diagnostics().front();
+        EXPECT_EQ(diagnostic.Code, loom::DiagnosticCode::LM109) << offset;
+        EXPECT_EQ(diagnostic.Where.line(), line) << offset;
+        EXPECT_EQ(diagnostic.Actual.Integer, offset);
+    }
+}

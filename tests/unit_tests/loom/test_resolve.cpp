@@ -846,7 +846,7 @@ TEST(HostHeader, MatchesTheReflectedLayout)
     using Settings = host::ResolveParams<host::CookProfile::Spirv, lodestone::LayoutRule::Std140>;
 
     uint32_t shapesStride = 0u;
-    uint32_t settingsSize = 0u;
+    uint64_t settingsSize = 0u;
 
     const lodestone::manifest::EnvironmentView& other = TestIndex(k_OtherModule).View();
 
@@ -871,7 +871,7 @@ TEST(HostHeader, MatchesTheReflectedLayout)
     }
 
     EXPECT_EQ(shapesStride, static_cast<uint32_t>(sizeof(Shapes)));
-    EXPECT_EQ(settingsSize, static_cast<uint32_t>(sizeof(Settings)));
+    EXPECT_EQ(settingsSize, static_cast<uint64_t>(sizeof(Settings)));
 
     // the storage matrix fills the packed field as is, rows first
     Shapes shapes{};

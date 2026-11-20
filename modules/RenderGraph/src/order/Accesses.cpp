@@ -20,6 +20,13 @@ namespace loom::order
         {
             const ResourceSlot slot = SlotOfResource(binding.Resource);
             const ResourceAccess& access = inputs[bindIdx];
+
+            // Bind gives Invalid to a bind whose binding is in other variants only: this pass does not touch it
+            if (access == ResourceAccess::Invalid)
+            {
+                continue;
+            }
+
             PassAccess result
             {
                 .Slot = slot,

@@ -72,10 +72,18 @@ namespace loom::freeze
         else if (record.Form == DispatchForm::Indirect)
         {
             ResourceIndex bufferRsrc = ResolveResource(context, record.Resource, KeyClass::Buffer, record.Where);
+            // vkCmdDispatchIndirect needs a 4-byte aligned offset; whether 12 bytes fit after it waits for Size
+            const bool offsetValid = record.ArgumentOffset >= 0 && record.ArgumentOffset % 4 == 0;
+            if (!offsetValid)
+            {
+                ReportOutOfRange(context, "ArgumentOffset", record.ArgumentOffset, record.Where);
+            }
+
             return FrozenDispatch
             {
                 .Form = record.Form,
                 .Resource = bufferRsrc,
+                .ArgumentOffset = record.ArgumentOffset,
                 .Where = record.Where
             };
         }

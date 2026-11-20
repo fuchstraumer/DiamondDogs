@@ -324,6 +324,10 @@ struct CrustStateData
     }
 };
 
+internal CrustStateData ZeroCrustState()
+{
+    return { float4(0, 0, 0, 0) };
+}
 
 internal CrustStateData LoadCrustState(uint where)
 {

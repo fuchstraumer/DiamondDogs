@@ -179,9 +179,15 @@ namespace loom
 
     void DispatchBuilder::DispatchIndirect(ResourceKey<Buffer> arguments, std::source_location where)
     {
+        DispatchIndirect(arguments, 0, where);
+    }
+
+    void DispatchBuilder::DispatchIndirect(ResourceKey<Buffer> arguments, int64_t byte_offset, std::source_location where)
+    {
         DispatchRecord dispatch{};
         dispatch.Form = DispatchForm::Indirect;
         dispatch.Resource = arguments.ToRef();
+        dispatch.ArgumentOffset = byte_offset;
         dispatch.Where = where;
         record->Dispatches.push_back(dispatch);
     }

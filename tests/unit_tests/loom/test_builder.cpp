@@ -136,6 +136,7 @@ TEST(LoomBuilder, RecordsWhatEachCallSaid)
     EXPECT_EQ(pass.Dispatches[0].Z, 1);
     EXPECT_EQ(pass.Dispatches[1].Form, loom::DispatchForm::Indirect);
     EXPECT_EQ(pass.Dispatches[1].Resource.Hash, k_Args.Hash);
+    EXPECT_EQ(pass.Dispatches[1].ArgumentOffset, 0);
 }
 
 TEST(LoomBuilder, SequenceKeepsSourceOrderAndAnchorPositions)

@@ -50,8 +50,8 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
     const uint flattenedPt = LiveCell.Load(threadID.x);
     const CrustFlagBits crustFlags = LoadCrustFlags(flattenedPt);
     const bool isContinental = crustFlags.IsContinental();
-    CrustStateData crustState = LoadCrustState(flattenedPt);
-    float relief = crustState.GetRelief();
+    CrustStateData crustState = ZeroCrustState();
+    float relief = 0.0f;
 
     // now use the output of the last pass - a cell with a front point
     // rises by the profile function times the points strength. a fast 
@@ -67,7 +67,8 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
         const FrontState frontState = LoadFrontStateIn(frontPoint);
         const float rate = BaseUplift * shape * frontState.GetStrength();
         const float dt = Params.TimeStepMy;
-        relief += rate * dt;
+        crustState = LoadCrustState(flattenedPt);
+        relief = crustState.GetRelief() + (rate * dt);
 
         if (rate > ActiveUplift)
         {
@@ -94,6 +95,10 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
         relief = AccretionStartRelief;
     }
 
-    crustState.SetRelief(relief);
-    StoreCrustState(flattenedPt, crustState);
+    if (frontPoint >= 0 || isContinental)
+    {
+        crustState.SetRelief(relief);
+        StoreCrustState(flattenedPt, crustState);
+    }
+
 }

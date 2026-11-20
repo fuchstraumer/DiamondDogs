@@ -81,7 +81,9 @@ namespace loom
         // where QueryError::AxisName is a string that dies with the error.
         [[nodiscard]] std::string_view AxisName(const lodestone::manifest::ModuleView& module, uint32_t local_axis);
 
-        // The capability axis rule (Lodestone request R3, which has no API yet). True for a boolean capability axis:
+        // The capability axis rule. Lodestone's PreferCapable() cannot replace it yet: an axis that a capability gates
+        // off keeps its canonical digit in the key, so the off variant and the on variant with the default value
+        // differ in that axis, and neither dominates the other (Lodestone request C25). True for a boolean capability axis:
         // when both of its values survive ForDevice, Resolve pins it to true. That is safe, because ForDevice has
         // already removed true where the device lacks the capability, and Lodestone's capability axis check proves
         // that the false path needs a subset of what the true path needs. An integer or enum capability axis has no
