@@ -37,78 +37,145 @@ namespace planet
         [[nodiscard]] std::optional<std::vector<std::byte>> ReadFlagsAsBytes(const ReferenceSet& reference,
                                                                              std::string_view file,
                                                                              CrustFlagStorage storage);
+
+        template<typename PointAtFn>
+        [[nodiscard]] PlateCaps ComputePlateCapsFor(std::span<const uint8_t> alive,
+                                                    int32_t point_count,
+                                                    int32_t plate_count,
+                                                    PointAtFn&& point_at)
+        {
+            PlateCaps caps
+            {
+                std::vector<math::Float4>(static_cast<size_t>(plate_count), math::Float4{ 0.0f, 0.0f, 0.0f, k_CapNone }),
+                std::vector<uint32_t>(static_cast<size_t>(plate_count), 0u),
+            };
+
+            for (int32_t plate = 0; plate < plate_count; ++plate)
+            {
+                const size_t plateOffset = static_cast<size_t>(plate) * static_cast<size_t>(point_count);
+                const std::span<const uint8_t> cells = alive.subspan(plateOffset, static_cast<size_t>(point_count));
+                Double3 sum{};
+                int32_t live = 0;
+
+                for (int32_t cell = 0; cell < point_count; ++cell)
+                {
+                    if (cells[static_cast<size_t>(cell)] == 0u)
+                    {
+                        continue;
+                    }
+
+                    const Double3 point = point_at(cell);
+                    sum.X += point.X;
+                    sum.Y += point.Y;
+                    sum.Z += point.Z;
+                    ++live;
+                }
+
+                if (live == 0)
+                {
+                    caps.Centres[static_cast<size_t>(plate)].w = k_CapEmpty;
+                    continue;
+                }
+
+                // live cells spread evenly over the sphere have no useful centre: the plate keeps no cap
+                const double length = Length(sum);
+
+                if (length < 1.0e-3 * static_cast<double>(live))
+                {
+                    continue;
+                }
+
+                const math::Float3 unit
+                {
+                    static_cast<float>(sum.X / length),
+                    static_cast<float>(sum.Y / length),
+                    static_cast<float>(sum.Z / length),
+                };
+                double spread = 0.0;
+
+                // the spread is measured from the float centre that the shader reads
+                for (int32_t cell = 0; cell < point_count; ++cell)
+                {
+                    if (cells[static_cast<size_t>(cell)] == 0u)
+                    {
+                        continue;
+                    }
+
+                    const Double3 point = point_at(cell);
+                    const double cosine = Dot(point, unit);
+                    spread = std::max(spread, 1.0 - cosine);
+                }
+
+                caps.Centres[static_cast<size_t>(plate)] = math::Float4{ unit, k_CapValid };
+                const float padded = std::nextafter(static_cast<float>(spread), std::numeric_limits<float>::infinity());
+                caps.Spreads[static_cast<size_t>(plate)] = std::bit_cast<uint32_t>(padded);
+            }
+
+            return caps;
+        }
+
+        [[nodiscard]] bool AddCarriedAndZeroedStepBuffers(GpuBuffers& buffers,
+                                                         StepSize size,
+                                                         const PlateCaps& caps,
+                                                         std::span<const std::byte> previous_plate_bytes,
+                                                         bool readable,
+                                                         bool include_initial_copies)
+        {
+            const std::span<const std::string_view> carried = StepCarriedBuffers();
+            const std::array<std::span<const std::byte>, 3> carriedBytes
+            {
+                std::as_bytes(std::span{ caps.Centres }),
+                std::as_bytes(std::span{ caps.Spreads }),
+                previous_plate_bytes,
+            };
+
+            if (carried.size() != carriedBytes.size())
+            {
+                std::println(stderr, "AddStepBuffers: the carried buffers differ from StepCarriedBuffers");
+                return false;
+            }
+
+            for (size_t entry = 0u; entry < carried.size(); ++entry)
+            {
+                if (buffers.AddStorage(carried[entry], carriedBytes[entry], readable) != PlanetGpuError::Success ||
+                    (include_initial_copies &&
+                     buffers.AddStorage(InitialName(carried[entry]), carriedBytes[entry], false) != PlanetGpuError::Success))
+                {
+                    return false;
+                }
+            }
+
+            const size_t riftBytes = static_cast<size_t>(size.PlateCount) * 4u * sizeof(float);
+
+            if (buffers.AddZeroedStorage("PlateRiftIn", riftBytes, false) != PlanetGpuError::Success)
+            {
+                return false;
+            }
+
+            // the outputs and counters, as 32-bit words. RecordReset zeroes them again before each step
+            for (const StepBufferSpec& spec : StepZeroedBuffers())
+            {
+                const size_t byteSize = StepBufferWordCount(spec.Extent, size) * sizeof(uint32_t);
+
+                if (buffers.AddZeroedStorage(spec.Name, byteSize, readable) != PlanetGpuError::Success)
+                {
+                    return false;
+                }
+            }
+
+            // the live cell list has room for every cell. ScatterLiveCellsCS writes the first PlateLiveOffset[plates]
+            // entries, so the reset does not clear it
+            const size_t cellBytes = StepBufferWordCount(BufferExtent::Cells, size) * sizeof(uint32_t);
+            return buffers.AddZeroedStorage("LiveCell", cellBytes, readable) == PlanetGpuError::Success;
+        }
     }
 
     PlateCaps ComputePlateCaps(std::span<const uint8_t> alive, int32_t point_count, int32_t plate_count)
     {
-        PlateCaps caps
+        return ComputePlateCapsFor(alive, point_count, plate_count, [point_count](int32_t cell) noexcept
         {
-            std::vector<math::Float4>(static_cast<size_t>(plate_count), math::Float4{ 0.0f, 0.0f, 0.0f, k_CapNone }),
-            std::vector<uint32_t>(static_cast<size_t>(plate_count), 0u),
-        };
-
-        for (int32_t plate = 0; plate < plate_count; ++plate)
-        {
-            const size_t plateOffset = static_cast<size_t>(plate) * static_cast<size_t>(point_count);
-            const std::span<const uint8_t> cells = alive.subspan(plateOffset, static_cast<size_t>(point_count));
-            Double3 sum{};
-            int32_t live = 0;
-
-            for (int32_t cell = 0; cell < point_count; ++cell)
-            {
-                if (cells[static_cast<size_t>(cell)] == 0u)
-                {
-                    continue;
-                }
-
-                const Double3 point = LatticePointDouble(cell, point_count);
-                sum.X += point.X;
-                sum.Y += point.Y;
-                sum.Z += point.Z;
-                ++live;
-            }
-
-            if (live == 0)
-            {
-                caps.Centres[static_cast<size_t>(plate)].w = k_CapEmpty;
-                continue;
-            }
-
-            // live cells spread evenly over the sphere have no useful centre: the plate keeps no cap
-            const double length = Length(sum);
-
-            if (length < 1.0e-3 * static_cast<double>(live))
-            {
-                continue;
-            }
-
-            const math::Float3 unit
-            {
-                static_cast<float>(sum.X / length),
-                static_cast<float>(sum.Y / length),
-                static_cast<float>(sum.Z / length),
-            };
-            double spread = 0.0;
-
-            // the spread is measured from the float centre that the shader reads
-            for (int32_t cell = 0; cell < point_count; ++cell)
-            {
-                if (cells[static_cast<size_t>(cell)] == 0u)
-                {
-                    continue;
-                }
-
-                const Double3 point = LatticePointDouble(cell, point_count);
-                const double cosine = Dot(point, unit);
-                spread = std::max(spread, 1.0 - cosine);
-            }
-
-            caps.Centres[static_cast<size_t>(plate)] = math::Float4{ unit, k_CapValid };
-            const float padded = std::nextafter(static_cast<float>(spread), std::numeric_limits<float>::infinity());
-            caps.Spreads[static_cast<size_t>(plate)] = std::bit_cast<uint32_t>(padded);
-        }
-
-        return caps;
+            return LatticePointDouble(cell, point_count);
+        });
     }
 
     size_t FlagElementSize(CrustFlagStorage storage) noexcept
@@ -177,13 +244,15 @@ namespace planet
                           const PlanetShaders& shaders,
                           std::string_view entry_point,
                           StepSize size,
-                          float time_step_my)
+                          float time_step_my,
+                          uint32_t healpix_order)
     {
-        const std::array<UniformValue, 3> values
+        const std::array<UniformValue, 4> values
         {
             UniformUint("PointCount", size.PointCount),
             UniformUint("PlateCount", size.PlateCount),
             UniformFloat("TimeStepMy", time_step_my),
+            UniformUint("HealpixOrder", healpix_order),
         };
         return buffers.AddUniformFrom(shaders, entry_point, "Params", values) == PlanetGpuError::Success;
     }
@@ -304,53 +373,158 @@ namespace planet
         }
 
         const PlateCaps caps = ComputePlateCaps(*alive, reference.PointCount(), reference.PlateCount());
-        const std::span<const std::string_view> carried = StepCarriedBuffers();
-        const std::array<std::span<const std::byte>, 3> carriedBytes
-        {
-            std::as_bytes(std::span{ caps.Centres }),
-            std::as_bytes(std::span{ caps.Spreads }),
-            std::span<const std::byte>{ *previousPlate },
-        };
+        return AddCarriedAndZeroedStepBuffers(buffers, size, caps, *previousPlate, readable, true);
+    }
 
-        if (carried.size() != carriedBytes.size())
-        {
-            std::println(stderr, "AddStepBuffers: the carried buffers differ from StepCarriedBuffers");
-            return false;
-        }
-
-        for (int32_t index = 0; index < std::ssize(carried); ++index)
-        {
-            const size_t entry = static_cast<size_t>(index);
-
-            if (buffers.AddStorage(carried[entry], carriedBytes[entry], readable) != PlanetGpuError::Success ||
-                buffers.AddStorage(InitialName(carried[entry]), carriedBytes[entry], false) != PlanetGpuError::Success)
-            {
-                return false;
-            }
-        }
-
-        const size_t riftBytes = static_cast<size_t>(reference.PlateCount()) * 4u * sizeof(float);
-
-        if (buffers.AddZeroedStorage("PlateRiftIn", riftBytes, false) != PlanetGpuError::Success)
+    bool AddHealpixStepBuffers(GpuBuffers& buffers,
+                               const PlanetShaders& shaders,
+                               const ReferenceSet& reference,
+                               uint32_t order,
+                               CrustFlagStorage storage,
+                               bool include_initial_copies,
+                               float time_step_my)
+    {
+        if (order > 13u || reference.PointCount() <= 0 || reference.PlateCount() <= 0)
         {
             return false;
         }
 
-        // the outputs and counters, as 32-bit words. RecordReset zeroes them again before each step
-        for (const StepBufferSpec& spec : StepZeroedBuffers())
-        {
-            const size_t byteSize = StepBufferWordCount(spec.Extent, size) * sizeof(uint32_t);
+        const uint32_t pointCount = static_cast<uint32_t>(HealpixPixelCount(order));
+        const int32_t refPointCount = reference.PointCount();
+        const int32_t plateCount = reference.PlateCount();
+        const StepSize size{ pointCount, static_cast<uint32_t>(plateCount) };
 
-            if (buffers.AddZeroedStorage(spec.Name, byteSize, readable) != PlanetGpuError::Success)
+        if (!AddParamsUniform(buffers, shaders, "OwnersCS", size, time_step_my, order) ||
+            !AddTimeUniform(buffers, shaders, "FillGapsCS", "Pass3Constants", reference.Time()) ||
+            !AddTimeUniform(buffers, shaders, "UpliftCS", "UpliftConstants", reference.Time()))
+        {
+            return false;
+        }
+
+        if (!AddRotationsBuffer(buffers, reference) ||
+            !AddPoleRatesBuffer(buffers, reference))
+        {
+            return false;
+        }
+
+        const std::optional<std::vector<uint8_t>> refAlive = reference.Bytes("ref_alive");
+        const std::optional<std::vector<uint8_t>> refContinental = reference.Bytes("ref_continental");
+        const std::optional<std::vector<float>> refRelief = reference.Floats("ref_relief");
+        const std::optional<std::vector<float>> refBirth = reference.Floats("ref_birth");
+        const std::optional<std::vector<float>> refOrogenyTime = reference.Floats("ref_orogeny_time");
+        const std::optional<std::vector<int32_t>> refOrogeny = reference.Ints("ref_orogeny");
+        const std::optional<std::vector<int32_t>> refPreviousPlate = reference.Ints("previous_plate");
+        const size_t refCellCount = static_cast<size_t>(plateCount) * static_cast<size_t>(refPointCount);
+
+        if (!refAlive.has_value() || refAlive->size() != refCellCount ||
+            !refContinental.has_value() || refContinental->size() != refCellCount ||
+            !refRelief.has_value() || refRelief->size() != refCellCount ||
+            !refBirth.has_value() || refBirth->size() != refCellCount ||
+            !refOrogenyTime.has_value() || refOrogenyTime->size() != refCellCount ||
+            !refOrogeny.has_value() || refOrogeny->size() != refCellCount ||
+            !refPreviousPlate.has_value() || refPreviousPlate->size() != static_cast<size_t>(refPointCount))
+        {
+            return false;
+        }
+
+        std::vector<size_t> srcIndices(pointCount);
+        std::vector<int32_t> healpixPreviousPlate(pointCount);
+
+        for (uint32_t i = 0u; i < pointCount; ++i)
+        {
+            const std::array<double, 3> vec = HealpixPixToVec(i, order);
+            const Double3 dir{ vec[0], vec[1], vec[2] };
+            const size_t srcIdx = static_cast<size_t>(FibonacciNearest(dir, refPointCount));
+            srcIndices[i] = srcIdx;
+            healpixPreviousPlate[i] = (*refPreviousPlate)[srcIdx];
+        }
+
+        const size_t totalCells = static_cast<size_t>(plateCount) * static_cast<size_t>(pointCount);
+        std::vector<uint8_t> healpixAlive(totalCells);
+        std::vector<uint8_t> flagBytes;
+        std::vector<uint32_t> flagWords;
+
+        if (storage == CrustFlagStorage::Bytes)
+        {
+            flagBytes.resize(totalCells);
+        }
+        else
+        {
+            flagWords.resize(totalCells);
+        }
+
+        std::vector<math::Float4> crustState(totalCells);
+
+        for (int32_t p = 0; p < plateCount; ++p)
+        {
+            const size_t srcBase = static_cast<size_t>(p) * static_cast<size_t>(refPointCount);
+            const size_t dstBase = static_cast<size_t>(p) * static_cast<size_t>(pointCount);
+
+            for (uint32_t i = 0u; i < pointCount; ++i)
             {
-                return false;
+                const size_t srcFlat = srcBase + srcIndices[i];
+                const size_t dstFlat = dstBase + i;
+                const uint8_t aliveVal = (*refAlive)[srcFlat] ? 1u : 0u;
+                const uint8_t contVal = (*refContinental)[srcFlat] ? 2u : 0u;
+                healpixAlive[dstFlat] = aliveVal;
+
+                if (storage == CrustFlagStorage::Bytes)
+                {
+                    flagBytes[dstFlat] = static_cast<uint8_t>(aliveVal | contVal);
+                }
+                else
+                {
+                    flagWords[dstFlat] = static_cast<uint32_t>(aliveVal | contVal);
+                }
+
+                crustState[dstFlat] = math::Float4
+                {
+                    (*refRelief)[srcFlat],
+                    (*refBirth)[srcFlat],
+                    (*refOrogenyTime)[srcFlat],
+                    std::bit_cast<float>((*refOrogeny)[srcFlat]),
+                };
             }
         }
 
-        // the live cell list has room for every cell. ScatterLiveCellsCS writes the first PlateLiveOffset[plates]
-        // entries, so the reset does not clear it
-        const size_t cellBytes = StepBufferWordCount(BufferExtent::Cells, size) * sizeof(uint32_t);
-        return buffers.AddZeroedStorage("LiveCell", cellBytes, readable) == PlanetGpuError::Success;
+        const std::string_view flagBufferName = CrustFlagBufferNames(storage);
+        const std::span<const std::byte> flagSpan = storage == CrustFlagStorage::Bytes
+            ? std::as_bytes(std::span{ flagBytes })
+            : std::as_bytes(std::span{ flagWords });
+
+        if (buffers.AddStorage(flagBufferName, flagSpan, false) != PlanetGpuError::Success ||
+            (include_initial_copies &&
+             buffers.AddStorage(InitialName(flagBufferName), flagSpan, false) != PlanetGpuError::Success))
+        {
+            return false;
+        }
+
+        const std::span<const std::byte> stateSpan = std::as_bytes(std::span{ crustState });
+
+        if (buffers.AddStorage("CrustState", stateSpan, false) != PlanetGpuError::Success ||
+            (include_initial_copies &&
+             buffers.AddStorage(InitialName("CrustState"), stateSpan, false) != PlanetGpuError::Success))
+        {
+            return false;
+        }
+
+        const PlateCaps caps = ComputePlateCapsFor(
+            healpixAlive,
+            static_cast<int32_t>(pointCount),
+            plateCount,
+            [order](int32_t cell) noexcept
+            {
+                const std::array<double, 3> vec = HealpixPixToVec(static_cast<uint32_t>(cell), order);
+                return Double3{ vec[0], vec[1], vec[2] };
+            });
+
+        return AddCarriedAndZeroedStepBuffers(
+            buffers,
+            size,
+            caps,
+            std::as_bytes(std::span{ healpixPreviousPlate }),
+            false,
+            include_initial_copies);
     }
 
     bool AddCrustFlagsBuffer(GpuBuffers& buffers,

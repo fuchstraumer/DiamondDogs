@@ -1,6 +1,6 @@
 implementing PlanetLab;
 __include Buffers;
-__include Fibonacci;
+__include HEALPix;
 
 /*
     TorqueSums treats each plate as a rigid body and computes the torque balance needs to be to move the
@@ -60,7 +60,7 @@ void SumPullCS(uint3 threadID : SV_DispatchThreadID)
 
     // now apply the pull and perform the last fixed-point add. 
     // cross(centroid, world) is the rotation axis/lever arm that would turn the plate towards the trench
-    const float3 worldPoint = LatticePoint(int(pointID), int(Params.PointCount));
+    const float3 worldPoint = HealpixPixToVec(pointID, Params.HealpixOrder);
     const float3 axis = cross(centroidWorld, worldPoint);
     const float3 pullForce = axis / max(length(axis), 1e-6f) * slabWeight;
     const int3 intPull = int3(round(pullForce * PullScale));

@@ -5,7 +5,7 @@
 #include "PlanetGpuErrors.hpp"
 #include "PlanetShaders.hpp"
 #include "ResourceContext.hpp"
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 #include "RhiFlags.hpp"

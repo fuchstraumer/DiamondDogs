@@ -1,6 +1,6 @@
 implementing PlanetLab;
 __include Buffers;
-__include Fibonacci;
+__include HEALPix;
 
 static const uint LiveGroupSize = 256u;
 static const uint CellsPerThread = 4u;
@@ -97,7 +97,7 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
 
                 live += 1u;
                 continental += (stepFlags & 0x2u) != 0u ? 1u : 0u;
-                const float3 latticePoint = LatticePoint(int(cellBase + step), int(Params.PointCount));
+                const float3 latticePoint = HealpixPixToVec(uint(cellBase + step), Params.HealpixOrder);
                 position += int3(round(latticePoint * PositionSumScale));
             }
         }
@@ -141,7 +141,7 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
 
                 live += 1u;
                 continental += (stepMask & 0x2u) != 0u ? 1u : 0u;
-                const float3 latticePoint = LatticePoint(int(cellIndex), int(Params.PointCount));
+                const float3 latticePoint = HealpixPixToVec(uint(cellIndex), Params.HealpixOrder);
                 position += int3(round(latticePoint * PositionSumScale));
             }
         }
@@ -311,7 +311,7 @@ void ScatterLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_Group
                 LiveCell.Store(resultIdx, flattenedIndex);
                 resultIdx += 1u;
 
-                const float3 latticePoint = LatticePoint(int(cellIndex), int(Params.PointCount));
+                const float3 latticePoint = HealpixPixToVec(uint(cellIndex), Params.HealpixOrder);
                 spread = max(spread, 1.0f - dot(latticePoint, plateCap.xyz));
             }
         }

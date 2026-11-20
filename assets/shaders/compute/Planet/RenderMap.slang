@@ -1,6 +1,6 @@
 implementing PlanetLab;
 __include Buffers;
-__include Fibonacci;
+__include HEALPix;
 
 // Renders the current plate simulation state to a 2D equirectangular RGBA8 storage texture
 // for headless FrameCapture PNG dumps, debug layer inspection, and future interactive previews.
@@ -144,7 +144,7 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
     sincos(lon, sinLon, cosLon);
     const float3 worldPoint = float3(cosLat * cosLon, cosLat * sinLon, sinLat);
 
-    const int pt = FibonacciNearest(worldPoint, int(Params.PointCount));
+    const int pt = int(HealpixVecToPix(worldPoint, Params.HealpixOrder));
     const OwnersData owners = LoadOwnersIn(uint(pt));
     const int plate = owners.GetBestPlate();
     const int cell = owners.GetBestCell();

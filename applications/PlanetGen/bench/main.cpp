@@ -4,6 +4,7 @@
 #include "DeviceRequirements.hpp"
 #include "GpuBuffers.hpp"
 #include "GpuTimers.hpp"
+#include "Healpix.hpp"
 #include "PlanetSession.hpp"
 #include "ReferenceSet.hpp"
 #include "SpineNeeds.hpp"
@@ -29,6 +30,7 @@ namespace
     {
         std::filesystem::path Reference;
         std::filesystem::path Json;
+        uint32_t Order{ 7u };
         uint32_t Steps{ 200u };
         uint32_t Warmup{ 20u };
         planet::StepTimerDetail Detail{ planet::StepTimerDetail::Passes };
@@ -112,8 +114,9 @@ int main(int argc, char* argv[])
         std::println("PlanetGenBench: this is a Debug build; the shaders are the same, but measure in RelWithDebInfo");
     }
 
-    std::println("PlanetGenBench: {}, {} points, {} plates, crust flags in {}, {} build",
-                 session->DeviceName(), reference->PointCount(), reference->PlateCount(), flagStorage, k_BuildType);
+    const uint32_t pointCount = static_cast<uint32_t>(planet::HealpixPixelCount(options->Order));
+    std::println("PlanetGenBench: {}, {} points (HEALPix order {}), {} plates, crust flags in {}, {} build",
+                 session->DeviceName(), pointCount, options->Order, reference->PlateCount(), flagStorage, k_BuildType);
     std::println("{} steps after {} warm-up steps. GPU times in microseconds", options->Steps, options->Warmup);
 
     std::unordered_map<uint64_t, std::vector<double>> samples;
@@ -125,11 +128,11 @@ int main(int argc, char* argv[])
         planet::GpuBuffers buffers(session->Resources());
         const planet::StepSize size
         {
-            static_cast<uint32_t>(reference->PointCount()),
+            pointCount,
             static_cast<uint32_t>(reference->PlateCount()),
         };
 
-        if (!planet::AddStepBuffers(buffers, **shaders, *reference, planet::StepReadback::None))
+        if (!planet::AddHealpixStepBuffers(buffers, **shaders, *reference, options->Order, (*shaders)->CrustFlags(), true))
         {
             return 1;
         }
@@ -234,7 +237,7 @@ int main(int argc, char* argv[])
         {
             session->DeviceName(),
             k_BuildType,
-            reference->PointCount(),
+            static_cast<int32_t>(pointCount),
             reference->PlateCount(),
             flagStorage,
             options->Steps,
@@ -287,6 +290,12 @@ namespace
             {
                 options.Json = text.substr(7u);
             }
+            else if (text.starts_with("--order="))
+            {
+                valid = ParseCount(text.substr(8u), options.Order) &&
+                        options.Order >= 4u &&
+                        options.Order <= 9u;
+            }
             else if (text.starts_with("--steps="))
             {
                 valid = ParseCount(text.substr(8u), options.Steps);
@@ -309,7 +318,7 @@ namespace
 
         if (options.Reference.empty() || options.Steps == 0u)
         {
-            std::println(stderr, "usage: PlanetGenBench --reference=<folder> [--steps=N] [--warmup=N] [--dispatches] [--frame-boundaries] [--json=<file>]");
+            std::println(stderr, "usage: PlanetGenBench --reference=<folder> [--order=N] [--steps=N] [--warmup=N] [--dispatches] [--frame-boundaries] [--json=<file>]");
             return std::nullopt;
         }
 

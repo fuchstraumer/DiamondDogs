@@ -74,7 +74,8 @@ namespace planet
                                         const PlanetShaders& shaders,
                                         std::string_view entry_point,
                                         StepSize size,
-                                        float time_step_my = 2.0f);
+                                        float time_step_my = 2.0f,
+                                        uint32_t healpix_order = 0u);
     [[nodiscard]] bool AddTimeUniform(GpuBuffers& buffers,
                                       const PlanetShaders& shaders,
                                       std::string_view entry_point,
@@ -100,6 +101,17 @@ namespace planet
                                       const ReferenceSet& reference,
                                       StepReadback readback,
                                       float time_step_my = 2.0f);
+
+    /** @brief Resamples the reference state onto a nested HEALPix grid of `order` and creates every buffer that
+     *  PlanetStep binds, including PlateCapCenters, PlateCapSpread, Params (with HealpixOrder), and optional Initial.*
+     *  copies. */
+    [[nodiscard]] bool AddHealpixStepBuffers(GpuBuffers& buffers,
+                                             const PlanetShaders& shaders,
+                                             const ReferenceSet& reference,
+                                             uint32_t order,
+                                             CrustFlagStorage storage,
+                                             bool include_initial_copies,
+                                             float time_step_my = 2.0f);
 
     [[nodiscard]] bool AddCrustFlagsBuffer(GpuBuffers& buffers,
                                            const ReferenceSet& reference,

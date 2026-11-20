@@ -17,6 +17,7 @@ namespace planet
     };
 
     [[nodiscard]] Double3 LatticePointDouble(int32_t index, int32_t count) noexcept;
+    [[nodiscard]] int32_t FibonacciNearest(const Double3& direction, int32_t count) noexcept;
     [[nodiscard]] double PointSpacingRadians(int32_t point_count) noexcept;
     [[nodiscard]] double Dot(const Double3& a, const math::Float3& b) noexcept;
     [[nodiscard]] double Length(const Double3& value) noexcept;

@@ -1,5 +1,5 @@
 implementing PlanetLab;
-__include Fibonacci;
+__include HEALPix;
 __include Buffers;
 
 // Pass 1 of the plate port: for each world point, the best two plates that have crust there.
@@ -10,6 +10,7 @@ struct OwnersParams
     uint PointCount;
     uint PlateCount;
     float TimeStepMy;
+    uint HealpixOrder;
 };
 
 ConstantBuffer<OwnersParams> Params;
@@ -86,7 +87,7 @@ void OwnersCS(uint3 threadId : SV_DispatchThreadID, uint3 laneInGroup : SV_Group
 
     // todo-ship: store point indices in morton-order so all 32 lanes in a warp will be in a tight 2D patch,
     // as right now they're effectively covering a 360 degree ring
-    const float3 worldPoint = LatticePoint(int(point), count);
+    const float3 worldPoint = HealpixPixToVec(point, Params.HealpixOrder);
     const int previousPlate = PreviousPlateIn.Load(point);
 
     float bestScore = NoScore;
@@ -109,7 +110,7 @@ void OwnersCS(uint3 threadId : SV_DispatchThreadID, uint3 laneInGroup : SV_Group
             worldPoint.y * SharedRotationR1[plate] +
             worldPoint.z * SharedRotationR2[plate];
 
-        const int cell = FibonacciNearest(frameDirection, int(count));
+        const int cell = int(HealpixVecToPix(frameDirection, Params.HealpixOrder));
         const uint flattenedIdx = plate * Params.PointCount + uint(cell);
         CrustFlagBits crustFlags = LoadCrustFlagsIn(flattenedIdx);
         if (!crustFlags.IsAlive())

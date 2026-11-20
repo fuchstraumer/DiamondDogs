@@ -1,6 +1,8 @@
 #include "PlanetMath.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <numbers>
 
 namespace planet
@@ -12,6 +14,80 @@ namespace planet
         const double radius = std::sqrt(std::max(1.0 - z * z, 0.0));
         const double angle = (static_cast<double>(index) + 0.5) * goldenAngle;
         return Double3{ radius * std::cos(angle), radius * std::sin(angle), z };
+    }
+
+    int32_t FibonacciNearest(const Double3& direction, int32_t count) noexcept
+    {
+        if (count <= 1)
+        {
+            return 0;
+        }
+
+        const double goldenRatio = 0.5 * (1.0 + std::sqrt(5.0));
+        const double goldenAngle = std::numbers::pi * (3.0 - std::sqrt(5.0));
+        const double twoPi = 2.0 * std::numbers::pi;
+        const double sqrt5 = std::sqrt(5.0);
+        const double n = static_cast<double>(count);
+        const double cosTheta = std::clamp(direction.Z, -1.0, 1.0);
+
+        double phi = -(std::atan2(direction.Y, direction.X) - 0.5 * goldenAngle);
+        phi -= twoPi * std::round(phi / twoPi);
+
+        const double sinSquared = std::max(1.0 - cosTheta * cosTheta, 1.0e-30);
+        const double zone = std::max(2.0, std::floor(std::log(n * std::numbers::pi * sqrt5 * sinSquared) /
+                                                     std::log(goldenRatio * goldenRatio)));
+        const double fibonacci = std::pow(goldenRatio, zone) / sqrt5;
+        const double first = std::round(fibonacci);
+        const double second = std::round(fibonacci * goldenRatio);
+
+        const double turn = goldenRatio - 1.0;
+        const auto fraction = [](double value) noexcept { return value - std::floor(value); };
+        const double b00 = twoPi * (fraction((first + 1.0) * turn) - turn);
+        const double b01 = twoPi * (fraction((second + 1.0) * turn) - turn);
+        const double b10 = -2.0 * first / n;
+        const double b11 = -2.0 * second / n;
+        const double determinant = b00 * b11 - b01 * b10;
+        const double top = 1.0 - 1.0 / n;
+        const double height = cosTheta - top;
+        const int64_t corner0 = static_cast<int64_t>(std::floor((b11 * phi - b01 * height) / determinant));
+        const int64_t corner1 = static_cast<int64_t>(std::floor((-b10 * phi + b00 * height) / determinant));
+        const int64_t firstInt = static_cast<int64_t>(first);
+        const int64_t secondInt = static_cast<int64_t>(second);
+
+        double bestDistance = std::numeric_limits<double>::infinity();
+        int32_t bestIndex = 0;
+
+        for (int32_t candidate = 0; candidate < 4; ++candidate)
+        {
+            const int64_t ox = candidate & 1;
+            const int64_t oy = candidate >> 1;
+            int64_t raw = firstInt * (corner0 + ox) + secondInt * (corner1 + oy);
+
+            if (raw < 0)
+            {
+                raw = -raw - 1;
+            }
+
+            if (raw >= count)
+            {
+                raw = 2 * static_cast<int64_t>(count) - raw - 1;
+            }
+
+            const int32_t index = static_cast<int32_t>(std::clamp<int64_t>(raw, 0, count - 1));
+            const Double3 point = LatticePointDouble(index, count);
+            const double dx = point.X - direction.X;
+            const double dy = point.Y - direction.Y;
+            const double dz = point.Z - direction.Z;
+            const double distSq = dx * dx + dy * dy + dz * dz;
+
+            if (distSq < bestDistance)
+            {
+                bestDistance = distSq;
+                bestIndex = index;
+            }
+        }
+
+        return bestIndex;
     }
 
     double PointSpacingRadians(int32_t point_count) noexcept

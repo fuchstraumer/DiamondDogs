@@ -44,12 +44,11 @@ void FillGapsCS(uint3 threadId : SV_DispatchThreadID)
 
     if (plate == -1)
     {
-        const int count = int(Params.PointCount);
-        float3 worldPoint = LatticePoint(int(point), count);
+        float3 worldPoint = HealpixPixToVec(point, Params.HealpixOrder);
         plate = PreviousPlate.Load(point);
         float3x4 rotation = LoadRotation(uint(plate));
         worldPoint = WorldToPlate(worldPoint, rotation);
-        cell = FibonacciNearest(worldPoint, count);
+        cell = int(HealpixVecToPix(worldPoint, Params.HealpixOrder));
         WriteNewOceanCrust(uint(plate) * Params.PointCount + uint(cell));
         StoreOwners(point, int2(plate, cell), owners.Data.zw);
     }
@@ -80,7 +79,7 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
         const CrustFlagBits crustFlagsTop = LoadCrustFlags(topFlat);
         const CrustFlagBits crustFlagsUnder = LoadCrustFlags(underFlat);
         const bool collision = crustFlagsTop.IsContinental() && crustFlagsUnder.IsContinental();
-        const float3 worldPoint = LatticePoint(int(point), int(Params.PointCount));
+        const float3 worldPoint = HealpixPixToVec(point, Params.HealpixOrder);
         frontState = ComputeFrontValues(crustFlagsUnder,
                                         point,
                                         worldPoint,

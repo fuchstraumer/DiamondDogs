@@ -92,7 +92,7 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `rhi_system_tests` | Instance and device creation per API version, extension resolution, shader objects. |
 | `platform_system_tests` | Displays, windows, swapchain creation, JSON configuration. |
 | `resource_context_tests` | `ResourceContext` on a real device: every create path, uploads read back word for word, fills, copies, maps, samplers, four threads at once, and shutdown with queued work. |
-| `loom_tests` | Loom with no GPU: the builder, the diagnostic catalog, the sinks (counts, text and JSON Lines output), the JSON writer, Freeze, Order and explain. |
+| `loom_tests` | Loom with no GPU: the builder, the diagnostic catalog, the sinks (counts, text and JSON Lines output), the JSON writer, Freeze, Resolve, Bind, Size (buffers), Order and explain, against test shaders cooked with a generated host header. |
 | `content_compiler_tests` | The content compiler with no GPU: kinds, the kind registry, the parameter box, the recipe table and ingestion. |
 | `input_system_tests` | InputSystem with no window: the control space, frame assembly and the record-and-replay log. |
 | `ocean_camera_tests` | The OceanFft camera and its controller: the view basis, picking, pan and smoothed zoom. |
@@ -126,7 +126,7 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `modules/GpuPyramid/` | `pyramid::MipGenerator`: fills mip chains with compute shaders. The shaders, `assets/shaders/compute/Pyramid`, are a Slang transcription of NVIDIA's nvpro_pyramid (Apache 2.0, attribution in each file). A consumer cooks `GPU_PYRAMID_SHADER_MODULE` into its own bundle. |
 | `modules/ColorPipe/` | The HDR color pipe. `color_math` is the double-precision CPU reference. `color_pipe` is the runtime: the scene and UI targets, and the composite (exposure, tonemapper, display primaries, encode). `README.md` explains it. |
 | `modules/ImGuiModule/` | Dear ImGui on `imgui_impl_glfw` and `imgui_impl_vulkan`. |
-| `modules/RenderGraph/` | Loom, the render graph (namespace `loom`): the builders, the diagnostics, Freeze and Order. The author designs it. |
+| `modules/RenderGraph/` | Loom, the render graph (namespace `loom`): the builders, the diagnostics, and the Compile stages (Freeze, Resolve, Bind, Size, Order). `README.md` maps the pipeline. The author designs it. |
 | `modules/FrameCapture/` | Copies images and buffers out to PNG and raw files, for screenshots and the agent tools. `src/CaptureConversion` holds the CPU conversions. |
 | `modules/NoiseGraph/` | The cook of the noise field library. The Slang is in `assets/shaders/compute/Noise`, and its README credits the sources. |
 | `modules/InputSystem/` | Platform-free input: the control space, frame assembly, record and replay, and the GLFW source. |

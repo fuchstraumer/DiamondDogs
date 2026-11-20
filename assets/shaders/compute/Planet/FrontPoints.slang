@@ -106,7 +106,7 @@ void ScatterFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
     // `PlateFrontPointCursor` is an atomic counter, so multiple threads can increment it concurrently
     // to write to the same plate's front point slots without causing race conditions.
     const uint slot = PlateFrontPointOffset.Load(plate) + PlateFrontPointCursor.Add(plate, 1u);
-    const float3 position = LatticePoint(int(point), int(Params.PointCount));
+    const float3 position = HealpixPixToVec(uint(point), Params.HealpixOrder);
     StoreFrontPointData(slot, position, point);
 }
 
@@ -148,7 +148,7 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID,
         const uint plateIdx = flattenedPoint / Params.PointCount;
         const uint plateCell = flattenedPoint % Params.PointCount;
         const float3x4 plateTransform = LoadRotation(plateIdx);
-        const float3 latticePoint = LatticePoint(int(plateCell), int(Params.PointCount));
+        const float3 latticePoint = HealpixPixToVec(uint(plateCell), Params.HealpixOrder);
         worldPoint = PlateToWorld(latticePoint, plateTransform);
         begin = PlateFrontPointOffset.Load(plateIdx);
         end = PlateFrontPointOffset.Load(plateIdx + 1u);
@@ -201,7 +201,7 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID,
     float distance = asfloat(0x7f800000);
     if (best.Index >= 0)
     {
-        const float3 delta = worldPoint - LatticePoint(best.Index, int(Params.PointCount));
+        const float3 delta = worldPoint - HealpixPixToVec(uint(best.Index), Params.HealpixOrder);
         distance = 6370.0f * 2.0f * asin(clamp(0.5f * length(delta), 0.0f, 1.0f));
     }
 

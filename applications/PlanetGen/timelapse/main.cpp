@@ -1,6 +1,7 @@
 #include "CommandBuffer.hpp"
 #include "FrameCapture.hpp"
 #include "GpuBuffers.hpp"
+#include "Healpix.hpp"
 #include "ImageDataFormats.hpp"
 #include "PlanetGpuErrors.hpp"
 #include "PlanetSession.hpp"
@@ -37,6 +38,7 @@ namespace
     {
         std::filesystem::path Reference;
         std::filesystem::path OutDir;
+        uint32_t Order{ 7u };
         uint32_t Steps{ 60u };
         float Dt{ 0.5f };
         uint32_t Every{ 1u };
@@ -56,7 +58,8 @@ namespace
     [[nodiscard]] bool UpdateParamsUniform(planet::GpuBuffers& buffers,
                                            const planet::PlanetShaders& shaders,
                                            planet::StepSize size,
-                                           float dt);
+                                           float dt,
+                                           uint32_t healpix_order);
     [[nodiscard]] bool UpdateRenderMapUniform(planet::GpuBuffers& buffers,
                                               const planet::PlanetShaders& shaders,
                                               uint32_t width,
@@ -79,6 +82,7 @@ namespace
         rhi::ImageHandle MapOutput;
         ImageFormat MapFormat;
         planet::StepSize Size;
+        uint32_t HealpixOrder{ 7u };
         planet_tools::SimState Sim;
 
         void OnSimChanged(std::string_view field_path);
@@ -159,8 +163,9 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    std::println("PlanetGenTimelapse: {}, {} points, {} plates, crust flags in {}",
-                 session->DeviceName(), reference->PointCount(), reference->PlateCount(),
+    const uint32_t pointCount = static_cast<uint32_t>(planet::HealpixPixelCount(options->Order));
+    std::println("PlanetGenTimelapse: {}, {} points (HEALPix order {}), {} plates, crust flags in {}",
+                 session->DeviceName(), pointCount, options->Order, reference->PlateCount(),
                  planet::ToString((*shaders)->CrustFlags()));
 
     if (options->ToolPort < 0)
@@ -173,7 +178,7 @@ int main(int argc, char* argv[])
     planet::GpuBuffers buffers(session->Resources());
     const planet::StepSize size
     {
-        static_cast<uint32_t>(reference->PointCount()),
+        pointCount,
         static_cast<uint32_t>(reference->PlateCount()),
     };
 
@@ -190,7 +195,8 @@ int main(int argc, char* argv[])
     };
     const ImageFormat mapFormat{ ImageComponentFormats::RGBA8, ImageDataType::UNorm };
 
-    if (!planet::AddStepBuffers(buffers, **shaders, *reference, planet::StepReadback::None, options->Dt) ||
+    if (!planet::AddHealpixStepBuffers(buffers, **shaders, *reference, options->Order, (*shaders)->CrustFlags(),
+                                       options->ToolPort >= 0, options->Dt) ||
         buffers.AddUniformFrom(**shaders, "MovePlatesAndClearCountersCS", "MovePlatesConstants", movePlatesInit) != planet::PlanetGpuError::Success ||
         buffers.AddUniformFrom(**shaders, "RenderMapCS", "RenderMapConstants", renderMapInit) != planet::PlanetGpuError::Success ||
         buffers.AddStorageImage("MapOutput", options->Width, options->Height, mapFormat) != planet::PlanetGpuError::Success)
@@ -338,6 +344,12 @@ namespace
             {
                 options.OutDir = text.substr(6u);
             }
+            else if (text.starts_with("--order="))
+            {
+                valid = ParseUint(text.substr(8u), options.Order) &&
+                        options.Order >= 4u &&
+                        options.Order <= 9u;
+            }
             else if (text.starts_with("--steps="))
             {
                 valid = ParseUint(text.substr(8u), options.Steps);
@@ -349,6 +361,10 @@ namespace
             else if (text.starts_with("--every="))
             {
                 valid = ParseUint(text.substr(8u), options.Every);
+            }
+            else if (text.starts_with("--capture-every="))
+            {
+                valid = ParseUint(text.substr(16u), options.Every);
             }
             else if (text.starts_with("--width="))
             {
@@ -385,7 +401,7 @@ namespace
             options.Width == 0u || options.Height == 0u)
         {
             std::println(stderr,
-                         "usage: PlanetGenTimelapse --reference=<folder> --out=<dir> [--steps=N] [--dt=F] [--every=N] "
+                         "usage: PlanetGenTimelapse --reference=<folder> --out=<dir> [--order=N] [--steps=N] [--dt=F] [--every=N] "
                          "[--width=N] [--height=N] [--mode=elevation|plates|age|relief|fronts|voronoi] [--tool-port=N]");
             return std::nullopt;
         }
@@ -408,13 +424,15 @@ namespace
     bool UpdateParamsUniform(planet::GpuBuffers& buffers,
                              const planet::PlanetShaders& shaders,
                              planet::StepSize size,
-                             float dt)
+                             float dt,
+                             uint32_t healpix_order)
     {
-        const std::array<planet::UniformValue, 3> paramsValues
+        const std::array<planet::UniformValue, 4> paramsValues
         {
             planet::UniformUint("PointCount", size.PointCount),
             planet::UniformUint("PlateCount", size.PlateCount),
             planet::UniformFloat("TimeStepMy", dt),
+            planet::UniformUint("HealpixOrder", healpix_order),
         };
 
         return buffers.UpdateUniformFrom(shaders, "OwnersCS", "Params", paramsValues) == planet::PlanetGpuError::Success;
@@ -452,7 +470,7 @@ namespace
     {
         if (field_path == "TimeStepMy")
         {
-            static_cast<void>(UpdateParamsUniform(Buffers, Shaders, Size, Sim.TimeStepMy));
+            static_cast<void>(UpdateParamsUniform(Buffers, Shaders, Size, Sim.TimeStepMy, HealpixOrder));
         }
         else if (field_path == "RenderMode")
         {
@@ -472,7 +490,7 @@ namespace
         if (dt > 0.0f)
         {
             Sim.TimeStepMy = dt;
-            if (!UpdateParamsUniform(Buffers, Shaders, Size, Sim.TimeStepMy))
+            if (!UpdateParamsUniform(Buffers, Shaders, Size, Sim.TimeStepMy, HealpixOrder))
             {
                 return std::string{ "failed to update Params uniform" };
             }
@@ -745,6 +763,7 @@ namespace
             .MapOutput = map_output,
             .MapFormat = map_format,
             .Size = size,
+            .HealpixOrder = options.Order,
             .Sim = planet_tools::SimState
             {
                 .TimeStepMy = options.Dt,
