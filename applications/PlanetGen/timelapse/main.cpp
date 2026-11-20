@@ -11,19 +11,12 @@
 #include "RhiHandle.hpp"
 #include "RhiTypes.hpp"
 #include "StepState.hpp"
-#include "ToolRegistry.hpp"
-#include "ToolReply.hpp"
-#include "ToolResult.hpp"
-#include "ToolServer.hpp"
-#include "reflect/Describe.hpp"
+#include "TimelapseAgentTools.hpp"
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <charconv>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
 #include <filesystem>
 #include <format>
 #include <limits>
@@ -34,220 +27,12 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <thread>
-#include <utility>
 #include <vector>
 
 // PlanetGenTimelapse: runs live plate simulation steps and captures equirectangular PNG frames,
 // or serves interactive AgentTools remote-control requests when --tool-port is provided.
-namespace planet_tools
-{
-    struct SimState
-    {
-        float TimeStepMy{ 0.5f };
-        int32_t RenderMode{ 0 };
-        float Time{ 0.0f };
-        int32_t Step{ 0 };
-        int32_t Width{ 1024 };
-        int32_t Height{ 512 };
-    };
-
-    struct StepParams
-    {
-        int32_t Steps{ 1 };
-        float Dt{ 0.0f };
-    };
-
-    struct SimStateReply
-    {
-        int32_t Step{ 0 };
-        float Time{ 0.0f };
-    };
-
-    struct CaptureParams
-    {
-        int32_t Downsample{ 4 };
-        int32_t Mode{ -1 };
-        std::string Name{ "map" };
-    };
-
-    struct CaptureRegionParams
-    {
-        int32_t X{ 0 };
-        int32_t Y{ 0 };
-        int32_t Width{ 256 };
-        int32_t Height{ 256 };
-        int32_t Mode{ -1 };
-        std::string Name{ "region" };
-    };
-
-    struct CaptureReply
-    {
-        std::string Path;
-        int32_t Width{ 0 };
-        int32_t Height{ 0 };
-    };
-}
-
-template<>
-struct foundation::reflect::Describe<planet_tools::SimState>
-{
-    using SimState = planet_tools::SimState;
-
-    static constexpr std::string_view Name{ "planet.SimState" };
-    static constexpr std::string_view Doc{ "Live tectonic simulation state and map render settings." };
-    static constexpr std::tuple Fields
-    {
-        Field<SimState, float>
-        {
-            "TimeStepMy",
-            &SimState::TimeStepMy,
-            { .Unit = "My", .Range = FieldRange{ 1.0e-6, k_NoLimit }, .Doc = "Simulation step size in million years." },
-        },
-        Field<SimState, int32_t>
-        {
-            "RenderMode",
-            &SimState::RenderMode,
-            { .Range = FieldRange{ 0.0, 5.0 }, .Doc = "0=elevation, 1=plates, 2=age, 3=relief, 4=fronts, 5=voronoi." },
-        },
-        Field<SimState, float>
-        {
-            "Time",
-            &SimState::Time,
-            { .Unit = "My", .Doc = "Current simulation time.", .ReadOnly = true },
-        },
-        Field<SimState, int32_t>
-        {
-            "Step",
-            &SimState::Step,
-            { .Doc = "Completed live steps since startup or reset.", .ReadOnly = true },
-        },
-        Field<SimState, int32_t>
-        {
-            "Width",
-            &SimState::Width,
-            { .Unit = "px", .Doc = "Map output width.", .ReadOnly = true },
-        },
-        Field<SimState, int32_t>
-        {
-            "Height",
-            &SimState::Height,
-            { .Unit = "px", .Doc = "Map output height.", .ReadOnly = true },
-        },
-    };
-};
-
-template<>
-struct foundation::reflect::Describe<planet_tools::StepParams>
-{
-    using StepParams = planet_tools::StepParams;
-
-    static constexpr std::string_view Name{ "planet.StepParams" };
-    static constexpr std::tuple Fields
-    {
-        Field<StepParams, int32_t>
-        {
-            "Steps",
-            &StepParams::Steps,
-            { .Range = FieldRange{ 0.0, 100000.0 }, .Doc = "Number of live steps to execute." },
-        },
-        Field<StepParams, float>
-        {
-            "Dt",
-            &StepParams::Dt,
-            { .Unit = "My", .Range = FieldRange{ 0.0, k_NoLimit }, .Doc = "Optional new TimeStepMy when > 0." },
-        },
-    };
-};
-
-template<>
-struct foundation::reflect::Describe<planet_tools::SimStateReply>
-{
-    using SimStateReply = planet_tools::SimStateReply;
-
-    static constexpr std::string_view Name{ "planet.SimStateReply" };
-    static constexpr std::tuple Fields
-    {
-        Field<SimStateReply, int32_t>{ "Step", &SimStateReply::Step },
-        Field<SimStateReply, float>{ "Time", &SimStateReply::Time, { .Unit = "My" } },
-    };
-};
-
-template<>
-struct foundation::reflect::Describe<planet_tools::CaptureParams>
-{
-    using CaptureParams = planet_tools::CaptureParams;
-
-    static constexpr std::string_view Name{ "planet.CaptureParams" };
-    static constexpr std::tuple Fields
-    {
-        Field<CaptureParams, int32_t>
-        {
-            "Downsample",
-            &CaptureParams::Downsample,
-            { .Range = FieldRange{ 1.0, 64.0 }, .Doc = "Block downsample factor (>= 1)." },
-        },
-        Field<CaptureParams, int32_t>
-        {
-            "Mode",
-            &CaptureParams::Mode,
-            { .Range = FieldRange{ -1.0, 5.0 }, .Doc = "Optional temporary render mode (0..5), or -1 for current." },
-        },
-        Field<CaptureParams, std::string>
-        {
-            "Name",
-            &CaptureParams::Name,
-            { .Doc = "Output PNG stem (letters, digits, '_' and '-')." },
-        },
-    };
-};
-
-template<>
-struct foundation::reflect::Describe<planet_tools::CaptureRegionParams>
-{
-    using CaptureRegionParams = planet_tools::CaptureRegionParams;
-
-    static constexpr std::string_view Name{ "planet.CaptureRegionParams" };
-    static constexpr std::tuple Fields
-    {
-        Field<CaptureRegionParams, int32_t>{ "X", &CaptureRegionParams::X, { .Unit = "px" } },
-        Field<CaptureRegionParams, int32_t>{ "Y", &CaptureRegionParams::Y, { .Unit = "px" } },
-        Field<CaptureRegionParams, int32_t>{ "Width", &CaptureRegionParams::Width, { .Unit = "px" } },
-        Field<CaptureRegionParams, int32_t>{ "Height", &CaptureRegionParams::Height, { .Unit = "px" } },
-        Field<CaptureRegionParams, int32_t>
-        {
-            "Mode",
-            &CaptureRegionParams::Mode,
-            { .Range = FieldRange{ -1.0, 5.0 }, .Doc = "Optional temporary render mode (0..5), or -1 for current." },
-        },
-        Field<CaptureRegionParams, std::string>
-        {
-            "Name",
-            &CaptureRegionParams::Name,
-            { .Doc = "Output PNG stem (letters, digits, '_' and '-')." },
-        },
-    };
-};
-
-template<>
-struct foundation::reflect::Describe<planet_tools::CaptureReply>
-{
-    using CaptureReply = planet_tools::CaptureReply;
-
-    static constexpr std::string_view Name{ "planet.CaptureReply" };
-    static constexpr std::tuple Fields
-    {
-        Field<CaptureReply, std::string>{ "Path", &CaptureReply::Path },
-        Field<CaptureReply, int32_t>{ "Width", &CaptureReply::Width, { .Unit = "px" } },
-        Field<CaptureReply, int32_t>{ "Height", &CaptureReply::Height, { .Unit = "px" } },
-    };
-};
-
 namespace
 {
-    constexpr size_t k_MaxCaptureNameLength = 64u;
-    constexpr int32_t k_MaxToolRequestsPerPump = 16;
-
     struct TimelapseOptions
     {
         std::filesystem::path Reference;
@@ -266,7 +51,6 @@ namespace
     [[nodiscard]] bool ParseFloat(std::string_view text, float& value);
     [[nodiscard]] bool ParseMode(std::string_view text, uint32_t& mode);
     [[nodiscard]] std::optional<TimelapseOptions> ParseOptions(std::span<char* const> arguments);
-    [[nodiscard]] bool IsSafeCaptureName(std::string_view name) noexcept;
 
     [[nodiscard]] bool UpdateTimeUniforms(planet::GpuBuffers& buffers, const planet::PlanetShaders& shaders, float time);
     [[nodiscard]] bool UpdateParamsUniform(planet::GpuBuffers& buffers,
@@ -284,7 +68,7 @@ namespace
                                          uint32_t width,
                                          uint32_t height);
 
-    struct ToolHost
+    struct SimulationHost
     {
         planet::PlanetSession& Session;
         const planet::PlanetShaders& Shaders;
@@ -296,78 +80,17 @@ namespace
         ImageFormat MapFormat;
         planet::StepSize Size;
         planet_tools::SimState Sim;
-        bool QuitRequested{ false };
 
         void OnSimChanged(std::string_view field_path);
-        void CaptureArea(int32_t x,
-                         int32_t y,
-                         int32_t width,
-                         int32_t height,
-                         uint32_t downsample,
-                         int32_t mode,
-                         std::string_view name,
-                         std::string_view default_name,
-                         agent::ReplyToken<planet_tools::CaptureReply> token);
-    };
-
-    struct StepCommand
-    {
-        static constexpr std::string_view Name{ "planet.step" };
-        static constexpr std::string_view Doc{ "Runs Steps live tectonic simulation ticks and updates MapOutput." };
-        using Params = planet_tools::StepParams;
-        using Reply = planet_tools::SimStateReply;
-
-        void Run(const Params& params, agent::ReplyToken<Reply> token);
-
-        ToolHost& Host;
-    };
-
-    struct ResetCommand
-    {
-        static constexpr std::string_view Name{ "planet.reset" };
-        static constexpr std::string_view Doc{ "Resets simulation buffers to step 0 and renders the initial MapOutput." };
-        using Params = agent::NoParams;
-        using Reply = planet_tools::SimStateReply;
-
-        void Run(const Params& params, agent::ReplyToken<Reply> token);
-
-        ToolHost& Host;
-    };
-
-    struct CaptureCommand
-    {
-        static constexpr std::string_view Name{ "planet.capture" };
-        static constexpr std::string_view Doc{ "Captures the full MapOutput image to a PNG file." };
-        using Params = planet_tools::CaptureParams;
-        using Reply = planet_tools::CaptureReply;
-
-        void Run(const Params& params, agent::ReplyToken<Reply> token);
-
-        ToolHost& Host;
-    };
-
-    struct CaptureRegionCommand
-    {
-        static constexpr std::string_view Name{ "planet.capture_region" };
-        static constexpr std::string_view Doc{ "Captures a clamped sub-rectangle of MapOutput at 1:1 resolution to a PNG file." };
-        using Params = planet_tools::CaptureRegionParams;
-        using Reply = planet_tools::CaptureReply;
-
-        void Run(const Params& params, agent::ReplyToken<Reply> token);
-
-        ToolHost& Host;
-    };
-
-    struct QuitCommand
-    {
-        static constexpr std::string_view Name{ "planet.quit" };
-        static constexpr std::string_view Doc{ "Stops the PlanetGenTimelapse tool server and exits." };
-        using Params = agent::NoParams;
-        using Reply = agent::NoReply;
-
-        void Run(const Params& params, agent::ReplyToken<Reply> token);
-
-        ToolHost& Host;
+        [[nodiscard]] std::optional<std::string> Step(int32_t steps, float dt);
+        [[nodiscard]] std::optional<std::string> Reset();
+        [[nodiscard]] planet_tools::CaptureOutput CaptureArea(int32_t x,
+                                                              int32_t y,
+                                                              int32_t width,
+                                                              int32_t height,
+                                                              uint32_t downsample,
+                                                              int32_t mode,
+                                                              std::string_view name);
     };
 
     [[nodiscard]] int RunBatchTimelapse(planet::PlanetSession& session,
@@ -380,16 +103,16 @@ namespace
                                         ImageFormat map_format,
                                         const TimelapseOptions& options);
 
-    [[nodiscard]] int RunToolServer(planet::PlanetSession& session,
-                                    const planet::PlanetShaders& shaders,
-                                    planet::GpuBuffers& buffers,
-                                    const planet::PlanetStep& step_runner,
-                                    const planet::ReferenceSet& reference,
-                                    capture::FrameCapture& capture,
-                                    rhi::ImageHandle map_output,
-                                    ImageFormat map_format,
-                                    planet::StepSize size,
-                                    const TimelapseOptions& options);
+    [[nodiscard]] int RunToolMode(planet::PlanetSession& session,
+                                  const planet::PlanetShaders& shaders,
+                                  planet::GpuBuffers& buffers,
+                                  const planet::PlanetStep& step_runner,
+                                  const planet::ReferenceSet& reference,
+                                  capture::FrameCapture& capture,
+                                  rhi::ImageHandle map_output,
+                                  ImageFormat map_format,
+                                  planet::StepSize size,
+                                  const TimelapseOptions& options);
 }
 
 int main(int argc, char* argv[])
@@ -537,7 +260,7 @@ int main(int argc, char* argv[])
 
     if (options->ToolPort >= 0)
     {
-        return RunToolServer(*session, **shaders, buffers, **stepRunner, *reference, capture, *mapOutput, mapFormat, size, *options);
+        return RunToolMode(*session, **shaders, buffers, **stepRunner, *reference, capture, *mapOutput, mapFormat, size, *options);
     }
 
     return RunBatchTimelapse(*session, **shaders, buffers, **stepRunner, *reference, capture, *mapOutput, mapFormat, *options);
@@ -670,25 +393,6 @@ namespace
         return options;
     }
 
-    bool IsSafeCaptureName(std::string_view name) noexcept
-    {
-        if (name.size() > k_MaxCaptureNameLength)
-        {
-            return false;
-        }
-
-        for (const char ch : name)
-        {
-            const unsigned char uch = static_cast<unsigned char>(ch);
-            if (!std::isalnum(uch) && ch != '_' && ch != '-')
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     bool UpdateTimeUniforms(planet::GpuBuffers& buffers, const planet::PlanetShaders& shaders, float time)
     {
         const std::array<planet::UniformValue, 1> timeValues
@@ -744,7 +448,7 @@ namespace
         return session.SubmitAndWait(commandBuffer);
     }
 
-    void ToolHost::OnSimChanged(std::string_view field_path)
+    void SimulationHost::OnSimChanged(std::string_view field_path)
     {
         if (field_path == "TimeStepMy")
         {
@@ -763,24 +467,94 @@ namespace
         }
     }
 
-    void ToolHost::CaptureArea(int32_t x,
-                               int32_t y,
-                               int32_t width,
-                               int32_t height,
-                               uint32_t downsample,
-                               int32_t mode,
-                               std::string_view name,
-                               std::string_view default_name,
-                               agent::ReplyToken<planet_tools::CaptureReply> token)
+    std::optional<std::string> SimulationHost::Step(int32_t steps, float dt)
     {
-        if (!IsSafeCaptureName(name))
+        if (dt > 0.0f)
         {
-            token.Fail(std::format("the name '{}' is refused: use up to {} letters, digits, '_' and '-'",
-                                   name, k_MaxCaptureNameLength));
-            return;
+            Sim.TimeStepMy = dt;
+            if (!UpdateParamsUniform(Buffers, Shaders, Size, Sim.TimeStepMy))
+            {
+                return std::string{ "failed to update Params uniform" };
+            }
         }
 
-        const std::string captureName{ name.empty() ? default_name : name };
+        for (int32_t step = 0; step < steps; ++step)
+        {
+            Sim.Time += Sim.TimeStepMy;
+            ++Sim.Step;
+
+            if (!UpdateTimeUniforms(Buffers, Shaders, Sim.Time))
+            {
+                return std::string{ "failed to update time uniforms" };
+            }
+
+            rhi::CommandBuffer commandBuffer = Session.BeginCommands();
+            StepRunner.RecordLiveStep(commandBuffer);
+
+            if (!Session.SubmitAndWait(commandBuffer))
+            {
+                return std::string{ "failed to submit live step" };
+            }
+        }
+
+        const uint32_t width = static_cast<uint32_t>(Sim.Width);
+        const uint32_t height = static_cast<uint32_t>(Sim.Height);
+
+        if (!UpdateRenderMapUniform(Buffers, Shaders, width, height, Sim.Time,
+                                    static_cast<uint32_t>(Sim.RenderMode)) ||
+            !RenderMapToOutput(Session, StepRunner, width, height))
+        {
+            return std::string{ "failed to render MapOutput" };
+        }
+
+        return std::nullopt;
+    }
+
+    std::optional<std::string> SimulationHost::Reset()
+    {
+        Sim.Step = 0;
+        Sim.Time = Reference.Time();
+
+        const uint32_t width = static_cast<uint32_t>(Sim.Width);
+        const uint32_t height = static_cast<uint32_t>(Sim.Height);
+
+        if (!UpdateTimeUniforms(Buffers, Shaders, Sim.Time) ||
+            !UpdateRenderMapUniform(Buffers, Shaders, width, height, Sim.Time,
+                                    static_cast<uint32_t>(Sim.RenderMode)))
+        {
+            return std::string{ "failed to restore uniforms" };
+        }
+
+        rhi::CommandBuffer commandBuffer = Session.BeginCommands();
+
+        if (Buffers.RecordCopy(commandBuffer, "Initial.Rotations", "Rotations") != planet::PlanetGpuError::Success ||
+            Buffers.RecordCopy(commandBuffer, "Initial.PoleRatesIn", "PoleRatesIn") != planet::PlanetGpuError::Success ||
+            StepRunner.RecordReset(commandBuffer) != planet::PlanetGpuError::Success)
+        {
+            Session.DiscardCommands(commandBuffer);
+            return std::string{ "failed to record simulation reset" };
+        }
+
+        StepRunner.RecordStep(commandBuffer);
+        planet::RecordComputeBarrier(commandBuffer);
+        StepRunner.RecordDispatch2D(commandBuffer, "RenderMapCS", width, height);
+
+        if (!Session.SubmitAndWait(commandBuffer))
+        {
+            return std::string{ "failed to submit reset" };
+        }
+
+        return std::nullopt;
+    }
+
+    planet_tools::CaptureOutput SimulationHost::CaptureArea(int32_t x,
+                                                            int32_t y,
+                                                            int32_t width,
+                                                            int32_t height,
+                                                            uint32_t downsample,
+                                                            int32_t mode,
+                                                            std::string_view name)
+    {
         const uint32_t mapWidth = static_cast<uint32_t>(Sim.Width);
         const uint32_t mapHeight = static_cast<uint32_t>(Sim.Height);
         const bool overrideMode = mode >= 0 && mode <= 5 && mode != Sim.RenderMode;
@@ -789,8 +563,7 @@ namespace
 
         if (overrideMode && !UpdateRenderMapUniform(Buffers, Shaders, mapWidth, mapHeight, Sim.Time, effectiveMode))
         {
-            token.Fail("failed to update RenderMapConstants");
-            return;
+            return planet_tools::CaptureOutput{ .Error = "failed to update RenderMapConstants" };
         }
 
         rhi::CommandBuffer commandBuffer = Session.BeginCommands();
@@ -819,19 +592,17 @@ namespace
         };
 
         const std::optional<uint64_t> ticket =
-            Capture.RecordTrackedCopy(commandBuffer, 0u, source, captureName, capture::CaptureOutput::Png);
+            Capture.RecordTrackedCopy(commandBuffer, 0u, source, std::string{ name }, capture::CaptureOutput::Png);
 
         if (!ticket.has_value())
         {
             Session.DiscardCommands(commandBuffer);
-            token.Fail("failed to record tracked capture");
-            return;
+            return planet_tools::CaptureOutput{ .Error = "failed to record tracked capture" };
         }
 
         if (!Session.SubmitAndWait(commandBuffer))
         {
-            token.Fail("failed to submit capture command buffer");
-            return;
+            return planet_tools::CaptureOutput{ .Error = "failed to submit capture command buffer" };
         }
 
         Capture.Collect(0u);
@@ -853,133 +624,19 @@ namespace
 
         if (match == results.end() || !match->Succeeded)
         {
-            token.Fail("capture failed to write PNG");
-            return;
+            return planet_tools::CaptureOutput{ .Error = "capture failed to write PNG" };
         }
 
         std::error_code error;
         const std::filesystem::path absolute = std::filesystem::absolute(match->Path, error);
 
-        token.Complete(planet_tools::CaptureReply
+        return planet_tools::CaptureOutput
         {
+            .Succeeded = true,
             .Path = (error ? match->Path : absolute).string(),
             .Width = static_cast<int32_t>(match->Width),
             .Height = static_cast<int32_t>(match->Height),
-        });
-    }
-
-    void StepCommand::Run(const Params& params, agent::ReplyToken<Reply> token)
-    {
-        if (params.Dt > 0.0f)
-        {
-            Host.Sim.TimeStepMy = params.Dt;
-            if (!UpdateParamsUniform(Host.Buffers, Host.Shaders, Host.Size, Host.Sim.TimeStepMy))
-            {
-                token.Fail("failed to update Params uniform");
-                return;
-            }
-        }
-
-        for (int32_t step = 0; step < params.Steps; ++step)
-        {
-            Host.Sim.Time += Host.Sim.TimeStepMy;
-            ++Host.Sim.Step;
-
-            if (!UpdateTimeUniforms(Host.Buffers, Host.Shaders, Host.Sim.Time))
-            {
-                token.Fail("failed to update time uniforms");
-                return;
-            }
-
-            rhi::CommandBuffer commandBuffer = Host.Session.BeginCommands();
-            Host.StepRunner.RecordLiveStep(commandBuffer);
-
-            if (!Host.Session.SubmitAndWait(commandBuffer))
-            {
-                token.Fail("failed to submit live step");
-                return;
-            }
-        }
-
-        const uint32_t width = static_cast<uint32_t>(Host.Sim.Width);
-        const uint32_t height = static_cast<uint32_t>(Host.Sim.Height);
-
-        if (!UpdateRenderMapUniform(Host.Buffers, Host.Shaders, width, height, Host.Sim.Time,
-                                    static_cast<uint32_t>(Host.Sim.RenderMode)) ||
-            !RenderMapToOutput(Host.Session, Host.StepRunner, width, height))
-        {
-            token.Fail("failed to render MapOutput");
-            return;
-        }
-
-        token.Complete(Reply{ .Step = Host.Sim.Step, .Time = Host.Sim.Time });
-    }
-
-    void ResetCommand::Run(const Params& params, agent::ReplyToken<Reply> token)
-    {
-        static_cast<void>(params);
-
-        Host.Sim.Step = 0;
-        Host.Sim.Time = Host.Reference.Time();
-
-        const uint32_t width = static_cast<uint32_t>(Host.Sim.Width);
-        const uint32_t height = static_cast<uint32_t>(Host.Sim.Height);
-
-        if (!UpdateTimeUniforms(Host.Buffers, Host.Shaders, Host.Sim.Time) ||
-            !UpdateRenderMapUniform(Host.Buffers, Host.Shaders, width, height, Host.Sim.Time,
-                                    static_cast<uint32_t>(Host.Sim.RenderMode)))
-        {
-            token.Fail("failed to restore uniforms");
-            return;
-        }
-
-        rhi::CommandBuffer commandBuffer = Host.Session.BeginCommands();
-
-        if (Host.Buffers.RecordCopy(commandBuffer, "Initial.Rotations", "Rotations") != planet::PlanetGpuError::Success ||
-            Host.Buffers.RecordCopy(commandBuffer, "Initial.PoleRatesIn", "PoleRatesIn") != planet::PlanetGpuError::Success ||
-            Host.StepRunner.RecordReset(commandBuffer) != planet::PlanetGpuError::Success)
-        {
-            Host.Session.DiscardCommands(commandBuffer);
-            token.Fail("failed to record simulation reset");
-            return;
-        }
-
-        Host.StepRunner.RecordStep(commandBuffer);
-        planet::RecordComputeBarrier(commandBuffer);
-        Host.StepRunner.RecordDispatch2D(commandBuffer, "RenderMapCS", width, height);
-
-        if (!Host.Session.SubmitAndWait(commandBuffer))
-        {
-            token.Fail("failed to submit reset");
-            return;
-        }
-
-        token.Complete(Reply{ .Step = Host.Sim.Step, .Time = Host.Sim.Time });
-    }
-
-    void CaptureCommand::Run(const Params& params, agent::ReplyToken<Reply> token)
-    {
-        const uint32_t downsample = static_cast<uint32_t>(std::max(params.Downsample, 1));
-        Host.CaptureArea(0, 0, Host.Sim.Width, Host.Sim.Height, downsample, params.Mode, params.Name, "map",
-                         std::move(token));
-    }
-
-    void CaptureRegionCommand::Run(const Params& params, agent::ReplyToken<Reply> token)
-    {
-        const int32_t clampedX = std::clamp(params.X, 0, Host.Sim.Width - 1);
-        const int32_t clampedY = std::clamp(params.Y, 0, Host.Sim.Height - 1);
-        const int32_t clampedW = std::clamp(params.Width, 1, Host.Sim.Width - clampedX);
-        const int32_t clampedH = std::clamp(params.Height, 1, Host.Sim.Height - clampedY);
-
-        Host.CaptureArea(clampedX, clampedY, clampedW, clampedH, 1u, params.Mode, params.Name, "region",
-                         std::move(token));
-    }
-
-    void QuitCommand::Run(const Params& params, agent::ReplyToken<Reply> token)
-    {
-        static_cast<void>(params);
-        Host.QuitRequested = true;
-        token.Complete(agent::NoReply{});
+        };
     }
 
     int RunBatchTimelapse(planet::PlanetSession& session,
@@ -1053,16 +710,16 @@ namespace
         return failedCount == 0u ? 0 : 1;
     }
 
-    int RunToolServer(planet::PlanetSession& session,
-                      const planet::PlanetShaders& shaders,
-                      planet::GpuBuffers& buffers,
-                      const planet::PlanetStep& step_runner,
-                      const planet::ReferenceSet& reference,
-                      capture::FrameCapture& capture,
-                      rhi::ImageHandle map_output,
-                      ImageFormat map_format,
-                      planet::StepSize size,
-                      const TimelapseOptions& options)
+    int RunToolMode(planet::PlanetSession& session,
+                    const planet::PlanetShaders& shaders,
+                    planet::GpuBuffers& buffers,
+                    const planet::PlanetStep& step_runner,
+                    const planet::ReferenceSet& reference,
+                    capture::FrameCapture& capture,
+                    rhi::ImageHandle map_output,
+                    ImageFormat map_format,
+                    planet::StepSize size,
+                    const TimelapseOptions& options)
     {
         // Populate MapOutput at step 0 without advancing plates so initial inspection works immediately.
         {
@@ -1077,7 +734,7 @@ namespace
             }
         }
 
-        ToolHost host
+        SimulationHost simHost
         {
             .Session = session,
             .Shaders = shaders,
@@ -1099,60 +756,33 @@ namespace
             },
         };
 
-        StepCommand stepCmd{ host };
-        ResetCommand resetCmd{ host };
-        CaptureCommand captureCmd{ host };
-        CaptureRegionCommand captureRegionCmd{ host };
-        QuitCommand quitCmd{ host };
-
-        agent::ToolRegistry registry;
-        const agent::ObjectChanged simChanged = agent::ObjectChanged::Create<ToolHost, &ToolHost::OnSimChanged>(&host);
-
-        const std::array errors
+        planet_tools::TimelapseToolHost toolHost
         {
-            registry.AddObject("planet.sim", host.Sim, simChanged),
-            registry.AddCommand(stepCmd),
-            registry.AddCommand(resetCmd),
-            registry.AddCommand(captureCmd),
-            registry.AddCommand(captureRegionCmd),
-            registry.AddCommand(quitCmd),
+            .Sim = simHost.Sim,
+            .OnSimChanged = [&simHost](std::string_view field_path)
+            {
+                simHost.OnSimChanged(field_path);
+            },
+            .Step = [&simHost](int32_t steps, float dt)
+            {
+                return simHost.Step(steps, dt);
+            },
+            .Reset = [&simHost]()
+            {
+                return simHost.Reset();
+            },
+            .CaptureArea = [&simHost](int32_t x,
+                                      int32_t y,
+                                      int32_t width,
+                                      int32_t height,
+                                      uint32_t downsample,
+                                      int32_t mode,
+                                      std::string_view name)
+            {
+                return simHost.CaptureArea(x, y, width, height, downsample, mode, name);
+            },
         };
 
-        for (const agent::ToolResultCode error : errors)
-        {
-            if (error != agent::ToolResultCode::Success)
-            {
-                std::println(stderr, "PlanetGenTimelapse: tool registration failed: {}", agent::ToString(error));
-                return 1;
-            }
-        }
-
-        registry.Freeze();
-
-        agent::ToolServer server;
-        const agent::ToolServerResult started = server.Start(options.ToolPort);
-
-        if (started != agent::ToolServerResult::Success)
-        {
-            std::println(stderr, "PlanetGenTimelapse: ToolServer failed to start on port {}: {}",
-                         options.ToolPort, agent::ToString(started));
-            return 1;
-        }
-
-        std::println("ToolServer listening on 127.0.0.1:{}", server.Port());
-        std::fflush(stdout);
-
-        while (!host.QuitRequested)
-        {
-            server.Pump(registry, k_MaxToolRequestsPerPump);
-
-            if (!host.QuitRequested)
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
-            }
-        }
-
-        server.Stop();
-        return 0;
+        return planet_tools::RunTimelapseToolServer(options.ToolPort, toolHost);
     }
 }

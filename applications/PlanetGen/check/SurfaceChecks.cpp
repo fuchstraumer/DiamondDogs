@@ -2,6 +2,7 @@
 #include "StepChecks.hpp"
 #include "CheckHarness.hpp"
 #include "GpuBuffers.hpp"
+#include "Healpix.hpp"
 #include "PlanetMath.hpp"
 #include "PlanetSession.hpp"
 #include "PlanetShaders.hpp"
@@ -11,6 +12,7 @@
 #include "math/MathStorage.hpp"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -324,5 +326,170 @@ namespace planet
         passed = CompareCrustState("crust", buffers, context.Reference, "p3_ref_relief", "p3_ref_birth", "p3_ref_orogeny_time", "p3_ref_orogeny", {}, 0.0f, 0.0f) && passed;
         passed = CompareFrontData("crust", buffers, context.Reference, true) && passed;
         return passed;
+    }
+
+    namespace
+    {
+        [[nodiscard]] bool VerifyHostHealpix()
+        {
+            int64_t bijectionErrors = 0;
+            int64_t neighborRangeErrors = 0;
+            int64_t neighborSymmetryErrors = 0;
+            int64_t cornerCountErrors = 0;
+
+            for (uint32_t order = 1u; order <= 5u; ++order)
+            {
+                const uint32_t pixelCount = static_cast<uint32_t>(HealpixPixelCount(order));
+                int64_t missingCorners = 0;
+
+                for (uint32_t pixel = 0u; pixel < pixelCount; ++pixel)
+                {
+                    const std::array<double, 3> vec = HealpixPixToVec(pixel, order);
+
+                    if (!std::isfinite(vec[0]) || !std::isfinite(vec[1]) || !std::isfinite(vec[2]) ||
+                        HealpixNestedIndex(vec[0], vec[1], vec[2], order) != pixel)
+                    {
+                        ++bijectionErrors;
+                    }
+
+                    const std::array<int32_t, 8> neighbors = HealpixNeighbors8(pixel, order);
+
+                    for (const int32_t neighbor : neighbors)
+                    {
+                        if (neighbor == -1)
+                        {
+                            ++missingCorners;
+                            continue;
+                        }
+
+                        if (neighbor < 0 || static_cast<uint32_t>(neighbor) >= pixelCount ||
+                            static_cast<uint32_t>(neighbor) == pixel)
+                        {
+                            ++neighborRangeErrors;
+                            continue;
+                        }
+
+                        const std::array<int32_t, 8> reverse =
+                            HealpixNeighbors8(static_cast<uint32_t>(neighbor), order);
+
+                        if (std::ranges::find(reverse, static_cast<int32_t>(pixel)) == reverse.end())
+                        {
+                            ++neighborSymmetryErrors;
+                        }
+                    }
+                }
+
+                if (missingCorners != 24)
+                {
+                    ++cornerCountErrors;
+                }
+            }
+
+            std::println("healpix host (orders 1..5): {} bijection errors, {} range errors, {} symmetry errors, {} corner count errors",
+                         bijectionErrors, neighborRangeErrors, neighborSymmetryErrors, cornerCountErrors);
+            return bijectionErrors == 0 && neighborRangeErrors == 0 &&
+                   neighborSymmetryErrors == 0 && cornerCountErrors == 0;
+        }
+    }
+
+    bool RunHealpixCheck(CheckContext& context)
+    {
+        const bool hostPassed = VerifyHostHealpix();
+
+        if (!hostPassed)
+        {
+            return false;
+        }
+
+        constexpr std::array<std::string_view, 1> k_EntryPoints{ "HealpixProbeCS" };
+        const PlanetGpuResult<std::unique_ptr<PlanetShaders>> shaders =
+            context.Session.CreateShaders(context.CrustFlags, k_EntryPoints);
+
+        if (!shaders.has_value())
+        {
+            return false;
+        }
+
+        constexpr uint32_t k_Order = 6u;
+        constexpr uint32_t k_PixelCount = 49152u;
+        const std::array<UniformValue, 2> constants
+        {
+            UniformUint("Order", k_Order),
+            UniformUint("PixelCount", k_PixelCount),
+        };
+        GpuBuffers buffers(context.Session.Resources());
+
+        if (buffers.AddUniformFrom(**shaders, "HealpixProbeCS", "HealpixProbeConstants", constants) != PlanetGpuError::Success ||
+            buffers.AddZeroedStorage("HealpixProbeVecs", static_cast<size_t>(k_PixelCount) * 16u, true) != PlanetGpuError::Success ||
+            buffers.AddZeroedStorage("HealpixProbeNeighbors", static_cast<size_t>(k_PixelCount) * 8u * sizeof(int32_t), true) != PlanetGpuError::Success)
+        {
+            return false;
+        }
+
+        const std::array<DispatchStage, 1> stages
+        {
+            DispatchStage{ "HealpixProbeCS", k_PixelCount },
+        };
+
+        if (!RunDispatches(context.Session, **shaders, buffers, stages))
+        {
+            return false;
+        }
+
+        const PlanetGpuResult<std::vector<math::Float4>> actualVecs = buffers.ReadFloat4s("HealpixProbeVecs");
+        const PlanetGpuResult<std::vector<int32_t>> actualNeighbors = buffers.ReadInts("HealpixProbeNeighbors");
+
+        if (!actualVecs.has_value() || !actualNeighbors.has_value() ||
+            actualVecs->size() != k_PixelCount ||
+            actualNeighbors->size() != static_cast<size_t>(k_PixelCount) * 8u)
+        {
+            return false;
+        }
+
+        constexpr double k_VecTolerance = 1.0e-5;
+        int64_t vecErrors = 0;
+        int64_t roundTripErrors = 0;
+        int64_t neighborErrors = 0;
+        double maxVecDiff = 0.0;
+
+        for (uint32_t pixelIndex = 0u; pixelIndex < k_PixelCount; ++pixelIndex)
+        {
+            const math::Float4& gpuVec = (*actualVecs)[pixelIndex];
+            const std::array<double, 3> expectedVec = HealpixPixToVec(pixelIndex, k_Order);
+            const double dx = std::fabs(static_cast<double>(gpuVec.x) - expectedVec[0]);
+            const double dy = std::fabs(static_cast<double>(gpuVec.y) - expectedVec[1]);
+            const double dz = std::fabs(static_cast<double>(gpuVec.z) - expectedVec[2]);
+            const double diff = std::max({ dx, dy, dz });
+
+            if (!(diff <= k_VecTolerance))
+            {
+                ++vecErrors;
+            }
+
+            if (std::isfinite(diff))
+            {
+                maxVecDiff = std::max(maxVecDiff, diff);
+            }
+
+            if (std::bit_cast<uint32_t>(gpuVec.w) != pixelIndex)
+            {
+                ++roundTripErrors;
+            }
+
+            const std::array<int32_t, 8> expectedNeighbors = HealpixNeighbors8(pixelIndex, k_Order);
+            const size_t base = static_cast<size_t>(pixelIndex) * 8u;
+
+            for (size_t dir = 0u; dir < 8u; ++dir)
+            {
+                if ((*actualNeighbors)[base + dir] != expectedNeighbors[dir])
+                {
+                    ++neighborErrors;
+                }
+            }
+        }
+
+        std::println("healpix gpu (order {}): {} vec errors (max diff {:.3g}), {} round-trip errors, {} neighbor errors",
+                     k_Order, vecErrors, maxVecDiff, roundTripErrors, neighborErrors);
+        return vecErrors == 0 && roundTripErrors == 0 && neighborErrors == 0;
     }
 }

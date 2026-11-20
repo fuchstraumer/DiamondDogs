@@ -28,6 +28,7 @@ namespace planet
     [[nodiscard]] bool CheckUplift(CheckContext& context);
     [[nodiscard]] bool CheckTorqueSums(CheckContext& context);
     [[nodiscard]] bool CheckChain(CheckContext& context);
+    [[nodiscard]] bool RunHealpixCheck(CheckContext& context);
 }
 
 #endif // !DIAMOND_DOGS_PLANET_STEP_CHECKS_HPP

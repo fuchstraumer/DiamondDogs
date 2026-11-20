@@ -4,6 +4,7 @@ import LodestoneShims;
 
 __include Buffers;
 __include Fibonacci;
+__include HEALPix;
 __include Owners;
 __include MapProbe;
 __include Front;

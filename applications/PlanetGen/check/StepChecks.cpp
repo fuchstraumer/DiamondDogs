@@ -35,7 +35,7 @@ namespace planet
             "SumPullCS", "UpliftCS",
         };
 
-        constexpr std::array<NamedCheck, 9> k_AllChecks
+        constexpr std::array<NamedCheck, 10> k_AllChecks
         {
             NamedCheck{ "map", CheckMap },
             NamedCheck{ "owners", CheckOwners },
@@ -46,6 +46,7 @@ namespace planet
             NamedCheck{ "uplift", CheckUplift },
             NamedCheck{ "torque", CheckTorqueSums },
             NamedCheck{ "chain", CheckChain },
+            NamedCheck{ "healpix", RunHealpixCheck },
         };
 
         // NearestFrontPointCS and UpliftCS run this many threads to a group on the live cell list

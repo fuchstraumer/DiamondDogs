@@ -71,6 +71,8 @@ diamond_dogs_add_pch(PlanetGenBench LIBRARY)
 
 # PlanetGenTimelapse: live plate stepping with headless FrameCapture PNG output.
 add_executable(PlanetGenTimelapse
+    "timelapse/TimelapseAgentTools.cpp"
+    "timelapse/TimelapseAgentTools.hpp"
     "timelapse/main.cpp")
 target_link_libraries(PlanetGenTimelapse PRIVATE planet_reference planet_gpu frame_capture agent_tools bootstrap_vulkan)
 set_target_properties(PlanetGenTimelapse PROPERTIES FOLDER "Applications/PlanetGen" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
