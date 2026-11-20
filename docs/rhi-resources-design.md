@@ -145,7 +145,7 @@ deterministic, so regeneration may beat storage).
 - `GraphicsResource` and `GraphicsResourceReply` gain a `DeviceAddress` (`uint64_t`, 0 when the buffer has none).
   The worker queries it once at creation.
 - Addresses are valid until the buffer retires (section 0), never until the destroy message.
-- The author's own note in `ResourceFlags.hpp` already points here: device-address buffers replace buffer
+- The author's own note in `RhiResourceFlags.hpp` (named `ResourceFlags.hpp` before 2026-11-19) already points here: device-address buffers replace buffer
   descriptors. So the plan is **no storage-buffer descriptors at all for new code**: buffers go by address, and
   descriptors remain for images and samplers (section 4).
 

@@ -3,7 +3,7 @@ ADD_MODULE(rhi_resources
     "include/ManifestDescriptors.hpp"
     "include/ResourceBarriers.hpp"
     "include/ResourceContext.hpp"
-    "include/ResourceFlags.hpp"
+    "include/RhiResourceFlags.hpp"
     "include/ResourceFuture.hpp"
     "include/ResourcePlacement.hpp"
     "include/ResourceTypes.hpp"

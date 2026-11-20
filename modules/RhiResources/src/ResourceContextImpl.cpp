@@ -4,7 +4,7 @@
 #include "ResourceContext.hpp"
 #include "Device.hpp"
 #include "Instance.hpp"
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "FutureTable.hpp"
 #include "ResourceFuture.hpp"
 #include "ResourceMessageTypesInternal.hpp"

@@ -1,5 +1,5 @@
 #pragma once
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "entt/entity/fwd.hpp"
 #include <cstdint>
 #ifndef RESOURCE_CONTEXT_IMPL_HPP

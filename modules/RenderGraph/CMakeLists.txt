@@ -4,6 +4,7 @@ set(LOOM_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/GraphBuilder.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomDiagnostic.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomError.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomFormats.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomKeys.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PassBuilders.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PassStatements.hpp"
@@ -24,6 +25,7 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GraphBuilder.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/LoomDiagnostic.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/LoomError.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/LoomFormats.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PassBuilders.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PassStatements.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/SequenceBuilder.cpp"
@@ -50,6 +52,8 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/bind/Slots.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/bind/Params.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/bind/Helpers.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/size/SizedGraph.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/size/Size.cpp"
 )
 
 add_module(loom

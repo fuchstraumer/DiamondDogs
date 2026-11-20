@@ -26,7 +26,7 @@
 #include "PlatformSystem.hpp"
 #include "PlatformTypes.hpp"
 #include "ResourceContext.hpp"
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 #include "SceneCommands.hpp"

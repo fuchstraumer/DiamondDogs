@@ -1,6 +1,6 @@
 #include "ResourceContext.hpp"
 #include "ResourceContextFixture.hpp"
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "ResourceTypes.hpp"
 #include <chrono>
 #include <cstddef>

@@ -2,7 +2,7 @@
 #ifndef RESOURCE_CONTEXT_RESOURCE_BARRIERS_HPP
 #define RESOURCE_CONTEXT_RESOURCE_BARRIERS_HPP
 #include "RhiHandle.hpp"
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "ResourceTypes.hpp"
 #include <cstdint>
 #include <span>

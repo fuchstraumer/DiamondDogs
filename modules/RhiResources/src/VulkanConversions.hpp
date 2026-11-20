@@ -1,7 +1,7 @@
 #pragma once
 #ifndef RESOURCE_CONTEXT_VULKAN_CONVERSIONS_HPP
 #define RESOURCE_CONTEXT_VULKAN_CONVERSIONS_HPP
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "ResourceTypes.hpp"
 #include <cstdint>
 #include <span>

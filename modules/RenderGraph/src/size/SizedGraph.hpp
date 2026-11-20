@@ -1,7 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_LOOM_SIZED_GRAPH_HPP
 #define DIAMOND_DOGS_LOOM_SIZED_GRAPH_HPP
-#include "ShaderManifestLayout.hpp" // Lodestone's ResourceFlags.hpp; RhiResources has a header of the same name
+#include "ResourceFlags.hpp"
 #include <cstdint>
 #include <optional>
 #include <vector>

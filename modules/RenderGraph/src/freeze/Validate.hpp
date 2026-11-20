@@ -5,7 +5,7 @@
 #ifndef DIAMOND_DOGS_LOOM_FREEZE_VALIDATE_HPP
 #define DIAMOND_DOGS_LOOM_FREEZE_VALIDATE_HPP
 #include "Freeze.hpp"
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "ResourceTypes.hpp"
 #include "Declarations.hpp"
 #include "LoomKeys.hpp"
@@ -66,7 +66,7 @@ namespace loom::freeze
             ReportMissing(context, "Lifetime", decl.Where);
         }
 
-        if (!image.Format.IsValid())
+        if (image.Format == k_NoTextureFormat)
         {
             ReportMissing(context, "Format", decl.Where);
         }
@@ -294,9 +294,9 @@ namespace loom::freeze
                 ReportOutOfRangeReal(context, "ImageExpectation.Layers", expect.Layers, decl.Where);
             }
 
-            if (!expect.Format.IsValid())
+            if (expect.Format == k_NoTextureFormat)
             {
-                ReportOutOfRangeEnum(context, "ImageExpectation.Format", expect.Format.DataType, decl.Where);
+                ReportOutOfRangeEnum(context, "ImageExpectation.Format", expect.Format, decl.Where);
             }
         }
         else
@@ -307,9 +307,9 @@ namespace loom::freeze
                 ReportOutOfRangeReal(context, "ImageExpectation.Layers", expect.Layers, decl.Where);
             }
 
-            if (!expect.Format.IsValid())
+            if (expect.Format == k_NoTextureFormat)
             {
-                ReportOutOfRangeEnum(context, "ImageExpectation.Format", expect.Format.DataType, decl.Where);
+                ReportOutOfRangeEnum(context, "ImageExpectation.Format", expect.Format, decl.Where);
             }
         }
     }

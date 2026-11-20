@@ -5,7 +5,7 @@
 #include "Queue.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceContextFixture.hpp"
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 #include <cstdint>

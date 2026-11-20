@@ -113,7 +113,7 @@ Bind reads the layout of the variant that Resolve selected:
 ### Size
 
 Size gives each declared buffer its byte size and its GPU usage (`src/size/Size.cpp`). Images and samplers are not
-sized yet: image formats wait for the decision between foundation's `ImageFormat` and Lodestone's `TextureFormat`.
+sized yet.
 
 Each binding or statement that names a buffer is a requirement:
 
@@ -137,6 +137,15 @@ declaration-order tie-break, and checks the data: LM501 (cycle), LM502 (a hazard
 read before any write), LM504 (dead write) and LM505 (orphan pass). `Explain` and `ExplainPass` print the order and
 the reason for each edge.
 
+## Formats
+
+Image declarations use Lodestone's `TextureFormat` (`include/LoomFormats.hpp`), because reflection reports a storage
+image's format in it. `ToTextureFormat` converts foundation's `ImageFormat`: for content the compiler imports, and
+for a format the app picks at run time from what the device supports. It gives no value for a format that Lodestone
+lacks (16-bit unorm, signed integer, three-component), and each of those is a request to Lodestone. The enum is
+declared opaque in the header, so it stays light; code that names an enumerator includes Lodestone's
+`ResourceFlags.hpp`. RhiResources' flags are in `RhiResourceFlags.hpp` (renamed 2026-11-19 to end a name clash).
+
 ## Views and aliases
 
 Two words, two opposite ideas. Keep them apart in code, comments and diagnostics.
@@ -151,8 +160,7 @@ Two words, two opposite ideas. Keep them apart in code, comments and diagnostics
 
 ## Diagnostics
 
-`include/LoomError.hpp` lists the codes. `ResourceFlags.hpp` exists in both Lodestone and RhiResources, and Loom
-sees RhiResources' first: reach Lodestone's flags through `ShaderManifestLayout.hpp`. The hundreds digit is the stage (`StageOf`), and `LoomError.cpp` holds the
+`include/LoomError.hpp` lists the codes. The hundreds digit is the stage (`StageOf`), and `LoomError.cpp` holds the
 catalog text and default severity. A `Diagnostic` holds views into key literals and the shader bundle, so keep the
 bundle open while a sink keeps diagnostics. `CollectingSink`, `TextSink` and `JsonSink` are the sinks.
 

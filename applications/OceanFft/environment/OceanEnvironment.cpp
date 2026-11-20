@@ -15,7 +15,7 @@
 #include "ImageDataFormats.hpp"
 #include "ManifestDescriptors.hpp"
 #include "ResourceContext.hpp"
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "ResourceFuture.hpp"
 #include "GpuTimers.hpp"
 #include "ShaderLibrary.hpp"

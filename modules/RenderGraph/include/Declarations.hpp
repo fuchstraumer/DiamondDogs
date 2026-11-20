@@ -2,8 +2,8 @@
 #ifndef DIAMOND_DOGS_LOOM_DECLARATIONS_HPP
 #define DIAMOND_DOGS_LOOM_DECLARATIONS_HPP
 #include "LoomKeys.hpp"
-#include "ImageDataFormats.hpp"
-#include "math/Math.hpp"
+#include "LoomFormats.hpp"
+#include "math/MathStorage.hpp"
 #include "ResourceTypes.hpp"
 #include <cstdint>
 #include <string>
@@ -153,7 +153,7 @@ namespace loom
     {
         ResourceKey<Image> Key;
         ResourceLifetime Lifetime{ ResourceLifetime::Invalid };
-        ImageFormat Format;     // foundation's type, not Lodestone's, so callers never include Lodestone (S3)
+        lodestone::TextureFormat Format{ k_NoTextureFormat };   // ToTextureFormat converts foundation's ImageFormat
         ExtentSource Extent;
         MipSource Mips;
         int32_t Layers{ -1 }; // -1 default means not setting this can be checked exactly as an error
@@ -180,16 +180,16 @@ namespace loom
         };
 
         Kind Kind{ Kind::Invalid };
-        ImageFormat Format;
+        lodestone::TextureFormat Format{ k_NoTextureFormat };
         int32_t Width{ -1 };
         int32_t Height{ -1 };
         int32_t Depth{ -1 };
         int32_t MipLevels{ -1 };
         int32_t Layers{ -1 };
 
-        static ImageExpectation Exact(ImageFormat format, int32_t width, int32_t height, int32_t depth,
+        static ImageExpectation Exact(lodestone::TextureFormat format, int32_t width, int32_t height, int32_t depth,
             int32_t mip_levels, int32_t layers) noexcept;
-        static ImageExpectation AnyExtent(ImageFormat format, int32_t layers) noexcept;
+        static ImageExpectation AnyExtent(lodestone::TextureFormat format, int32_t layers) noexcept;
     };
 
     struct ImportDeclaration

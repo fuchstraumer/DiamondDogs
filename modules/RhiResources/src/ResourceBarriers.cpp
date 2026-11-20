@@ -1,5 +1,5 @@
 #include "ResourceBarriers.hpp"
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "RhiHandle.hpp"
 #include "VulkanConversions.hpp"
 #include <cstdint>

@@ -18,7 +18,7 @@
 #include "OceanAtmosphere.hpp"
 #include "ManifestDescriptors.hpp"
 #include "ImageDataFormats.hpp"
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "ResourceTypes.hpp"
 #include "ResourceFuture.hpp"
 #include "BootResult.hpp"

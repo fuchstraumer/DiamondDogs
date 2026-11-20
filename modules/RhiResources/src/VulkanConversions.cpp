@@ -1,6 +1,6 @@
 #include "VulkanConversions.hpp"
 #include "ImageDataFormatsVulkan.hpp"
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "ResourceTypes.hpp"
 #include "vulkan/vulkan_core.h"
 #include <algorithm>

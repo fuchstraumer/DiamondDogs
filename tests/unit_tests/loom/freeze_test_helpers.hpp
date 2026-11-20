@@ -2,7 +2,7 @@
 #ifndef DIAMOND_DOGS_LOOM_TESTS_FREEZE_TEST_HELPERS_HPP
 #define DIAMOND_DOGS_LOOM_TESTS_FREEZE_TEST_HELPERS_HPP
 #include "Declarations.hpp"
-#include "ImageDataFormats.hpp"
+#include "ResourceFlags.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomKeys.hpp"
 #include <gtest/gtest.h>
@@ -40,7 +40,7 @@ namespace freeze_tests
         {
             .Key = k_Albedo,
             .Lifetime = loom::ResourceLifetime::Frame,
-            .Format = ImageFormat{ ImageComponentFormats::R8, ImageDataType::UNorm },
+            .Format = lodestone::TextureFormat::R8Unorm,
             .Extent = loom::ExtentSource::OfTarget(target, 0.5f),
             .Mips = loom::MipSource::One(),
             .Layers = 1,

@@ -4,6 +4,7 @@
 #include "ImageDataFormats.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
+#include "LoomFormats.hpp"
 #include "LoomKeys.hpp"
 #include "ResourceTypes.hpp"
 #include "freeze_test_helpers.hpp"
@@ -65,7 +66,7 @@ TEST(Freeze, SameKeyAsTwoKindsIsLM107)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
     graph.Declare(MakeBuffer());
-    const ImageFormat format{ ImageComponentFormats::R8, ImageDataType::UNorm };
+    const lodestone::TextureFormat format = lodestone::TextureFormat::R8Unorm;
     graph.Import(loom::ImportDeclaration{ .Key = k_DataAsImage, .Expectation = loom::ImageExpectation::AnyExtent(format, 1) });
 
     loom::CollectingSink sink;
@@ -192,4 +193,48 @@ TEST(Freeze, GraphPinSetTwiceIsLM108)
     EXPECT_EQ(diagnostic.Code, loom::DiagnosticCode::LM108);
     EXPECT_EQ(diagnostic.Where.line(), secondLine);
     EXPECT_EQ(diagnostic.OtherWhere.line(), firstLine);
+}
+
+// The shim from foundation's ImageFormat. Depth formats ignore the data type the caller wrote.
+TEST(LoomFormats, ImageFormatMapsToTextureFormat)
+{
+    using lodestone::TextureFormat;
+    EXPECT_EQ(loom::ToTextureFormat(ImageFormat{ ImageComponentFormats::R8, ImageDataType::UNorm }), TextureFormat::R8Unorm);
+    EXPECT_EQ(loom::ToTextureFormat(ImageFormat{ ImageComponentFormats::RGBA8, ImageDataType::sRGB }),
+              TextureFormat::RGBA8UnormSrgb);
+    EXPECT_EQ(loom::ToTextureFormat(ImageFormat{ ImageComponentFormats::RGBA8, ImageDataType::SNorm }),
+              TextureFormat::RGBA8Snorm);
+    EXPECT_EQ(loom::ToTextureFormat(ImageFormat{ ImageComponentFormats::RGBA16, ImageDataType::Float }),
+              TextureFormat::RGBA16Float);
+    EXPECT_EQ(loom::ToTextureFormat(ImageFormat{ ImageComponentFormats::R32, ImageDataType::UInt }), TextureFormat::R32Uint);
+    EXPECT_EQ(loom::ToTextureFormat(ImageFormat{ ImageComponentFormats::A2B10G10R10, ImageDataType::UNorm }),
+              TextureFormat::R10G10B10A2Unorm);
+    EXPECT_EQ(loom::ToTextureFormat(ImageFormat{ ImageComponentFormats::D32, ImageDataType::UNorm }),
+              TextureFormat::Depth32Float);
+}
+
+// Formats that Lodestone does not have give no value: each is a request to Lodestone, not a silent substitute.
+TEST(LoomFormats, MissingFormatsGiveNoValue)
+{
+    EXPECT_FALSE(loom::ToTextureFormat(ImageFormat{ ImageComponentFormats::R16, ImageDataType::UNorm }).has_value());
+    EXPECT_FALSE(loom::ToTextureFormat(ImageFormat{ ImageComponentFormats::R32, ImageDataType::SInt }).has_value());
+    EXPECT_FALSE(loom::ToTextureFormat(ImageFormat{ ImageComponentFormats::RGB8, ImageDataType::UNorm }).has_value());
+    EXPECT_FALSE(loom::ToTextureFormat(ImageFormat{ ImageComponentFormats::A2R10G10B10, ImageDataType::UNorm }).has_value());
+    EXPECT_FALSE(loom::ToTextureFormat(ImageFormat{}).has_value());
+}
+
+// An image with no format: LM101 names the field.
+TEST(Freeze, ImageWithNoFormatIsLM101)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Import(k_Backbuffer);
+    loom::ImageDeclaration image = MakeImageOfTarget(k_Backbuffer);
+    image.Format = loom::k_NoTextureFormat;
+    graph.Declare(image);
+
+    loom::CollectingSink sink;
+    EXPECT_FALSE(loom::Freeze(graph.Record(), sink).has_value());
+    ASSERT_EQ(sink.Diagnostics().size(), 1u);
+    EXPECT_EQ(sink.Diagnostics()[0].Code, loom::DiagnosticCode::LM101);
+    EXPECT_EQ(sink.Diagnostics()[0].Actual.FieldName, "Format");
 }

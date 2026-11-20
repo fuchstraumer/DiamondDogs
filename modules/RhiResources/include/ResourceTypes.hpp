@@ -1,7 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "ImageDataFormats.hpp"
 #include "math/Math.hpp"
 #include <cstddef>

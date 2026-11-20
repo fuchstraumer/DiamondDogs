@@ -96,7 +96,7 @@ namespace loom
         return source;
     }
 
-    ImageExpectation ImageExpectation::Exact(ImageFormat format, int32_t width, int32_t height, int32_t depth,
+    ImageExpectation ImageExpectation::Exact(lodestone::TextureFormat format, int32_t width, int32_t height, int32_t depth,
         int32_t mip_levels, int32_t layers) noexcept
     {
         return ImageExpectation
@@ -111,7 +111,7 @@ namespace loom
         };
     }
 
-    ImageExpectation ImageExpectation::AnyExtent(ImageFormat format, int32_t layers) noexcept
+    ImageExpectation ImageExpectation::AnyExtent(lodestone::TextureFormat format, int32_t layers) noexcept
     {
         ImageExpectation expectation{};
         expectation.Kind = Kind::AnyExtent;

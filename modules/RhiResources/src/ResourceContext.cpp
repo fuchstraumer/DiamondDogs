@@ -1,7 +1,7 @@
 #include "ResourceContext.hpp"
 #include "FutureTable.hpp"
 #include "ResourceContextImpl.hpp"
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "ResourceFuture.hpp"
 #include "ResourceMessageTypesInternal.hpp"
 #include "ResourceTypes.hpp"

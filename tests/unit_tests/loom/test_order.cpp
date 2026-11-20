@@ -1024,7 +1024,7 @@ TEST(Order, UploadBufferNeedsNoWriter)
 TEST(Order, ImportNeedsNoWriter)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
-    const ImageFormat format{ ImageComponentFormats::R8, ImageDataType::UNorm };
+    const lodestone::TextureFormat format = lodestone::TextureFormat::R8Unorm;
     graph.Import(loom::ImportDeclaration{ .Key = k_DataAsImage, .Expectation = loom::ImageExpectation::AnyExtent(format, 1) });
 
     auto readImport = [](loom::DispatchBuilder& pass)
@@ -1290,7 +1290,7 @@ TEST(Order, ReadbackKeepsTheLastWriteLive)
 TEST(Order, ImportKeepsTheLastWriteLive)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
-    const ImageFormat format{ ImageComponentFormats::R8, ImageDataType::UNorm };
+    const lodestone::TextureFormat format = lodestone::TextureFormat::R8Unorm;
     graph.Import(loom::ImportDeclaration{ .Key = k_DataAsImage, .Expectation = loom::ImageExpectation::AnyExtent(format, 1) });
 
     auto writeImport = [](loom::DispatchBuilder& pass)

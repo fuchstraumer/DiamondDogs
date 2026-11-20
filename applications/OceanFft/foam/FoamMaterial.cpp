@@ -1,7 +1,7 @@
 #include "FoamMaterial.hpp"
 #include "ImageDataFormats.hpp"
 #include "ResourceContext.hpp"
-#include "ResourceFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "ResourceFuture.hpp"
 #include <gli/gli.hpp>
 #include <nlohmann/json.hpp>

@@ -30,7 +30,7 @@ namespace
     {
         loom::ImageDeclaration depth = MakeImageOfTarget(k_Backbuffer);
         depth.Key = k_SceneDepth;
-        depth.Format = ImageFormat{ ImageComponentFormats::D32, ImageDataType::Float };
+        depth.Format = lodestone::TextureFormat::Depth32Float;
         return depth;
     }
 
