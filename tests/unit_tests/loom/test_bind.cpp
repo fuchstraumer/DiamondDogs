@@ -1,3 +1,5 @@
+#include "Declarations.hpp"
+#include "PassStatements.hpp"
 #include "bind/BoundGraph.hpp"
 #include "resolve/ResolvedGraph.hpp"
 #include "order/OrderedGraph.hpp"
@@ -13,10 +15,14 @@
 #include "ShaderManifestDevice.hpp"
 #include "freeze_test_helpers.hpp"
 #include "ShaderLibrary.host.hpp"
+#include "utility/delegate.hpp"
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <source_location>
 #include <string_view>
+#include <utility>
 #include <vector>
 #include <gtest/gtest.h>
 

@@ -22,12 +22,14 @@ untracked `docs/` folder. This README is the map of the code.
                          └─────┬─────┘
                           ResolvedGraph
                          ┌─────▼─────┐
-                         │   Bind    │  LM301-LM305    each Bind("name", key) to one slot of that variant
+                         │   Bind    │  LM301-LM305,   each Bind("name", key) to one slot of that variant
+                         │           │  LM307
                          └─────┬─────┘
                           BoundGraph ──Accesses──┐
                          ┌─────▼─────┐           │
-                         │   Size    │  LM4xx    │     not written yet
+                         │   Size    │           │     LM401, LM402    buffer sizes and usage (images not yet)
                          └─────┬─────┘           │
+                          SizedGraph             │
                          ┌─────▼─────┐           │
                          │   Order   │◀──────────┘     LM5xx    edges, run order, hazards, dead writes
                          └─────┬─────┘
@@ -50,6 +52,7 @@ an error. After Bind, no stage reads a binding name, and Tick touches no Lodesto
 | Freeze | `Freeze(record, sink)` | `FrozenGraph`: every key resolved to a table index, passes in declaration order. | `src/freeze/` |
 | Resolve | `Resolve(frozen, inputs, sink)` | `ResolvedGraph`: per pass, the environment, the variant key and the entry points. | `src/resolve/` |
 | Bind | `Bind(frozen, resolved, sink)` | `BoundGraph`: the slot table and the access table. | `src/bind/` |
+| Size | `Size(frozen, bound, sink)` | `SizedGraph`: per resource, the buffer byte size and its GPU usage. | `src/size/` |
 | Order | `Order(frozen, accesses, sink)` | `OrderedGraph`: the run order and the reason for each edge. `Explain` prints it. | `src/order/` |
 
 ### Freeze
@@ -90,6 +93,8 @@ Bind reads the layout of the variant that Resolve selected:
    - A name that only other variants have is skipped with no diagnostic. One build lambda then serves every variant.
    - A key of the wrong kind is LM304. A narrowing that adds access is LM303: a narrowing may only remove access.
    - A binding of the selected variant that no bind names is LM302.
+   - A view and its root bound to different keys in one pass is LM307 (see "Views and aliases" below). The check
+     sees one pass only: a pass that binds the view without its root has nothing to compare with.
 3. `Params.cpp`: the `Params` statement against the entry point constants. LM305 is a size check, `sizeof(T)`
    against `Constants().ByteSize()`. The generated `Params<CookProfile>` already asserts each offset, so the size
    catches a type of the wrong profile. Constants that hold caller data and no `Params` statement are LM302.
@@ -100,8 +105,30 @@ Bind reads the layout of the variant that Resolve selected:
   `Slots[FirstSlot, FirstSlot + SlotCount)`. A slot has the placement form: `Bound` is a descriptor at (group,
   binding); `Handle` and `Pointer` are 8-byte values that Loom writes at `ValueOffset` in a uniform buffer or the
   push constants.
+- `Sources`: compile time only, beside `Slots`: the Lodestone reflection of each slot, and its pass and bind. Size
+  reads it.
 - `Accesses`: Order's input, one access per `FrozenPass::Binds` entry, after narrowing. A bind that the selected
   variant does not use gets `Invalid`, and Order skips it.
+
+### Size
+
+Size gives each declared buffer its byte size and its GPU usage (`src/size/Size.cpp`). Images and samplers are not
+sized yet: image formats wait for the decision between foundation's `ImageFormat` and Lodestone's `TextureFormat`.
+
+Each binding or statement that names a buffer is a requirement:
+
+- **Exact:** the shader states an element count (`[ls_element_count]`), so it uses exactly count times stride bytes.
+- **At least:** a uniform block (its block size), or indirect arguments (the offset plus 12 bytes for a dispatch, 16
+  for a draw).
+
+Sizes compare in **bytes**, never in elements, so two typed views of one buffer agree. A `Bytes(n)` buffer must fit
+every requirement. A `Derived` buffer takes its size from the first exact requirement, or from the largest one when
+none is exact; a requirement that does not fit is LM401, and no requirement at all is LM402. `DescribeCreation`
+decides whether the shader gives a size. An imported buffer gets no size here: its future brings it, and Realize
+checks it (LM701).
+
+Usage is the union of `RequiredBufferUsage()` over the shader bindings, plus the pass statements: indirect arguments,
+vertex and index buffers, and a Record pass's uses. CPU access (maps, upload copies) belongs to Realize.
 
 ### Order
 
@@ -110,9 +137,22 @@ declaration-order tie-break, and checks the data: LM501 (cycle), LM502 (a hazard
 read before any write), LM504 (dead write) and LM505 (orphan pass). `Explain` and `ExplainPass` print the order and
 the reason for each edge.
 
+## Views and aliases
+
+Two words, two opposite ideas. Keep them apart in code, comments and diagnostics.
+
+- **A view** is one resource seen through more than one binding, all valid at the same time. PlanetGen binds one
+  buffer as atomic `uint`s in some entry points and as plain `int4`s where it only reads. The shader marks the second
+  binding as a view of the first (`ViewOf:<root>` today, Lodestone request C27 later). Order treats every binding of
+  one key as one resource, so views need nothing from Order. Size compares them in bytes; Bind checks that a view and
+  its root name one key (LM307).
+- **An alias** is more than one resource sharing one memory, never valid at the same time. Loom will alias transient
+  resources whose lifetimes do not overlap (not written yet). Order's lifetimes must prove that they do not overlap.
+
 ## Diagnostics
 
-`include/LoomError.hpp` lists the codes. The hundreds digit is the stage (`StageOf`), and `LoomError.cpp` holds the
+`include/LoomError.hpp` lists the codes. `ResourceFlags.hpp` exists in both Lodestone and RhiResources, and Loom
+sees RhiResources' first: reach Lodestone's flags through `ShaderManifestLayout.hpp`. The hundreds digit is the stage (`StageOf`), and `LoomError.cpp` holds the
 catalog text and default severity. A `Diagnostic` holds views into key literals and the shader bundle, so keep the
 bundle open while a sink keeps diagnostics. `CollectingSink`, `TextSink` and `JsonSink` are the sinks.
 
@@ -124,6 +164,7 @@ When Loom needs something from Lodestone, it stubs it here and adds a row to Lod
 |---|---|---|
 | R3: a boolean capability axis that still varies after the device filter takes `true` | `PrefersCapableValue`, `src/resolve/Helpers.cpp` | `PreferCapable()`, once request C25 makes it ignore axes that a capability gates off |
 | A shim in an entry point parameter reflects as `data` in scope `entryPointParams_<name>` | `BindingNameOf`, `src/bind/Helpers.cpp` | Request C26 |
+| A view names its root in the tag `ViewOf:<root>` | `ViewRootOf`, `src/bind/Helpers.cpp` | Request C27 |
 
 ## Tests
 
@@ -136,6 +177,7 @@ When Loom needs something from Lodestone, it stubs it here and adds a row to Lod
 | `test_frozen_graph.cpp`, `test_freeze_resolve.cpp`, `test_freeze_draw.cpp` | Freeze. |
 | `test_resolve.cpp` (`LoomResolveTest.slang`, `LoomResolveOther.slang`) | Resolve, and the host header layout. |
 | `test_bind.cpp` (`LoomBindTest.slang`) | Bind, Freeze's bind rules, and Freeze to Order with Bind's access table. |
+| `test_size.cpp` (`LoomSizeTest.slang`) | Size for buffers, and LM307. |
 | `test_order.cpp`, `test_explain.cpp` | Order and `Explain`, from hand-made access tables. |
 | `test_diagnostics.cpp` | The catalog and the sinks. |
 

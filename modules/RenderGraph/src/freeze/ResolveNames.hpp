@@ -1,4 +1,5 @@
 #pragma once
+#include "Declarations.hpp"
 #ifndef DIAMOND_DOGS_LOOM_FREEZE_RESOLVE_NAMES_HPP
 #define DIAMOND_DOGS_LOOM_FREEZE_RESOLVE_NAMES_HPP
 #include "Freeze.hpp"

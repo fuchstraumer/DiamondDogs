@@ -105,7 +105,7 @@ TEST(LoomDiagnosticJson, OneCompactLine)
 
     const std::string expected =
         R"({"code":"LM305","stage":"Bind","severity":"Error",)"
-        R"("summary":"A params struct field differs from the reflected member in name, offset, or size.",)"
+        R"("summary":"The Params struct does not fit the entry point constants.",)"
         R"("pass":{"name":"Ocean.SpectrumInit","hash":"00000000000000ab"},"binding":"Params",)"
         R"("expected":{"field":"WindSpeed","integer":8},"actual":{"field":"WindSpeed","integer":52}})"
         "\n";

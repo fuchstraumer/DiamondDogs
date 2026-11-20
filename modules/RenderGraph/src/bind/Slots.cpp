@@ -1,16 +1,22 @@
+#include "PassStatements.hpp"
 #include "bind/BindContext.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
 #include "ShaderManifest.hpp"
 #include "ShaderManifestIndex.hpp"
 #include "ShaderManifestLayout.hpp"
+#include "freeze/FrozenGraph.hpp"
+#include "resolve/ResolvedGraph.hpp"
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <source_location>
 #include <string_view>
 #include <vector>
 
 // LM301: a Bind name is in no variant of the entry points. LM302: a binding of the selected variant has no Bind.
-// LM303: a narrowing adds access. LM304: the key's kind does not fit the binding.
+// LM303: a narrowing adds access. LM304: the key's kind does not fit the binding. LM307: a view and its root, bound
+// to different keys in one pass.
 namespace loom::bind
 {
 
@@ -179,6 +185,44 @@ std::vector<int32_t> MatchBinds(BindContext& context,
     }
 
     return matches;
+}
+
+void CheckViews(BindContext& context,
+                const FrozenPass& pass,
+                const PassLayout& layout,
+                const std::vector<int32_t>& matches)
+{
+    for (size_t bindIndex = 0u; bindIndex < matches.size(); ++bindIndex)
+    {
+        // a bind skipped for this variant names no binding here
+        if (matches[bindIndex] == k_NotInVariant)
+        {
+            continue;
+        }
+
+        const std::string_view root = ViewRootOf(layout.Resources[matches[bindIndex]].Resource);
+        const int32_t rootPosition = root.empty() ? k_NotInVariant : FindResource(layout, root);
+        const auto rootBind = std::ranges::find(matches, rootPosition);
+
+        // a root that this pass does not read, or does not bind (already LM302), has no key to compare
+        if (rootPosition == k_NotInVariant || rootBind == matches.end())
+        {
+            continue;
+        }
+
+        const FrozenBind& view = pass.Binds[bindIndex];
+        const FrozenBind& rootBound = pass.Binds[static_cast<size_t>(rootBind - matches.begin())];
+
+        if (view.Resource == rootBound.Resource)
+        {
+            continue;
+        }
+
+        Diagnostic diag = MakeBindDiagnostic(DiagnosticCode::LM307, pass, view.Where, view.BindingName);
+        diag.OtherWhere = rootBound.Where;
+        diag.Resource = context.Frozen.Resources[view.Resource.Value].Key;
+        context.Sink.Report(diag);
+    }
 }
 
 void CheckUnboundResources(BindContext& context,

@@ -21,6 +21,22 @@ namespace loom::bind
         return resource.Name();
     }
 
+    std::string_view ViewRootOf(const lodestone::manifest::ResolvedResource& resource)
+    {
+        constexpr std::string_view k_ViewTag{ "ViewOf:" };
+
+        for (uint32_t tagIndex = 0u; tagIndex < resource.TagCount(); ++tagIndex)
+        {
+            const std::string_view tag = resource.Tag(tagIndex);
+            if (tag.starts_with(k_ViewTag))
+            {
+                return tag.substr(k_ViewTag.size());
+            }
+        }
+
+        return {};
+    }
+
     ResourceAccess ToResourceAccess(lodestone::ResourceAccess access)
     {
         switch (access)

@@ -3,6 +3,8 @@
 #include "LoomKeys.hpp"
 #include "PassStatements.hpp"
 #include "Records.hpp"
+#include "RhiFlags.hpp"
+#include "utility/delegate.hpp"
 #include <cstdint>
 #include <memory>
 #include <source_location>

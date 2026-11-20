@@ -1,4 +1,5 @@
 #include "bind/BoundGraph.hpp"
+#include "PassStatements.hpp"
 #include "bind/BindContext.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "resolve/ResolvedGraph.hpp"
@@ -67,6 +68,9 @@ namespace
             }
 
             result.Slots.push_back(slot);
+            result.Sources.push_back(SlotSource{ .Reflection = resource,
+                                                 .Pass = static_cast<int32_t>(pass_index),
+                                                 .Bind = bindIndex });
         }
     }
 
@@ -106,6 +110,7 @@ std::optional<BoundGraph> Bind(const FrozenGraph& frozen, const ResolvedGraph& r
 
         const std::vector<int32_t> matches = MatchBinds(context, pass, resolvedPass, *layout);
         CheckUnboundResources(context, pass, *layout, matches);
+        CheckViews(context, pass, *layout, matches);
 
         BoundPass& boundPass = result.Passes[passIndex];
         boundPass.FirstSlot = static_cast<int32_t>(result.Slots.size());

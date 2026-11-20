@@ -1,4 +1,7 @@
 #pragma once
+#include "FrozenGraph.hpp"
+#include "LoomDiagnostic.hpp"
+#include "LoomError.hpp"
 #ifndef DIAMOND_DOGS_LOOM_FREEZE_VALIDATE_HPP
 #define DIAMOND_DOGS_LOOM_FREEZE_VALIDATE_HPP
 #include "Freeze.hpp"

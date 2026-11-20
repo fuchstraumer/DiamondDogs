@@ -60,6 +60,12 @@ namespace loom
                                    const PassLayout& layout,
                                    const std::vector<int32_t>& matches);
 
+        // LM307: in one pass, a view and its root name one memory, so their binds must name one key.
+        void CheckViews(BindContext& context,
+                        const FrozenPass& pass,
+                        const PassLayout& layout,
+                        const std::vector<int32_t>& matches);
+
         // Params.cpp: whether the Params statement fits the entry point constants (LM305), and whether constants
         // that hold caller data have a Params statement (LM302).
         [[nodiscard]] BoundParams BindPassParams(BindContext& context, const FrozenPass& pass, const PassLayout& layout);
@@ -70,6 +76,11 @@ namespace loom
         // reflects as the shim's inner field ("data") in the scope "entryPointParams_<parameter>", so Loom takes the
         // parameter name from the scope.
         [[nodiscard]] std::string_view BindingNameOf(const lodestone::manifest::ResolvedResource& resource);
+
+        // The binding that `resource` is a view of, or empty when it is a root. A view is another typed binding of
+        // the same memory: an atomic buffer and a plain read-only binding of it, for example. Stub for Lodestone
+        // request C27: the shader states it as the tag "ViewOf:<root binding name>".
+        [[nodiscard]] std::string_view ViewRootOf(const lodestone::manifest::ResolvedResource& resource);
 
         // Lodestone's reflected access as Order's access. A uniform buffer and a sampler reflect no access: both are
         // reads. Append, consume and rasterizer-ordered access read and write.

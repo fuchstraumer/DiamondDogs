@@ -62,11 +62,12 @@ namespace loom
         LM302 = 302, // A binding of the selected variant has no Bind
         LM303 = 303, // A narrowing widens the reflected access
         LM304 = 304, // Resource kind does not match the binding
-        LM305 = 305, // A params struct field differs from the reflected member
-        LM306 = 306, // BindPrevious on a resource with HistoryDepth 0
+        LM305 = 305, // The Params struct does not fit the entry point constants
+        LM306 = 306, // BindPrevious on a resource with HistoryDepth 0 (Freeze reports it)
+        LM307 = 307, // A view and its root are bound to different keys in one pass
 
         // Size
-        LM401 = 401, // Two bindings derive different sizes for one resource
+        LM401 = 401, // A binding needs a byte size that the resource does not have
         LM402 = 402, // A derived size or extent has no source
         LM403 = 403, // The format does not fit the binding
 

@@ -2,6 +2,7 @@
 #ifndef DIAMOND_DOGS_LOOM_BOUND_GRAPH_HPP
 #define DIAMOND_DOGS_LOOM_BOUND_GRAPH_HPP
 #include "ShaderLibraryTypes.hpp"
+#include "ShaderManifestLayout.hpp"
 #include "PassStatements.hpp"
 #include "order/OrderedGraph.hpp"
 #include <cstdint>
@@ -9,7 +10,7 @@
 #include <vector>
 
 // The Bind stage's output. Bind maps each Bind("name", key) of a pass to one binding of the variant that Resolve
-// selected, once, at Compile. After Bind, no later stage reads a binding name (LM301 to LM305).
+// selected, once, at Compile. After Bind, no later stage reads a binding name (LM301 to LM305, LM307).
 namespace loom
 {
     class DiagnosticSink;
@@ -51,11 +52,21 @@ namespace loom
         BoundParams Params;
     };
 
+    // Compile time only: where each slot came from, at the same index as Slots. Size reads the reflection. It views
+    // into the shader bundle, so nothing after Compile reads it.
+    struct SlotSource
+    {
+        lodestone::manifest::ResolvedResource Reflection;
+        int32_t Pass{ -1 };
+        int32_t Bind{ -1 };     // the index in FrozenPass::Binds, or -1 when no bind names the slot (already LM302)
+    };
+
     // Accesses is Order's input: one row per pass, one entry per FrozenPass::Binds, the access after narrowing. A bind
     // whose binding is in other variants only gets Invalid, and Order skips it.
     struct BoundGraph
     {
         std::vector<BindingSlot> Slots;
+        std::vector<SlotSource> Sources;
         std::vector<BoundPass> Passes;
         BindAccessTable Accesses;
     };
