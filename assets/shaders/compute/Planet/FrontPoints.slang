@@ -113,6 +113,238 @@ void ScatterFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
     StoreFrontPointData(slot, position, point);
 }
 
+static const uint SortGroupSize = 256u;
+static const uint MaxSortableFrontsPerPlate = 2048u;
+groupshared uint SharedSortPixels[MaxSortableFrontsPerPlate];
+
+[shader("compute")][numthreads(SortGroupSize, 1, 1)]
+void SortFrontPointsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupThreadID)
+{
+    const uint plate = groupID.x;
+    if (plate >= Params.PlateCount)
+    {
+        return;
+    }
+
+    const uint begin = PlateFrontPointOffset.Load(plate);
+    const uint end = PlateFrontPointOffset.Load(plate + 1u);
+    const uint count = end - begin;
+
+    if (count <= 64u || count > MaxSortableFrontsPerPlate)
+    {
+        return;
+    }
+
+    uint paddedCount = 128u;
+    while (paddedCount < count)
+    {
+        paddedCount <<= 1u;
+    }
+
+    // Setup register array: we do 8 keys locally, purely on this thread, before bouncing out to waves then SMEM
+    static const uint KeysPerThread = 8u; // making a constant for now so we can tweak and tune if needed (occupancy)
+    uint localKeys[KeysPerThread];
+    const uint waveSize = WaveGetLaneCount();
+    const uint waveBlockSize = waveSize * KeysPerThread;
+    const uint thisLaneLocal = WaveGetLaneIndex();
+    const uint thisLaneGlobal = laneInGroup.x;
+    // localKeyStart needs to be relative to all waves, while `thisLaneLocal` is for our wave-relative indexing. oops!
+    const uint localKeyStart = thisLaneGlobal * KeysPerThread;
+
+    // populate the threadlocal array. this is going to hammer DRAM as each thread is going to get 8 
+    // values from the bound resource, but we only have to do this once and we can avoid barriers
+    // (also the scheduler can hide memory latency by interleaving other threads' work *BECAUSE* no barriers)
+    [unroll]
+    for (uint k = 0u; k < KeysPerThread; ++k)
+    {
+        const uint globalIdx = localKeyStart + k;
+        localKeys[k] = (globalIdx < count) ? asuint(FrontPoints.Load(begin + globalIdx).w) : 0xFFFFFFFFu;
+    }
+
+    // now run the local sort
+    [unroll]
+    for (uint stepSize = 2u; stepSize <= KeysPerThread; stepSize <<= 1u) // <<= 1u instead of multiplying by 2 each iteration
+    {
+        [unroll]
+        for (uint stride = stepSize >> 1u; stride > 0u; stride >>= 1u) // again, shift instead of doing math bc this is power-of-2
+        {
+            [unroll]
+            for (uint i = 0; i < KeysPerThread; ++i)
+            {
+                const bool isLow = (i & stride) == 0u;
+                if (isLow)
+                {
+                    const uint partnerIdx = i | stride;
+                    const bool ascending = ((localKeyStart + i) & stepSize) == 0u;
+                    const uint key = localKeys[i];
+                    const uint partnerKey = localKeys[partnerIdx];
+                    localKeys[i] = (ascending == (key < partnerKey)) ? key : partnerKey;
+                    localKeys[partnerIdx] = (ascending == (key < partnerKey)) ? partnerKey : key;
+                }
+            }
+        }
+    }
+
+    // thread-local step done: now we go out to the waves
+    const uint maxWaveStepSize = min(waveBlockSize, paddedCount);
+    const uint waveStartingStep = KeysPerThread << 1u; // 2 times the keys per thread
+    for (uint waveStepSize = waveStartingStep; waveStepSize <= maxWaveStepSize; waveStepSize <<= 1u)
+    {
+        for (uint waveStride = waveStepSize >> 1u; waveStride > 0u; waveStride >>= 1u)
+        {
+            if (waveStride >= KeysPerThread)
+            {
+                const uint laneStride = waveStride / KeysPerThread;
+                const uint partnerLane = thisLaneLocal ^ laneStride; // xor to find partner index
+                const bool isLow = (thisLaneLocal & laneStride) == 0u; // similar approach as fft butterfly...
+                [unroll]
+                for (uint i = 0u; i < KeysPerThread; ++i)
+                {
+                    const bool ascending = ((localKeyStart + i) & waveStepSize) == 0u;
+                    const uint laneValue = localKeys[i];
+                    // should be a super fast lane-to-lane read within the wave (check nsight)
+                    const uint partnerLaneValue = WaveReadLaneAt(laneValue, partnerLane);
+                    localKeys[i] = (isLow == ascending) ? min(laneValue, partnerLaneValue) : max(laneValue, partnerLaneValue);
+                }
+            }
+            else
+            {
+                [unroll]
+                for (uint i = 0u; i < KeysPerThread; ++i)
+                {
+                    const bool isLow = (i & waveStride) == 0u;
+                    if (isLow)
+                    {
+                        const uint partnerIdx = i | waveStride;
+                        const bool ascending = ((localKeyStart + i) & waveStepSize) == 0u;
+                        const uint key = localKeys[i];
+                        const uint partnerKey = localKeys[partnerIdx];
+                        localKeys[i] = (ascending == (key < partnerKey)) ? key : partnerKey;
+                        localKeys[partnerIdx] = (ascending == (key < partnerKey)) ? partnerKey : key;
+                    }
+                }
+            }
+        }
+    }
+
+    // now flush the sorted thread and wave blocks back to SMEM
+    // any localkey underneath padded count is now one of the writers
+    if (localKeyStart < paddedCount)
+    {
+        [unroll]
+        for (uint i = 0u; i < KeysPerThread; ++i)
+        {
+            SharedSortPixels[localKeyStart + i] = localKeys[i];
+        }
+    }
+
+    // first barrier, way later than our initial implementation... we got a titanic amount of work done,
+    // and having the barrier this late means the scheduler has ample opportunity to hide memory latency
+    // by interleaving other threads' work before we synchronize.
+    GroupMemoryBarrierWithGroupSync();
+
+    // phase 3: the cross-warp shared memory sort. the slowest part because of all the barriers, but now
+    // we've reduced the workload into larger chunks (so each wave now handles more data, keeping it busier
+    // between barriers, and reducing the barriers as much as possible compared to a naive implementation)
+    for (uint crossWaveStepSize = waveBlockSize << 1u; crossWaveStepSize <= paddedCount; crossWaveStepSize <<= 1u)
+    {
+        for (uint crossWaveStrideSize = crossWaveStepSize >> 1u; crossWaveStrideSize > 0u; crossWaveStrideSize >>= 1u)
+        {
+            if (crossWaveStrideSize >= waveBlockSize)
+            {
+                // have to use SMEM for this part
+                for (uint pairIdx = thisLaneGlobal; pairIdx < (paddedCount >> 1u); pairIdx += SortGroupSize)
+                {
+                    const uint low = ((pairIdx & ~(crossWaveStrideSize - 1u)) << 1u) | (pairIdx & (crossWaveStrideSize - 1u));
+                    const uint high = low | crossWaveStrideSize;
+                    const bool ascending = ((low & crossWaveStepSize) == 0u);
+                    const uint lowKey = SharedSortPixels[low];
+                    const uint highKey = SharedSortPixels[high];
+                    if ((ascending && (lowKey > highKey)) || (!ascending && (lowKey < highKey)))
+                    {
+                        SharedSortPixels[low] = highKey;
+                        SharedSortPixels[high] = lowKey;
+                    }
+                }
+                GroupMemoryBarrierWithGroupSync(); // sadge
+            }
+            else
+            {
+                // once stride is below wave capacity, we can get back to wave intrinsics to crush what's left
+                if (localKeyStart < paddedCount)
+                {
+                    // fill localKeys again: same deal as above, the deferred barrier means warp scheduler
+                    // can probably overlap memory fetches with computation in other warps, improving throughput
+                    [unroll]
+                    for (uint k = 0; k < KeysPerThread; ++k)
+                    {
+                        localKeys[k] = SharedSortPixels[localKeyStart + k];
+                    }
+                }
+
+                // divide inner stride by 2 each iteration
+                for (uint innerStride = crossWaveStrideSize; innerStride > 0u; innerStride >>= 1u)
+                {
+                    if (innerStride >= KeysPerThread)
+                    {
+                        const uint laneStride = innerStride / KeysPerThread;
+                        const uint partnerLane = thisLaneLocal ^ laneStride;
+                        const bool isLow = (thisLaneLocal & laneStride) == 0u;
+                        [unroll]
+                        for (uint i = 0; i < KeysPerThread; ++i)
+                        {
+                            const bool ascending = ((localKeyStart + i) & crossWaveStepSize) == 0u;
+                            const uint laneKey = localKeys[i];
+                            const uint partnerKey = WaveReadLaneAt(laneKey, partnerLane);
+                            localKeys[i] = (isLow == ascending) ? min(laneKey, partnerKey) : max(laneKey, partnerKey);
+                        }
+                    }
+                    else
+                    {
+                        // entirely thread-local comparison and swapping
+                        [unroll]
+                        for (uint i = 0; i < KeysPerThread; ++i)
+                        {
+                            const bool isLow = ((i & innerStride) == 0u);
+                            if (isLow)
+                            {
+                                const uint partnerIndex = i | innerStride;
+                                const bool ascending = ((localKeyStart + i) & crossWaveStepSize) == 0u;
+                                const uint threadKey = localKeys[i];
+                                const uint partnerKey = localKeys[partnerIndex];
+                                localKeys[i] = (ascending == (threadKey < partnerKey)) ? threadKey : partnerKey;
+                                localKeys[partnerIndex] = (ascending == (threadKey < partnerKey)) ? partnerKey : threadKey;
+                            }
+                        }
+                    }
+                }
+
+                if (localKeyStart < paddedCount)
+                {
+                    [unroll]
+                    for (uint i = 0; i < KeysPerThread; ++i)
+                    {
+                        SharedSortPixels[localKeyStart + i] = localKeys[i];
+                    }
+                }
+
+                GroupMemoryBarrierWithGroupSync();
+
+                // all remaining threads have written their local keys back to shared memory
+                break;
+            }
+        }
+    }
+
+    // now write back the completed output
+    for (uint i = thisLaneGlobal; i < count; i += SortGroupSize)
+    {
+        const uint pixelIndex = SharedSortPixels[i];
+        const float3 position = HealpixPixToVec(pixelIndex, Params.HealpixOrder);
+        StoreFrontPointData(begin + i, position, pixelIndex);
+    }
+}
+
 static const uint SearchBlockSize = 64u;
 static const uint MaxWavesPerGroup = 4u;
 static const float MaxFrontAngleRad = 1850.0f / 6370.0f;
