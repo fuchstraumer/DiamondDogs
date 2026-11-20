@@ -125,6 +125,39 @@ float3 BathymetryTopographyColor(float elevKm, bool isContinental, bool isSubduc
     return color;
 }
 
+float4 SampleElevationCorner(int pt)
+{
+    if (pt < 0)
+    {
+        return float4(-6.0f, 0.0f, 0.0f, 0.0f);
+    }
+
+    const OwnersData owners = LoadOwnersIn(uint(pt));
+    const int plate = owners.GetBestPlate();
+    const int cell = owners.GetBestCell();
+    if (plate < 0 || cell < 0)
+    {
+        return float4(-6.0f, 0.0f, 0.0f, 0.0f);
+    }
+
+    const uint flat = uint(plate) * Params.PointCount + uint(cell);
+    const CrustFlagBits flags = LoadCrustFlagsIn(flat);
+    const CrustStateData state = LoadCrustStateIn(flat);
+    const FrontState front = LoadFrontStateIn(uint(pt));
+    const bool isContinental = flags.IsContinental();
+    const bool isSubduction = front.GetSubduction() == 1u;
+
+    float baseElev = 0.5f;
+    if (!isContinental)
+    {
+        const float age = max(RenderMapConstants.Time - state.GetBirth(), 0.0f);
+        baseElev = max(-(2.6f + 0.345f * sqrt(age)), -6.0f);
+    }
+
+    const float reliefKm = state.GetRelief();
+    return float4(baseElev + reliefKm, isContinental ? 1.0f : 0.0f, isSubduction ? 1.0f : 0.0f, reliefKm);
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
@@ -144,6 +177,49 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
     sincos(lon, sinLon, cosLon);
     const float3 worldPoint = float3(cosLat * cosLon, cosLat * sinLon, sinLat);
 
+    const uint mode = RenderMapConstants.Mode;
+    if (mode == RenderModeElevation)
+    {
+        uint baseFace = 0u;
+        float2 faceUV = float2(0.0f, 0.0f);
+        HealpixVecToFaceUV(worldPoint, Params.HealpixOrder, baseFace, faceUV);
+
+        const float2 shifted = faceUV - 0.5f;
+        const int2 baseXY = int2(floor(shifted));
+        const float2 fracUV = shifted - float2(baseXY);
+
+        const int p00 = HealpixSampleIndex(baseFace, baseXY.x, baseXY.y, Params.HealpixOrder);
+        const int p10 = HealpixSampleIndex(baseFace, baseXY.x + 1, baseXY.y, Params.HealpixOrder);
+        const int p01 = HealpixSampleIndex(baseFace, baseXY.x, baseXY.y + 1, Params.HealpixOrder);
+        const int p11 = HealpixSampleIndex(baseFace, baseXY.x + 1, baseXY.y + 1, Params.HealpixOrder);
+
+        float4 s00 = (p00 >= 0) ? SampleElevationCorner(p00) : float4(0.0f);
+        float4 s10 = (p10 >= 0) ? SampleElevationCorner(p10) : float4(0.0f);
+        float4 s01 = (p01 >= 0) ? SampleElevationCorner(p01) : float4(0.0f);
+        float4 s11 = (p11 >= 0) ? SampleElevationCorner(p11) : float4(0.0f);
+
+        // Karlbauer et al. (2024) 24-corner bridge across missing rhombic-dodecahedron diagonal corners
+        if (p00 < 0) s00 = 0.5f * (s10 + s01);
+        if (p10 < 0) s10 = 0.5f * (s00 + s11);
+        if (p01 < 0) s01 = 0.5f * (s00 + s11);
+        if (p11 < 0) s11 = 0.5f * (s10 + s01);
+
+        const float4 s = lerp(lerp(s00, s10, fracUV.x), lerp(s01, s11, fracUV.x), fracUV.y);
+        const bool isLand = s.y >= 0.5f;
+        float3 rgb = BathymetryTopographyColor(s.x, isLand, s.z >= 0.35f);
+        if (!isLand && s.y > 0.02f)
+        {
+            rgb = lerp(rgb, float3(0.24f, 0.62f, 0.72f), saturate(s.y * 1.6f) * 0.55f);
+        }
+
+        const float dEdU = lerp(s10.x - s00.x, s11.x - s01.x, fracUV.y);
+        const float dEdV = lerp(s01.x - s00.x, s11.x - s10.x, fracUV.x);
+        rgb *= clamp(1.0f + 0.14f * (dEdU - dEdV), 0.78f, 1.22f);
+
+        MapOutput[threadId.xy] = float4(rgb, 1.0f);
+        return;
+    }
+
     const int pt = int(HealpixVecToPix(worldPoint, Params.HealpixOrder));
     const OwnersData owners = LoadOwnersIn(uint(pt));
     const int plate = owners.GetBestPlate();
@@ -160,18 +236,7 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
         const bool isSubduction = front.GetSubduction() == 1u;
         const bool hasOverlap = owners.GetSecondPlate() >= 0;
 
-        const uint mode = RenderMapConstants.Mode;
-        if (mode == RenderModeElevation)
-        {
-            float baseElev = 0.5f;
-            if (!isContinental)
-            {
-                const float age = max(RenderMapConstants.Time - state.GetBirth(), 0.0f);
-                baseElev = max(-(2.6f + 0.345f * sqrt(age)), -6.0f);
-            }
-            rgb = BathymetryTopographyColor(baseElev + state.GetRelief(), isContinental, isSubduction);
-        }
-        else if (mode == RenderModePlates)
+        if (mode == RenderModePlates)
         {
             const float hue = frac(float(plate) * 0.61803398875f);
             const float sat = isContinental ? 0.55f : 0.80f;

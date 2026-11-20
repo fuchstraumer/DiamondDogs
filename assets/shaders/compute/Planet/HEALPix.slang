@@ -284,6 +284,75 @@ internal int HealpixNeighbor(in uint baseFace, in int faceX, in int faceY, in in
     return int(HealpixEncode(uint(dstFace), uint(neighborX), uint(neighborY), order));
 }
 
+// Calabretta & Roukema (2007) continuous intra-face coordinates in [0, sideLength).
+internal void HealpixVecToFaceUV(float3 dir, uint order, out uint baseFace, out float2 faceUV)
+{
+    const uint sideLength = 1u << order;
+    const float sideLengthF = float(sideLength);
+    const float maxUV = sideLengthF - 1e-4f;
+    const float absZ = abs(dir.z);
+
+    float phi = atan2(dir.y, dir.x);
+    if (phi < 0.0f)
+    {
+        phi += HealpixTwoPi;
+    }
+
+    const float quarterTurns = min(phi * HealpixInvHalfPi, 3.9999995f);
+
+    if (absZ <= 0.6666666667f)
+    {
+        const float beltAlong = sideLengthF * (0.5f + quarterTurns);
+        const float beltAcross = sideLengthF * dir.z * 0.75f;
+        const float diagDescendingCont = max(0.0f, beltAlong - beltAcross);
+        const float diagAscendingCont = max(0.0f, beltAlong + beltAcross);
+        const int descendingBand = min(int(floor(diagDescendingCont)) >> int(order), 4);
+        const int ascendingBand = min(int(floor(diagAscendingCont)) >> int(order), 4);
+
+        if (descendingBand == ascendingBand)
+        {
+            baseFace = uint(descendingBand | 4);
+        }
+        else if (descendingBand < ascendingBand)
+        {
+            baseFace = uint(descendingBand);
+        }
+        else
+        {
+            baseFace = uint(ascendingBand + 8);
+        }
+
+        faceUV.x = clamp(diagAscendingCont - float(ascendingBand << order), 0.0f, maxUV);
+        faceUV.y = clamp(sideLengthF - (diagDescendingCont - float(descendingBand << order)), 0.0f, maxUV);
+    }
+    else
+    {
+        const int polarQuadrant = min(int(quarterTurns), 3);
+        const float quadrantFraction = quarterTurns - float(polarQuadrant);
+        const float oneMinusAbsZ = (dir.x * dir.x + dir.y * dir.y) / (1.0f + absZ);
+        const float polarRadialPixels = sideLengthF * sqrt(max(0.0f, 3.0f * oneMinusAbsZ));
+        const float cwCont = min(quadrantFraction * polarRadialPixels, maxUV);
+        const float ccwCont = min((1.0f - quadrantFraction) * polarRadialPixels, maxUV);
+
+        if (dir.z >= 0.0f)
+        {
+            baseFace = uint(polarQuadrant);
+            faceUV = float2(sideLengthF - ccwCont, sideLengthF - cwCont);
+        }
+        else
+        {
+            baseFace = uint(polarQuadrant + 8);
+            faceUV = float2(cwCont, ccwCont);
+        }
+    }
+}
+
+// Resolves a face-local (faceX, faceY) coordinate across base-face seams; returns -1 for the 24 missing corner diagonals.
+internal int HealpixSampleIndex(uint baseFace, int faceX, int faceY, uint order)
+{
+    return HealpixNeighbor(baseFace, faceX, faceY, 0, 0, order);
+}
+
 
 // Verification probe - run by PlaneetGenCheck
 struct HealpixProbeParams

@@ -111,7 +111,17 @@ void ScatterFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
 }
 
 static const uint SearchBlockSize = 64u;
+static const uint MaxWavesPerGroup = 4u;
+static const float MaxFrontAngleRad = 1850.0f / 6370.0f;
 groupshared float4 SharedFrontPoints[SearchBlockSize];
+groupshared float3 SharedGroupCenterSum[MaxWavesPerGroup];
+groupshared float SharedGroupMinCos[MaxWavesPerGroup];
+groupshared float3 SharedGroupCenter;
+groupshared float SharedGroupAngle;
+groupshared float3 SharedTileCenterSum[MaxWavesPerGroup];
+groupshared float SharedTileMinCos[MaxWavesPerGroup];
+groupshared float3 SharedTileCenter;
+groupshared float SharedTileAngle;
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
@@ -154,6 +164,63 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID,
         end = PlateFrontPointOffset.Load(plateIdx + 1u);
     }
 
+    const uint waveSize = WaveGetLaneCount();
+    const uint waveCount = (SearchBlockSize + waveSize - 1u) / waveSize;
+    const uint waveIndex = laneInGroup.x / waveSize;
+
+    const float3 waveGroupSum = WaveActiveSum(worldPoint);
+    if (WaveIsFirstLane())
+    {
+        SharedGroupCenterSum[waveIndex] = waveGroupSum;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (laneInGroup.x == 0u)
+    {
+        float3 sum = float3(0.0f, 0.0f, 0.0f);
+        for (uint w = 0u; w < waveCount; ++w)
+        {
+            sum += SharedGroupCenterSum[w];
+        }
+        const float len = length(sum);
+        if (len < 1e-5f)
+        {
+            SharedGroupCenter = float3(0.0f, 0.0f, 1.0f);
+            SharedGroupAngle = 3.14159265f;
+        }
+        else
+        {
+            SharedGroupCenter = sum / len;
+            SharedGroupAngle = 0.0f;
+        }
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    const float3 groupCenter = SharedGroupCenter;
+    const float groupCos = isLive ? dot(worldPoint, groupCenter) : 1.0f;
+    const float waveGroupMinCos = WaveActiveMin(groupCos);
+    if (WaveIsFirstLane())
+    {
+        SharedGroupMinCos[waveIndex] = waveGroupMinCos;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (laneInGroup.x == 0u && SharedGroupAngle == 0.0f)
+    {
+        float minCos = 1.0f;
+        for (uint w = 0u; w < waveCount; ++w)
+        {
+            minCos = min(minCos, SharedGroupMinCos[w]);
+        }
+        SharedGroupAngle = acos(clamp(minCos, -1.0f, 1.0f));
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    const float groupAngle = SharedGroupAngle;
+
     NearestCandidate nearest0 = NoCandidate();
     NearestCandidate nearest1 = NoCandidate();
     NearestCandidate nearest2 = NoCandidate();
@@ -162,30 +229,89 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID,
     for (uint sharedStart = sharedBegin; sharedStart < sharedEnd; sharedStart += SearchBlockSize)
     {
         const uint loadSlot = sharedStart + laneInGroup.x;
-        if (loadSlot < sharedEnd)
+        const bool validTileSlot = loadSlot < sharedEnd;
+        float3 tilePoint = float3(0.0f, 0.0f, 0.0f);
+        if (validTileSlot)
         {
-            SharedFrontPoints[laneInGroup.x] = FrontPoints.Load(loadSlot);
+            const float4 loaded = FrontPoints.Load(loadSlot);
+            SharedFrontPoints[laneInGroup.x] = loaded;
+            tilePoint = loaded.xyz;
+        }
+
+        const float3 waveTileSum = WaveActiveSum(tilePoint);
+        if (WaveIsFirstLane())
+        {
+            SharedTileCenterSum[waveIndex] = waveTileSum;
         }
 
         GroupMemoryBarrierWithGroupSync();
 
-        // check this lanes own plate range, inside this shared block!
-        const uint first = max(begin, sharedStart);
-        const uint last = min(end, min(sharedStart + SearchBlockSize, sharedEnd));
-
-        uint slot = first;
-        for(; slot + SearchUnrollDepth <= last; slot += SearchUnrollDepth)
+        if (laneInGroup.x == 0u)
         {
-            const uint sharedSlot = slot - sharedStart;
-            nearest0 = Nearest(nearest0, MakeCandidate(worldPoint, SharedFrontPoints[sharedSlot]));
-            nearest1 = Nearest(nearest1, MakeCandidate(worldPoint, SharedFrontPoints[sharedSlot + 1]));
-            nearest2 = Nearest(nearest2, MakeCandidate(worldPoint, SharedFrontPoints[sharedSlot + 2]));
-            nearest3 = Nearest(nearest3, MakeCandidate(worldPoint, SharedFrontPoints[sharedSlot + 3]));
+            float3 sum = float3(0.0f, 0.0f, 0.0f);
+            for (uint w = 0u; w < waveCount; ++w)
+            {
+                sum += SharedTileCenterSum[w];
+            }
+            const float len = length(sum);
+            if (len < 1e-5f)
+            {
+                SharedTileCenter = float3(0.0f, 0.0f, 1.0f);
+                SharedTileAngle = 3.14159265f;
+            }
+            else
+            {
+                SharedTileCenter = sum / len;
+                SharedTileAngle = 0.0f;
+            }
         }
 
-        for (; slot < last; ++slot)
+        GroupMemoryBarrierWithGroupSync();
+
+        const float3 tileCenter = SharedTileCenter;
+        const float tileCos = validTileSlot ? dot(tilePoint, tileCenter) : 1.0f;
+        const float waveTileMinCos = WaveActiveMin(tileCos);
+        if (WaveIsFirstLane())
         {
-            nearest0 = Nearest(nearest0, MakeCandidate(worldPoint, SharedFrontPoints[slot - sharedStart]));
+            SharedTileMinCos[waveIndex] = waveTileMinCos;
+        }
+
+        GroupMemoryBarrierWithGroupSync();
+
+        if (laneInGroup.x == 0u && SharedTileAngle == 0.0f)
+        {
+            float minCos = 1.0f;
+            for (uint w = 0u; w < waveCount; ++w)
+            {
+                minCos = min(minCos, SharedTileMinCos[w]);
+            }
+            SharedTileAngle = acos(clamp(minCos, -1.0f, 1.0f));
+        }
+        
+        GroupMemoryBarrierWithGroupSync();
+
+        const float tileAngle = SharedTileAngle;
+        const float maxAllowedAngle = min(3.14159265f, MaxFrontAngleRad + groupAngle + tileAngle);
+        if (clamp(dot(groupCenter, tileCenter), -1.0f, 1.0f) >= cos(maxAllowedAngle))
+        {
+            // check this lanes own plate range, inside this shared block!
+            const uint first = max(begin, sharedStart);
+            const uint last = min(end, min(sharedStart + SearchBlockSize, sharedEnd));
+
+            uint slot = first;
+            for(; slot + SearchUnrollDepth <= last; slot += SearchUnrollDepth)
+            {
+                const uint sharedSlot = slot - sharedStart;
+                nearest0 = Nearest(nearest0, MakeCandidate(worldPoint, SharedFrontPoints[sharedSlot]));
+                nearest1 = Nearest(nearest1, MakeCandidate(worldPoint, SharedFrontPoints[sharedSlot + 1]));
+                nearest2 = Nearest(nearest2, MakeCandidate(worldPoint, SharedFrontPoints[sharedSlot + 2]));
+                nearest3 = Nearest(nearest3, MakeCandidate(worldPoint, SharedFrontPoints[sharedSlot + 3]));
+            }
+
+            for (; slot < last; ++slot)
+            {
+                nearest0 = Nearest(nearest0, MakeCandidate(worldPoint, SharedFrontPoints[slot - sharedStart]));
+            }
         }
 
         GroupMemoryBarrierWithGroupSync();
