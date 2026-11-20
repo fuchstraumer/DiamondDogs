@@ -54,6 +54,8 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/bind/Helpers.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/size/SizedGraph.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/size/Size.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/size/ImageSize.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/size/ImageSize.cpp"
 )
 
 add_module(loom

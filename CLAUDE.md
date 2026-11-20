@@ -92,7 +92,7 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `rhi_system_tests` | Instance and device creation per API version, extension resolution, shader objects. |
 | `platform_system_tests` | Displays, windows, swapchain creation, JSON configuration. |
 | `resource_context_tests` | `ResourceContext` on a real device: every create path, uploads read back word for word, fills, copies, maps, samplers, four threads at once, and shutdown with queued work. |
-| `loom_tests` | Loom with no GPU: the builder, the diagnostic catalog, the sinks (counts, text and JSON Lines output), the JSON writer, Freeze, Resolve, Bind, Size (buffers), Order and explain, against test shaders cooked with a generated host header. |
+| `loom_tests` | Loom with no GPU: the builder, the diagnostic catalog, the sinks (counts, text and JSON Lines output), the JSON writer, Freeze, Resolve, Bind, Size (buffers and images), Order and explain, against test shaders cooked with a generated host header. |
 | `content_compiler_tests` | The content compiler with no GPU: kinds, the kind registry, the parameter box, the recipe table and ingestion. |
 | `input_system_tests` | InputSystem with no window: the control space, frame assembly and the record-and-replay log. |
 | `ocean_camera_tests` | The OceanFft camera and its controller: the view basis, picking, pan and smoothed zoom. |

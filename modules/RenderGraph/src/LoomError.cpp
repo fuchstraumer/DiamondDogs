@@ -82,11 +82,11 @@ namespace loom
                                "A view and its root are bound to different keys in one pass." },
 
             CatalogEntry{ LM401, "LM401", k_Error,
-                               "A binding needs a byte size that the resource does not have." },
+                               "A binding needs a byte size or an extent that the resource does not have." },
             CatalogEntry{ LM402, "LM402", k_Error,
                                "A derived size or extent has no source. No binding states it." },
             CatalogEntry{ LM403, "LM403", k_Error,
-                               "The format does not fit the binding." },
+                               "The format or the dimension does not fit a binding or a target." },
 
             CatalogEntry{ LM501, "LM501", k_Error,
                                "The passes make a cycle." },

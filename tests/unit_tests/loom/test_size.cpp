@@ -11,15 +11,17 @@
 #include "ShaderManifestDevice.hpp"
 #include "ShaderManifestLayout.hpp"
 #include "freeze_test_helpers.hpp"
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <source_location>
 #include <string_view>
 #include <gtest/gtest.h>
 
-// The Size stage (buffers), and Bind's view rule (LM307), against LoomSizeTest (tests/unit_tests/loom/shaders).
+// The Size stage, and Bind's view rule (LM307), against LoomSizeTest (tests/unit_tests/loom/shaders).
 // Counters is 64 uints and CountersIn is a view of it as 16 uint4s: 256 bytes either way. Fixed is 32 floats (128
-// bytes). Values states no size. Args is 3 uints of indirect dispatch arguments.
+// bytes). Values states no size. Args is 3 uints of indirect dispatch arguments. Albedo states 64x32 and Small 16x16;
+// Ids samples uint, Volume is 3D, and Lit is an rgba32f storage image.
 
 using namespace freeze_tests;
 
@@ -33,6 +35,9 @@ namespace
     constexpr loom::ResourceKey<loom::Buffer> k_Values{ "Size.Values" };
     constexpr loom::ResourceKey<loom::Buffer> k_Args{ "Size.Args" };
     constexpr loom::PassKey k_Second{ "Test.Second" };
+    constexpr loom::ResourceKey<loom::Image> k_Image{ "Size.Image" };
+    constexpr loom::ResourceKey<loom::Image> k_Ids{ "Size.Ids" };
+    constexpr loom::ResourceKey<loom::Image> k_Lit{ "Size.Lit" };
 
     const rhi::ShaderBundle& SpirvBundle()
     {
@@ -165,6 +170,52 @@ namespace
         pass.DispatchThreads(64, 1, 1);
     }
 
+    loom::ImageDeclaration ImageOf(loom::ResourceKey<loom::Image> key, lodestone::TextureFormat format,
+                                   loom::ExtentSource extent)
+    {
+        loom::ImageDeclaration image = MakeImageOfTarget(k_Backbuffer);
+        image.Key = key;
+        image.Format = format;
+        image.Extent = extent;
+        return image;
+    }
+
+    // Ids and Lit as ShadeCS states them: uint and rgba32f, 64x32. `albedo` is the image under test.
+    void DeclareShadeImages(loom::GraphBuilder& graph, const loom::ImageDeclaration& albedo)
+    {
+        graph.Declare(albedo);
+        graph.Declare(ImageOf(k_Ids, lodestone::TextureFormat::R32Uint, loom::ExtentSource::Fixed(64, 32, 1)));
+        graph.Declare(ImageOf(k_Lit, lodestone::TextureFormat::RGBA32Float, loom::ExtentSource::Fixed(64, 32, 1)));
+    }
+
+    void ShadeWith(loom::DispatchBuilder& pass, loom::ResourceKey<loom::Image> albedo)
+    {
+        pass.Shader(k_Module, "ShadeCS");
+        pass.Bind("Albedo", albedo);
+        pass.Bind("Ids", k_Ids);
+        pass.Bind("Lit", k_Lit);
+        pass.DispatchThreads(8, 4, 1);
+    }
+
+    // SmallCS or VolumeCS, with its one sampled binding on `image`
+    void ReadImageWith(loom::DispatchBuilder& pass, std::string_view entry_point, std::string_view binding,
+                       loom::ResourceKey<loom::Image> image)
+    {
+        pass.Shader(k_Module, entry_point);
+        pass.Bind(binding, image);
+        pass.Bind("Lit", k_Lit);
+        pass.DispatchThreads(8, 4, 1);
+    }
+
+    void RecordNothing(loom::RecordContext&)
+    {
+    }
+
+    bool HasTextureUsage(lodestone::TextureUsageFlags usage, lodestone::TextureUsageFlags flag)
+    {
+        return (usage & flag) == flag;
+    }
+
 }
 
 // Two typed views of one buffer: 64 uints and 16 uint4s. Their strides differ, their bytes agree, so the derived
@@ -194,7 +245,7 @@ TEST(Size, ViewsOfOneBufferAgreeInBytes)
     ASSERT_TRUE(run.Sized.has_value());
     EXPECT_TRUE(run.Sink.Diagnostics().empty());
     EXPECT_EQ(SizedOf(run, k_Counters.ToRef()).ByteSize, 256);
-    EXPECT_TRUE(HasUsage(SizedOf(run, k_Counters.ToRef()).Usage, lodestone::BufferUsageFlags::Storage));
+    EXPECT_TRUE(HasUsage(SizedOf(run, k_Counters.ToRef()).BufferUsage, lodestone::BufferUsageFlags::Storage));
     EXPECT_EQ(SizedOf(run, k_Values.ToRef()).ByteSize, 256);
 }
 
@@ -322,8 +373,8 @@ TEST(Size, IndirectArgumentsNeedTheirBytes)
             ASSERT_TRUE(run.Sized.has_value());
             EXPECT_TRUE(run.Sink.Diagnostics().empty());
             EXPECT_EQ(SizedOf(run, k_Args.ToRef()).ByteSize, 12);
-            EXPECT_TRUE(HasUsage(SizedOf(run, k_Args.ToRef()).Usage, lodestone::BufferUsageFlags::Indirect));
-            EXPECT_TRUE(HasUsage(SizedOf(run, k_Args.ToRef()).Usage, lodestone::BufferUsageFlags::Storage));
+            EXPECT_TRUE(HasUsage(SizedOf(run, k_Args.ToRef()).BufferUsage, lodestone::BufferUsageFlags::Indirect));
+            EXPECT_TRUE(HasUsage(SizedOf(run, k_Args.ToRef()).BufferUsage, lodestone::BufferUsageFlags::Storage));
             continue;
         }
 
@@ -431,6 +482,328 @@ TEST(Size, IndirectStatementAddsIndirectUsage)
     RunSize(graph, run);
 
     ASSERT_TRUE(run.Sized.has_value());
-    EXPECT_TRUE(HasUsage(SizedOf(run, k_Counters.ToRef()).Usage, lodestone::BufferUsageFlags::Indirect));
-    EXPECT_FALSE(HasUsage(SizedOf(run, k_Other.ToRef()).Usage, lodestone::BufferUsageFlags::Indirect));
+    EXPECT_TRUE(HasUsage(SizedOf(run, k_Counters.ToRef()).BufferUsage, lodestone::BufferUsageFlags::Indirect));
+    EXPECT_FALSE(HasUsage(SizedOf(run, k_Other.ToRef()).BufferUsage, lodestone::BufferUsageFlags::Indirect));
+}
+
+// Images take their extent, dimension and usage from their bindings. Albedo's derived extent is the 64x32 that the
+// shader states. The fixed images keep their declared extent.
+TEST(SizeImages, ExtentDimensionAndUsageComeFromTheBindings)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    DeclareShadeImages(graph, ImageOf(k_Image, lodestone::TextureFormat::RGBA8Unorm, loom::ExtentSource::Derived()));
+
+    const auto shade = [](loom::DispatchBuilder& pass)
+    {
+        ShadeWith(pass, k_Image);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, shade);
+
+    SizeRun run;
+    RunSize(graph, run);
+
+    ASSERT_TRUE(run.Sized.has_value());
+    EXPECT_TRUE(run.Sink.Diagnostics().empty());
+
+    const loom::SizedResource& image = SizedOf(run, k_Image.ToRef());
+    EXPECT_EQ(image.Extent.Width, 64);
+    EXPECT_EQ(image.Extent.Height, 32);
+    EXPECT_EQ(image.Extent.Depth, 1);
+    EXPECT_EQ(image.Dimension, lodestone::TextureDimension::Texture2D);
+    EXPECT_EQ(image.TextureUsage, lodestone::TextureUsageFlags::Sampled);
+    EXPECT_EQ(SizedOf(run, k_Lit.ToRef()).TextureUsage, lodestone::TextureUsageFlags::Storage);
+    EXPECT_EQ(SizedOf(run, k_Ids.ToRef()).Extent.Width, 64);
+}
+
+// LM403: a storage binding's format must equal the image's. Lit is rgba32f in the shader. OtherWhere is the
+// declaration, which states the format.
+TEST(SizeImages, StorageFormatThatDiffersIsLM403)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(ImageOf(k_Image, lodestone::TextureFormat::RGBA8Unorm, loom::ExtentSource::Derived()));
+    graph.Declare(ImageOf(k_Ids, lodestone::TextureFormat::R32Uint, loom::ExtentSource::Fixed(64, 32, 1)));
+    const uint32_t declarationLine = std::source_location::current().line() + 1u;
+    graph.Declare(ImageOf(k_Lit, lodestone::TextureFormat::RGBA16Float, loom::ExtentSource::Fixed(64, 32, 1)));
+
+    const auto shade = [](loom::DispatchBuilder& pass)
+    {
+        ShadeWith(pass, k_Image);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, shade);
+
+    SizeRun run;
+    RunSize(graph, run);
+
+    EXPECT_FALSE(run.Sized.has_value());
+    ASSERT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM403);
+
+    const loom::Diagnostic& diagnostic = run.Sink.Diagnostics().front();
+    EXPECT_EQ(diagnostic.Binding, "Lit");
+    EXPECT_EQ(diagnostic.Resource, k_Lit.ToRef());
+    EXPECT_EQ(diagnostic.Expected.Text, "RGBA16Float");
+    EXPECT_EQ(diagnostic.Actual.Text, "RGBA32Float");
+    EXPECT_EQ(diagnostic.OtherWhere.line(), declarationLine);
+}
+
+// LM403: a sampled binding must read the scalar class of the format. Ids reads uint from an unorm image.
+TEST(SizeImages, SampledClassThatDiffersIsLM403)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(ImageOf(k_Image, lodestone::TextureFormat::RGBA8Unorm, loom::ExtentSource::Derived()));
+    graph.Declare(ImageOf(k_Ids, lodestone::TextureFormat::RGBA8Unorm, loom::ExtentSource::Fixed(64, 32, 1)));
+    graph.Declare(ImageOf(k_Lit, lodestone::TextureFormat::RGBA32Float, loom::ExtentSource::Fixed(64, 32, 1)));
+
+    const auto shade = [](loom::DispatchBuilder& pass)
+    {
+        ShadeWith(pass, k_Image);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, shade);
+
+    SizeRun run;
+    RunSize(graph, run);
+
+    EXPECT_FALSE(run.Sized.has_value());
+    ASSERT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM403);
+
+    const loom::Diagnostic& diagnostic = run.Sink.Diagnostics().front();
+    EXPECT_EQ(diagnostic.Binding, "Ids");
+    EXPECT_EQ(diagnostic.Expected.Text, "RGBA8Unorm");
+    EXPECT_EQ(diagnostic.Actual.FieldName, "SampleType");
+    EXPECT_EQ(diagnostic.Actual.Text, "UnsignedInteger");
+}
+
+// A float binding reads a depth format: Albedo on a Depth32Float image is no error.
+TEST(SizeImages, FloatBindingReadsADepthFormat)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    DeclareShadeImages(graph, ImageOf(k_Image, lodestone::TextureFormat::Depth32Float, loom::ExtentSource::Derived()));
+
+    const auto shade = [](loom::DispatchBuilder& pass)
+    {
+        ShadeWith(pass, k_Image);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, shade);
+
+    SizeRun run;
+    RunSize(graph, run);
+
+    ASSERT_TRUE(run.Sized.has_value());
+    EXPECT_TRUE(run.Sink.Diagnostics().empty());
+}
+
+// LM401: Albedo states 64x32 and Small 16x16 for one derived image. The first binding sets the extent, and the first
+// axis that differs is reported.
+TEST(SizeImages, StatedExtentsThatDisagreeAreLM401)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    DeclareShadeImages(graph, ImageOf(k_Image, lodestone::TextureFormat::RGBA8Unorm, loom::ExtentSource::Derived()));
+
+    const auto shade = [](loom::DispatchBuilder& pass)
+    {
+        ShadeWith(pass, k_Image);
+    };
+
+    const auto small = [](loom::DispatchBuilder& pass)
+    {
+        ReadImageWith(pass, "SmallCS", "Small", k_Image);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, shade);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, small);
+
+    SizeRun run;
+    RunSize(graph, run);
+
+    EXPECT_FALSE(run.Sized.has_value());
+    ASSERT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM401);
+
+    const loom::Diagnostic& diagnostic = run.Sink.Diagnostics().front();
+    EXPECT_EQ(diagnostic.Binding, "Small");
+    EXPECT_EQ(diagnostic.Pass.Hash, k_Second.Hash);
+    EXPECT_EQ(diagnostic.Expected.FieldName, "Width");
+    EXPECT_EQ(diagnostic.Expected.Integer, 64);
+    EXPECT_EQ(diagnostic.Actual.Integer, 16);
+}
+
+// LM401: a fixed 64x16 image under Albedo's stated 64x32. The width agrees, so the height is reported. OtherWhere is
+// the declaration.
+TEST(SizeImages, FixedExtentThatDoesNotFitIsLM401)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    const loom::ImageDeclaration image = ImageOf(k_Image, lodestone::TextureFormat::RGBA8Unorm,
+                                                 loom::ExtentSource::Fixed(64, 16, 1));
+    const uint32_t declarationLine = std::source_location::current().line() + 1u;
+    graph.Declare(image);
+    graph.Declare(ImageOf(k_Ids, lodestone::TextureFormat::R32Uint, loom::ExtentSource::Fixed(64, 32, 1)));
+    graph.Declare(ImageOf(k_Lit, lodestone::TextureFormat::RGBA32Float, loom::ExtentSource::Fixed(64, 32, 1)));
+
+    const auto shade = [](loom::DispatchBuilder& pass)
+    {
+        ShadeWith(pass, k_Image);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, shade);
+
+    SizeRun run;
+    RunSize(graph, run);
+
+    EXPECT_FALSE(run.Sized.has_value());
+    ASSERT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM401);
+
+    const loom::Diagnostic& diagnostic = run.Sink.Diagnostics().front();
+    EXPECT_EQ(diagnostic.Expected.FieldName, "Height");
+    EXPECT_EQ(diagnostic.Expected.Integer, 16);
+    EXPECT_EQ(diagnostic.Actual.Integer, 32);
+    EXPECT_EQ(diagnostic.OtherWhere.line(), declarationLine);
+}
+
+// LM402: a derived extent that no binding states. Ids states none.
+TEST(SizeImages, DerivedExtentWithNoSourceIsLM402)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(ImageOf(k_Image, lodestone::TextureFormat::RGBA8Unorm, loom::ExtentSource::Derived()));
+    graph.Declare(ImageOf(k_Ids, lodestone::TextureFormat::R32Uint, loom::ExtentSource::Derived()));
+    graph.Declare(ImageOf(k_Lit, lodestone::TextureFormat::RGBA32Float, loom::ExtentSource::Fixed(64, 32, 1)));
+
+    const auto shade = [](loom::DispatchBuilder& pass)
+    {
+        ShadeWith(pass, k_Image);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, shade);
+
+    SizeRun run;
+    RunSize(graph, run);
+
+    EXPECT_FALSE(run.Sized.has_value());
+    ASSERT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM402);
+    EXPECT_EQ(run.Sink.Diagnostics().front().Resource, k_Ids.ToRef());
+}
+
+// LM403: Albedo sees the image as 2D and Volume as 3D. The first binding sets the dimension.
+TEST(SizeImages, DimensionsThatDisagreeAreLM403)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    DeclareShadeImages(graph, ImageOf(k_Image, lodestone::TextureFormat::RGBA8Unorm, loom::ExtentSource::Derived()));
+
+    const auto shade = [](loom::DispatchBuilder& pass)
+    {
+        ShadeWith(pass, k_Image);
+    };
+
+    const auto volume = [](loom::DispatchBuilder& pass)
+    {
+        ReadImageWith(pass, "VolumeCS", "Volume", k_Image);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, shade);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, volume);
+
+    SizeRun run;
+    RunSize(graph, run);
+
+    EXPECT_FALSE(run.Sized.has_value());
+    ASSERT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM403);
+
+    const loom::Diagnostic& diagnostic = run.Sink.Diagnostics().front();
+    EXPECT_EQ(diagnostic.Binding, "Volume");
+    EXPECT_EQ(diagnostic.Expected.Text, "Texture2D");
+    EXPECT_EQ(diagnostic.Actual.Text, "Texture3D");
+}
+
+// A target statement needs a format of its kind: a color target a color format, a depth target a depth format. A
+// fitting target gives RenderAttachment usage and a 2D image.
+TEST(SizeImages, TargetFormatsMustFitTheirUse)
+{
+    struct TargetCase
+    {
+        lodestone::TextureFormat Format;
+        loom::ImageUse Use;
+        bool Fits;
+    };
+
+    const std::array<TargetCase, 4u> cases
+    {
+        TargetCase{ lodestone::TextureFormat::RGBA8Unorm, loom::ImageUse::ColorTarget, true },
+        TargetCase{ lodestone::TextureFormat::Depth32Float, loom::ImageUse::DepthTarget, true },
+        TargetCase{ lodestone::TextureFormat::Depth32Float, loom::ImageUse::ColorTarget, false },
+        TargetCase{ lodestone::TextureFormat::RGBA8Unorm, loom::ImageUse::DepthTarget, false },
+    };
+
+    for (const TargetCase& target : cases)
+    {
+        loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+        graph.Declare(ImageOf(k_Image, target.Format, loom::ExtentSource::Fixed(64, 32, 1)));
+
+        const auto build = [&target](loom::RecordBuilder& pass)
+        {
+            pass.Uses(k_Image, loom::ResourceAccess::Write, target.Use);
+            pass.Record(Delegate<void(loom::RecordContext&)>::Create<&RecordNothing>());
+        };
+
+        graph.AddRecord(k_First, k_EveryFrame, k_Graphics, build);
+
+        SizeRun run;
+        RunSize(graph, run);
+
+        if (target.Fits)
+        {
+            ASSERT_TRUE(run.Sized.has_value());
+            EXPECT_TRUE(run.Sink.Diagnostics().empty());
+
+            const loom::SizedResource& image = SizedOf(run, k_Image.ToRef());
+            EXPECT_TRUE(HasTextureUsage(image.TextureUsage, lodestone::TextureUsageFlags::RenderAttachment));
+            EXPECT_EQ(image.Dimension, lodestone::TextureDimension::Texture2D);
+            continue;
+        }
+
+        EXPECT_FALSE(run.Sized.has_value());
+        ASSERT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM403);
+        EXPECT_EQ(run.Sink.Diagnostics().front().Actual.FieldName, "Use");
+    }
+}
+
+// An Exact import promises its extent, so stated extents are checked against it: 64x16 under Albedo's 64x32 is
+// LM401. An AnyExtent import brings its extent at Realize, so Size checks nothing and leaves the extent unknown.
+TEST(SizeImages, ImportsCheckOnlyAPromisedExtent)
+{
+    for (const bool exact : { true, false })
+    {
+        loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+        const lodestone::TextureFormat format = lodestone::TextureFormat::RGBA8Unorm;
+        const loom::ImageExpectation expectation = exact ? loom::ImageExpectation::Exact(format, 64, 16, 1, 1, 1) :
+                                                           loom::ImageExpectation::AnyExtent(format, 1);
+        graph.Import(loom::ImportDeclaration{ .Key = k_Image, .Expectation = expectation });
+        graph.Declare(ImageOf(k_Ids, lodestone::TextureFormat::R32Uint, loom::ExtentSource::Fixed(64, 32, 1)));
+        graph.Declare(ImageOf(k_Lit, lodestone::TextureFormat::RGBA32Float, loom::ExtentSource::Fixed(64, 32, 1)));
+
+        const auto shade = [](loom::DispatchBuilder& pass)
+        {
+            ShadeWith(pass, k_Image);
+        };
+
+        graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, shade);
+
+        SizeRun run;
+        RunSize(graph, run);
+
+        if (exact)
+        {
+            EXPECT_FALSE(run.Sized.has_value());
+            ASSERT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM401);
+            EXPECT_EQ(run.Sink.Diagnostics().front().Expected.FieldName, "Height");
+            continue;
+        }
+
+        ASSERT_TRUE(run.Sized.has_value());
+        EXPECT_TRUE(run.Sink.Diagnostics().empty());
+
+        const loom::SizedResource& image = SizedOf(run, k_Image.ToRef());
+        EXPECT_EQ(image.Extent.Width, loom::k_UnknownExtent);
+        EXPECT_EQ(image.TextureUsage, lodestone::TextureUsageFlags::Sampled);
+    }
 }

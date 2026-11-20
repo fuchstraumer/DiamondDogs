@@ -27,7 +27,7 @@ untracked `docs/` folder. This README is the map of the code.
                          └─────┬─────┘
                           BoundGraph ──Accesses──┐
                          ┌─────▼─────┐           │
-                         │   Size    │           │     LM401, LM402    buffer sizes and usage (images not yet)
+                         │   Size    │           │     LM401-LM403     sizes, extents, formats, usage
                          └─────┬─────┘           │
                           SizedGraph             │
                          ┌─────▼─────┐           │
@@ -52,7 +52,7 @@ an error. After Bind, no stage reads a binding name, and Tick touches no Lodesto
 | Freeze | `Freeze(record, sink)` | `FrozenGraph`: every key resolved to a table index, passes in declaration order. | `src/freeze/` |
 | Resolve | `Resolve(frozen, inputs, sink)` | `ResolvedGraph`: per pass, the environment, the variant key and the entry points. | `src/resolve/` |
 | Bind | `Bind(frozen, resolved, sink)` | `BoundGraph`: the slot table and the access table. | `src/bind/` |
-| Size | `Size(frozen, bound, sink)` | `SizedGraph`: per resource, the buffer byte size and its GPU usage. | `src/size/` |
+| Size | `Size(frozen, bound, sink)` | `SizedGraph`: per resource, the buffer byte size, the image extent and dimension, and the GPU usage. | `src/size/` |
 | Order | `Order(frozen, accesses, sink)` | `OrderedGraph`: the run order and the reason for each edge. `Explain` prints it. | `src/order/` |
 
 ### Freeze
@@ -112,8 +112,10 @@ Bind reads the layout of the variant that Resolve selected:
 
 ### Size
 
-Size gives each declared buffer its byte size and its GPU usage (`src/size/Size.cpp`). Images and samplers are not
-sized yet.
+Size gives each declared buffer its byte size and its GPU usage (`src/size/Size.cpp`), and each image its extent,
+dimension and GPU usage (`src/size/ImageSize.cpp`). Samplers need nothing from Size.
+
+#### Buffers
 
 Each binding or statement that names a buffer is a requirement:
 
@@ -129,6 +131,25 @@ checks it (LM701).
 
 Usage is the union of `RequiredBufferUsage()` over the shader bindings, plus the pass statements: indirect arguments,
 vertex and index buffers, and a Record pass's uses. CPU access (maps, upload copies) belongs to Realize.
+
+#### Images
+
+- **Extent.** A binding states an extent with `[ls_extent_1d/2d/3d]`; the axes that it leaves out are 1. The rules
+  mirror buffers. A `Fixed` image, or an import with an `Exact` expectation, must equal every stated extent (LM401).
+  A `Derived` image takes the first stated extent, and every other one must equal it (LM401); none is LM402. An
+  `OfTarget` image and an `AnyExtent` import get no extent here: Realize knows it and checks it (LM701). LM401 reports
+  the first axis that differs, so each side is one number.
+- **Format (LM403).** A storage binding reads and writes raw texels, so its format must equal the image's. A sampled
+  binding must read the scalar class of the format: a float binding reads float and depth formats, a depth binding
+  depth formats, a uint binding uint formats. Filterability and component count are not checked. A color target needs
+  a color format and a depth target a depth format, in a draw or a Record pass.
+- **Dimension.** Realize needs 1D, 2D or 3D, and the declaration does not state it. Size takes it from the binding
+  shapes (an array or a cube is 2D with layers), and two bindings that disagree are LM403. An image that no shader
+  binds is 2D.
+- **Usage.** `Sampled`, `Storage` or `RenderAttachment` from each binding kind, plus targets and Record uses. A copy
+  for an upload belongs to Realize.
+
+In every LM403, `Expected` is the image's side (its format or first dimension), and `Actual` is the use's side.
 
 ### Order
 
@@ -185,7 +206,7 @@ When Loom needs something from Lodestone, it stubs it here and adds a row to Lod
 | `test_frozen_graph.cpp`, `test_freeze_resolve.cpp`, `test_freeze_draw.cpp` | Freeze. |
 | `test_resolve.cpp` (`LoomResolveTest.slang`, `LoomResolveOther.slang`) | Resolve, and the host header layout. |
 | `test_bind.cpp` (`LoomBindTest.slang`) | Bind, Freeze's bind rules, and Freeze to Order with Bind's access table. |
-| `test_size.cpp` (`LoomSizeTest.slang`) | Size for buffers, and LM307. |
+| `test_size.cpp` (`LoomSizeTest.slang`) | Size for buffers and images, and LM307. |
 | `test_order.cpp`, `test_explain.cpp` | Order and `Explain`, from hand-made access tables. |
 | `test_diagnostics.cpp` | The catalog and the sinks. |
 

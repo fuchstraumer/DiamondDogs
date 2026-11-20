@@ -2,6 +2,7 @@
 #include "ImageDataFormats.hpp"
 #include "ShaderManifestLayout.hpp"
 #include <optional>
+#include <string_view>
 
 namespace loom
 {
@@ -143,6 +144,61 @@ std::optional<lodestone::TextureFormat> ToTextureFormat(const ImageFormat& forma
     }
 
     return std::nullopt;
+}
+
+std::string_view TextureFormatName(lodestone::TextureFormat format) noexcept
+{
+    switch (format)
+    {
+    case TextureFormat::R8Unorm:
+        return "R8Unorm";
+    case TextureFormat::RG8Unorm:
+        return "RG8Unorm";
+    case TextureFormat::RGBA8Unorm:
+        return "RGBA8Unorm";
+    case TextureFormat::RGBA8UnormSrgb:
+        return "RGBA8UnormSrgb";
+    case TextureFormat::BGRA8Unorm:
+        return "BGRA8Unorm";
+    case TextureFormat::BGRA8UnormSrgb:
+        return "BGRA8UnormSrgb";
+    case TextureFormat::R16Float:
+        return "R16Float";
+    case TextureFormat::RG16Float:
+        return "RG16Float";
+    case TextureFormat::RGBA16Float:
+        return "RGBA16Float";
+    case TextureFormat::R32Float:
+        return "R32Float";
+    case TextureFormat::RG32Float:
+        return "RG32Float";
+    case TextureFormat::RGBA32Float:
+        return "RGBA32Float";
+    case TextureFormat::R32Uint:
+        return "R32Uint";
+    case TextureFormat::RG32Uint:
+        return "RG32Uint";
+    case TextureFormat::RGBA32Uint:
+        return "RGBA32Uint";
+    case TextureFormat::R10G10B10A2Unorm:
+        return "R10G10B10A2Unorm";
+    case TextureFormat::R11G11B10Ufloat:
+        return "R11G11B10Ufloat";
+    case TextureFormat::Depth16Unorm:
+        return "Depth16Unorm";
+    case TextureFormat::Depth24Plus:
+        return "Depth24Plus";
+    case TextureFormat::Depth24PlusStencil8:
+        return "Depth24PlusStencil8";
+    case TextureFormat::Depth32Float:
+        return "Depth32Float";
+    case TextureFormat::RGBA8Snorm:
+        return "RGBA8Snorm";
+    case TextureFormat::Invalid:
+        break;
+    }
+
+    return "Invalid";
 }
 
 }

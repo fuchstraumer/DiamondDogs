@@ -56,3 +56,41 @@ void ArgsCS(uint3 threadId : SV_DispatchThreadID)
     Args[1] = 1u;
     Args[2] = 1u;
 }
+
+// Images. Albedo states a 64x32 extent and Small a 16x16 one. Ids samples as uint, Volume is 3D, and Lit is an rgba32f
+// storage image that states no extent.
+
+[ls_extent_2d("64", "32")]
+Texture2D<float4> Albedo;
+
+[ls_extent_2d("16", "16")]
+Texture2D<float4> Small;
+
+Texture2D<uint> Ids;
+
+Texture3D<float4> Volume;
+
+[format("rgba32f")]
+RWTexture2D<float4> Lit;
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void ShadeCS(uint3 threadId : SV_DispatchThreadID)
+{
+    const float id = float(Ids.Load(int3(threadId.xy, 0)));
+    Lit[threadId.xy] = Albedo.Load(int3(threadId.xy, 0)) + id;
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void SmallCS(uint3 threadId : SV_DispatchThreadID)
+{
+    Lit[threadId.xy] = Small.Load(int3(threadId.xy, 0));
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void VolumeCS(uint3 threadId : SV_DispatchThreadID)
+{
+    Lit[threadId.xy] = Volume.Load(int4(threadId.xy, 0, 0));
+}

@@ -2,6 +2,7 @@
 #include "LoomKeys.hpp"
 #include "PassStatements.hpp"
 #include "ResourceFlags.hpp"
+#include "size/ImageSize.hpp"
 #include "size/SizedGraph.hpp"
 #include "bind/BoundGraph.hpp"
 #include "freeze/FrozenGraph.hpp"
@@ -17,7 +18,8 @@
 #include <string_view>
 #include <vector>
 
-// LM401: a statement needs a byte size that the buffer does not have. LM402: a derived size that no statement gives.
+// Buffers. LM401: a statement needs a byte size that the buffer does not have. LM402: a derived size that no statement
+// gives. SizeImages (ImageSize.cpp) does the images.
 // Each binding and statement that names a buffer is a requirement: Exact (the shader states its element count, so it
 // reads exactly that many bytes) or AtLeast (a uniform block, or indirect arguments at an offset).
 namespace loom
@@ -295,7 +297,7 @@ std::optional<SizedGraph> Size(const FrozenGraph& frozen, const BoundGraph& boun
     {
         const FrozenResource& row = frozen.Resources[rowIndex];
         SizedResource& sized = result.Resources[rowIndex];
-        sized.Usage = facts[rowIndex].Usage;
+        sized.BufferUsage = facts[rowIndex].Usage;
 
         // an imported buffer's size arrives with its future, and Realize checks it (LM701)
         if (row.Kind != ResourceKind::Buffer || row.Origin != ResourceOrigin::Declared)
@@ -313,6 +315,8 @@ std::optional<SizedGraph> Size(const FrozenGraph& frozen, const BoundGraph& boun
 
         sized.ByteSize = DeriveSize(sink, row, facts[rowIndex]);
     }
+
+    SizeImages(frozen, bound, sink, result);
 
     if (sink.ErrorCount() != errorsBefore)
     {
