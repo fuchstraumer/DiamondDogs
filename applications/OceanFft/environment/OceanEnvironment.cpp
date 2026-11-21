@@ -664,7 +664,7 @@ namespace ocean
             ImageCreateInfo imgInfo{};
             imgInfo.Domain = ResourceDomain::GPUOnly;
             imgInfo.Usage = ImageUsageBits::SampledImage | ImageUsageBits::TransferDestination | ImageUsageBits::TransferSource
-                          | ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::SrvFragmentShader;
+                          | ImageUsageBits::ComputeShaderUAV | ImageUsageBits::ComputeShaderSRV | ImageUsageBits::FragmentShaderSRV;
             imgInfo.Type = ImageType::Type2D;
             imgInfo.Format = CommonFormats::RGBA16_Float;
             imgInfo.Width = ExtentW;
@@ -677,7 +677,7 @@ namespace ocean
             imgInfo.ViewInfo->Range.LevelCount = MipLevels;
             imgInfo.Name = "Ocean_SkyDomeImage";
 
-            rhi::ResourceFuture<GraphicsResource> imgReply = Resources->CreateImage(imgInfo, std::span{ &mipData, 1 }, ImageUsageBits::UavComputeShader);
+            rhi::ResourceFuture<GraphicsResource> imgReply = Resources->CreateImage(imgInfo, std::span{ &mipData, 1 }, ImageUsageBits::ComputeShaderUAV);
             if (Resources->Wait(imgReply, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 std::cerr << "OceanEnvironment: failed to create GPU image for Analytic Preetham\n";
@@ -719,7 +719,7 @@ namespace ocean
             ImageCreateInfo imgInfo{};
             imgInfo.Domain = ResourceDomain::GPUOnly;
             imgInfo.Usage = ImageUsageBits::SampledImage | ImageUsageBits::TransferDestination | ImageUsageBits::TransferSource
-                          | ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::SrvFragmentShader;
+                          | ImageUsageBits::ComputeShaderUAV | ImageUsageBits::ComputeShaderSRV | ImageUsageBits::FragmentShaderSRV;
             imgInfo.Type = ImageType::Type2D;
             imgInfo.Format = CommonFormats::RGBA16_Float;
             imgInfo.Width = ExtentW;
@@ -732,7 +732,7 @@ namespace ocean
             imgInfo.ViewInfo->Range.LevelCount = MipLevels;
             imgInfo.Name = "Ocean_SkyDomeImage";
 
-            rhi::ResourceFuture<GraphicsResource> imgReply = Resources->CreateImage(imgInfo, std::span{ &mipData, 1 }, ImageUsageBits::UavComputeShader);
+            rhi::ResourceFuture<GraphicsResource> imgReply = Resources->CreateImage(imgInfo, std::span{ &mipData, 1 }, ImageUsageBits::ComputeShaderUAV);
             if (Resources->Wait(imgReply, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 std::cerr << "OceanEnvironment: failed to create GPU image for EXR HDRI\n";

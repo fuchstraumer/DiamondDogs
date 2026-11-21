@@ -54,7 +54,7 @@ namespace
     [[nodiscard]] ResourceDescription DescribeImage(const ImageCreateInfo& info, ResourceType type, ImageUsageBits initial_usage) noexcept;
     [[nodiscard]] ResourceDescription DescribeSampler() noexcept;
     [[nodiscard]] ResourceDescription DescribeHeap(uint64_t byte_size) noexcept;
-    // transfer usage is opt-in (CopySource/CopyDestination, TransferSource/TransferDestination), so every operation
+    // transfer usage is opt-in (TransferSource/TransferDestination), so every operation
     // that records a transfer checks it here, at the surface, and fails the reply instead of recording invalid commands
     [[nodiscard]] bool CanBeTransferSource(const entt::registry& registry, entt::entity entity) noexcept;
     [[nodiscard]] bool CanBeTransferDestination(const entt::registry& registry, entt::entity entity) noexcept;
@@ -316,7 +316,7 @@ void ResourceContextImpl::processMessage(CreateBufferMessage&& message)
     // a staged upload needs the destination bit. host-visible domains are written directly and never stage
     if (message.InitialData.has_value() && !DomainIsHostVisible(message.BufferInfo.Domain))
     {
-        message.BufferInfo.Usage |= BufferUsageBits::CopyDestination;
+        message.BufferInfo.Usage |= BufferUsageBits::TransferDestination;
     }
 
     const std::expected<GraphicsResource, rhi::ResourceError> createdResource = createBufferEntity(message.BufferInfo, message.Name);
@@ -447,7 +447,7 @@ std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::finishB
     }
     
     uint64_t deviceAddress = 0u;
-    if ((storedInfo.Usage & BufferUsageBits::DeviceAddressBuffer) != BufferUsageBits::Invalid)
+    if ((storedInfo.Usage & BufferUsageBits::DeviceAddress) != BufferUsageBits::Invalid)
     {
         const VkBufferDeviceAddressInfo addressInfo
         {
@@ -494,6 +494,11 @@ std::expected<entt::entity, rhi::ResourceError> ResourceContextImpl::beginImageE
     if (info.Domain == ResourceDomain::Invalid || info.Width == 0u || !info.Format.IsValid())
     {
         return std::unexpected(rhi::ResourceError::InvalidCreateInfo);
+    }
+
+    if (!ImageUsageIsSupported(info.Usage))
+    {
+        return std::unexpected(rhi::ResourceError::UnsupportedUsage);
     }
 
     const ResourceType resourceType = info.SamplerInfo.has_value() ? ResourceType::CombinedImageSampler : ResourceType::Image;
@@ -968,7 +973,7 @@ void ResourceContextImpl::processMessage(CopyResourceMessage&& message)
         copyInfo.Name = {};
         if (message.CopyContents)
         {
-            copyInfo.Usage |= BufferUsageBits::CopyDestination;
+            copyInfo.Usage |= BufferUsageBits::TransferDestination;
         }
 
         created = createBufferEntity(copyInfo, copyName);
@@ -2026,7 +2031,7 @@ namespace
     {
         if (const BufferCreateInfo* bufferInfo = registry.try_get<BufferCreateInfo>(entity))
         {
-            return (bufferInfo->Usage & BufferUsageBits::CopySource) != BufferUsageBits::Invalid;
+            return (bufferInfo->Usage & BufferUsageBits::TransferSource) != BufferUsageBits::Invalid;
         }
         
         if (const ImageCreateInfo* imageInfo = registry.try_get<ImageCreateInfo>(entity))
@@ -2041,7 +2046,7 @@ namespace
     {
         if (const BufferCreateInfo* bufferInfo = registry.try_get<BufferCreateInfo>(entity))
         {
-            return (bufferInfo->Usage & BufferUsageBits::CopyDestination) != BufferUsageBits::Invalid;
+            return (bufferInfo->Usage & BufferUsageBits::TransferDestination) != BufferUsageBits::Invalid;
         }
         
         if (const ImageCreateInfo* imageInfo = registry.try_get<ImageCreateInfo>(entity))

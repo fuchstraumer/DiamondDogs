@@ -16,6 +16,7 @@ set(RESOURCE_CONTEXT_TEST_SOURCES
     test_staging_ring.cpp
     test_memory_budget.cpp
     test_description.cpp
+    test_barriers.cpp
     ../fixtures/StartTestRhi.hpp
     ../fixtures/StartTestRhi.cpp
 )

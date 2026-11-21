@@ -152,7 +152,7 @@ namespace
 
         BufferCreateInfo info{};
         info.Domain = ResourceDomain::GPUOnly;
-        info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource;
+        info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::TransferSource;
         info.Size = k_Bytes;
         info.Name = "LoomCompute.Output";
         return resources.CreateBuffer(info, std::span{ &initial, 1u });
@@ -207,7 +207,7 @@ namespace
     {
         BufferCreateInfo readbackInfo{};
         readbackInfo.Domain = ResourceDomain::GPUToCPU;
-        readbackInfo.Usage = BufferUsageBits::CopyDestination;
+        readbackInfo.Usage = BufferUsageBits::TransferDestination;
         readbackInfo.Size = k_Bytes;
         rhi::ResourceFuture<GraphicsResource> readbackReply = resources.CreateBuffer(readbackInfo, {});
 

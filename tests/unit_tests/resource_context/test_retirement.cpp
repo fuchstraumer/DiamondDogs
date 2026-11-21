@@ -21,7 +21,7 @@ namespace
     {
         BufferCreateInfo info{};
         info.Domain = ResourceDomain::GPUOnly;
-        info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource | BufferUsageBits::CopyDestination;
+        info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::TransferSource | BufferUsageBits::TransferDestination;
         info.Size = size;
         return info;
     }

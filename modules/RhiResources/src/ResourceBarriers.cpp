@@ -1,92 +1,403 @@
 #include "ResourceBarriers.hpp"
-#include "RhiResourceFlags.hpp"
+#include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
-#include "VulkanConversions.hpp"
+#include "RhiResourceFlags.hpp"
+#include "RhiTypes.hpp"
+#include "ResourceTypes.hpp"
+#include <cassert>
+#include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <span>
-#include <vector>
-#include <vulkan/vulkan_core.h>
 
 /**
- * Quick note about the barriers applied here: we pretty much always use global barriers, because with the synchronization2 featureset and the updates
- * to Vulkan that have occurred over time, these are all we need. IHVs have also confirmed that global barriers have no extra performance overhead in
- * most use cases, so we can probably just count on doing individual optimizations as needed to barriers if it comes up.
-*/
+ * Quick note about the barriers built here: they are global barriers whenever the layout stays the same, because with
+ * synchronization2 a global barrier is all that a buffer or an image in the same layout needs. IHVs have confirmed
+ * that global barriers cost no more than resource barriers in most cases. An image gets its own barrier only when its
+ * layout changes. Each usage bit has a row in a table below: the stages that use it, and the accesses that it makes.
+ */
 
 namespace
 {
-    [[nodiscard]] bool HasAny(BufferUsageBits bits, BufferUsageBits mask) noexcept;
-    [[nodiscard]] bool HasAny(ImageUsageBits bits, ImageUsageBits mask) noexcept;
-    void RecordDependency(VkCommandBuffer cmd, std::span<const VkMemoryBarrier2> memory_barriers, std::span<const VkImageMemoryBarrier2> image_barriers) noexcept;
-    [[nodiscard]] VkMemoryBarrier2 MakeBufferMemoryBarrier(const BufferBarrierInfo& barrier) noexcept;
-    [[nodiscard]] VkMemoryBarrier2 MakeImageMemoryBarrier(const ImageBarrierInfo& barrier) noexcept;
-    VkPipelineStageFlags2 StageFlagsFromBufferUsageBits(const BufferUsageBits bits) noexcept;
-    VkAccessFlags2 AccessFlagsfromBufferUsageBits(const BufferUsageBits bits) noexcept;
-    VkAccessFlags2 GetAccessMaskFromImageUsageBits(const ImageUsageBits bits) noexcept;
-    VkPipelineStageFlags2 GetPipelineStageFromImageUsageBits(const ImageUsageBits bits) noexcept;
+    using rhi::Access;
+    using rhi::ImageLayout;
+    using rhi::PipelineStage;
 
-    struct ImageLayouts
+    struct BufferUsageRow
     {
-        VkImageLayout BeforeLayout;
-        VkImageLayout AfterLayout;
+        BufferUsageBits Bit;
+        PipelineStage Stages;
+        Access Accesses;
     };
 
-    [[nodiscard]] std::optional<ImageLayouts> GetImageLayouts(const ImageUsageBits before, const ImageUsageBits after) noexcept;
-    [[nodiscard]] std::optional<VkImageMemoryBarrier2> MakeLayoutTransitionBarrier(const ImageBarrierInfo& barrier) noexcept;
-}
-
-void ExecuteBufferBarrier(const rhi::CommandBufferHandle& cmd, const BufferBarrierInfo& barrier)
-{
-    ExecuteBufferBarriers(cmd, std::span<const BufferBarrierInfo>{ &barrier, 1u });
-}
-
-void ExecuteBufferBarriers(const rhi::CommandBufferHandle& cmd, std::span<const BufferBarrierInfo> barriers)
-{
-    ExecuteBarriers(cmd, barriers, std::span<const ImageBarrierInfo>{});
-}
-
-void ExecuteImageBarrier(const rhi::CommandBufferHandle& cmd, const ImageBarrierInfo& barrier)
-{
-    ExecuteImageBarriers(cmd, std::span<const ImageBarrierInfo>{ &barrier, 1u });
-}
-
-void ExecuteImageBarriers(const rhi::CommandBufferHandle& cmd, std::span<const ImageBarrierInfo> barriers)
-{
-    ExecuteBarriers(cmd, std::span<const BufferBarrierInfo>{}, barriers);
-}
-
-void ExecuteBarriers(const rhi::CommandBufferHandle& cmd,
-                     std::span<const BufferBarrierInfo> buffer_barriers,
-                     std::span<const ImageBarrierInfo> image_barriers)
-{
-    // Images need an image barrier only when the usages ask for a layout transition: the transfer destination to
-    // shader resource view case, or GBuffer render targets to present sources. Otherwise a global barrier does it.
-    // All of them go in one dependency, so a batch costs one vkCmdPipelineBarrier2 call
-    std::vector<VkMemoryBarrier2> memoryBarriers;
-    std::vector<VkImageMemoryBarrier2> imageBarriers;
-    memoryBarriers.reserve(buffer_barriers.size() + image_barriers.size());
-    imageBarriers.reserve(image_barriers.size());
-
-    for (const BufferBarrierInfo& barrier : buffer_barriers)
+    struct ImageUsageRow
     {
-        memoryBarriers.push_back(MakeBufferMemoryBarrier(barrier));
+        ImageUsageBits Bit;
+        PipelineStage Stages;
+        Access Accesses;
+    };
+
+    // a read makes nothing available, so a source access mask keeps only these
+    constexpr Access k_WriteAccesses =
+        Access::ShaderWrite |
+        Access::ColorAttachmentWrite |
+        Access::DepthStencilAttachmentWrite |
+        Access::TransferWrite |
+        Access::HostWrite |
+        Access::MemoryWrite |
+        Access::CommandPreprocessWrite |
+        Access::AccelerationStructureWrite |
+        Access::TransformFeedbackWrite |
+        Access::TransformFeedbackCounterWrite |
+        Access::ShaderStorageWrite |
+        Access::MicromapWrite |
+        Access::MemoryDecompressionWrite;
+
+    constexpr Access k_ShaderSampledAndStorageRead = Access::ShaderSampledRead | Access::ShaderStorageRead;
+    constexpr Access k_ShaderStorageReadWrite = Access::ShaderStorageRead | Access::ShaderStorageWrite;
+
+    // the stages that a sampled image can be read in without a feature: every pre-rasterization stage is in
+    // PreRasterizationShaders, so tessellation and mesh stages are never named one by one. Ray tracing shaders are not
+    // in it: a ray tracing caller uses RayTracingShaderSRV
+    constexpr PipelineStage k_SampledImageStages =
+        PipelineStage::PreRasterizationShaders |
+        PipelineStage::FragmentShader |
+        PipelineStage::ComputeShader;
+
+    constexpr PipelineStage k_DepthStencilStages = PipelineStage::EarlyFragmentTests | PipelineStage::LateFragmentTests;
+
+    constexpr PipelineStage k_AccelerationStructureReaders =
+        PipelineStage::AccelerationStructureBuild |
+        PipelineStage::AccelerationStructureCopy |
+        PipelineStage::RayTracingShader |
+        PipelineStage::PreRasterizationShaders |
+        PipelineStage::FragmentShader |
+        PipelineStage::ComputeShader;
+
+    constexpr BufferUsageRow k_BufferUsageRows[] =
+    {
+        { BufferUsageBits::VertexShaderUBO, PipelineStage::VertexShader, Access::UniformRead },
+        { BufferUsageBits::TessellationControlShaderUBO, PipelineStage::TessellationControlShader, Access::UniformRead },
+        { BufferUsageBits::TessellationEvaluationShaderUBO, PipelineStage::TessellationEvaluationShader, Access::UniformRead },
+        { BufferUsageBits::GeometryShaderUBO, PipelineStage::GeometryShader, Access::UniformRead },
+        { BufferUsageBits::TaskShaderUBO, PipelineStage::TaskShader, Access::UniformRead },
+        { BufferUsageBits::MeshShaderUBO, PipelineStage::MeshShader, Access::UniformRead },
+        { BufferUsageBits::FragmentShaderUBO, PipelineStage::FragmentShader, Access::UniformRead },
+        { BufferUsageBits::ComputeShaderUBO, PipelineStage::ComputeShader, Access::UniformRead },
+        { BufferUsageBits::RayTracingShaderUBO, PipelineStage::RayTracingShader, Access::UniformRead },
+
+        { BufferUsageBits::VertexShaderSRV, PipelineStage::VertexShader, k_ShaderSampledAndStorageRead },
+        { BufferUsageBits::TessellationControlShaderSRV, PipelineStage::TessellationControlShader, k_ShaderSampledAndStorageRead },
+        { BufferUsageBits::TessellationEvaluationShaderSRV, PipelineStage::TessellationEvaluationShader, k_ShaderSampledAndStorageRead },
+        { BufferUsageBits::GeometryShaderSRV, PipelineStage::GeometryShader, k_ShaderSampledAndStorageRead },
+        { BufferUsageBits::TaskShaderSRV, PipelineStage::TaskShader, k_ShaderSampledAndStorageRead },
+        { BufferUsageBits::MeshShaderSRV, PipelineStage::MeshShader, k_ShaderSampledAndStorageRead },
+        { BufferUsageBits::FragmentShaderSRV, PipelineStage::FragmentShader, k_ShaderSampledAndStorageRead },
+        { BufferUsageBits::ComputeShaderSRV, PipelineStage::ComputeShader, k_ShaderSampledAndStorageRead },
+        { BufferUsageBits::RayTracingShaderSRV, PipelineStage::RayTracingShader, k_ShaderSampledAndStorageRead },
+
+        { BufferUsageBits::VertexShaderUAV, PipelineStage::VertexShader, k_ShaderStorageReadWrite },
+        { BufferUsageBits::TessellationControlShaderUAV, PipelineStage::TessellationControlShader, k_ShaderStorageReadWrite },
+        { BufferUsageBits::TessellationEvaluationShaderUAV, PipelineStage::TessellationEvaluationShader, k_ShaderStorageReadWrite },
+        { BufferUsageBits::GeometryShaderUAV, PipelineStage::GeometryShader, k_ShaderStorageReadWrite },
+        { BufferUsageBits::TaskShaderUAV, PipelineStage::TaskShader, k_ShaderStorageReadWrite },
+        { BufferUsageBits::MeshShaderUAV, PipelineStage::MeshShader, k_ShaderStorageReadWrite },
+        { BufferUsageBits::FragmentShaderUAV, PipelineStage::FragmentShader, k_ShaderStorageReadWrite },
+        { BufferUsageBits::ComputeShaderUAV, PipelineStage::ComputeShader, k_ShaderStorageReadWrite },
+        { BufferUsageBits::RayTracingShaderUAV, PipelineStage::RayTracingShader, k_ShaderStorageReadWrite },
+
+        { BufferUsageBits::IndexInput, PipelineStage::IndexInput, Access::IndexRead },
+        { BufferUsageBits::VertexInput, PipelineStage::VertexAttributeInput, Access::VertexAttributeRead },
+        { BufferUsageBits::DrawIndirect, PipelineStage::DrawIndirect, Access::IndirectCommandRead },
+        { BufferUsageBits::DispatchIndirect, PipelineStage::DrawIndirect, Access::IndirectCommandRead },
+        { BufferUsageBits::TraceRaysIndirect, PipelineStage::DrawIndirect | PipelineStage::RayTracingShader, Access::IndirectCommandRead },
+        { BufferUsageBits::TransferSource, PipelineStage::AllTransfer, Access::TransferRead },
+        { BufferUsageBits::TransferDestination, PipelineStage::AllTransfer, Access::TransferWrite },
+        { BufferUsageBits::ConditionalRendering, PipelineStage::ConditionalRendering, Access::ConditionalRenderingRead },
+        { BufferUsageBits::TransformFeedback, PipelineStage::TransformFeedback, Access::TransformFeedbackWrite },
+        {
+            BufferUsageBits::TransformFeedbackCounter,
+            PipelineStage::TransformFeedback | PipelineStage::DrawIndirect,
+            Access::TransformFeedbackCounterRead | Access::TransformFeedbackCounterWrite | Access::IndirectCommandRead
+        },
+        {
+            BufferUsageBits::GeneratedCommandsInput,
+            PipelineStage::CommandPreprocess | PipelineStage::DrawIndirect,
+            Access::CommandPreprocessRead | Access::IndirectCommandRead
+        },
+        {
+            BufferUsageBits::GeneratedCommandsPreprocess,
+            PipelineStage::CommandPreprocess | PipelineStage::DrawIndirect,
+            Access::CommandPreprocessRead | Access::CommandPreprocessWrite
+        },
+        {
+            BufferUsageBits::AccelerationStructureStorage,
+            k_AccelerationStructureReaders,
+            Access::AccelerationStructureRead | Access::AccelerationStructureWrite
+        },
+        { BufferUsageBits::AccelerationStructureBuildInput, PipelineStage::AccelerationStructureBuild, Access::ShaderRead },
+        {
+            BufferUsageBits::AccelerationStructureBuildScratch,
+            PipelineStage::AccelerationStructureBuild,
+            Access::AccelerationStructureRead | Access::AccelerationStructureWrite
+        },
+        { BufferUsageBits::ShaderBindingTable, PipelineStage::RayTracingShader, Access::ShaderBindingTableRead },
+        {
+            BufferUsageBits::MicromapStorage,
+            PipelineStage::MicromapBuild | PipelineStage::AccelerationStructureBuild,
+            Access::MicromapRead | Access::MicromapWrite
+        },
+        { BufferUsageBits::MicromapBuildInput, PipelineStage::MicromapBuild, Access::ShaderRead },
+    };
+
+    constexpr ImageUsageRow k_ImageUsageRows[] =
+    {
+        { ImageUsageBits::VertexShaderSRV, PipelineStage::VertexShader, Access::ShaderSampledRead },
+        { ImageUsageBits::TessellationControlShaderSRV, PipelineStage::TessellationControlShader, Access::ShaderSampledRead },
+        { ImageUsageBits::TessellationEvaluationShaderSRV, PipelineStage::TessellationEvaluationShader, Access::ShaderSampledRead },
+        { ImageUsageBits::GeometryShaderSRV, PipelineStage::GeometryShader, Access::ShaderSampledRead },
+        { ImageUsageBits::TaskShaderSRV, PipelineStage::TaskShader, Access::ShaderSampledRead },
+        { ImageUsageBits::MeshShaderSRV, PipelineStage::MeshShader, Access::ShaderSampledRead },
+        { ImageUsageBits::FragmentShaderSRV, PipelineStage::FragmentShader, Access::ShaderSampledRead },
+        { ImageUsageBits::ComputeShaderSRV, PipelineStage::ComputeShader, Access::ShaderSampledRead },
+        { ImageUsageBits::RayTracingShaderSRV, PipelineStage::RayTracingShader, Access::ShaderSampledRead },
+
+        { ImageUsageBits::VertexShaderUAV, PipelineStage::VertexShader, k_ShaderStorageReadWrite },
+        { ImageUsageBits::TessellationControlShaderUAV, PipelineStage::TessellationControlShader, k_ShaderStorageReadWrite },
+        { ImageUsageBits::TessellationEvaluationShaderUAV, PipelineStage::TessellationEvaluationShader, k_ShaderStorageReadWrite },
+        { ImageUsageBits::GeometryShaderUAV, PipelineStage::GeometryShader, k_ShaderStorageReadWrite },
+        { ImageUsageBits::TaskShaderUAV, PipelineStage::TaskShader, k_ShaderStorageReadWrite },
+        { ImageUsageBits::MeshShaderUAV, PipelineStage::MeshShader, k_ShaderStorageReadWrite },
+        { ImageUsageBits::FragmentShaderUAV, PipelineStage::FragmentShader, k_ShaderStorageReadWrite },
+        { ImageUsageBits::ComputeShaderUAV, PipelineStage::ComputeShader, k_ShaderStorageReadWrite },
+        { ImageUsageBits::RayTracingShaderUAV, PipelineStage::RayTracingShader, k_ShaderStorageReadWrite },
+
+        { ImageUsageBits::SampledImage, k_SampledImageStages, Access::ShaderSampledRead },
+        { ImageUsageBits::RenderTargetRead, PipelineStage::ColorAttachmentOutput, Access::ColorAttachmentRead },
+        { ImageUsageBits::RenderTargetWrite, PipelineStage::ColorAttachmentOutput, Access::ColorAttachmentWrite },
+        { ImageUsageBits::DepthRead, k_DepthStencilStages, Access::DepthStencilAttachmentRead },
+        { ImageUsageBits::DepthWrite, k_DepthStencilStages, Access::DepthStencilAttachmentWrite },
+        { ImageUsageBits::StencilRead, k_DepthStencilStages, Access::DepthStencilAttachmentRead },
+        { ImageUsageBits::StencilWrite, k_DepthStencilStages, Access::DepthStencilAttachmentWrite },
+        { ImageUsageBits::DepthStencilRead, k_DepthStencilStages, Access::DepthStencilAttachmentRead },
+        { ImageUsageBits::DepthStencilWrite, k_DepthStencilStages, Access::DepthStencilAttachmentWrite },
+        { ImageUsageBits::InputAttachmentRead, PipelineStage::FragmentShader, Access::InputAttachmentRead },
+        { ImageUsageBits::ShadingRateRead, PipelineStage::FragmentShadingRateAttachment, Access::FragmentShadingRateAttachmentRead },
+        { ImageUsageBits::FragmentDensityMapRead, PipelineStage::FragmentDensityProcess, Access::FragmentDensityMapRead },
+        { ImageUsageBits::TransferSource, PipelineStage::AllTransfer, Access::TransferRead },
+        { ImageUsageBits::TransferDestination, PipelineStage::AllTransfer, Access::TransferWrite },
+        // presentation waits for the work before it, and makes no access of its own
+        { ImageUsageBits::PresentSource, PipelineStage::BottomOfPipe, Access::None },
+    };
+
+    /** @brief What one change contributes to a barrier: the work that must finish, and the work that must wait. */
+    struct UsageScope
+    {
+        PipelineStage SrcStages{ PipelineStage::None };
+        Access SrcAccess{ Access::None };
+        PipelineStage DstStages{ PipelineStage::None };
+        Access DstAccess{ Access::None };
+        /** @brief True when neither side writes. Two reads need no memory dependency. */
+        bool BothRead{ true };
+    };
+
+    [[nodiscard]] bool HasAny(BufferUsageBits bits, BufferUsageBits mask) noexcept;
+    [[nodiscard]] bool HasAny(ImageUsageBits bits, ImageUsageBits mask) noexcept;
+    [[nodiscard]] bool HasAnyAccess(Access accesses, Access mask) noexcept;
+    [[nodiscard]] rhi::ImageAspect ToRhiAspect(ImageAspectFlags aspect) noexcept;
+    [[nodiscard]] rhi::ImageSubresourceRange ToRhiRange(const ImageRange& range) noexcept;
+    [[nodiscard]] UsageScope ScopeOf(PipelineStage before_stages, Access before_accesses, PipelineStage after_stages, Access after_accesses) noexcept;
+    void MergeIntoGlobal(rhi::GlobalBarrier& global, const UsageScope& scope) noexcept;
+}
+
+PipelineStage StagesOfUsage(BufferUsageBits usage) noexcept
+{
+    PipelineStage stages = PipelineStage::None;
+
+    for (const BufferUsageRow& row : k_BufferUsageRows)
+    {
+        if (HasAny(usage, row.Bit))
+        {
+            stages |= row.Stages;
+        }
     }
 
-    for (const ImageBarrierInfo& barrier : image_barriers)
+    return stages;
+}
+
+Access AccessesOfUsage(BufferUsageBits usage) noexcept
+{
+    Access accesses = Access::None;
+
+    for (const BufferUsageRow& row : k_BufferUsageRows)
     {
-        std::optional<VkImageMemoryBarrier2> layoutTransition = MakeLayoutTransitionBarrier(barrier);
-        if (layoutTransition.has_value())
+        if (HasAny(usage, row.Bit))
         {
-            imageBarriers.push_back(*layoutTransition);
-        }
-        else
-        {
-            memoryBarriers.push_back(MakeImageMemoryBarrier(barrier));
+            accesses |= row.Accesses;
         }
     }
 
-    RecordDependency(cmd.As<VkCommandBuffer>(), memoryBarriers, imageBarriers);
+    return accesses;
+}
+
+PipelineStage StagesOfUsage(ImageUsageBits usage) noexcept
+{
+    PipelineStage stages = PipelineStage::None;
+
+    for (const ImageUsageRow& row : k_ImageUsageRows)
+    {
+        if (HasAny(usage, row.Bit))
+        {
+            stages |= row.Stages;
+        }
+    }
+
+    return stages;
+}
+
+Access AccessesOfUsage(ImageUsageBits usage) noexcept
+{
+    Access accesses = Access::None;
+
+    for (const ImageUsageRow& row : k_ImageUsageRows)
+    {
+        if (HasAny(usage, row.Bit))
+        {
+            accesses |= row.Accesses;
+        }
+    }
+
+    return accesses;
+}
+
+ImageLayout ImageLayoutOfUsage(ImageUsageBits usage) noexcept
+{
+    // first match wins
+    if (HasAny(usage, ImageUsageBits::Discard))
+    {
+        return ImageLayout::Undefined;
+    }
+
+    if (HasAny(usage, ImageUsageBits::PresentSource))
+    {
+        return ImageLayout::PresentSource;
+    }
+
+    // with synchronization2 one read-only layout serves every read-only attachment use, and the driver tells depth from color
+    if (HasAny(usage, ImageUsageBits::AllAttachmentRead) && !HasAny(usage, ImageUsageBits::AllAttachmentWrite))
+    {
+        return ImageLayout::ReadOnly;
+    }
+
+    if (HasAny(usage, ImageUsageBits::AllAttachmentWrite))
+    {
+        return ImageLayout::Attachment;
+    }
+
+    // storage images must be in GENERAL. this is checked before the read-only case, so that an image that is both
+    // sampled and written by shaders stays in a layout that permits both
+    if (HasAny(usage, ImageUsageBits::AllShaderUAV))
+    {
+        return ImageLayout::General;
+    }
+
+    if (HasAny(usage, ImageUsageBits::AllShaderSRV | ImageUsageBits::SampledImage | ImageUsageBits::InputAttachmentRead))
+    {
+        return ImageLayout::ReadOnly;
+    }
+
+    if (HasAny(usage, ImageUsageBits::ShadingRateRead))
+    {
+        return ImageLayout::FragmentShadingRateAttachment;
+    }
+
+    if (HasAny(usage, ImageUsageBits::FragmentDensityMapRead))
+    {
+        return ImageLayout::FragmentDensityMap;
+    }
+
+    // the transfer bits come last: they name a layout only when they are the whole usage. an uploaded texture also
+    // carries TransferDestination, and its resting layout is the shader one
+    if (HasAny(usage, ImageUsageBits::TransferDestination))
+    {
+        return ImageLayout::TransferDestination;
+    }
+
+    if (HasAny(usage, ImageUsageBits::TransferSource))
+    {
+        return ImageLayout::TransferSource;
+    }
+
+    return ImageLayout::Undefined;
+}
+
+UsageBarriers TranslateUsageChanges(
+    std::span<const BufferBarrierInfo> buffer_changes,
+    std::span<const ImageBarrierInfo> image_changes,
+    std::span<rhi::ImageBarrier> images_out) noexcept
+{
+    UsageBarriers result;
+
+    for (const BufferBarrierInfo& change : buffer_changes)
+    {
+        const UsageScope scope = ScopeOf(
+            StagesOfUsage(change.BeforeUsage),
+            AccessesOfUsage(change.BeforeUsage),
+            StagesOfUsage(change.AfterUsage),
+            AccessesOfUsage(change.AfterUsage));
+
+        if (!scope.BothRead)
+        {
+            MergeIntoGlobal(result.Global, scope);
+        }
+    }
+
+    for (const ImageBarrierInfo& change : image_changes)
+    {
+        // a discard has no prior work to wait for here: the caller's semaphores or the ordering barrier do that
+        const bool beforeIsDiscard = HasAny(change.BeforeUsage, ImageUsageBits::Discard);
+        const ImageLayout oldLayout = ImageLayoutOfUsage(change.BeforeUsage);
+        const ImageLayout newLayout = ImageLayoutOfUsage(change.AfterUsage);
+
+        const PipelineStage beforeStages = beforeIsDiscard ? PipelineStage::None : StagesOfUsage(change.BeforeUsage);
+        const Access beforeAccesses = beforeIsDiscard ? Access::None : AccessesOfUsage(change.BeforeUsage);
+        const UsageScope scope = ScopeOf(beforeStages, beforeAccesses, StagesOfUsage(change.AfterUsage), AccessesOfUsage(change.AfterUsage));
+
+        // a before usage with no layout and no discard says nothing about where the image is, so it starts no transition
+        const bool oldLayoutIsKnown = beforeIsDiscard || oldLayout != ImageLayout::Undefined;
+        const bool layoutChanges = newLayout != ImageLayout::Undefined && oldLayoutIsKnown && newLayout != oldLayout;
+
+        if (!layoutChanges)
+        {
+            if (!scope.BothRead)
+            {
+                MergeIntoGlobal(result.Global, scope);
+            }
+
+            continue;
+        }
+
+        const std::size_t imageIndex = static_cast<std::size_t>(result.ImageCount);
+
+        if (imageIndex >= images_out.size())
+        {
+            assert(false && "TranslateUsageChanges: images_out is too small for the image changes");
+            continue;
+        }
+
+        rhi::ImageBarrier& barrier = images_out[imageIndex];
+        barrier = rhi::ImageBarrier{};
+        barrier.Image = change.Handle;
+        barrier.SrcStages = scope.SrcStages;
+        barrier.SrcAccess = scope.SrcAccess;
+        barrier.DstStages = scope.DstStages;
+        barrier.DstAccess = scope.DstAccess;
+        barrier.OldLayout = oldLayout;
+        barrier.NewLayout = newLayout;
+        barrier.Range = ToRhiRange(change.Range);
+        ++result.ImageCount;
+    }
+
+    return result;
 }
 
 namespace
@@ -101,355 +412,61 @@ namespace
         return (bits & mask) != ImageUsageBits::Invalid;
     }
 
-    void RecordDependency(VkCommandBuffer cmd, std::span<const VkMemoryBarrier2> memory_barriers, std::span<const VkImageMemoryBarrier2> image_barriers) noexcept
+    bool HasAnyAccess(Access accesses, Access mask) noexcept
     {
-        if (memory_barriers.empty() && image_barriers.empty())
-        {
-            return;
-        }
-
-        VkDependencyInfo dependencyInfo{};
-        dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dependencyInfo.memoryBarrierCount = static_cast<uint32_t>(memory_barriers.size());
-        dependencyInfo.pMemoryBarriers = memory_barriers.data();
-        dependencyInfo.imageMemoryBarrierCount = static_cast<uint32_t>(image_barriers.size());
-        dependencyInfo.pImageMemoryBarriers = image_barriers.data();
-        vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+        return (accesses & mask) != Access::None;
     }
 
-    VkMemoryBarrier2 MakeBufferMemoryBarrier(const BufferBarrierInfo& barrier) noexcept
+    rhi::ImageAspect ToRhiAspect(ImageAspectFlags aspect) noexcept
     {
-        VkMemoryBarrier2 memoryBarrier{};
-        memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        memoryBarrier.srcStageMask = StageFlagsFromBufferUsageBits(barrier.BeforeUsage);
-        memoryBarrier.srcAccessMask = AccessFlagsfromBufferUsageBits(barrier.BeforeUsage);
-        memoryBarrier.dstStageMask = StageFlagsFromBufferUsageBits(barrier.AfterUsage);
-        memoryBarrier.dstAccessMask = AccessFlagsfromBufferUsageBits(barrier.AfterUsage);
-        return memoryBarrier;
+        rhi::ImageAspect result = rhi::ImageAspect::None;
+
+        if ((aspect & ImageAspectFlags::Color) != ImageAspectFlags::None)
+        {
+            result |= rhi::ImageAspect::Color;
+        }
+
+        if ((aspect & ImageAspectFlags::Depth) != ImageAspectFlags::None)
+        {
+            result |= rhi::ImageAspect::Depth;
+        }
+
+        if ((aspect & ImageAspectFlags::Stencil) != ImageAspectFlags::None)
+        {
+            result |= rhi::ImageAspect::Stencil;
+        }
+
+        return result;
     }
 
-    VkMemoryBarrier2 MakeImageMemoryBarrier(const ImageBarrierInfo& barrier) noexcept
+    rhi::ImageSubresourceRange ToRhiRange(const ImageRange& range) noexcept
     {
-        VkMemoryBarrier2 memoryBarrier{};
-        memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        memoryBarrier.srcStageMask = GetPipelineStageFromImageUsageBits(barrier.BeforeUsage);
-        memoryBarrier.srcAccessMask = GetAccessMaskFromImageUsageBits(barrier.BeforeUsage);
-        memoryBarrier.dstStageMask = GetPipelineStageFromImageUsageBits(barrier.AfterUsage);
-        memoryBarrier.dstAccessMask = GetAccessMaskFromImageUsageBits(barrier.AfterUsage);
-        return memoryBarrier;
+        rhi::ImageSubresourceRange result{};
+        result.Aspects = ToRhiAspect(range.AspectMask);
+        result.BaseMipLevel = range.BaseMipLevel;
+        result.LevelCount = range.LevelCount;
+        result.BaseArrayLayer = range.BaseArrayLayer;
+        result.LayerCount = range.LayerCount;
+        return result;
     }
 
-    VkPipelineStageFlags2 StageFlagsFromBufferUsageBits(const BufferUsageBits bits) noexcept
+    UsageScope ScopeOf(PipelineStage before_stages, Access before_accesses, PipelineStage after_stages, Access after_accesses) noexcept
     {
-        VkPipelineStageFlags2 stageFlags = 0;
-
-        if (HasAny(bits, BufferUsageBits::AllIndirect))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
-        }
-
-        if (HasAny(bits, BufferUsageBits::VertexOrIndex))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
-            stageFlags |= VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
-        }
-
-        if (HasAny(bits, BufferUsageBits::AllVertexStage))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
-        }
-
-        if (HasAny(bits, BufferUsageBits::AllFragmentStage))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        }
-
-        if (HasAny(bits, BufferUsageBits::AllComputeStage))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        }
-
-        if (HasAny(bits, BufferUsageBits::AllRaytracingStage))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-        }
-
-        if (HasAny(bits, BufferUsageBits::AllTransfer))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        }
-
-        if (HasAny(bits, BufferUsageBits::AccelerationStructureBuild | BufferUsageBits::ShaderBindingTable | BufferUsageBits::AccelerationStructureBuildScratch))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-        }
-
-        if (HasAny(bits, BufferUsageBits::ConditionalRendering))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_CONDITIONAL_RENDERING_BIT_EXT;
-        }
-
-        return stageFlags;
+        UsageScope scope;
+        scope.SrcStages = before_stages;
+        // only a write makes memory available. a write after a read needs the source stages and no source access
+        scope.SrcAccess = before_accesses & k_WriteAccesses;
+        scope.DstStages = after_stages;
+        scope.DstAccess = after_accesses;
+        scope.BothRead = !HasAnyAccess(before_accesses, k_WriteAccesses) && !HasAnyAccess(after_accesses, k_WriteAccesses);
+        return scope;
     }
 
-    VkAccessFlags2 AccessFlagsfromBufferUsageBits(const BufferUsageBits bits) noexcept
+    void MergeIntoGlobal(rhi::GlobalBarrier& global, const UsageScope& scope) noexcept
     {
-        VkAccessFlags2 accessFlags = 0;
-
-        if (HasAny(bits, BufferUsageBits::AllIndirect))
-        {
-            accessFlags |= VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
-        }
-
-        if (HasAny(bits, BufferUsageBits::VertexOrIndex))
-        {
-            accessFlags |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-            accessFlags |= VK_ACCESS_2_INDEX_READ_BIT;
-        }
-
-        if (HasAny(bits, BufferUsageBits::AllShaderUBO))
-        {
-            accessFlags |= VK_ACCESS_2_UNIFORM_READ_BIT;
-        }
-
-        if (HasAny(bits, BufferUsageBits::AllShaderSRV))
-        {
-            accessFlags |= VK_ACCESS_2_SHADER_READ_BIT;
-        }
-
-        if (HasAny(bits, BufferUsageBits::AllShaderUAV))
-        {
-            accessFlags |= VK_ACCESS_2_SHADER_READ_BIT;
-            accessFlags |= VK_ACCESS_2_SHADER_WRITE_BIT;
-        }
-
-        if (HasAny(bits, BufferUsageBits::CopySource))
-        {
-            accessFlags |= VK_ACCESS_2_TRANSFER_READ_BIT;
-        }
-
-        if (HasAny(bits, BufferUsageBits::CopyDestination))
-        {
-            accessFlags |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        }
-
-        if (HasAny(bits, BufferUsageBits::AccelerationStructureBuild))
-        {
-            accessFlags |= VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-        }
-
-        if (HasAny(bits, BufferUsageBits::ShaderBindingTable))
-        {
-            accessFlags |= VK_ACCESS_2_SHADER_BINDING_TABLE_READ_BIT_KHR;
-        }
-
-        if (HasAny(bits, BufferUsageBits::AccelerationStructureBuildScratch))
-        {
-            accessFlags |= VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-            accessFlags |= VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-        }
-
-        if (HasAny(bits, BufferUsageBits::ConditionalRendering))
-        {
-            accessFlags |= VK_ACCESS_2_CONDITIONAL_RENDERING_READ_BIT_EXT;
-        }
-
-        return accessFlags;
+        global.SrcStages |= scope.SrcStages;
+        global.SrcAccess |= scope.SrcAccess;
+        global.DstStages |= scope.DstStages;
+        global.DstAccess |= scope.DstAccess;
     }
-
-    VkAccessFlags2 GetAccessMaskFromImageUsageBits(const ImageUsageBits bits) noexcept
-    {
-        VkAccessFlags2 accessMask = 0;
-
-        if (HasAny(bits, ImageUsageBits::AllShaderSRV))
-        {
-            accessMask |= VK_ACCESS_2_SHADER_READ_BIT;
-        }
-
-        // image UAVs are shader storage images, formatted buffers. I don't think we present them through the API though, especially through slang?
-        // They should just become buffers so we can use device addresses and buffer references I think
-        if (HasAny(bits, ImageUsageBits::AllShaderUAV))
-        {
-            accessMask |= VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        }
-
-        if (HasAny(bits, ImageUsageBits::RenderTargetRead))
-        {
-            accessMask |= VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
-        }
-
-        if (HasAny(bits, ImageUsageBits::RenderTargetWrite))
-        {
-            accessMask |= VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        }
-
-        if (HasAny(bits, ImageUsageBits::AllDsRead))
-        {
-            accessMask |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-        }
-
-        if (HasAny(bits, ImageUsageBits::AllDsWrite))
-        {
-            accessMask |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        }
-
-        if (HasAny(bits, ImageUsageBits::SampledImage))
-        {
-            accessMask |= VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-        }
-
-        if (HasAny(bits, ImageUsageBits::ShadingRateImage))
-        {
-            accessMask |= VK_ACCESS_2_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR;
-        }
-
-        if (HasAny(bits, ImageUsageBits::TransferDestination))
-        {
-            accessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        }
-
-        if (HasAny(bits, ImageUsageBits::TransferSource))
-        {
-            accessMask |= VK_ACCESS_2_TRANSFER_READ_BIT;
-        }
-
-        return accessMask;
-    }
-
-    VkPipelineStageFlags2 GetPipelineStageFromImageUsageBits(const ImageUsageBits bits) noexcept
-    {
-        VkPipelineStageFlags2 stageFlags = 0;
-
-        if (HasAny(bits, ImageUsageBits::AllVertexStage))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
-        }
-
-        if (HasAny(bits, ImageUsageBits::AllFragmentStage | ImageUsageBits::SampledImage))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        }
-
-        if (HasAny(bits, ImageUsageBits::AllRenderTarget))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        }
-
-        if (HasAny(bits, ImageUsageBits::AllComputeStage))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        }
-
-        if (HasAny(bits, ImageUsageBits::AllRaytracingStage))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-        }
-
-        if (HasAny(bits, ImageUsageBits::PresentSource))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
-        }
-
-        if (HasAny(bits, ImageUsageBits::AllDsWrite))
-        {
-            // fixed: this was FRAGMENT_SHADER. depth and stencil attachment writes happen in the fragment test stages,
-            // and validation rejects the attachment write access on the fragment shader stage
-            stageFlags |= VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-        }
-
-        // but conversely, depth or stencil *reads* can occur as soon as early fragment testing!
-        if (HasAny(bits, ImageUsageBits::AllDsRead))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
-        }
-
-        if (HasAny(bits, ImageUsageBits::ShadingRateImage))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
-        }
-
-        if (HasAny(bits, ImageUsageBits::AllTransfer))
-        {
-            stageFlags |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        }
-
-        return stageFlags;
-    }
-
-    std::optional<ImageLayouts> GetImageLayouts(const ImageUsageBits before, const ImageUsageBits after) noexcept
-    {
-        // a discard before starts from UNDEFINED, which always needs a barrier, also when the layouts match
-        if (before == ImageUsageBits::Discard)
-        {
-            const VkImageLayout discardAfterLayout = ImageLayoutFromUsageBits(after);
-            if (after == ImageUsageBits::Invalid || discardAfterLayout == VK_IMAGE_LAYOUT_UNDEFINED)
-            {
-                return std::nullopt;
-            }
-
-            return ImageLayouts{VK_IMAGE_LAYOUT_UNDEFINED, discardAfterLayout};
-        }
-
-        // If either usage is invalid, we can't do anything meaningful. if they're the same, no transition needed
-        if ((before == ImageUsageBits::Invalid || after == ImageUsageBits::Invalid) || (before == after))
-        {
-            return std::nullopt;
-        }
-
-        // note that after this point, we know the two usages are at least asymmetric. we will then find the
-        // layouts, and depending on how that returns (which can change based on version) we know if we need
-        // to execute the layout transition
-        VkImageLayout beforeLayout = ImageLayoutFromUsageBits(before);
-        VkImageLayout afterLayout = ImageLayoutFromUsageBits(after);
-
-        if (beforeLayout == VK_IMAGE_LAYOUT_UNDEFINED || afterLayout == VK_IMAGE_LAYOUT_UNDEFINED)
-        {
-            // If we couldn't determine a valid layout for either usage, we can't proceed
-            return std::nullopt;
-        }
-
-        if (beforeLayout == afterLayout)
-        {
-            // No transition needed if layouts are the same
-            return std::nullopt;
-        }
-
-        return ImageLayouts{beforeLayout, afterLayout};
-    }
-
-    std::optional<VkImageMemoryBarrier2> MakeLayoutTransitionBarrier(const ImageBarrierInfo& barrier) noexcept
-    {
-        std::optional<ImageLayouts> layouts = GetImageLayouts(barrier.BeforeUsage, barrier.AfterUsage);
-        
-        if (!layouts.has_value())
-        {
-            return std::nullopt;
-        }
-
-        VkImageMemoryBarrier2 imageBarrier{};
-        imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        // a discard before has no prior work to wait for here: the caller's semaphores or the ordering barrier do that
-        const bool beforeIsDiscard = barrier.BeforeUsage == ImageUsageBits::Discard;
-        imageBarrier.srcStageMask = beforeIsDiscard ? VK_PIPELINE_STAGE_2_NONE : GetPipelineStageFromImageUsageBits(barrier.BeforeUsage);
-        imageBarrier.srcAccessMask = beforeIsDiscard ? VK_ACCESS_2_NONE : GetAccessMaskFromImageUsageBits(barrier.BeforeUsage);
-        imageBarrier.dstStageMask = GetPipelineStageFromImageUsageBits(barrier.AfterUsage);
-        imageBarrier.dstAccessMask = GetAccessMaskFromImageUsageBits(barrier.AfterUsage);
-        imageBarrier.oldLayout = layouts->BeforeLayout;
-        imageBarrier.newLayout = layouts->AfterLayout;
-        imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        imageBarrier.image = barrier.Handle.As<VkImage>();
-        // fixed: the range was left zeroed, and a layout transition with an empty aspect mask is invalid
-        imageBarrier.subresourceRange = VkImageSubresourceRange
-        {
-            ToVkImageAspect(barrier.Range.AspectMask),
-            barrier.Range.BaseMipLevel,
-            barrier.Range.LevelCount,
-            barrier.Range.BaseArrayLayer,
-            barrier.Range.LayerCount,
-        };
-
-        return imageBarrier;
-    }
-
 }

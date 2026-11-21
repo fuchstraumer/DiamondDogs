@@ -20,7 +20,7 @@ namespace
         BufferCreateInfo info{};
         info.Domain = ResourceDomain::GPUOnly;
         // transfer usage is opt-in. the tests fill these buffers and read them back, so they ask for both bits
-        info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource | BufferUsageBits::CopyDestination;
+        info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::TransferSource | BufferUsageBits::TransferDestination;
         info.Size = size;
         return info;
     }
@@ -173,7 +173,7 @@ TEST_F(ResourceContextTest, NamedBufferKeepsItsName)
 TEST_F(ResourceContextTest, DeviceAddressUsageIsRefusedWhenNotEnabled)
 {
     BufferCreateInfo info = DeviceLocalStorageBuffer(64u);
-    info.Usage = BufferUsageBits::DeviceAddressBuffer;
+    info.Usage = BufferUsageBits::DeviceAddress;
     rhi::ResourceFuture<GraphicsResource> reply = context->CreateBuffer(info, {});
     EXPECT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Failed);
 }
@@ -211,7 +211,7 @@ TEST_F(ResourceContextTest, DestroyUnmapsABufferTheUserLeftMapped)
     // VMA asserts when a mapped allocation is destroyed, so the context undoes the maps that MapBuffer made
     BufferCreateInfo info{};
     info.Domain = ResourceDomain::GPUToCPU;
-    info.Usage = BufferUsageBits::CopyDestination;
+    info.Usage = BufferUsageBits::TransferDestination;
     info.Size = 256u;
     const GraphicsResource buffer = CreateBufferAndWait(info, {});
     rhi::ResourceFuture<void*> mapReply = context->MapBuffer(buffer, info.Size, 0u);
@@ -232,7 +232,7 @@ TEST_F(ResourceContextTest, TransferWithoutTheUsageBitFails)
 
     BufferCreateInfo readbackInfo{};
     readbackInfo.Domain = ResourceDomain::GPUToCPU;
-    readbackInfo.Usage = BufferUsageBits::CopyDestination;
+    readbackInfo.Usage = BufferUsageBits::TransferDestination;
     readbackInfo.Size = 64u;
     const GraphicsResource readback = CreateBufferAndWait(readbackInfo, {});
     rhi::OperationFuture copyReply = context->CopyBufferContents(buffer, readback, {});

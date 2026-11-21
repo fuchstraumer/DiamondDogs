@@ -15,6 +15,9 @@ namespace rhi::vk
     static_assert(ToUnderlying(PipelineStage::DrawIndirect) == VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT);
     static_assert(ToUnderlying(PipelineStage::VertexInput) == VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT);
     static_assert(ToUnderlying(PipelineStage::VertexShader) == VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT);
+    static_assert(ToUnderlying(PipelineStage::TessellationControlShader) == VK_PIPELINE_STAGE_2_TESSELLATION_CONTROL_SHADER_BIT);
+    static_assert(ToUnderlying(PipelineStage::TessellationEvaluationShader) == VK_PIPELINE_STAGE_2_TESSELLATION_EVALUATION_SHADER_BIT);
+    static_assert(ToUnderlying(PipelineStage::GeometryShader) == VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT);
     static_assert(ToUnderlying(PipelineStage::FragmentShader) == VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
     static_assert(ToUnderlying(PipelineStage::EarlyFragmentTests) == VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT);
     static_assert(ToUnderlying(PipelineStage::LateFragmentTests) == VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT);
@@ -25,12 +28,26 @@ namespace rhi::vk
     static_assert(ToUnderlying(PipelineStage::Host) == VK_PIPELINE_STAGE_2_HOST_BIT);
     static_assert(ToUnderlying(PipelineStage::AllGraphics) == VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT);
     static_assert(ToUnderlying(PipelineStage::AllCommands) == VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+    static_assert(ToUnderlying(PipelineStage::CommandPreprocess) == VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_EXT);
+    static_assert(ToUnderlying(PipelineStage::ConditionalRendering) == VK_PIPELINE_STAGE_2_CONDITIONAL_RENDERING_BIT_EXT);
     static_assert(ToUnderlying(PipelineStage::TaskShader) == VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT);
     static_assert(ToUnderlying(PipelineStage::MeshShader) == VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT);
+    static_assert(ToUnderlying(PipelineStage::RayTracingShader) == VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR);
+    static_assert(ToUnderlying(PipelineStage::FragmentShadingRateAttachment) == VK_PIPELINE_STAGE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR);
+    static_assert(ToUnderlying(PipelineStage::FragmentDensityProcess) == VK_PIPELINE_STAGE_2_FRAGMENT_DENSITY_PROCESS_BIT_EXT);
+    static_assert(ToUnderlying(PipelineStage::TransformFeedback) == VK_PIPELINE_STAGE_2_TRANSFORM_FEEDBACK_BIT_EXT);
+    static_assert(ToUnderlying(PipelineStage::AccelerationStructureBuild) == VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR);
+    static_assert(ToUnderlying(PipelineStage::AccelerationStructureCopy) == VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR);
+    static_assert(ToUnderlying(PipelineStage::MicromapBuild) == VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT);
     static_assert(ToUnderlying(PipelineStage::Copy) == VK_PIPELINE_STAGE_2_COPY_BIT);
     static_assert(ToUnderlying(PipelineStage::Resolve) == VK_PIPELINE_STAGE_2_RESOLVE_BIT);
     static_assert(ToUnderlying(PipelineStage::Blit) == VK_PIPELINE_STAGE_2_BLIT_BIT);
     static_assert(ToUnderlying(PipelineStage::Clear) == VK_PIPELINE_STAGE_2_CLEAR_BIT);
+    static_assert(ToUnderlying(PipelineStage::IndexInput) == VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT);
+    static_assert(ToUnderlying(PipelineStage::VertexAttributeInput) == VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT);
+    static_assert(ToUnderlying(PipelineStage::PreRasterizationShaders) == VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT);
+    static_assert(ToUnderlying(PipelineStage::MemoryDecompression) == VK_PIPELINE_STAGE_2_MEMORY_DECOMPRESSION_BIT_EXT);
+    static_assert(ToUnderlying(PipelineStage::CopyIndirect) == VK_PIPELINE_STAGE_2_COPY_INDIRECT_BIT_KHR);
 
     static_assert(ToUnderlying(Access::IndirectCommandRead) == VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
     static_assert(ToUnderlying(Access::IndexRead) == VK_ACCESS_2_INDEX_READ_BIT);
@@ -49,9 +66,28 @@ namespace rhi::vk
     static_assert(ToUnderlying(Access::HostWrite) == VK_ACCESS_2_HOST_WRITE_BIT);
     static_assert(ToUnderlying(Access::MemoryRead) == VK_ACCESS_2_MEMORY_READ_BIT);
     static_assert(ToUnderlying(Access::MemoryWrite) == VK_ACCESS_2_MEMORY_WRITE_BIT);
+    static_assert(ToUnderlying(Access::CommandPreprocessRead) == VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_EXT);
+    static_assert(ToUnderlying(Access::CommandPreprocessWrite) == VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_EXT);
+    static_assert(ToUnderlying(Access::ColorAttachmentReadNoncoherent) == VK_ACCESS_2_COLOR_ATTACHMENT_READ_NONCOHERENT_BIT_EXT);
+    static_assert(ToUnderlying(Access::ConditionalRenderingRead) == VK_ACCESS_2_CONDITIONAL_RENDERING_READ_BIT_EXT);
+    static_assert(ToUnderlying(Access::AccelerationStructureRead) == VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR);
+    static_assert(ToUnderlying(Access::AccelerationStructureWrite) == VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR);
+    static_assert(ToUnderlying(Access::FragmentShadingRateAttachmentRead) == VK_ACCESS_2_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR);
+    static_assert(ToUnderlying(Access::FragmentDensityMapRead) == VK_ACCESS_2_FRAGMENT_DENSITY_MAP_READ_BIT_EXT);
+    static_assert(ToUnderlying(Access::TransformFeedbackWrite) == VK_ACCESS_2_TRANSFORM_FEEDBACK_WRITE_BIT_EXT);
+    static_assert(ToUnderlying(Access::TransformFeedbackCounterRead) == VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT);
+    static_assert(ToUnderlying(Access::TransformFeedbackCounterWrite) == VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT);
     static_assert(ToUnderlying(Access::ShaderSampledRead) == VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     static_assert(ToUnderlying(Access::ShaderStorageRead) == VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     static_assert(ToUnderlying(Access::ShaderStorageWrite) == VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+    static_assert(ToUnderlying(Access::ShaderBindingTableRead) == VK_ACCESS_2_SHADER_BINDING_TABLE_READ_BIT_KHR);
+    static_assert(ToUnderlying(Access::DescriptorBufferRead) == VK_ACCESS_2_DESCRIPTOR_BUFFER_READ_BIT_EXT);
+    static_assert(ToUnderlying(Access::MicromapRead) == VK_ACCESS_2_MICROMAP_READ_BIT_EXT);
+    static_assert(ToUnderlying(Access::MicromapWrite) == VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT);
+    static_assert(ToUnderlying(Access::MemoryDecompressionRead) == VK_ACCESS_2_MEMORY_DECOMPRESSION_READ_BIT_EXT);
+    static_assert(ToUnderlying(Access::MemoryDecompressionWrite) == VK_ACCESS_2_MEMORY_DECOMPRESSION_WRITE_BIT_EXT);
+    static_assert(ToUnderlying(Access::SamplerHeapRead) == VK_ACCESS_2_SAMPLER_HEAP_READ_BIT_EXT);
+    static_assert(ToUnderlying(Access::ResourceHeapRead) == VK_ACCESS_2_RESOURCE_HEAP_READ_BIT_EXT);
 
     static_assert(ToUnderlying(ImageLayout::Undefined) == VK_IMAGE_LAYOUT_UNDEFINED);
     static_assert(ToUnderlying(ImageLayout::General) == VK_IMAGE_LAYOUT_GENERAL);
@@ -62,9 +98,21 @@ namespace rhi::vk
     static_assert(ToUnderlying(ImageLayout::TransferSource) == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     static_assert(ToUnderlying(ImageLayout::TransferDestination) == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     static_assert(ToUnderlying(ImageLayout::Preinitialized) == VK_IMAGE_LAYOUT_PREINITIALIZED);
+    static_assert(ToUnderlying(ImageLayout::PresentSource) == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    static_assert(ToUnderlying(ImageLayout::SharedPresent) == VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR);
+    static_assert(ToUnderlying(ImageLayout::DepthReadOnlyStencilAttachment) == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL);
+    static_assert(ToUnderlying(ImageLayout::DepthAttachmentStencilReadOnly) == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL);
+    static_assert(ToUnderlying(ImageLayout::FragmentShadingRateAttachment) == VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR);
+    static_assert(ToUnderlying(ImageLayout::FragmentDensityMap) == VK_IMAGE_LAYOUT_FRAGMENT_DENSITY_MAP_OPTIMAL_EXT);
+    static_assert(ToUnderlying(ImageLayout::RenderingLocalRead) == VK_IMAGE_LAYOUT_RENDERING_LOCAL_READ);
+    static_assert(ToUnderlying(ImageLayout::DepthAttachment) == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    static_assert(ToUnderlying(ImageLayout::DepthReadOnly) == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL);
+    static_assert(ToUnderlying(ImageLayout::StencilAttachment) == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL);
+    static_assert(ToUnderlying(ImageLayout::StencilReadOnly) == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL);
     static_assert(ToUnderlying(ImageLayout::ReadOnly) == VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
     static_assert(ToUnderlying(ImageLayout::Attachment) == VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-    static_assert(ToUnderlying(ImageLayout::PresentSource) == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    static_assert(ToUnderlying(ImageLayout::AttachmentFeedbackLoop) == VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT);
+    static_assert(ToUnderlying(ImageLayout::ZeroInitialized) == VK_IMAGE_LAYOUT_ZERO_INITIALIZED_EXT);
 
     static_assert(ToUnderlying(ImageAspect::Color) == VK_IMAGE_ASPECT_COLOR_BIT);
     static_assert(ToUnderlying(ImageAspect::Depth) == VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -126,8 +174,8 @@ namespace rhi::vk
         switch (stage)
         {
             case ShaderStageFlags::Vertex: return VK_SHADER_STAGE_VERTEX_BIT;
-            case ShaderStageFlags::TesselationControl: return VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
-            case ShaderStageFlags::TesselationEvaluation: return VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+            case ShaderStageFlags::TessellationControl: return VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+            case ShaderStageFlags::TessellationEvaluation: return VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
             case ShaderStageFlags::Geometry: return VK_SHADER_STAGE_GEOMETRY_BIT;
             case ShaderStageFlags::Fragment: return VK_SHADER_STAGE_FRAGMENT_BIT;
             case ShaderStageFlags::Compute: return VK_SHADER_STAGE_COMPUTE_BIT;

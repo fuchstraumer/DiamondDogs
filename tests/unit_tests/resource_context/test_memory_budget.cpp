@@ -146,7 +146,7 @@ namespace
     {
         BufferCreateInfo info{};
         info.Domain = ResourceDomain::GPUOnly;
-        info.Usage = BufferUsageBits::ComputeShaderSRV | BufferUsageBits::CopySource | BufferUsageBits::CopyDestination;
+        info.Usage = BufferUsageBits::ComputeShaderSRV | BufferUsageBits::TransferSource | BufferUsageBits::TransferDestination;
         info.Size = size_bytes;
         return info;
     }

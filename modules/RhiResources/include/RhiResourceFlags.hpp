@@ -81,179 +81,228 @@ enum class ResourceCreationFlags : uint16_t
   * https://anki3d.org/simplified-pipeline-barriers/
 */
 
-/** @brief Flags specifying the intended usage and access patterns for buffer resources */
+/** @brief Flags specifying the intended usage and access patterns for buffer resources.
+ *  A shader bit is `<Stage>Shader<Kind>`. A fixed-function bit is `<what uses it><role>`. A group is `All<...>`. */
 enum class BufferUsageBits : uint64_t
 {
     Invalid = 0,
 
-    /** @brief Buffer used as uniform buffer in vertex shader stage */
-    VertexShaderUBO = 1 << 0,
-    /** @brief Buffer used as uniform buffer in fragment shader stage */
-    FragmentShaderUBO = 1 << 1,
-    /** @brief Buffer used as uniform buffer in compute shader stage */
-    ComputeShaderUBO = 1 << 2,
-    /** @brief Buffer used as uniform buffer in raytracing shader stages */
-    RaytracingShaderUBO = 1 << 3,
+    /** @brief Buffer used as uniform buffer in the vertex shader stage */
+    VertexShaderUBO = 1ull << 0,
+    /** @brief Buffer used as uniform buffer in the tessellation control shader stage */
+    TessellationControlShaderUBO = 1ull << 1,
+    /** @brief Buffer used as uniform buffer in the tessellation evaluation shader stage */
+    TessellationEvaluationShaderUBO = 1ull << 2,
+    /** @brief Buffer used as uniform buffer in the geometry shader stage */
+    GeometryShaderUBO = 1ull << 3,
+    /** @brief Buffer used as uniform buffer in the task shader stage */
+    TaskShaderUBO = 1ull << 4,
+    /** @brief Buffer used as uniform buffer in the mesh shader stage */
+    MeshShaderUBO = 1ull << 5,
+    /** @brief Buffer used as uniform buffer in the fragment shader stage */
+    FragmentShaderUBO = 1ull << 6,
+    /** @brief Buffer used as uniform buffer in the compute shader stage */
+    ComputeShaderUBO = 1ull << 7,
+    /** @brief Buffer used as uniform buffer in the ray tracing shader stages */
+    RayTracingShaderUBO = 1ull << 8,
 
-    /** @brief Buffer used as shader resource view (read-only) in vertex shader stage */
-    VertexShaderSRV = 1 << 4,
-    /** @brief Buffer used as shader resource view (read-only) in fragment shader stage */
-    FragmentShaderSRV = 1 << 5,
-    /** @brief Buffer used as shader resource view (read-only) in compute shader stage */
-    ComputeShaderSRV = 1 << 6,
-    /** @brief Buffer used as shader resource view (read-only) in raytracing shader stages */
-    RaytracingShaderSRV = 1 << 7,
+    /** @brief Buffer used as shader resource view (read-only) in the vertex shader stage */
+    VertexShaderSRV = 1ull << 9,
+    /** @brief Buffer used as shader resource view (read-only) in the tessellation control shader stage */
+    TessellationControlShaderSRV = 1ull << 10,
+    /** @brief Buffer used as shader resource view (read-only) in the tessellation evaluation shader stage */
+    TessellationEvaluationShaderSRV = 1ull << 11,
+    /** @brief Buffer used as shader resource view (read-only) in the geometry shader stage */
+    GeometryShaderSRV = 1ull << 12,
+    /** @brief Buffer used as shader resource view (read-only) in the task shader stage */
+    TaskShaderSRV = 1ull << 13,
+    /** @brief Buffer used as shader resource view (read-only) in the mesh shader stage */
+    MeshShaderSRV = 1ull << 14,
+    /** @brief Buffer used as shader resource view (read-only) in the fragment shader stage */
+    FragmentShaderSRV = 1ull << 15,
+    /** @brief Buffer used as shader resource view (read-only) in the compute shader stage */
+    ComputeShaderSRV = 1ull << 16,
+    /** @brief Buffer used as shader resource view (read-only) in the ray tracing shader stages */
+    RayTracingShaderSRV = 1ull << 17,
 
-    /** @brief Buffer used as unordered access view (read-write) in vertex shader stage */
-    VertexShaderUAV = 1 << 8,
-    /** @brief Buffer used as unordered access view (read-write) in fragment shader stage */
-    FragmentShaderUAV = 1 << 9,
-    /** @brief Buffer used as unordered access view (read-write) in compute shader stage */
-    ComputeShaderUAV = 1 << 10,
-    /** @brief Buffer used as unordered access view (read-write) in raytracing shader stages */
-    RaytracingShaderUAV = 1 << 11,
+    /** @brief Buffer used as unordered access view (read-write) in the vertex shader stage */
+    VertexShaderUAV = 1ull << 18,
+    /** @brief Buffer used as unordered access view (read-write) in the tessellation control shader stage */
+    TessellationControlShaderUAV = 1ull << 19,
+    /** @brief Buffer used as unordered access view (read-write) in the tessellation evaluation shader stage */
+    TessellationEvaluationShaderUAV = 1ull << 20,
+    /** @brief Buffer used as unordered access view (read-write) in the geometry shader stage */
+    GeometryShaderUAV = 1ull << 21,
+    /** @brief Buffer used as unordered access view (read-write) in the task shader stage */
+    TaskShaderUAV = 1ull << 22,
+    /** @brief Buffer used as unordered access view (read-write) in the mesh shader stage */
+    MeshShaderUAV = 1ull << 23,
+    /** @brief Buffer used as unordered access view (read-write) in the fragment shader stage */
+    FragmentShaderUAV = 1ull << 24,
+    /** @brief Buffer used as unordered access view (read-write) in the compute shader stage */
+    ComputeShaderUAV = 1ull << 25,
+    /** @brief Buffer used as unordered access view (read-write) in the ray tracing shader stages */
+    RayTracingShaderUAV = 1ull << 26,
 
-    // Now for some of our more specific use cases
-    /** @brief Buffer used as vertex or index data for rasterization */
-    VertexOrIndex = 1 << 12,
-    /** @brief Buffer used as indirect dispatch parameters for compute operations */
-    IndirectCompute = 1 << 13,
-    /** @brief Buffer used as indirect draw parameters for rasterization */
-    IndirectDraw = 1 << 14,
-    /** @brief Buffer used as indirect raytracing dispatch parameters */
-    IndirectRaytracing = 1 << 15,
-    /** @brief Buffer used as source for copy/transfer operations */
-    CopySource = 1 << 16,
-    /** @brief Buffer used as destination for copy/transfer operations */
-    CopyDestination = 1 << 17,
-
-    /** @brief Buffer address used for bindless resource access via device addresses */
-    DeviceAddressBuffer = 1 << 18,
-
-    /** @brief Buffer used for acceleration structure build operations */
-    AccelerationStructureBuild = 1 << 19,
-    /** @brief Buffer used as shader binding table for raytracing */
-    ShaderBindingTable = 1 << 20,
+    /** @brief Buffer read as index data by an indexed draw */
+    IndexInput = 1ull << 27,
+    /** @brief Buffer read as vertex attribute data */
+    VertexInput = 1ull << 28,
+    /** @brief Buffer read as indirect draw parameters */
+    DrawIndirect = 1ull << 29,
+    /** @brief Buffer read as indirect compute dispatch parameters */
+    DispatchIndirect = 1ull << 30,
+    /** @brief Buffer read as indirect ray tracing dispatch parameters */
+    TraceRaysIndirect = 1ull << 31,
+    /** @brief Buffer read as the source of a copy or other transfer */
+    TransferSource = 1ull << 32,
+    /** @brief Buffer written as the destination of a copy, fill or other transfer */
+    TransferDestination = 1ull << 33,
+    /** @brief Buffer read as a conditional rendering predicate */
+    ConditionalRendering = 1ull << 34,
+    /** @brief Buffer written by transform feedback */
+    TransformFeedback = 1ull << 35,
+    /** @brief Buffer that holds transform feedback counters */
+    TransformFeedbackCounter = 1ull << 36,
+    /** @brief Buffer that holds the commands that device-generated commands execute */
+    GeneratedCommandsInput = 1ull << 37,
+    /** @brief Buffer that device-generated commands preprocess into */
+    GeneratedCommandsPreprocess = 1ull << 38,
+    /** @brief Buffer that stores an acceleration structure */
+    AccelerationStructureStorage = 1ull << 39,
+    /** @brief Buffer read as geometry or instance input by an acceleration structure build */
+    AccelerationStructureBuildInput = 1ull << 40,
     /** @brief Buffer used as scratch space during acceleration structure builds */
-    AccelerationStructureBuildScratch = 1 << 21,
+    AccelerationStructureBuildScratch = 1ull << 41,
+    /** @brief Buffer used as shader binding table for ray tracing */
+    ShaderBindingTable = 1ull << 42,
+    /** @brief Buffer that stores a micromap */
+    MicromapStorage = 1ull << 43,
+    /** @brief Buffer read as input by a micromap build */
+    MicromapBuildInput = 1ull << 44,
+    /** @brief Buffer address used for bindless resource access via device addresses */
+    DeviceAddress = 1ull << 45,
 
-    /** @brief Buffer used for conditional rendering predicates */
-    ConditionalRendering = 1 << 22,
-
-    // All flags after this point are reserved for internal usage in resource barrier generation, and should not be used by users
-    
-    // Collected flags for common access patterns
-    AllShaderUBO = VertexShaderUBO | FragmentShaderUBO | ComputeShaderUBO | RaytracingShaderUBO,
-    AllShaderSRV = VertexShaderSRV | FragmentShaderSRV | ComputeShaderSRV | RaytracingShaderSRV,
-    AllShaderUAV = VertexShaderUAV | FragmentShaderUAV | ComputeShaderUAV | RaytracingShaderUAV,
-    AllIndirect = IndirectCompute | IndirectDraw | IndirectRaytracing,
-    AllTransfer = CopySource | CopyDestination,
-
-    // Aliases for common buffer roles
-    StorageBuffer = AllShaderSRV | AllShaderUAV,
-    IndexBuffer = VertexOrIndex,
-    TransferDst = CopyDestination,
-    TransferSrc = CopySource,
-    IndirectBuffer = AllIndirect,
-
-    // Collected flags for pipeline stages
+    // Groups
     AllVertexStage = VertexShaderUBO | VertexShaderSRV | VertexShaderUAV,
+    AllTessellationControlStage = TessellationControlShaderUBO | TessellationControlShaderSRV | TessellationControlShaderUAV,
+    AllTessellationEvaluationStage = TessellationEvaluationShaderUBO | TessellationEvaluationShaderSRV | TessellationEvaluationShaderUAV,
+    AllGeometryStage = GeometryShaderUBO | GeometryShaderSRV | GeometryShaderUAV,
+    AllTaskStage = TaskShaderUBO | TaskShaderSRV | TaskShaderUAV,
+    AllMeshStage = MeshShaderUBO | MeshShaderSRV | MeshShaderUAV,
     AllFragmentStage = FragmentShaderUBO | FragmentShaderSRV | FragmentShaderUAV,
     AllComputeStage = ComputeShaderUBO | ComputeShaderSRV | ComputeShaderUAV,
-    AllRaytracingStage = RaytracingShaderUBO | RaytracingShaderSRV | RaytracingShaderUAV,
-    // this superset includes some usages that may fall outside of the actual raytracing shader, but could still be a pipeline stage
-    AllRaytracingUsage = AllRaytracingStage | IndirectRaytracing | AccelerationStructureBuild | ShaderBindingTable | AccelerationStructureBuildScratch,
-
-    // note that we don't count UAV as read, because unordered access views are inherently read-write and their usage implies write access (which takes precedence)
-    AllRead = AllShaderUBO | AllShaderSRV | VertexOrIndex | AllIndirect | CopySource | DeviceAddressBuffer | ShaderBindingTable | AccelerationStructureBuild | AccelerationStructureBuildScratch,
-    AllWrite = AllShaderUAV | CopyDestination | AccelerationStructureBuildScratch,
-
+    AllRayTracingStage = RayTracingShaderUBO | RayTracingShaderSRV | RayTracingShaderUAV,
+    AllShaderUBO = VertexShaderUBO | TessellationControlShaderUBO | TessellationEvaluationShaderUBO | GeometryShaderUBO | TaskShaderUBO | MeshShaderUBO | FragmentShaderUBO | ComputeShaderUBO | RayTracingShaderUBO,
+    AllShaderSRV = VertexShaderSRV | TessellationControlShaderSRV | TessellationEvaluationShaderSRV | GeometryShaderSRV | TaskShaderSRV | MeshShaderSRV | FragmentShaderSRV | ComputeShaderSRV | RayTracingShaderSRV,
+    AllShaderUAV = VertexShaderUAV | TessellationControlShaderUAV | TessellationEvaluationShaderUAV | GeometryShaderUAV | TaskShaderUAV | MeshShaderUAV | FragmentShaderUAV | ComputeShaderUAV | RayTracingShaderUAV,
+    AllShaderStorage = AllShaderSRV | AllShaderUAV,
+    AllTransfer = TransferSource | TransferDestination,
+    AllIndirect = DrawIndirect | DispatchIndirect | TraceRaysIndirect,
+    AllAccelerationStructure = AccelerationStructureStorage | AccelerationStructureBuildInput | AccelerationStructureBuildScratch,
+    AllMicromap = MicromapStorage | MicromapBuildInput,
+    // this superset includes some usages that fall outside of the ray tracing shader stages, but belong to ray tracing work
+    AllRayTracingUsage = AllRayTracingStage | TraceRaysIndirect | AllAccelerationStructure | ShaderBindingTable,
 };
 
-/** @brief Flags specifying the intended usage and access patterns for image resources */
+/** @brief Flags specifying the intended usage and access patterns for image resources.
+ *  A shader bit is `<Stage>Shader<Kind>`. A fixed-function bit is `<what uses it><role>`. A group is `All<...>`. */
 enum class ImageUsageBits : uint64_t
 {
     Invalid = 0,
 
-    /** @brief Image used as shader resource view (read-only) in vertex shader stage */
-    SrvVertexShader = 1 << 0,
-    /** @brief Image used as shader resource view (read-only) in fragment shader stage */
-    SrvFragmentShader = 1 << 1,
-    /** @brief Image used as shader resource view (read-only) in compute shader stage */
-    SrvComputeShader = 1 << 2,
-    /** @brief Image used as shader resource view (read-only) in raytracing shader stages */
-    SrvRaytracingShader = 1 << 3,
+    /** @brief Image used as shader resource view (read-only) in the vertex shader stage */
+    VertexShaderSRV = 1ull << 0,
+    /** @brief Image used as shader resource view (read-only) in the tessellation control shader stage */
+    TessellationControlShaderSRV = 1ull << 1,
+    /** @brief Image used as shader resource view (read-only) in the tessellation evaluation shader stage */
+    TessellationEvaluationShaderSRV = 1ull << 2,
+    /** @brief Image used as shader resource view (read-only) in the geometry shader stage */
+    GeometryShaderSRV = 1ull << 3,
+    /** @brief Image used as shader resource view (read-only) in the task shader stage */
+    TaskShaderSRV = 1ull << 4,
+    /** @brief Image used as shader resource view (read-only) in the mesh shader stage */
+    MeshShaderSRV = 1ull << 5,
+    /** @brief Image used as shader resource view (read-only) in the fragment shader stage */
+    FragmentShaderSRV = 1ull << 6,
+    /** @brief Image used as shader resource view (read-only) in the compute shader stage */
+    ComputeShaderSRV = 1ull << 7,
+    /** @brief Image used as shader resource view (read-only) in the ray tracing shader stages */
+    RayTracingShaderSRV = 1ull << 8,
 
-    /** @brief Image used as unordered access view (read-write) in vertex shader stage */
-    UavVertexShader = 1 << 4,
-    /** @brief Image used as unordered access view (read-write) in fragment shader stage */
-    UavFragmentShader = 1 << 5,
-    /** @brief Image used as unordered access view (read-write) in compute shader stage */
-    UavComputeShader = 1 << 6,
-    /** @brief Image used as unordered access view (read-write) in raytracing shader stages */
-    UavRaytracingShader = 1 << 7,
+    /** @brief Image used as unordered access view (read-write) in the vertex shader stage */
+    VertexShaderUAV = 1ull << 9,
+    /** @brief Image used as unordered access view (read-write) in the tessellation control shader stage */
+    TessellationControlShaderUAV = 1ull << 10,
+    /** @brief Image used as unordered access view (read-write) in the tessellation evaluation shader stage */
+    TessellationEvaluationShaderUAV = 1ull << 11,
+    /** @brief Image used as unordered access view (read-write) in the geometry shader stage */
+    GeometryShaderUAV = 1ull << 12,
+    /** @brief Image used as unordered access view (read-write) in the task shader stage */
+    TaskShaderUAV = 1ull << 13,
+    /** @brief Image used as unordered access view (read-write) in the mesh shader stage */
+    MeshShaderUAV = 1ull << 14,
+    /** @brief Image used as unordered access view (read-write) in the fragment shader stage */
+    FragmentShaderUAV = 1ull << 15,
+    /** @brief Image used as unordered access view (read-write) in the compute shader stage */
+    ComputeShaderUAV = 1ull << 16,
+    /** @brief Image used as unordered access view (read-write) in the ray tracing shader stages */
+    RayTracingShaderUAV = 1ull << 17,
 
+    /** @brief Image used as a regular sampled texture, in any shader stage that a graphics or compute pipeline has */
+    SampledImage = 1ull << 18,
     /** @brief Image used as color attachment for reading during rendering */
-    RenderTargetRead = 1 << 8,
+    RenderTargetRead = 1ull << 19,
     /** @brief Image used as color attachment for writing during rendering */
-    RenderTargetWrite = 1 << 9,
-    /** @brief Image used as variable rate shading attachment */
-    ShadingRateImage = 1 << 10,
-
-    /** @brief Image used as source for presentation to display */
-    PresentSource = 1 << 11,
-    /** @brief Image used as destination for copy/transfer operations */
-    TransferDestination = 1 << 12,
-
-    // Not sure yet if we should be breaking DS usage down this deeply, especially with the direction the API is heading wrt barriers
-    // and layout transitions, but right now each of these is treated as a distinct usage for more granular introspection on src/dest layouts especially
-
+    RenderTargetWrite = 1ull << 20,
     /** @brief Image used for depth buffer reading operations */
-    DepthRead = 1 << 13,
+    DepthRead = 1ull << 21,
     /** @brief Image used for depth buffer writing operations */
-    DepthWrite = 1 << 14,
+    DepthWrite = 1ull << 22,
     /** @brief Image used for stencil buffer reading operations */
-    StencilRead = 1 << 15,
+    StencilRead = 1ull << 23,
     /** @brief Image used for stencil buffer writing operations */
-    StencilWrite = 1 << 16,
+    StencilWrite = 1ull << 24,
     /** @brief Image used for combined depth-stencil reading operations */
-    DepthStencilRead = 1 << 17,
+    DepthStencilRead = 1ull << 25,
     /** @brief Image used for combined depth-stencil writing operations */
-    DepthStencilWrite = 1 << 18,
-
-    // generic sampled image, i.e. just a regular ol' texture. funny how this is now the last case we list, such has become the range of ways we use images in shaders
-    /** @brief Image used as regular sampled texture in shaders */
-    SampledImage = 1 << 19,
-
-    /** @brief Image used as source for copy/transfer operations */
-    TransferSource = 1 << 20,
+    DepthStencilWrite = 1ull << 26,
+    /** @brief Image used as input attachment read by a fragment shader */
+    InputAttachmentRead = 1ull << 27,
+    /** @brief Image used as variable rate shading attachment */
+    ShadingRateRead = 1ull << 28,
+    /** @brief Image used as fragment density map */
+    FragmentDensityMapRead = 1ull << 29,
+    /** @brief Image used as source for copy, blit or other transfer operations */
+    TransferSource = 1ull << 30,
+    /** @brief Image used as destination for copy, fill, clear, blit or other transfer operations */
+    TransferDestination = 1ull << 31,
+    /** @brief Image used as source for presentation to display */
+    PresentSource = 1ull << 32,
 
     /** @brief Valid only as `ImageUsageTransition::Before`, and only alone. The old contents of the image do not matter,
      *  and the transition starts from UNDEFINED. */
-    Discard = 1 << 21,
+    Discard = 1ull << 33,
 
-    // All flags after this point are reserved for internal usage in resource barrier generation, and should not be used by users
-    // Collected flags for common *access* patterns (also useful with layouts, since that understandably tends to mirror access patterns)
-    AllShaderSRV = SrvVertexShader | SrvFragmentShader | SrvComputeShader | SrvRaytracingShader,
-    AllTransfer = TransferDestination | TransferSource,
-    AllShaderUAV = UavVertexShader | UavFragmentShader | UavComputeShader | UavRaytracingShader,
-    AllRenderTarget = RenderTargetRead | RenderTargetWrite,
-    AllDepth = DepthRead | DepthWrite,
-    AllDepthStencil = DepthStencilRead | DepthStencilWrite,
-    AllStencil = StencilRead | StencilWrite,
-    AllDsWrite = DepthWrite | StencilWrite | DepthStencilWrite,
+    // Groups
+    AllVertexStage = VertexShaderSRV | VertexShaderUAV,
+    AllTessellationControlStage = TessellationControlShaderSRV | TessellationControlShaderUAV,
+    AllTessellationEvaluationStage = TessellationEvaluationShaderSRV | TessellationEvaluationShaderUAV,
+    AllGeometryStage = GeometryShaderSRV | GeometryShaderUAV,
+    AllTaskStage = TaskShaderSRV | TaskShaderUAV,
+    AllMeshStage = MeshShaderSRV | MeshShaderUAV,
+    AllFragmentStage = FragmentShaderSRV | FragmentShaderUAV | RenderTargetRead | RenderTargetWrite | DepthRead | DepthWrite | StencilRead | StencilWrite | DepthStencilRead | DepthStencilWrite | InputAttachmentRead,
+    AllComputeStage = ComputeShaderSRV | ComputeShaderUAV,
+    AllRayTracingStage = RayTracingShaderSRV | RayTracingShaderUAV,
+    AllShaderSRV = VertexShaderSRV | TessellationControlShaderSRV | TessellationEvaluationShaderSRV | GeometryShaderSRV | TaskShaderSRV | MeshShaderSRV | FragmentShaderSRV | ComputeShaderSRV | RayTracingShaderSRV,
+    AllShaderUAV = VertexShaderUAV | TessellationControlShaderUAV | TessellationEvaluationShaderUAV | GeometryShaderUAV | TaskShaderUAV | MeshShaderUAV | FragmentShaderUAV | ComputeShaderUAV | RayTracingShaderUAV,
+    AllShaderStorage = AllShaderSRV | AllShaderUAV,
+    AllTransfer = TransferSource | TransferDestination,
     AllDsRead = DepthRead | StencilRead | DepthStencilRead,
-    AllUsage = AllShaderSRV | AllShaderUAV | AllRenderTarget | ShadingRateImage | PresentSource | AllDepth,
-    AllAttachmentWrite = RenderTargetWrite | DepthWrite | DepthStencilWrite | StencilWrite,
-    AllAttachmentRead = RenderTargetRead | DepthRead | DepthStencilRead | StencilRead,
-
-    // per-stage groups
-    AllVertexStage = SrvVertexShader | UavVertexShader,
-    AllFragmentStage = SrvFragmentShader | UavFragmentShader | RenderTargetRead | RenderTargetWrite,
-    AllComputeStage = SrvComputeShader | UavComputeShader,
-    AllRaytracingStage = SrvRaytracingShader | UavRaytracingShader,
-    AllRaytracingUsage = AllRaytracingStage | PresentSource,
-
+    AllDsWrite = DepthWrite | StencilWrite | DepthStencilWrite,
+    AllAttachmentRead = RenderTargetRead | AllDsRead,
+    AllAttachmentWrite = RenderTargetWrite | AllDsWrite,
+    AllRenderTarget = RenderTargetRead | RenderTargetWrite,
 };
 
 enum class ImageType : uint8_t

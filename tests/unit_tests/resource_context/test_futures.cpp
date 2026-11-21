@@ -23,7 +23,7 @@ namespace
     {
         BufferCreateInfo info{};
         info.Domain = ResourceDomain::GPUOnly;
-        info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource | BufferUsageBits::CopyDestination;
+        info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::TransferSource | BufferUsageBits::TransferDestination;
         info.Size = size;
         return info;
     }
@@ -41,7 +41,7 @@ namespace
     {
         ImageCreateInfo info{};
         info.Domain = ResourceDomain::GPUOnly;
-        info.Usage = ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader;
+        info.Usage = ImageUsageBits::SampledImage | ImageUsageBits::ComputeShaderSRV;
         info.Type = ImageType::Type2D;
         info.Format = ImageFormat{ ImageComponentFormats::RGBA8, ImageDataType::UNorm };
         info.Width = 4u;
@@ -247,7 +247,7 @@ TEST_F(ResourceContextTest, EveryFailurePathReportsItsError)
 
     BufferCreateInfo zeroSize = DeviceLocalBuffer(0u);
     BufferCreateInfo addressUsage = DeviceLocalBuffer(64u);
-    addressUsage.Usage |= BufferUsageBits::DeviceAddressBuffer;
+    addressUsage.Usage |= BufferUsageBits::DeviceAddress;
 
     struct Case
     {

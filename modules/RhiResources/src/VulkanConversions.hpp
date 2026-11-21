@@ -14,12 +14,17 @@
     work left is translating those into Vulkan values at the point of creation.
 */
 
-/** @brief Returns false for the raytracing usages, which are refused until raytracing is designed. Returns false for
- *  DeviceAddressBuffer when the context was created without device addresses: VMA asserts on that buffer. */
+/** @brief Returns false for the usages that need a device feature that the context does not enable: acceleration
+ *  structures, micromaps, shader binding tables, transform feedback and generated commands. Returns false for
+ *  DeviceAddress when the context was created without device addresses: VMA asserts on that buffer. */
 [[nodiscard]] bool BufferUsageIsSupported(BufferUsageBits usage, bool device_addresses_enabled) noexcept;
 
-/** @brief Returns the Vulkan usage flags for the usage bits. Transfer usage comes only from CopySource and
- *  CopyDestination: the flags have a cost on some hardware, so they are not added to every buffer. */
+/** @brief Returns false for the image usages that need a device extension that the context does not enable
+ *  (FragmentDensityMapRead). */
+[[nodiscard]] bool ImageUsageIsSupported(ImageUsageBits usage) noexcept;
+
+/** @brief Returns the Vulkan usage flags for the usage bits. Transfer usage comes only from TransferSource and
+ *  TransferDestination: the flags have a cost on some hardware, so they are not added to every buffer. */
 [[nodiscard]] VkBufferUsageFlags ToVkBufferUsage(BufferUsageBits usage, bool has_texel_view) noexcept;
 /** @brief Returns the Vulkan usage flags for the usage bits. Transfer usage comes only from TransferSource and
  *  TransferDestination. */
@@ -49,8 +54,8 @@
 [[nodiscard]] VkCompareOp ToVkCompareOp(ImageCompareOp op) noexcept;
 [[nodiscard]] VkSamplerCreateInfo ToVkSamplerCreateInfo(const SamplerCreateInfo& create_info) noexcept;
 
-/** @brief Returns the image layout that the usage bits need. Used by the barriers and by the context, which derives
- *  the layouts of a transfer from the caller's usages. */
+/** @brief Returns the image layout that the usage bits need, as a cast of `ImageLayoutOfUsage`, so that one table
+ *  exists. Used by the context, which derives the layouts of a transfer from the caller's usages. */
 [[nodiscard]] VkImageLayout ImageLayoutFromUsageBits(ImageUsageBits bits) noexcept;
 
 [[nodiscard]] VmaMemoryUsage ToVmaMemoryUsage(ResourceDomain domain) noexcept;

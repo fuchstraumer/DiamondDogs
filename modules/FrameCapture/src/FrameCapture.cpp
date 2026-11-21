@@ -396,7 +396,7 @@ namespace capture
 
         BufferCreateInfo info{};
         info.Domain = ResourceDomain::GPUToCPU;
-        info.Usage = BufferUsageBits::CopyDestination;
+        info.Usage = BufferUsageBits::TransferDestination;
         info.Size = bytes;
         rhi::ResourceFuture<GraphicsResource> reply = resources.CreateBuffer(info, {});
         if (resources.Wait(reply, k_TimeoutNs) != rhi::FutureState::Complete)

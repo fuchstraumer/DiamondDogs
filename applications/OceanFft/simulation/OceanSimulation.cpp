@@ -476,7 +476,7 @@ namespace ocean
             BufferCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
             // copies both ways, so tests can upload IFFT input and read every buffer back
-            info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource | BufferUsageBits::CopyDestination;
+            info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::TransferSource | BufferUsageBits::TransferDestination;
             info.Size = bufferBytes[i];
             info.Name = k_BufferNames[i];
             bufferReplies[i] = resources.CreateBuffer(info, {});
@@ -486,10 +486,10 @@ namespace ocean
         // the whitecaps images, one per cascade. pre-fill with zeroes just on init.
         // four-channel half image: x = k_i^2, y = dDx/dz (the crest sharpness term), z, w = the squared slopes (the
         // shading's slope variance). The tick fills it every frame
-        constexpr ImageUsageBits k_ScalarImageUsage = ImageUsageBits::UavComputeShader |
+        constexpr ImageUsageBits k_ScalarImageUsage = ImageUsageBits::ComputeShaderUAV |
                                                       ImageUsageBits::SampledImage |
-                                                      ImageUsageBits::SrvFragmentShader |
-                                                      ImageUsageBits::SrvComputeShader |
+                                                      ImageUsageBits::FragmentShaderSRV |
+                                                      ImageUsageBits::ComputeShaderSRV |
                                                       ImageUsageBits::TransferSource; // copies out are for tests
         rhi::ResourceFuture<GraphicsResource> whitecapReply =
             resources.CreateImage(MakeCascadeScalarImageInfo(size, impl->MipLevels, k_ScalarImageUsage, "Ocean_Whitecaps"));
@@ -522,7 +522,7 @@ namespace ocean
 
         ImageCreateInfo lutInfo{};
         lutInfo.Domain = ResourceDomain::GPUOnly;
-        lutInfo.Usage = ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader;
+        lutInfo.Usage = ImageUsageBits::SampledImage | ImageUsageBits::ComputeShaderSRV;
         lutInfo.Type = ImageType::Type2D;
         lutInfo.Format = CommonFormats::R32_Float;
         lutInfo.Width = DonelanBannerNormLUTWidth;
@@ -535,7 +535,7 @@ namespace ocean
         lutSampler.AddressV = SamplerCreateInfo::AddressMode::ClampToEdge;
         lutSampler.AddressW = SamplerCreateInfo::AddressMode::ClampToEdge;
         lutInfo.SamplerInfo = lutSampler;
-        rhi::ResourceFuture<GraphicsResource> lutReply = resources.CreateImage(lutInfo, std::span{ &lutData, 1 }, ImageUsageBits::SrvComputeShader);
+        rhi::ResourceFuture<GraphicsResource> lutReply = resources.CreateImage(lutInfo, std::span{ &lutData, 1 }, ImageUsageBits::ComputeShaderSRV);
 
         std::array<rhi::ResourceFuture<GraphicsResource>, k_OutputImageCount> imageReplies;
 
@@ -543,8 +543,8 @@ namespace ocean
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
-            info.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SampledImage | ImageUsageBits::SrvVertexShader |
-                ImageUsageBits::SrvFragmentShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferSource;
+            info.Usage = ImageUsageBits::ComputeShaderUAV | ImageUsageBits::SampledImage | ImageUsageBits::VertexShaderSRV |
+                ImageUsageBits::FragmentShaderSRV | ImageUsageBits::ComputeShaderSRV | ImageUsageBits::TransferSource;
             info.Type = ImageType::Type2D;
             info.Format = CommonFormats::RGBA16_Float;
             info.Width = size;

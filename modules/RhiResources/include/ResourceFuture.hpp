@@ -38,9 +38,9 @@ namespace rhi
         WrongResourceKind = 5,
         /** @brief An invalid domain, a size of zero, an extent of zero, or an invalid format. */
         InvalidCreateInfo = 6,
-        /** @brief DeviceAddressBuffer usage on a context without device addresses, or a raytracing usage. */
+        /** @brief DeviceAddress usage on a context without device addresses, or a usage that needs a device feature that the context does not enable (ray tracing, micromaps, transform feedback, generated commands, fragment density maps). */
         UnsupportedUsage = 7,
-        /** @brief The resource lacks the CopySource, CopyDestination, TransferSource or TransferDestination usage. */
+        /** @brief The resource lacks the TransferSource or TransferDestination usage. */
         MissingTransferUsage = 8,
         /** @brief A fill offset or size that is not a multiple of 4. */
         InvalidFillRange = 9,

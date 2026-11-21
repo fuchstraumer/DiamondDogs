@@ -1,5 +1,6 @@
 #include "VulkanConversions.hpp"
 #include "ImageDataFormatsVulkan.hpp"
+#include "ResourceBarriers.hpp"
 #include "RhiResourceFlags.hpp"
 #include "ResourceTypes.hpp"
 #include "vulkan/vulkan_core.h"
@@ -14,65 +15,136 @@ namespace
     [[nodiscard]] bool HasAny(ResourceCreationFlags flags, ResourceCreationFlags mask) noexcept;
     [[nodiscard]] VkComponentSwizzle ToVkSwizzle(ComponentSwizzle swizzle) noexcept;
 
-    constexpr BufferUsageBits k_RaytracingUsages =
-        BufferUsageBits::AccelerationStructureBuild |
+    // each of these needs a device feature or extension that the context does not enable today
+    constexpr BufferUsageBits k_FeatureGatedBufferUsages =
+        BufferUsageBits::AllAccelerationStructure |
+        BufferUsageBits::AllMicromap |
         BufferUsageBits::ShaderBindingTable |
-        BufferUsageBits::AccelerationStructureBuildScratch;
+        BufferUsageBits::TransformFeedback |
+        BufferUsageBits::TransformFeedbackCounter |
+        BufferUsageBits::GeneratedCommandsInput |
+        BufferUsageBits::GeneratedCommandsPreprocess;
+
+    // VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT is not a valid usage unless the extension is enabled
+    constexpr ImageUsageBits k_FeatureGatedImageUsages = ImageUsageBits::FragmentDensityMapRead;
 }
 
 bool BufferUsageIsSupported(BufferUsageBits usage, bool device_addresses_enabled) noexcept
 {
-    if (HasAny(usage, k_RaytracingUsages))
+    if (HasAny(usage, k_FeatureGatedBufferUsages))
     {
         return false;
     }
 
-    return device_addresses_enabled || !HasAny(usage, BufferUsageBits::DeviceAddressBuffer);
+    return device_addresses_enabled || !HasAny(usage, BufferUsageBits::DeviceAddress);
+}
+
+bool ImageUsageIsSupported(ImageUsageBits usage) noexcept
+{
+    return !HasAny(usage, k_FeatureGatedImageUsages);
 }
 
 VkBufferUsageFlags ToVkBufferUsage(BufferUsageBits usage, bool has_texel_view) noexcept
 {
     VkBufferUsageFlags result = 0u;
-    if (HasAny(usage, BufferUsageBits::CopySource))
+    if (HasAny(usage, BufferUsageBits::TransferSource))
     {
         result |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     }
-    if (HasAny(usage, BufferUsageBits::CopyDestination))
+
+    if (HasAny(usage, BufferUsageBits::TransferDestination))
     {
         result |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     }
+
     if (HasAny(usage, BufferUsageBits::AllShaderUBO))
     {
         result |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     }
-    if (HasAny(usage, BufferUsageBits::AllShaderSRV | BufferUsageBits::AllShaderUAV))
+
+    if (HasAny(usage, BufferUsageBits::AllShaderStorage))
     {
         result |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     }
+
     if (has_texel_view && HasAny(usage, BufferUsageBits::AllShaderSRV | BufferUsageBits::AllShaderUBO))
     {
         result |= VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
     }
+
     if (has_texel_view && HasAny(usage, BufferUsageBits::AllShaderUAV))
     {
         result |= VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
     }
-    if (HasAny(usage, BufferUsageBits::VertexOrIndex))
+
+    if (HasAny(usage, BufferUsageBits::IndexInput))
     {
-        result |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+        result |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     }
-    if (HasAny(usage, BufferUsageBits::AllIndirect))
+
+    if (HasAny(usage, BufferUsageBits::VertexInput))
+    {
+        result |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    }
+
+    // device-generated commands read their command stream through the indirect buffer usage. The preprocess buffer of
+    // VK_EXT_device_generated_commands needs the 64-bit usage word, and the create refuses these bits today
+    if (HasAny(usage, BufferUsageBits::AllIndirect | BufferUsageBits::GeneratedCommandsInput | BufferUsageBits::GeneratedCommandsPreprocess))
     {
         result |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
     }
+
     if (HasAny(usage, BufferUsageBits::ConditionalRendering))
     {
         result |= VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT;
     }
-    if (HasAny(usage, BufferUsageBits::DeviceAddressBuffer))
+
+    if (HasAny(usage, BufferUsageBits::TransformFeedback))
+    {
+        result |= VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT;
+    }
+
+    if (HasAny(usage, BufferUsageBits::TransformFeedbackCounter))
+    {
+        result |= VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT;
+    }
+
+    if (HasAny(usage, BufferUsageBits::AccelerationStructureStorage))
+    {
+        result |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
+    }
+
+    if (HasAny(usage, BufferUsageBits::AccelerationStructureBuildInput))
+    {
+        result |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+    }
+
+    // a scratch buffer is a storage buffer that the build reaches by address
+    if (HasAny(usage, BufferUsageBits::AccelerationStructureBuildScratch))
+    {
+        result |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    }
+
+    if (HasAny(usage, BufferUsageBits::ShaderBindingTable))
+    {
+        result |= VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR;
+    }
+
+    if (HasAny(usage, BufferUsageBits::MicromapStorage))
+    {
+        result |= VK_BUFFER_USAGE_MICROMAP_STORAGE_BIT_EXT;
+    }
+
+    if (HasAny(usage, BufferUsageBits::MicromapBuildInput))
+    {
+        result |= VK_BUFFER_USAGE_MICROMAP_BUILD_INPUT_READ_ONLY_BIT_EXT;
+    }
+
+    if (HasAny(usage, BufferUsageBits::DeviceAddress))
     {
         result |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     }
+
     return result;
 }
 
@@ -83,7 +155,7 @@ VkImageUsageFlags ToVkImageUsage(ImageUsageBits usage) noexcept
     {
         result |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     }
-    
+
     if (HasAny(usage, ImageUsageBits::TransferDestination))
     {
         result |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
@@ -109,10 +181,21 @@ VkImageUsageFlags ToVkImageUsage(ImageUsageBits usage) noexcept
         result |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     }
 
-    if (HasAny(usage, ImageUsageBits::ShadingRateImage))
+    if (HasAny(usage, ImageUsageBits::InputAttachmentRead))
+    {
+        result |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+    }
+
+    if (HasAny(usage, ImageUsageBits::ShadingRateRead))
     {
         result |= VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
     }
+
+    if (HasAny(usage, ImageUsageBits::FragmentDensityMapRead))
+    {
+        result |= VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT;
+    }
+
     return result;
 }
 
@@ -361,49 +444,8 @@ VkSamplerCreateInfo ToVkSamplerCreateInfo(const SamplerCreateInfo& create_info) 
 
 VkImageLayout ImageLayoutFromUsageBits(ImageUsageBits bits) noexcept
 {
-    if (HasAny(bits, ImageUsageBits::Discard))
-    {
-        return VK_IMAGE_LAYOUT_UNDEFINED;
-    }
-    else if (HasAny(bits, ImageUsageBits::PresentSource))
-    {
-        return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    }
-    // as of VK_KHR_synchronization2, we can use VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL for all read-only usages of our attachments and driver will distinguish between depth/RTV
-    else if (HasAny(bits, ImageUsageBits::AllAttachmentRead) && !HasAny(bits, ImageUsageBits::AllAttachmentWrite))
-    {
-        return VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
-    }
-    else if (HasAny(bits, ImageUsageBits::AllAttachmentWrite))
-    {
-        // If any attachment write flag is set, we use the VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL layout introduced in Vulkan 1.2 and synchronization2.
-        return VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
-    }
-    else if (HasAny(bits, ImageUsageBits::AllShaderUAV))
-    {
-        // storage images must be in GENERAL. this is checked before the read-only case, so that an image that is
-        // both sampled and written by shaders stays in a layout that permits both
-        return VK_IMAGE_LAYOUT_GENERAL;
-    }
-    else if (HasAny(bits, ImageUsageBits::AllShaderSRV | ImageUsageBits::SampledImage))
-    {
-        return VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
-    }
-    else if (HasAny(bits, ImageUsageBits::ShadingRateImage))
-    {
-        return VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
-    }
-    // the transfer bits come last: they name a layout only when they are the whole usage. an uploaded texture also
-    // carries TransferDestination, and its resting layout is the shader one
-    else if (HasAny(bits, ImageUsageBits::TransferDestination))
-    {
-        return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    }
-    else if (HasAny(bits, ImageUsageBits::TransferSource))
-    {
-        return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    }
-    return VK_IMAGE_LAYOUT_UNDEFINED;
+    // rhi::ImageLayout holds the VkImageLayout values (the RhiSystem conversions check that), so this is a cast
+    return static_cast<VkImageLayout>(ToUnderlying(ImageLayoutOfUsage(bits)));
 }
 
 VmaMemoryUsage ToVmaMemoryUsage(ResourceDomain domain) noexcept

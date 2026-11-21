@@ -236,7 +236,7 @@ namespace ocean
         const RhiBufferResourceData vertexData{ std::as_bytes(std::span{ vertices }), 0u };
         BufferCreateInfo vertexInfo{};
         vertexInfo.Domain = ResourceDomain::GPUOnly;
-        vertexInfo.Usage = BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst;
+        vertexInfo.Usage = BufferUsageBits::AllShaderStorage | BufferUsageBits::TransferDestination;
         vertexInfo.Size = vertices.size() * sizeof(OceanPatchVertex);
         vertexInfo.Name = "Ocean_CdlodGridVertexBuffer";
         rhi::ResourceFuture<GraphicsResource> vertexReply = resources.CreateBuffer(vertexInfo, std::span{ &vertexData, 1 });
@@ -252,7 +252,7 @@ namespace ocean
         const RhiBufferResourceData indexData{ std::as_bytes(std::span{ indices }), 0u };
         BufferCreateInfo indexInfo{};
         indexInfo.Domain = ResourceDomain::GPUOnly;
-        indexInfo.Usage = BufferUsageBits::IndexBuffer | BufferUsageBits::TransferDst;
+        indexInfo.Usage = BufferUsageBits::VertexInput | BufferUsageBits::IndexInput | BufferUsageBits::TransferDestination;
         indexInfo.Size = indices.size() * sizeof(uint32_t);
         indexInfo.Name = "Ocean_CdlodGridIndexBuffer";
         rhi::ResourceFuture<GraphicsResource> indexReply = resources.CreateBuffer(indexInfo, std::span{ &indexData, 1 });
@@ -270,7 +270,7 @@ namespace ocean
         const RhiBufferResourceData rootKeyUpload{ std::as_bytes(std::span{ rootKeyData }), 0u };
         BufferCreateInfo nodesAInfo{};
         nodesAInfo.Domain = ResourceDomain::GPUOnly;
-        nodesAInfo.Usage = BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst;
+        nodesAInfo.Usage = BufferUsageBits::AllShaderStorage | BufferUsageBits::TransferDestination;
         nodesAInfo.Size = maxNodes * sizeof(uint32_t);
         nodesAInfo.Name = "Ocean_CdlodNodesA";
         rhi::ResourceFuture<GraphicsResource> nodesAReply = resources.CreateBuffer(nodesAInfo, std::span{ &rootKeyUpload, 1 });
@@ -284,7 +284,7 @@ namespace ocean
 
         BufferCreateInfo nodesBInfo{};
         nodesBInfo.Domain = ResourceDomain::GPUOnly;
-        nodesBInfo.Usage = BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst;
+        nodesBInfo.Usage = BufferUsageBits::AllShaderStorage | BufferUsageBits::TransferDestination;
         nodesBInfo.Size = maxNodes * sizeof(uint32_t);
         nodesBInfo.Name = "Ocean_CdlodNodesB";
         rhi::ResourceFuture<GraphicsResource> nodesBReply = resources.CreateBuffer(nodesBInfo, {});
@@ -301,7 +301,7 @@ namespace ocean
         const RhiBufferResourceData countsUpload{ std::as_bytes(std::span{ initialCounts }), 0u };
         BufferCreateInfo countsInfo{};
         countsInfo.Domain = ResourceDomain::GPUOnly;
-        countsInfo.Usage = BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst;
+        countsInfo.Usage = BufferUsageBits::AllShaderStorage | BufferUsageBits::TransferDestination;
         countsInfo.Size = initialCounts.size() * sizeof(uint32_t);
         countsInfo.Name = "Ocean_CdlodNodeCounts";
         rhi::ResourceFuture<GraphicsResource> countsReply = resources.CreateBuffer(countsInfo, std::span{ &countsUpload, 1 });
@@ -317,7 +317,7 @@ namespace ocean
         impl->AllocatedMaxSelectedPatches = maxPatches;
         BufferCreateInfo patchesInfo{};
         patchesInfo.Domain = ResourceDomain::GPUOnly;
-        patchesInfo.Usage = BufferUsageBits::StorageBuffer;
+        patchesInfo.Usage = BufferUsageBits::AllShaderStorage;
         patchesInfo.Size = maxPatches * sizeof(OceanCdlodPatch);
         patchesInfo.Name = "Ocean_CdlodSelectedPatches";
         rhi::ResourceFuture<GraphicsResource> patchesReply = resources.CreateBuffer(patchesInfo, {});
@@ -333,7 +333,7 @@ namespace ocean
         const RhiBufferResourceData indirectUpload{ std::as_bytes(std::span{ initialIndirect }), 0u };
         BufferCreateInfo indirectInfo{};
         indirectInfo.Domain = ResourceDomain::GPUOnly;
-        indirectInfo.Usage = BufferUsageBits::IndirectBuffer | BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst | BufferUsageBits::TransferSrc;
+        indirectInfo.Usage = BufferUsageBits::AllIndirect | BufferUsageBits::AllShaderStorage | BufferUsageBits::TransferDestination | BufferUsageBits::TransferSource;
         indirectInfo.Size = sizeof(VkDrawIndexedIndirectCommand);
         indirectInfo.Name = "Ocean_CdlodIndirectArgs";
         rhi::ResourceFuture<GraphicsResource> indirectReply = resources.CreateBuffer(indirectInfo, std::span{ &indirectUpload, 1 });

@@ -255,8 +255,8 @@ namespace ocean
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
-            info.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SampledImage |
-                         ImageUsageBits::SrvComputeShader | ImageUsageBits::SrvFragmentShader |
+            info.Usage = ImageUsageBits::ComputeShaderUAV | ImageUsageBits::SampledImage |
+                         ImageUsageBits::ComputeShaderSRV | ImageUsageBits::FragmentShaderSRV |
                          ImageUsageBits::TransferSource;
             info.Type = ImageType::Type2D;
             info.Format = CommonFormats::RGBA16_Float;
@@ -287,8 +287,8 @@ namespace ocean
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
-            info.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SampledImage |
-                         ImageUsageBits::SrvComputeShader | ImageUsageBits::SrvFragmentShader |
+            info.Usage = ImageUsageBits::ComputeShaderUAV | ImageUsageBits::SampledImage |
+                         ImageUsageBits::ComputeShaderSRV | ImageUsageBits::FragmentShaderSRV |
                          ImageUsageBits::TransferSource;
             info.Type = ImageType::Type3D;
             info.Format = CommonFormats::RGBA16_Float;

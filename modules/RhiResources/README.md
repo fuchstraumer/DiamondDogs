@@ -41,7 +41,7 @@ timeout. Use `rhi::k_WaitForever` for no limit. A `Created` future sleeps on the
 no Vulkan or RHI include). It holds the facts that never change after the create: the type, the domain, and for a
 buffer the usage and the byte size that the caller asked for, and for an image the usage, the dimensions, the format,
 the extent, the mip and layer counts and the sample count. Usage fields are the usage that the context really used,
-so they include any bit that the context added (`CopyDestination` or `TransferDestination` for initial data). For
+so they include any bit that the context added (`TransferDestination` for initial data). For
 an image, `InitialUsage` is the usage that the creating call left it in: `usage_after_upload` for `CreateImage` with
 data, `copy_usage_after` for `CopyImage`, and `Invalid` for every other image (it has no defined contents yet). A
 sampler has only `Type` set.
@@ -110,9 +110,11 @@ The second check catches a stale `GraphicsResource`. EnTT's 32-bit entity has a 
 The usage checks (transfer source, transfer destination, alignment) also run on the worker, before a message reaches
 the transfer system.
 
-A buffer with `DeviceAddressBuffer` usage fails with `UnsupportedUsage` unless the context was created with
+A buffer with `DeviceAddress` usage fails with `UnsupportedUsage` unless the context was created with
 `DeviceAddressesEnabled`. Without that flag the allocator has no device address support, and VMA asserts on such a
-buffer. The raytracing usages are refused in all cases for now.
+buffer. The usages that need a device feature that the context does not enable are refused in all cases for now: every
+acceleration structure, micromap, shader binding table, transform feedback and generated commands bit on a buffer, and
+`FragmentDensityMapRead` on an image. `ShadingRateRead` is not refused, and its extension is the caller's to enable.
 
 ## Names
 
@@ -211,8 +213,8 @@ A transfer on an existing image takes an `rhi::ImageUsageTransition`, which has 
 | `After` | The usage that the image must have after the transfer. |
 
 The usages are `ImageUsageBits`, the same words as `ResourceBarriers` uses. No Vulkan type is in the public calls.
-The worker derives both layouts from the usages with `ImageLayoutFromUsageBits`. The transfer thread uses the layouts
-as they come.
+The worker derives both layouts from the usages with `ImageLayoutOfUsage` (the context's `ImageLayoutFromUsageBits` is a
+cast of it). The transfer thread uses the layouts as they come.
 
 - **A new image.** The only source of `UNDEFINED` is a new image. `CreateImage(info)` makes an image with no data.
   `CreateImage(info, initial_data, usage_after_upload)` uploads from `UNDEFINED` and leaves the image in the layout of
@@ -223,7 +225,7 @@ as they come.
 - **Buffers.** `CopyBufferContents` is for two buffers. It fails with `WrongResourceKind` when a side is an image.
   `CopyBuffer` fails with `WrongResourceKind` for an image, and `CopyImage` fails with it for a buffer.
 - **Discard.** `ImageUsageBits::Discard` as `Before` says that the old contents of the image do not matter. The
-  transition starts from `UNDEFINED`. A barrier from `ResourceBarriers` gets no source stage and no source access. The
+  transition starts from `UNDEFINED`. A barrier from `TranslateUsageChanges` gets no source stage and no source access. The
   caller must still order the transfer after earlier work on other queues, with inbound waits or with its own
   semaphores. A `Discard` upload that covers only part of the image leaves the rest of the image undefined. `Discard`
   is valid only as `Before` of an image that the transfer writes, and only alone. A transfer that reads the image needs
@@ -285,6 +287,36 @@ which the completion code needs. A second transfer queue would remove this limit
 
 In-frame copies are not for this API. A readback of the target of the current frame is work for the render graph. It
 records the copy on its own command buffer. The copy calls of the context are for work outside a frame.
+
+## Usage bits and barriers
+
+`BufferUsageBits` and `ImageUsageBits` (`RhiResourceFlags.hpp`) name how a resource is used. They are the create usage,
+and they are the words of a barrier. The names follow one rule, for both enums: a shader bit is `<Stage>Shader<Kind>`
+(`ComputeShaderUAV`), a fixed-function bit is `<what uses it><role>` (`DispatchIndirect`, `RenderTargetWrite`), and a
+group is `All<...>` (`AllShaderStorage`). The stages come in one order: `Vertex`, `TessellationControl`,
+`TessellationEvaluation`, `Geometry`, `Task`, `Mesh`, `Fragment`, `Compute`, `RayTracing`. The kinds are `UBO`, `SRV` and
+`UAV`. Transfer bits are `TransferSource` and `TransferDestination` for buffers and images both.
+
+`ResourceBarriers.hpp` translates a change of usage into the RHI's barrier types. It is a static library,
+`rhi_resource_barriers`, that links only `rhi_types` and `rhi_resource_types`, so code with no RHI (Loom's core) can call
+it. It has no Vulkan include, and it records nothing: the caller records the result with `rhi::CommandBuffer::Barrier`.
+
+- `TranslateUsageChanges(buffer_changes, image_changes, images_out)` returns one `rhi::GlobalBarrier` and the number of
+  image barriers that it wrote into `images_out`. Buffer changes, and image changes that keep their layout, merge into
+  the global barrier. An image change that changes the layout gives one `rhi::ImageBarrier` with the caller's range.
+  It allocates nothing. `images_out` needs room for one barrier per image change.
+- A change whose before and after usage both only read, with the same layout, gives nothing. The source access of every
+  barrier keeps only write accesses, because a read makes nothing available. The source stages stay: a write after a
+  read needs that execution dependency.
+- `Discard` as the before usage starts from `UNDEFINED`, with no source stage and no source access. A before usage that
+  has no layout and is not `Discard` starts no layout change, because it does not say where the image is.
+- `StagesOfUsage`, `AccessesOfUsage` and `ImageLayoutOfUsage` give the parts. Each usage bit has a row in a table in
+  `ResourceBarriers.cpp`, and a bit with no row (`DeviceAddress`, `Discard`) adds nothing. `SampledImage` names the
+  pre-rasterization, fragment and compute stages, and not a ray tracing stage: a ray tracing caller uses
+  `RayTracingShaderSRV`.
+
+The context stores no usage and no layout. Every result is a function of the before and after usage that the caller
+gives.
 
 ## Placed resources
 

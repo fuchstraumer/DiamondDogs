@@ -1058,27 +1058,27 @@ void OceanScene::createRenderTargets()
     hdrInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
 
     hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite |
-                    ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
+                    ImageUsageBits::ComputeShaderUAV | ImageUsageBits::ComputeShaderSRV | k_CaptureUsage;
     hdrInfo.Name = "Ocean_GBufferNormalSigma";
     gbufferNormalSigma = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferNormalSigma");
 
-    hdrInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination | k_CaptureUsage;
+    hdrInfo.Usage = ImageUsageBits::ComputeShaderUAV | ImageUsageBits::ComputeShaderSRV | ImageUsageBits::TransferDestination | k_CaptureUsage;
     hdrInfo.Name = "Ocean_GBufferNormalSigmaFiltered";
     gbufferNormalSigmaFiltered = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferNormalSigmaFiltered");
 
-    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
+    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::ComputeShaderSRV | k_CaptureUsage;
     hdrInfo.Name = "Ocean_GBufferFoamSss";
     gbufferFoamSss = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferFoamSss");
 
-    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
+    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::ComputeShaderSRV | k_CaptureUsage;
     hdrInfo.Name = "Ocean_GBufferMotionFoam";
     gbufferMotionFoam = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferMotionFoam");
 
-    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
+    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::ComputeShaderSRV | k_CaptureUsage;
     hdrInfo.Name = "Ocean_SeabedColorImage";
     seabedColorImage = WaitForResource(*resources, resources->CreateImage(hdrInfo), "SeabedColorImage");
 
-    hdrInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination | k_CaptureUsage;
+    hdrInfo.Usage = ImageUsageBits::ComputeShaderUAV | ImageUsageBits::ComputeShaderSRV | ImageUsageBits::TransferDestination | k_CaptureUsage;
     hdrInfo.Name = "Ocean_HdrLightingImage";
     hdrLightingImage = WaitForResource(*resources, resources->CreateImage(hdrInfo), "HdrLightingImage");
 
@@ -1096,7 +1096,7 @@ void OceanScene::createRenderTargets()
     depthTargetInfo.Height = static_cast<uint32_t>(extent.y);
     depthTargetInfo.Depth = 1u;
     depthTargetInfo.SampleCount = 1u;
-    depthTargetInfo.Usage = ImageUsageBits::DepthRead | ImageUsageBits::DepthWrite | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
+    depthTargetInfo.Usage = ImageUsageBits::DepthRead | ImageUsageBits::DepthWrite | ImageUsageBits::ComputeShaderSRV | k_CaptureUsage;
     depthTargetInfo.ViewInfo = ImageViewCreateInfo{};
     depthTargetInfo.ViewInfo->ViewType = ImageViewType::Type2D;
     depthTargetInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Depth;
@@ -1115,7 +1115,7 @@ void OceanScene::createRenderTargets()
     hiZInfo.Height = (static_cast<uint32_t>(extent.y) + 1u) / 2u;
     hiZInfo.Depth = 1u;
     hiZInfo.SampleCount = 1u;
-    hiZInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
+    hiZInfo.Usage = ImageUsageBits::ComputeShaderUAV | ImageUsageBits::ComputeShaderSRV | k_CaptureUsage;
     hiZInfo.ViewInfo = ImageViewCreateInfo{};
     hiZInfo.ViewInfo->ViewType = ImageViewType::Type2D;
     hiZInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
@@ -1140,7 +1140,7 @@ void OceanScene::createRenderTargets()
     BufferCreateInfo expInfo{};
     expInfo.Domain = ResourceDomain::GPUOnly;
     // CopyDestination for the clear before the first auto exposure pass, CopySource for a capture tool
-    expInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopyDestination | BufferUsageBits::CopySource;
+    expInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::TransferDestination | BufferUsageBits::TransferSource;
     expInfo.Size = sizeof(float) * 4;
     expInfo.Name = "Ocean_ExposureStateBuffer";
     exposureStateBuffer = WaitForResource(*resources, resources->CreateBuffer(expInfo, {}), "exposure state buffer");

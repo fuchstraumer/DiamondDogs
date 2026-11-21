@@ -75,18 +75,18 @@ namespace
 
             if (indirect)
             {
-                usage |= BufferUsageBits::IndirectCompute;
+                usage |= BufferUsageBits::DispatchIndirect;
             }
         }
 
         if (cpu == CpuAccess::Readback)
         {
-            usage |= BufferUsageBits::CopySource;
+            usage |= BufferUsageBits::TransferSource;
         }
 
         if (cpu == CpuAccess::Upload)
         {
-            usage |= BufferUsageBits::CopyDestination;
+            usage |= BufferUsageBits::TransferDestination;
         }
 
         return usage;

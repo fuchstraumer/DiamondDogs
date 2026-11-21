@@ -708,10 +708,10 @@ namespace color
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
-            // TransferDestination lets a test fill the target, TransferSource lets a capture tool copy it, UavComputeShader
+            // TransferDestination lets a test fill the target, TransferSource lets a capture tool copy it, ComputeShaderUAV
             // allows storage write (TAA resolve)
-            info.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvFragmentShader | ImageUsageBits::TransferDestination |
-                         ImageUsageBits::TransferSource | ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader;
+            info.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::FragmentShaderSRV | ImageUsageBits::TransferDestination |
+                         ImageUsageBits::TransferSource | ImageUsageBits::ComputeShaderUAV | ImageUsageBits::ComputeShaderSRV;
             info.Type = ImageType::Type2D;
             info.Format = format;
             info.Width = width;
@@ -729,7 +729,7 @@ namespace color
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
-            info.Usage = ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader | ImageUsageBits::UavComputeShader | ImageUsageBits::SrvFragmentShader | ImageUsageBits::TransferDestination;
+            info.Usage = ImageUsageBits::SampledImage | ImageUsageBits::ComputeShaderSRV | ImageUsageBits::ComputeShaderUAV | ImageUsageBits::FragmentShaderSRV | ImageUsageBits::TransferDestination;
             info.Type = ImageType::Type2D;
             info.Format = format;
             info.Width = width;
@@ -1058,8 +1058,8 @@ namespace color
             BufferCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
             // a Consumer pass writes it from compute, and a capture tool copies it
-            info.Usage = BufferUsageBits::FragmentShaderSRV | BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopyDestination |
-                         BufferUsageBits::CopySource;
+            info.Usage = BufferUsageBits::FragmentShaderSRV | BufferUsageBits::ComputeShaderUAV | BufferUsageBits::TransferDestination |
+                         BufferUsageBits::TransferSource;
             info.Size = k_ExposureBufferBytes;
             info.Name = "ColorPipe_ExposureBuffer";
             impl.ExposureBuffer = WaitForResource(*impl.Resources, impl.Resources->CreateBuffer(info, {}));

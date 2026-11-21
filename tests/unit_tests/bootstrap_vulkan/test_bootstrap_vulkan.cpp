@@ -501,7 +501,7 @@ namespace
         BufferCreateInfo info{};
 
         info.Domain = ResourceDomain::GPUOnly;
-        info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopyDestination;
+        info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::TransferDestination;
         info.Size = data.Data.size();
 
         rhi::ResourceFuture<GraphicsResource> reply = resources.CreateBuffer(info, std::span{ &data, 1u });

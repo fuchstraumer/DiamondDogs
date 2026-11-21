@@ -264,13 +264,13 @@ namespace
         BufferCreateInfo outputInfo{};
         outputInfo.Domain = ResourceDomain::GPUOnly;
         // the dispatch result is copied to the readback buffer. the sentinel upload adds CopyDestination itself
-        outputInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource;
+        outputInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::TransferSource;
         outputInfo.Size = outputBytes;
         rhi::ResourceFuture<GraphicsResource> outputReply = resources.CreateBuffer(outputInfo, std::span{ &outputInitial, 1u });
 
         BufferCreateInfo readbackInfo{};
         readbackInfo.Domain = ResourceDomain::GPUToCPU;
-        readbackInfo.Usage = BufferUsageBits::CopyDestination;
+        readbackInfo.Usage = BufferUsageBits::TransferDestination;
         readbackInfo.Size = outputBytes;
         rhi::ResourceFuture<GraphicsResource> readbackReply = resources.CreateBuffer(readbackInfo, {});
 

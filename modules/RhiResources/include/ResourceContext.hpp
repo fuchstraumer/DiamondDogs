@@ -382,7 +382,7 @@ public:
 
     /**
      * @brief Copy mip 0 of every layer of an image into a buffer, tightly packed from offset 0 (the readback path).
-     * The image needs TransferSource usage and the buffer CopyDestination usage.
+     * The image needs TransferSource usage and the buffer TransferDestination usage.
      *
      * @param image The source image
      * @param image_usage The usage of the image before the copy, and the usage it must have after the copy
@@ -402,7 +402,7 @@ public:
 
     /**
      * @brief Copy a whole buffer into mip 0 of every layer of an image, tightly packed from offset 0. The buffer needs
-     * CopySource usage and the image TransferDestination usage.
+     * TransferSource usage and the image TransferDestination usage.
      *
      * @param buffer The source buffer
      * @param image The destination image

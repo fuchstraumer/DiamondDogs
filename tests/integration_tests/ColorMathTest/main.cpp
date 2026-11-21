@@ -362,7 +362,7 @@ namespace
 
         BufferCreateInfo outputInfo{};
         outputInfo.Domain = ResourceDomain::GPUOnly;
-        outputInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource;
+        outputInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::TransferSource;
         outputInfo.Size = sampleBytes;
         std::vector<rhi::ResourceFuture<GraphicsResource>> outputReplies;
 
@@ -373,7 +373,7 @@ namespace
 
         BufferCreateInfo readbackInfo{};
         readbackInfo.Domain = ResourceDomain::GPUToCPU;
-        readbackInfo.Usage = BufferUsageBits::CopyDestination;
+        readbackInfo.Usage = BufferUsageBits::TransferDestination;
         readbackInfo.Size = sampleBytes * k_Cases.size();
         rhi::ResourceFuture<GraphicsResource> readbackReply = resources.CreateBuffer(readbackInfo, {});
 

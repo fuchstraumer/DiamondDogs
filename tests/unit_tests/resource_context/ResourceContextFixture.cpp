@@ -90,7 +90,7 @@ GraphicsResource ResourceContextTest::CreateReadbackBuffer(size_t size_bytes)
 {
     BufferCreateInfo readbackInfo{};
     readbackInfo.Domain = ResourceDomain::GPUToCPU;
-    readbackInfo.Usage = BufferUsageBits::CopyDestination;
+    readbackInfo.Usage = BufferUsageBits::TransferDestination;
     readbackInfo.Size = size_bytes;
     return CreateBufferAndWait(readbackInfo, {});
 }

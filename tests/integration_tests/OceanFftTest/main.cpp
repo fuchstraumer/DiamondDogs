@@ -104,7 +104,7 @@ namespace
         {
             BufferCreateInfo info{};
             info.Domain = ResourceDomain::GPUToCPU;
-            info.Usage = BufferUsageBits::CopyDestination;
+            info.Usage = BufferUsageBits::TransferDestination;
             info.Size = bytes;
             rhi::ResourceFuture<GraphicsResource> reply = resources.CreateBuffer(info, {});
             if (resources.Wait(reply, k_TimeoutNs) == rhi::FutureState::Complete)
@@ -1586,13 +1586,13 @@ namespace
             return autoDestroy(WaitForResource(context.Resources, context.Resources.CreateImage(info)));
         };
 
-        GraphicsResource gbufferNormalSigmaIn = createImage(ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination, "TestNormalSigmaIn");
-        GraphicsResource gbufferNormalSigmaOut = createImage(ImageUsageBits::UavComputeShader | ImageUsageBits::TransferSource, "TestNormalSigmaOut");
-        GraphicsResource gbufferMotionFoam = createImage(ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination, "TestMotionFoam");
-        GraphicsResource hdrLightingInput = createImage(ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination, "TestHdrLightingInput");
-        GraphicsResource historyImage = createImage(ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination, "TestHistoryImage");
-        GraphicsResource hdrResolvedOutput = createImage(ImageUsageBits::UavComputeShader | ImageUsageBits::TransferSource, "TestHdrResolvedOutput");
-        GraphicsResource nextHistoryOutput = createImage(ImageUsageBits::UavComputeShader | ImageUsageBits::TransferSource, "TestNextHistoryOutput");
+        GraphicsResource gbufferNormalSigmaIn = createImage(ImageUsageBits::SampledImage | ImageUsageBits::ComputeShaderSRV | ImageUsageBits::TransferDestination, "TestNormalSigmaIn");
+        GraphicsResource gbufferNormalSigmaOut = createImage(ImageUsageBits::ComputeShaderUAV | ImageUsageBits::TransferSource, "TestNormalSigmaOut");
+        GraphicsResource gbufferMotionFoam = createImage(ImageUsageBits::SampledImage | ImageUsageBits::ComputeShaderSRV | ImageUsageBits::TransferDestination, "TestMotionFoam");
+        GraphicsResource hdrLightingInput = createImage(ImageUsageBits::SampledImage | ImageUsageBits::ComputeShaderSRV | ImageUsageBits::TransferDestination, "TestHdrLightingInput");
+        GraphicsResource historyImage = createImage(ImageUsageBits::SampledImage | ImageUsageBits::ComputeShaderSRV | ImageUsageBits::TransferDestination, "TestHistoryImage");
+        GraphicsResource hdrResolvedOutput = createImage(ImageUsageBits::ComputeShaderUAV | ImageUsageBits::TransferSource, "TestHdrResolvedOutput");
+        GraphicsResource nextHistoryOutput = createImage(ImageUsageBits::ComputeShaderUAV | ImageUsageBits::TransferSource, "TestNextHistoryOutput");
 
         // Prepare synthetic test pattern
         std::vector<uint16_t> normalUploadData(k_TestDim * k_TestDim * 4u);
@@ -1630,7 +1630,7 @@ namespace
 
         BufferCreateInfo uploadInfo{};
         uploadInfo.Domain = ResourceDomain::CPUToGPU;
-        uploadInfo.Usage = BufferUsageBits::CopySource;
+        uploadInfo.Usage = BufferUsageBits::TransferSource;
         uploadInfo.Size = imageBytes * 4u;
 
         std::vector<uint16_t> combinedUpload;

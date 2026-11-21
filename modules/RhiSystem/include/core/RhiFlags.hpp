@@ -37,8 +37,8 @@ namespace rhi
     {
         None = 0,
         Vertex = 1 << 0,
-        TesselationControl = 1 << 1,
-        TesselationEvaluation = 1 << 2,
+        TessellationControl = 1 << 1,
+        TessellationEvaluation = 1 << 2,
         Geometry = 1 << 3,
         Fragment = 1 << 4,
         Compute = 1 << 5,
@@ -142,6 +142,10 @@ namespace rhi
 
     // The values below match VK_PIPELINE_STAGE_2_*, VK_ACCESS_2_* and VkImageLayout (VulkanConversions.hpp checks them),
     // like LoadOp and StoreOp, so the Vulkan backend casts. A DX12 backend would map them to D3D12_BARRIER_SYNC/ACCESS.
+    // Every cross-vendor value of the core API and of KHR and EXT extensions is here, in ascending value order.
+    // Left out on purpose: video (VIDEO_*), and values that only one vendor defines (_HUAWEI, _QCOM, _ARM, and _NV values
+    // with no KHR or EXT alias: optical flow, cooperative vector matrix conversion). An _NV value that shares its number
+    // with a KHR or EXT value is covered by that one.
     enum class PipelineStage : uint64_t
     {
         None = 0,
@@ -149,6 +153,9 @@ namespace rhi
         DrawIndirect = 0x00000002ull,
         VertexInput = 0x00000004ull,
         VertexShader = 0x00000008ull,
+        TessellationControlShader = 0x00000010ull,
+        TessellationEvaluationShader = 0x00000020ull,
+        GeometryShader = 0x00000040ull,
         FragmentShader = 0x00000080ull,
         EarlyFragmentTests = 0x00000100ull,
         LateFragmentTests = 0x00000200ull,
@@ -159,16 +166,32 @@ namespace rhi
         Host = 0x00004000ull,
         AllGraphics = 0x00008000ull,
         AllCommands = 0x00010000ull,
+        CommandPreprocess = 0x00020000ull,
+        ConditionalRendering = 0x00040000ull,
         TaskShader = 0x00080000ull,
         MeshShader = 0x00100000ull,
+        RayTracingShader = 0x00200000ull,
+        FragmentShadingRateAttachment = 0x00400000ull,
+        FragmentDensityProcess = 0x00800000ull,
+        TransformFeedback = 0x01000000ull,
+        AccelerationStructureBuild = 0x02000000ull,
+        AccelerationStructureCopy = 0x10000000ull,
+        MicromapBuild = 0x40000000ull,
         Copy = 0x100000000ull,
         Resolve = 0x200000000ull,
         Blit = 0x400000000ull,
         Clear = 0x800000000ull,
+        IndexInput = 0x1000000000ull,
+        VertexAttributeInput = 0x2000000000ull,
+        PreRasterizationShaders = 0x4000000000ull,
+        MemoryDecompression = 0x200000000000ull,
+        CopyIndirect = 0x400000000000ull,
     };
 
     MAKE_ENUM_CLASS_FLAGS(PipelineStage);
 
+    // Left out, as for PipelineStage: video (VIDEO_*), and vendor-only values (_QCOM tile attachments, _HUAWEI invocation
+    // mask, _ARM data graph, _NV optical flow)
     enum class Access : uint64_t
     {
         None = 0,
@@ -189,13 +212,33 @@ namespace rhi
         HostWrite = 0x00004000ull,
         MemoryRead = 0x00008000ull,
         MemoryWrite = 0x00010000ull,
+        CommandPreprocessRead = 0x00020000ull,
+        CommandPreprocessWrite = 0x00040000ull,
+        ColorAttachmentReadNoncoherent = 0x00080000ull,
+        ConditionalRenderingRead = 0x00100000ull,
+        AccelerationStructureRead = 0x00200000ull,
+        AccelerationStructureWrite = 0x00400000ull,
+        FragmentShadingRateAttachmentRead = 0x00800000ull,
+        FragmentDensityMapRead = 0x01000000ull,
+        TransformFeedbackWrite = 0x02000000ull,
+        TransformFeedbackCounterRead = 0x04000000ull,
+        TransformFeedbackCounterWrite = 0x08000000ull,
         ShaderSampledRead = 0x100000000ull,
         ShaderStorageRead = 0x200000000ull,
         ShaderStorageWrite = 0x400000000ull,
+        ShaderBindingTableRead = 0x10000000000ull,
+        DescriptorBufferRead = 0x20000000000ull,
+        MicromapRead = 0x100000000000ull,
+        MicromapWrite = 0x200000000000ull,
+        MemoryDecompressionRead = 0x80000000000000ull,
+        MemoryDecompressionWrite = 0x100000000000000ull,
+        SamplerHeapRead = 0x200000000000000ull,
+        ResourceHeapRead = 0x400000000000000ull,
     };
 
     MAKE_ENUM_CLASS_FLAGS(Access);
 
+    // Left out, as for PipelineStage: video (VIDEO_*), and vendor-only values (_ARM tensor aliasing)
     enum class ImageLayout : uint32_t
     {
         Undefined = 0,
@@ -207,9 +250,21 @@ namespace rhi
         TransferSource = 6,
         TransferDestination = 7,
         Preinitialized = 8,
+        PresentSource = 1000001002,
+        SharedPresent = 1000111000,
+        DepthReadOnlyStencilAttachment = 1000117000,
+        DepthAttachmentStencilReadOnly = 1000117001,
+        FragmentShadingRateAttachment = 1000164003,
+        FragmentDensityMap = 1000218000,
+        RenderingLocalRead = 1000232000,
+        DepthAttachment = 1000241000,
+        DepthReadOnly = 1000241001,
+        StencilAttachment = 1000241002,
+        StencilReadOnly = 1000241003,
         ReadOnly = 1000314000,
         Attachment = 1000314001,
-        PresentSource = 1000001002,
+        AttachmentFeedbackLoop = 1000339000,
+        ZeroInitialized = 1000620000,
     };
 
     enum class ImageAspect : uint32_t

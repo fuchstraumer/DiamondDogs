@@ -427,10 +427,10 @@ namespace
         switch (stage)
         {
             case lodestone::ShaderStageKind::Vertex: return rhi::ShaderStageFlags::Vertex;
-            case lodestone::ShaderStageKind::Hull: return rhi::ShaderStageFlags::TesselationControl;
-            case lodestone::ShaderStageKind::TessellationControl: return rhi::ShaderStageFlags::TesselationControl;
-            case lodestone::ShaderStageKind::Domain: return rhi::ShaderStageFlags::TesselationEvaluation;
-            case lodestone::ShaderStageKind::TessellationEvaluation: return rhi::ShaderStageFlags::TesselationEvaluation;
+            case lodestone::ShaderStageKind::Hull: return rhi::ShaderStageFlags::TessellationControl;
+            case lodestone::ShaderStageKind::TessellationControl: return rhi::ShaderStageFlags::TessellationControl;
+            case lodestone::ShaderStageKind::Domain: return rhi::ShaderStageFlags::TessellationEvaluation;
+            case lodestone::ShaderStageKind::TessellationEvaluation: return rhi::ShaderStageFlags::TessellationEvaluation;
             case lodestone::ShaderStageKind::Geometry: return rhi::ShaderStageFlags::Geometry;
             case lodestone::ShaderStageKind::Fragment: return rhi::ShaderStageFlags::Fragment;
             case lodestone::ShaderStageKind::Compute: return rhi::ShaderStageFlags::Compute;

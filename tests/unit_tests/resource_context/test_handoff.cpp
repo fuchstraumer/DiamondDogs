@@ -41,7 +41,7 @@ TEST_F(ResourceContextTest, UploadLeavesTheImageInTheRequestedUsage)
     const std::vector<uint32_t> texels = MakeWordPattern(k_Size * k_Size, 21u);
     const RhiImageResourceData data = WholeImageData(texels);
 
-    ImageCreateInfo info = HandoffImageInfo(k_ImageUsage | ImageUsageBits::UavComputeShader);
+    ImageCreateInfo info = HandoffImageInfo(k_ImageUsage | ImageUsageBits::ComputeShaderUAV);
     rhi::ResourceFuture<GraphicsResource> reply = context->CreateImage(info, std::span{ &data, 1u }, ImageUsageBits::SampledImage);
     ASSERT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
     const GraphicsResource image = reply.Get();
@@ -227,8 +227,8 @@ TEST_F(ResourceContextTest, UsageTransitionErrors)
     // UavComputeShader is not in the create usage of the images
     const rhi::ImageUsageTransition zeroBefore{ ImageUsageBits::Invalid, ImageUsageBits::SampledImage };
     const rhi::ImageUsageTransition zeroAfter{ ImageUsageBits::SampledImage, ImageUsageBits::Invalid };
-    const rhi::ImageUsageTransition unknownBefore{ ImageUsageBits::UavComputeShader, ImageUsageBits::SampledImage };
-    const rhi::ImageUsageTransition unknownAfter{ ImageUsageBits::SampledImage, ImageUsageBits::UavComputeShader };
+    const rhi::ImageUsageTransition unknownBefore{ ImageUsageBits::ComputeShaderUAV, ImageUsageBits::SampledImage };
+    const rhi::ImageUsageTransition unknownAfter{ ImageUsageBits::SampledImage, ImageUsageBits::ComputeShaderUAV };
 
     struct Case
     {
@@ -239,7 +239,7 @@ TEST_F(ResourceContextTest, UsageTransitionErrors)
 
     std::vector<Case> cases;
     cases.push_back({ "create with a zero usage after upload", context->CreateImage(info, std::span{ &data, 1u }, ImageUsageBits::Invalid), rhi::ResourceError::InvalidUsageTransition });
-    cases.push_back({ "create with a usage the image lacks", context->CreateImage(info, std::span{ &data, 1u }, ImageUsageBits::UavComputeShader), rhi::ResourceError::InvalidUsageTransition });
+    cases.push_back({ "create with a usage the image lacks", context->CreateImage(info, std::span{ &data, 1u }, ImageUsageBits::ComputeShaderUAV), rhi::ResourceError::InvalidUsageTransition });
     cases.push_back({ "set data with a zero before", context->SetImageData(image, zeroBefore, std::span{ &data, 1u }, {}), rhi::ResourceError::InvalidUsageTransition });
     cases.push_back({ "set data with a zero after", context->SetImageData(image, zeroAfter, std::span{ &data, 1u }, {}), rhi::ResourceError::InvalidUsageTransition });
     cases.push_back({ "set data with a before the image lacks", context->SetImageData(image, unknownBefore, std::span{ &data, 1u }, {}), rhi::ResourceError::InvalidUsageTransition });
@@ -251,7 +251,7 @@ TEST_F(ResourceContextTest, UsageTransitionErrors)
     cases.push_back({ "image copy with a source before the image lacks", context->CopyImageContents(image, unknownBefore, other, k_SampledToSampled, {}), rhi::ResourceError::InvalidUsageTransition });
     cases.push_back({ "image copy with a zero destination after", context->CopyImageContents(image, k_SampledToSampled, other, zeroAfter, {}), rhi::ResourceError::InvalidUsageTransition });
     cases.push_back({ "new image copy with a zero source before", context->CopyImage(image, zeroBefore, ImageUsageBits::SampledImage, {}), rhi::ResourceError::InvalidUsageTransition });
-    cases.push_back({ "new image copy with a usage the image lacks", context->CopyImage(image, k_SampledToSampled, ImageUsageBits::UavComputeShader, {}), rhi::ResourceError::InvalidUsageTransition });
+    cases.push_back({ "new image copy with a usage the image lacks", context->CopyImage(image, k_SampledToSampled, ImageUsageBits::ComputeShaderUAV, {}), rhi::ResourceError::InvalidUsageTransition });
     cases.push_back({ "buffer copy of an image, image first", context->CopyBufferContents(image, buffer, {}), rhi::ResourceError::WrongResourceKind });
     cases.push_back({ "buffer copy of an image, buffer first", context->CopyBufferContents(buffer, image, {}), rhi::ResourceError::WrongResourceKind });
     cases.push_back({ "buffer copy from an image to an image", context->CopyBufferContents(image, other, {}), rhi::ResourceError::WrongResourceKind });
@@ -298,7 +298,7 @@ namespace
     {
         BufferCreateInfo info{};
         info.Domain = ResourceDomain::GPUOnly;
-        info.Usage = BufferUsageBits::CopySource | BufferUsageBits::CopyDestination;
+        info.Usage = BufferUsageBits::TransferSource | BufferUsageBits::TransferDestination;
         info.Size = size;
         return info;
     }

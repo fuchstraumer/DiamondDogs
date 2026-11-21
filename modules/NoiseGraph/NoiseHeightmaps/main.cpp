@@ -530,13 +530,13 @@ namespace
 
         BufferCreateInfo outputInfo{};
         outputInfo.Domain = ResourceDomain::GPUOnly;
-        outputInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource;
+        outputInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::TransferSource;
         outputInfo.Size = bandBytes;
         rhi::ResourceFuture<GraphicsResource> outputReply = resources.CreateBuffer(outputInfo, {});
 
         BufferCreateInfo readbackInfo{};
         readbackInfo.Domain = ResourceDomain::GPUToCPU;
-        readbackInfo.Usage = BufferUsageBits::CopyDestination;
+        readbackInfo.Usage = BufferUsageBits::TransferDestination;
         readbackInfo.Size = bandBytes;
         rhi::ResourceFuture<GraphicsResource> readbackReply = resources.CreateBuffer(readbackInfo, {});
 

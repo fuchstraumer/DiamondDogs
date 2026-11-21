@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "CommandBuffer.hpp"
 #include "CommandPool.hpp"
+#include "CountingAllocator.hpp"
 #include "Device.hpp"
 #include "Fence.hpp"
 #include "Queue.hpp"
@@ -266,4 +267,91 @@ TEST_F(CommandBufferTest, BatchesChainThroughTimelineWaits)
     ASSERT_TRUE(timeline.GetValue(value).IsSuccess());
     EXPECT_EQ(value, 2u);
     EXPECT_TRUE(rhi::QueueWaitIdle(queue).IsSuccess());
+}
+
+namespace
+{
+    // one batch of barriers of each kind, on distinct buffers and images
+    struct BarrierBatch
+    {
+        std::vector<rhi::GlobalBarrier> Globals;
+        std::vector<rhi::BufferBarrier> Buffers;
+        std::vector<rhi::ImageBarrier> Images;
+    };
+}
+
+TEST_F(CommandBufferTest, SmallBarrierBatchesAllocateNothing)
+{
+    // the counter must see a plain allocation, or a count of zero below proves nothing
+    test_alloc::StartCounting();
+    int32_t* probe = new int32_t{ 0 };
+    delete probe;
+    ASSERT_EQ(test_alloc::StopCounting(), 1);
+
+    constexpr int32_t k_BatchSize = 16;
+    BarrierBatch batch;
+
+    for (int32_t index = 0; index < k_BatchSize; ++index)
+    {
+        const TestBuffer& buffer = createBuffer(256, VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        const TestImage& image = createColorImage(4, 4);
+
+        batch.Globals.push_back(rhi::GlobalBarrier{ rhi::PipelineStage::AllTransfer, rhi::Access::TransferWrite, rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageRead });
+        batch.Buffers.push_back(rhi::BufferBarrier{ buffer.Handle(), rhi::PipelineStage::AllTransfer, rhi::Access::TransferWrite, rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageRead });
+        batch.Images.push_back(rhi::ImageBarrier
+        {
+            rhi::ImageHandle{ reinterpret_cast<uint64_t>(image.Image) },
+            rhi::PipelineStage::None, rhi::Access::None,
+            rhi::PipelineStage::AllTransfer, rhi::Access::TransferRead,
+            rhi::ImageLayout::Undefined, rhi::ImageLayout::TransferSource
+        });
+    }
+
+    rhi::CommandBuffer cmd(commandPool->GetCommandBuffer(0));
+    ASSERT_TRUE(cmd.Begin().IsSuccess());
+
+    test_alloc::StartCounting();
+    cmd.Barrier(rhi::DependencyInfo{ batch.Globals, batch.Buffers, batch.Images });
+    const int64_t allocationCount = test_alloc::StopCounting();
+
+    EXPECT_EQ(allocationCount, 0);
+    ASSERT_TRUE(cmd.End().IsSuccess());
+
+    rhi::Fence fence(device->Handle());
+    const rhi::CommandBufferHandle cmdHandle = cmd.Handle();
+    ASSERT_TRUE(rhi::QueueSubmit(queue, rhi::SubmitInfo{ {}, std::span{ &cmdHandle, 1 }, {} }, fence.Handle()).IsSuccess());
+    ASSERT_TRUE(fence.Wait(k_TimeoutNs));
+}
+
+TEST_F(CommandBufferTest, LargeBarrierBatchesStillRecord)
+{
+    // 17 of each kind passes the inline capacity, so this batch may allocate. It must still record and submit cleanly
+    constexpr int32_t k_BatchSize = 17;
+    BarrierBatch batch;
+
+    for (int32_t index = 0; index < k_BatchSize; ++index)
+    {
+        const TestBuffer& buffer = createBuffer(256, VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        const TestImage& image = createColorImage(4, 4);
+
+        batch.Globals.push_back(rhi::GlobalBarrier{ rhi::PipelineStage::AllTransfer, rhi::Access::TransferWrite, rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageRead });
+        batch.Buffers.push_back(rhi::BufferBarrier{ buffer.Handle(), rhi::PipelineStage::AllTransfer, rhi::Access::TransferWrite, rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageRead });
+        batch.Images.push_back(rhi::ImageBarrier
+        {
+            rhi::ImageHandle{ reinterpret_cast<uint64_t>(image.Image) },
+            rhi::PipelineStage::None, rhi::Access::None,
+            rhi::PipelineStage::AllTransfer, rhi::Access::TransferRead,
+            rhi::ImageLayout::Undefined, rhi::ImageLayout::TransferSource
+        });
+    }
+
+    rhi::CommandBuffer cmd(commandPool->GetCommandBuffer(0));
+    ASSERT_TRUE(cmd.Begin().IsSuccess());
+    cmd.Barrier(rhi::DependencyInfo{ batch.Globals, batch.Buffers, batch.Images });
+    ASSERT_TRUE(cmd.End().IsSuccess());
+
+    rhi::Fence fence(device->Handle());
+    const rhi::CommandBufferHandle cmdHandle = cmd.Handle();
+    ASSERT_TRUE(rhi::QueueSubmit(queue, rhi::SubmitInfo{ {}, std::span{ &cmdHandle, 1 }, {} }, fence.Handle()).IsSuccess());
+    ASSERT_TRUE(fence.Wait(k_TimeoutNs));
 }

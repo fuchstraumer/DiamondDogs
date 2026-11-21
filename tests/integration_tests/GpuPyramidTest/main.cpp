@@ -297,20 +297,20 @@ namespace
 
         BufferCreateInfo uploadInfo{};
         uploadInfo.Domain = ResourceDomain::CPUToGPU;
-        uploadInfo.Usage = BufferUsageBits::CopySource;
+        uploadInfo.Usage = BufferUsageBits::TransferSource;
         uploadInfo.Size = levelZero.size() * channelBytes;
         const RhiBufferResourceData uploadData{ half ? std::as_bytes(std::span{ levelZeroHalves }) : std::as_bytes(std::span{ levelZero }), 0u };
         const GraphicsResource upload = WaitForResource(resources, resources.CreateBuffer(uploadInfo, std::span{ &uploadData, 1 }));
 
         BufferCreateInfo readbackInfo{};
         readbackInfo.Domain = ResourceDomain::GPUToCPU;
-        readbackInfo.Usage = BufferUsageBits::CopyDestination;
+        readbackInfo.Usage = BufferUsageBits::TransferDestination;
         readbackInfo.Size = readbackBytes;
         const GraphicsResource readback = WaitForResource(resources, resources.CreateBuffer(readbackInfo, {}));
 
         ImageCreateInfo imageInfo{};
         imageInfo.Domain = ResourceDomain::GPUOnly;
-        imageInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader |
+        imageInfo.Usage = ImageUsageBits::ComputeShaderUAV | ImageUsageBits::SampledImage | ImageUsageBits::ComputeShaderSRV |
             ImageUsageBits::TransferSource | ImageUsageBits::TransferDestination;
         imageInfo.Type = ImageType::Type2D;
         imageInfo.Format = half ? CommonFormats::RGBA16_Float : CommonFormats::RGBA32_Float;

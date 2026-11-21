@@ -334,10 +334,10 @@ namespace rhi
                         flags |= ShaderStageFlags::Vertex;
                         break;
                     case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
-                        flags |= ShaderStageFlags::TesselationControl;
+                        flags |= ShaderStageFlags::TessellationControl;
                         break;
                     case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
-                        flags |= ShaderStageFlags::TesselationEvaluation;
+                        flags |= ShaderStageFlags::TessellationEvaluation;
                         break;
                     case VK_SHADER_STAGE_GEOMETRY_BIT:
                         flags |= ShaderStageFlags::Geometry;

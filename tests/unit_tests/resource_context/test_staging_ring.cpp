@@ -363,7 +363,7 @@ namespace
     {
         BufferCreateInfo info{};
         info.Domain = ResourceDomain::GPUOnly;
-        info.Usage = BufferUsageBits::ComputeShaderSRV | BufferUsageBits::CopySource | BufferUsageBits::CopyDestination;
+        info.Usage = BufferUsageBits::ComputeShaderSRV | BufferUsageBits::TransferSource | BufferUsageBits::TransferDestination;
         info.Size = size_bytes;
         return info;
     }
@@ -373,7 +373,7 @@ namespace
         const RhiBufferResourceData data{ std::as_bytes(std::span{ words }), 0u };
         BufferCreateInfo info{};
         info.Domain = ResourceDomain::GPUOnly;
-        info.Usage = BufferUsageBits::ComputeShaderSRV | BufferUsageBits::CopySource;
+        info.Usage = BufferUsageBits::ComputeShaderSRV | BufferUsageBits::TransferSource;
         info.Size = data.Data.size();
 
         StagedItem item;
@@ -393,7 +393,7 @@ namespace
 
         ImageCreateInfo info{};
         info.Domain = ResourceDomain::GPUOnly;
-        info.Usage = ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferSource;
+        info.Usage = ImageUsageBits::SampledImage | ImageUsageBits::ComputeShaderSRV | ImageUsageBits::TransferSource;
         info.Type = ImageType::Type2D;
         info.Format = ImageFormat{ ImageComponentFormats::RGBA8, ImageDataType::UNorm };
         info.Width = width;

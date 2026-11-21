@@ -212,7 +212,7 @@ namespace
 
         ImageCreateInfo info{};
         info.Domain = ResourceDomain::GPUOnly;
-        info.Usage = ImageUsageBits::SampledImage | ImageUsageBits::SrvFragmentShader;
+        info.Usage = ImageUsageBits::SampledImage | ImageUsageBits::FragmentShaderSRV;
         info.Type = ImageType::Type2D;
         info.Format = format;
         info.Width = static_cast<uint32_t>(extent.x);
@@ -225,7 +225,7 @@ namespace
         info.ViewInfo->Range.LevelCount = levels;
         info.Name = name;
 
-        rhi::ResourceFuture<GraphicsResource> reply = resources.CreateImage(info, mipData, ImageUsageBits::SrvFragmentShader);
+        rhi::ResourceFuture<GraphicsResource> reply = resources.CreateImage(info, mipData, ImageUsageBits::FragmentShaderSRV);
         if (resources.Wait(reply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return std::unexpected(std::string{ "creating the GPU image failed" });

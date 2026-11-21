@@ -9,6 +9,17 @@ OPTION(RHI_SYSTEM_DEBUG_INFO_CALLING_FN "Enable calling function name in debug i
 set(RHI_SYSTEM_GRAPHICS_API "Vulkan" CACHE STRING "Graphics API to use (Vulkan, DirectX12)")
 set_property(CACHE RHI_SYSTEM_GRAPHICS_API PROPERTY STRINGS "Vulkan" "DirectX12")
 
+# the plain types (RhiFlags.hpp, RhiDefines.hpp, RhiHandle.hpp, RhiTypes.hpp), with no RHI: code that must not reach the
+# device links this target alone. The two folders also hold headers that include Vulkan. An include path links nothing,
+# so those headers stay out of reach until a source includes them
+add_library(rhi_types INTERFACE)
+target_include_directories(rhi_types INTERFACE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/core"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/objects"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../foundation/include")
+target_link_libraries(rhi_types INTERFACE foundation)
+bootstrap_assert_no_rhi(rhi_types)
+
 set(RHI_CORE_HEADERS
     "include/core/DebugUtilFns.hpp"
     "include/core/ExtensionPack.hpp"
@@ -96,7 +107,7 @@ else()
     message(FATAL_ERROR "Unknown RHI_SYSTEM_GRAPHICS_API: ${RHI_SYSTEM_GRAPHICS_API}. Supported values are Vulkan and DirectX12.")
 endif()
 
-TARGET_LINK_LIBRARIES(rhi_system PUBLIC ${Vulkan_LIBRARY} shader_bundle lodestone::client_library lodestone::client_interface)
+TARGET_LINK_LIBRARIES(rhi_system PUBLIC rhi_types ${Vulkan_LIBRARY} shader_bundle lodestone::client_library lodestone::client_interface)
 TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC
     "../../third_party/json/include"
     ${Vulkan_INCLUDE_DIR}

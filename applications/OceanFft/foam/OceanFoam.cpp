@@ -392,11 +392,11 @@ namespace ocean
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
             // storage for the step, sampled by the step and by the surface, and a transfer destination for tests and clears
-            info.Usage = ImageUsageBits::UavComputeShader |
+            info.Usage = ImageUsageBits::ComputeShaderUAV |
                          ImageUsageBits::SampledImage |
-                         ImageUsageBits::SrvComputeShader |
-                         ImageUsageBits::SrvFragmentShader |
-                         ImageUsageBits::SrvVertexShader |
+                         ImageUsageBits::ComputeShaderSRV |
+                         ImageUsageBits::FragmentShaderSRV |
+                         ImageUsageBits::VertexShaderSRV |
                          ImageUsageBits::TransferDestination;
             info.Format = CommonFormats::R16_Float;
             info.Width = static_cast<uint32_t>(resolution);

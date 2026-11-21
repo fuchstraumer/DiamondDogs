@@ -2,6 +2,7 @@
 #include "RhiHandle.hpp"
 #include "RhiResult.hpp"
 #include "ShaderProgram.hpp"
+#include "containers/SmallVector.hpp"
 #include "core/VulkanConversions.hpp"
 #include <cassert>
 #include <cstddef>
@@ -20,6 +21,12 @@
 
 namespace rhi
 {
+    namespace
+    {
+        // Barrier keeps this many barriers of each kind on the stack, so a small batch allocates nothing
+        constexpr std::size_t k_BarrierInlineCapacity{ 16 };
+    }
+
     CommandBuffer::CommandBuffer(const CommandBufferHandle& handle) noexcept : handle{ handle }
     {
     }
@@ -272,7 +279,7 @@ namespace rhi
     void CommandBuffer::Barrier(const DependencyInfo& dependencies) noexcept
     {
         assert(isRecording && "CommandBuffer::Barrier() called while not in recording mode.");
-        std::vector<VkMemoryBarrier2> memoryBarriers;
+        foundation::SmallVector<VkMemoryBarrier2, k_BarrierInlineCapacity> memoryBarriers;
         memoryBarriers.reserve(dependencies.GlobalBarriers.size());
         for (const GlobalBarrier& barrier : dependencies.GlobalBarriers)
         {
@@ -287,7 +294,7 @@ namespace rhi
             });
         }
 
-        std::vector<VkBufferMemoryBarrier2> bufferBarriers;
+        foundation::SmallVector<VkBufferMemoryBarrier2, k_BarrierInlineCapacity> bufferBarriers;
         bufferBarriers.reserve(dependencies.BufferBarriers.size());
         for (const BufferBarrier& barrier : dependencies.BufferBarriers)
         {
@@ -307,7 +314,7 @@ namespace rhi
             });
         }
 
-        std::vector<VkImageMemoryBarrier2> imageBarriers;
+        foundation::SmallVector<VkImageMemoryBarrier2, k_BarrierInlineCapacity> imageBarriers;
         imageBarriers.reserve(dependencies.ImageBarriers.size());
         for (const ImageBarrier& barrier : dependencies.ImageBarriers)
         {

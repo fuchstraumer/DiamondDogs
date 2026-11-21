@@ -603,21 +603,21 @@ namespace
 
         BufferCreateInfo sceneInfo{};
         sceneInfo.Domain = ResourceDomain::CPUToGPU;
-        sceneInfo.Usage = BufferUsageBits::CopySource;
+        sceneInfo.Usage = BufferUsageBits::TransferSource;
         sceneInfo.Size = sceneHalves.size() * sizeof(uint16_t);
         const RhiBufferResourceData sceneData{ std::as_bytes(std::span{ sceneHalves }), 0u };
         runner.SceneUpload = WaitForResource(context.Resources, context.Resources.CreateBuffer(sceneInfo, std::span{ &sceneData, 1 }));
 
         BufferCreateInfo uiInfo{};
         uiInfo.Domain = ResourceDomain::CPUToGPU;
-        uiInfo.Usage = BufferUsageBits::CopySource;
+        uiInfo.Usage = BufferUsageBits::TransferSource;
         uiInfo.Size = uiBytes.size();
         const RhiBufferResourceData uiData{ std::as_bytes(std::span{ uiBytes }), 0u };
         runner.UiUpload = WaitForResource(context.Resources, context.Resources.CreateBuffer(uiInfo, std::span{ &uiData, 1 }));
 
         BufferCreateInfo readbackInfo{};
         readbackInfo.Domain = ResourceDomain::GPUToCPU;
-        readbackInfo.Usage = BufferUsageBits::CopyDestination;
+        readbackInfo.Usage = BufferUsageBits::TransferDestination;
         readbackInfo.Size = pixelCount * runner.Encoding->BytesPerPixel;
         runner.Readback = WaitForResource(context.Resources, context.Resources.CreateBuffer(readbackInfo, {}));
 
