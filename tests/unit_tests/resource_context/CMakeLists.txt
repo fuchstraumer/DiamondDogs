@@ -6,6 +6,7 @@ set(RESOURCE_CONTEXT_TEST_SOURCES
     ResourceContextFixture.hpp
     ResourceContextFixture.cpp
     test_buffers.cpp
+    test_regions.cpp
     test_images.cpp
     test_concurrency.cpp
     test_retirement.cpp

@@ -74,6 +74,18 @@ namespace
     [[nodiscard]] bool WaitsAreValid(const TransferWaitSet& waits) noexcept;
     /** @brief Returns true when the copy kind matches the kinds of the two resources. */
     [[nodiscard]] bool CopyKindMatches(CopyKind kind, bool src_is_buffer, bool dst_is_buffer) noexcept;
+    /** @brief Returns true when the range lies inside a buffer of `buffer_size` bytes. It compares against the size that
+     *  is left over, so that offset + size cannot overflow. */
+    [[nodiscard]] bool RangeIsInside(uint64_t offset, uint64_t size, uint64_t buffer_size) noexcept;
+    /** @brief Returns true when both ranges have bytes, and share at least one. Both ranges must be inside a buffer. */
+    [[nodiscard]] bool RangesOverlap(uint64_t first_offset, uint64_t first_size, uint64_t second_offset, uint64_t second_size) noexcept;
+    /** @brief Returns true when every region is acceptable: a size above 0, offsets and sizes that are multiples of 4,
+     *  and both ranges inside their buffers. For a copy inside one buffer, no source range may overlap a destination
+     *  range, and no two destination ranges may overlap. */
+    [[nodiscard]] bool BufferCopyRegionsAreValid(std::span<const BufferCopyRegion> regions, uint64_t source_size, uint64_t destination_size, bool is_same_buffer) noexcept;
+    /** @brief Returns true when every upload piece has an offset and a size that are multiples of 4, ends inside the
+     *  buffer, and overlaps no other piece in the destination. */
+    [[nodiscard]] bool BufferUploadPiecesAreValid(const InternalResourceDataContainer& data, uint64_t buffer_size) noexcept;
     /** @brief Returns true when a resource with these requirements fits at the offset: aligned, inside the heap, and
      *  of a memory type that the resource allows. */
     [[nodiscard]] bool PlacementFits(const VkMemoryRequirements& requirements, uint64_t offset, uint64_t heap_size, uint32_t heap_memory_type_index) noexcept;
@@ -734,12 +746,20 @@ void ResourceContextImpl::processMessage(SetBufferDataMessage&& message)
         return;
     }
 
+    const uint64_t bufferSize = resourceRegistry.get<BufferCreateInfo>(*entity).Size;
+
     if (allocationIsHostVisible(*entity))
     {
         // the worker writes this memory at once, so a wait would block the worker thread
         if (message.Waits.Count > 0)
         {
             futures.Fail(message.Future, rhi::ResourceError::WaitOnHostWrite);
+            return;
+        }
+
+        if (!BufferUploadPiecesAreValid(message.Data, bufferSize))
+        {
+            futures.Fail(message.Future, rhi::ResourceError::InvalidRegion);
             return;
         }
 
@@ -757,6 +777,12 @@ void ResourceContextImpl::processMessage(SetBufferDataMessage&& message)
     if (!CanBeTransferDestination(resourceRegistry, *entity))
     {
         futures.Fail(message.Future, rhi::ResourceError::MissingTransferUsage);
+        return;
+    }
+
+    if (!BufferUploadPiecesAreValid(message.Data, bufferSize))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidRegion);
         return;
     }
 
@@ -1067,18 +1093,13 @@ void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
     }
 
     // the transfer thread trusts every message it gets, so the checks that need both create infos happen here
-    const std::array<entt::entity, 2> touched{ srcEntity, dstEntity };
     if (message.Kind == CopyKind::BufferToBuffer)
     {
-        if (resourceRegistry.get<BufferCreateInfo>(srcEntity).Size > resourceRegistry.get<BufferCreateInfo>(dstEntity).Size)
-        {
-            futures.Fail(message.Future, rhi::ResourceError::CopySizeMismatch);
-            return;
-        }
-
-        enqueueTransfer(TransferSystemCopyBufferToBufferMessage{ bufferTransferInfo(srcEntity), bufferTransferInfo(dstEntity), message.Future }, touched, message.Waits);
+        enqueueBufferCopy(message, srcEntity, dstEntity);
         return;
     }
+
+    const std::array<entt::entity, 2> touched{ srcEntity, dstEntity };
 
     if (srcIsImage && !TransitionIsValidForImage(resourceRegistry.get<ImageCreateInfo>(srcEntity).Usage, message.SourceUsage))
     {
@@ -1119,6 +1140,40 @@ void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
 
     const TransferSystemReqImageInfo srcInfo = imageTransferInfo(srcEntity, message.SourceUsage);
     enqueueTransfer(TransferSystemCopyImageToBufferMessage{ srcInfo, bufferTransferInfo(dstEntity), message.Future }, touched, message.Waits);
+}
+
+void ResourceContextImpl::enqueueBufferCopy(CopyResourceContentsMessage& message, entt::entity src_entity, entt::entity dst_entity)
+{
+    const uint64_t sourceSize = resourceRegistry.get<BufferCreateInfo>(src_entity).Size;
+    const uint64_t destinationSize = resourceRegistry.get<BufferCreateInfo>(dst_entity).Size;
+    const bool copiesWholeSource = message.Regions.Count == 0;
+
+    // CopyBufferContents sends no regions: its one region covers the source, so it is valid when the source fits
+    if (copiesWholeSource)
+    {
+        if (sourceSize > destinationSize)
+        {
+            futures.Fail(message.Future, rhi::ResourceError::CopySizeMismatch);
+            return;
+        }
+
+        const BufferCopyRegion wholeSource{ 0u, 0u, sourceSize };
+        message.Regions = CopyRegionBlock(std::span<const BufferCopyRegion>(&wholeSource, 1u));
+    }
+
+    const bool isSameBuffer = src_entity == dst_entity;
+    if (!copiesWholeSource && !BufferCopyRegionsAreValid(message.Regions.View(), sourceSize, destinationSize, isSameBuffer))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidRegion);
+        return;
+    }
+
+    TransferSystemCopyBufferToBufferMessage transferMessage{ bufferTransferInfo(src_entity), bufferTransferInfo(dst_entity) };
+    transferMessage.Regions = std::move(message.Regions);
+    transferMessage.Future = message.Future;
+
+    const std::array<entt::entity, 2> touched{ src_entity, dst_entity };
+    enqueueTransfer(std::move(transferMessage), touched, message.Waits);
 }
 
 void ResourceContextImpl::processMessage(DestroyResourceMessage&& message)
@@ -1653,11 +1708,9 @@ void ResourceContextImpl::setBufferDataHostOnly(entt::entity entity, InternalRes
     InternalResourceDataContainer::BufferDataVector& dataVector =
         std::get<InternalResourceDataContainer::BufferDataVector>(data_container.DataVector);
 
-    size_t offset = 0u;
     for (const InternalResourceDataContainer::BufferData& data : dataVector)
     {
-        std::memcpy(static_cast<std::byte*>(mappedAddress) + offset, data.Data.get(), data.Size);
-        offset += data.Size;
+        std::memcpy(static_cast<std::byte*>(mappedAddress) + data.DestinationOffset, data.Data.get(), data.Size);
     }
 
     vmaFlushAllocation(allocatorHandle, alloc, 0u, VK_WHOLE_SIZE);
@@ -2016,6 +2069,92 @@ namespace
         case CopyKind::ImageToImage: return !src_is_buffer && !dst_is_buffer;
         default: return false;
         }
+    }
+
+    bool RangeIsInside(uint64_t offset, uint64_t size, uint64_t buffer_size) noexcept
+    {
+        return offset <= buffer_size && size <= buffer_size - offset;
+    }
+
+    bool RangesOverlap(uint64_t first_offset, uint64_t first_size, uint64_t second_offset, uint64_t second_size) noexcept
+    {
+        if (first_size == 0u || second_size == 0u)
+        {
+            return false;
+        }
+
+        return first_offset < second_offset + second_size && second_offset < first_offset + first_size;
+    }
+
+    bool BufferCopyRegionsAreValid(std::span<const BufferCopyRegion> regions, uint64_t source_size, uint64_t destination_size, bool is_same_buffer) noexcept
+    {
+        for (const BufferCopyRegion& region : regions)
+        {
+            const bool isEmpty = region.Size == 0u;
+            const bool isUnaligned = region.SourceOffset % 4u != 0u || region.DestinationOffset % 4u != 0u || region.Size % 4u != 0u;
+            const bool isInside = RangeIsInside(region.SourceOffset, region.Size, source_size) &&
+                                  RangeIsInside(region.DestinationOffset, region.Size, destination_size);
+            if (isEmpty || isUnaligned || !isInside)
+            {
+                return false;
+            }
+        }
+
+        if (!is_same_buffer)
+        {
+            return true;
+        }
+
+        const int32_t regionCount = static_cast<int32_t>(regions.size());
+        for (int32_t firstIndex = 0; firstIndex < regionCount; ++firstIndex)
+        {
+            const BufferCopyRegion& first = regions[static_cast<size_t>(firstIndex)];
+            for (int32_t secondIndex = 0; secondIndex < regionCount; ++secondIndex)
+            {
+                const BufferCopyRegion& second = regions[static_cast<size_t>(secondIndex)];
+                const bool sourceHitsDestination = RangesOverlap(first.SourceOffset, first.Size, second.DestinationOffset, second.Size);
+                const bool destinationsOverlap = firstIndex < secondIndex &&
+                                                 RangesOverlap(first.DestinationOffset, first.Size, second.DestinationOffset, second.Size);
+                if (sourceHitsDestination || destinationsOverlap)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    bool BufferUploadPiecesAreValid(const InternalResourceDataContainer& data, uint64_t buffer_size) noexcept
+    {
+        const InternalResourceDataContainer::BufferDataVector& pieces =
+            std::get<InternalResourceDataContainer::BufferDataVector>(data.DataVector);
+
+        for (const InternalResourceDataContainer::BufferData& piece : pieces)
+        {
+            const uint64_t pieceSize = static_cast<uint64_t>(piece.Size);
+            const bool isUnaligned = piece.DestinationOffset % 4u != 0u || pieceSize % 4u != 0u;
+            if (isUnaligned || !RangeIsInside(piece.DestinationOffset, pieceSize, buffer_size))
+            {
+                return false;
+            }
+        }
+
+        const int32_t pieceCount = static_cast<int32_t>(pieces.size());
+        for (int32_t firstIndex = 0; firstIndex < pieceCount; ++firstIndex)
+        {
+            const InternalResourceDataContainer::BufferData& first = pieces[static_cast<size_t>(firstIndex)];
+            for (int32_t secondIndex = firstIndex + 1; secondIndex < pieceCount; ++secondIndex)
+            {
+                const InternalResourceDataContainer::BufferData& second = pieces[static_cast<size_t>(secondIndex)];
+                if (RangesOverlap(first.DestinationOffset, first.Size, second.DestinationOffset, second.Size))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     bool PlacementFits(const VkMemoryRequirements& requirements, uint64_t offset, uint64_t heap_size, uint32_t heap_memory_type_index) noexcept

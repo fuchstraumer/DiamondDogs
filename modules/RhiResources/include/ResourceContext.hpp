@@ -188,7 +188,7 @@ public:
      * buffers are written directly; device-local buffers go through the transfer system.
      *
      * @param create_info Domain, usage, size, creation flags and an optional debug name.
-     * @param initial_data Initial data regions, written one after another from offset 0. Empty for none.
+     * @param initial_data Initial data pieces. Each piece is written at its own `DestinationOffset`. Empty for none.
      * @return Future for tracking creation progress
      */
     [[nodiscard]] rhi::ResourceFuture<GraphicsResource> CreateBuffer(
@@ -233,11 +233,14 @@ public:
     /**
      * @brief Upload data to an existing buffer.
      * This operation may use staging buffers for GPU-only resources, briefly inflating memory usage. For
-     * CPU-accessible buffers, data is written directly to mapped memory. Multiple data regions can be 
-     * uploaded in a single operation.
-     * 
+     * CPU-accessible buffers, data is written directly to mapped memory. Multiple data pieces can be
+     * uploaded in a single operation. Each piece is written at its own `DestinationOffset`, and the bytes between
+     * pieces do not change.
+     *
      * @param buffer The target buffer resource to update
-     * @param data The data regions to upload
+     * @param data The data pieces to upload. A `DestinationOffset` or a piece size that is not a multiple of 4, a piece
+     *        that ends outside the buffer, or two pieces that overlap, fails the whole call with InvalidRegion and
+     *        writes nothing.
      * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
      *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
      *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
@@ -364,7 +367,8 @@ public:
         std::span<const rhi::TransferWait> waits);
 
     /**
-     * @brief Copy the contents of one buffer to another existing buffer. The entire source is copied.
+     * @brief Copy the contents of one buffer to another existing buffer. The entire source is copied, from offset 0 of
+     * the source to offset 0 of the destination. This is CopyBufferRegions with the one region that covers the source.
      *
      * @param src The source buffer to copy from
      * @param dst The destination buffer to copy to
@@ -378,6 +382,30 @@ public:
     [[nodiscard]] rhi::OperationFuture CopyBufferContents(
         GraphicsResource src,
         GraphicsResource dst,
+        std::span<const rhi::TransferWait> waits);
+
+    /**
+     * @brief Copy byte ranges of one buffer to another existing buffer, or to other places in the same buffer. All
+     * regions go on one transfer, so the call has one ticket.
+     *
+     * @param src The source buffer to copy from
+     * @param dst The destination buffer to copy to. It can be `src`, when no source range overlaps a destination range.
+     * @param regions From 1 to k_MaxTransferRegions regions. Every offset and size must be a multiple of 4, every size
+     *        must be above 0, and every range must be inside its buffer. A bad region fails the whole call with
+     *        InvalidRegion, and nothing is copied. A call with no region, or with more than k_MaxTransferRegions
+     *        regions, fails at once on the calling thread. The context copies the regions before the call returns.
+     * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
+     *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
+     *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
+     *        waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
+     * @return Future for tracking transfer progress. Fails with WrongResourceKind when either side is an image. A
+     *         host-visible destination still goes through the transfer queue, because the source is on the GPU.
+     */
+    [[nodiscard]] rhi::OperationFuture CopyBufferRegions(
+        GraphicsResource src,
+        GraphicsResource dst,
+        std::span<const BufferCopyRegion> regions,
         std::span<const rhi::TransferWait> waits);
 
     /**

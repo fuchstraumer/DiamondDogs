@@ -90,7 +90,8 @@ the ticket, the `GraphicsResource`, and the mapped pointer.
 `rhi::ResourceError` says why a future failed. `rhi::ToString` gives the name. The resolve step returns
 `StaleResource`, `WrongResourceKind` or `ResourceRetiring`. The create checks return `InvalidCreateInfo` or
 `UnsupportedUsage`. The transfer checks return `MissingTransferUsage`, `InvalidFillRange`, `CopySizeMismatch`,
-`CopyShapeMismatch`, `UnsupportedCopy`, `InvalidUsageTransition`, `TooManyWaits`, `InvalidWait` or `WaitOnHostWrite`.
+`CopyShapeMismatch`, `UnsupportedCopy`, `InvalidUsageTransition`, `TooManyWaits`, `InvalidWait`, `WaitOnHostWrite` or
+`InvalidRegion`.
 The placed creates return `InvalidPlacement`, and a destroy of a heap that still has
 placed resources returns `HeapInUse`. The transfer thread returns `StagingFailed`, `RecordingFailed` or
 `SubmitFailed`. The timeline calls return `InvalidTimeline`, `TimelineAlreadyRegistered`, `NoFreeTimelineSlot` or
@@ -180,8 +181,8 @@ buffer for this, the staging ring. It is mapped for the life of the context, so 
   ticket of its transfer as a tag. A range never wraps: when it does not fit at the end of the ring, the allocator skips
   the end and starts at offset 0. A ring with no live range restarts at offset 0.
 - **One range for each transfer.** The transfer thread sums the staged size of all pieces of the transfer, and takes one
-  range for them. A buffer upload packs its pieces, because the destination takes them one after another, and its range
-  starts on a multiple of 16. An image upload starts each piece on a multiple of the least common multiple of the
+  range for them. A buffer upload packs its pieces in the range, and each piece lands at its own `DestinationOffset` in
+  the destination. The range starts on a multiple of 16. An image upload starts each piece on a multiple of the least common multiple of the
   texel block size and 4. That value is not always a power of two. RGB32F has a 12-byte texel, so the allocator aligns
   with a modulo and not with a mask.
 - **Release.** `pollCompletion` calls `ReleaseThrough` with the completed ticket. This frees every range whose tag is at
@@ -244,7 +245,7 @@ check stops a usage that gives a layout that validation rejects later, far from 
 ### Inbound waits
 
 A transfer can wait for GPU work on another queue. `SetBufferData`, `SetImageData`, `FillBuffer`, `CopyBuffer`,
-`CopyImage`, `CopyBufferContents`, `CopyImageToBuffer`, `CopyBufferToImage` and `CopyImageContents` take
+`CopyImage`, `CopyBufferContents`, `CopyBufferRegions`, `CopyImageToBuffer`, `CopyBufferToImage` and `CopyImageContents` take
 `std::span<const rhi::TransferWait> waits` as their last parameter. An empty span means no wait. The create calls,
 `MapBuffer`, `UnmapBuffer` and `DestroyResource` take none.
 
@@ -282,6 +283,30 @@ transfer with waits goes in a batch of its own:
 The rule does not help the transfers issued **after** the waiting one. They go in later batches, and their signals come
 after the blocked batch on the same queue. They cannot complete before the wait is released. The tickets stay in order,
 which the completion code needs. A second transfer queue would remove this limit. It is not built.
+
+### Regions
+
+A buffer transfer can move part of a buffer. Image regions come later.
+
+- **`DestinationOffset`.** Each `RhiBufferResourceData` piece has a `DestinationOffset`, the byte offset in the
+  destination buffer where the piece starts. A call with several pieces gives each piece its own offset, because the
+  context does not pack them. The bytes between the pieces do not change. A host-visible destination is written at
+  once, at each offset. A device-local destination gets the pieces packed in staging, and each copy command has the
+  `DestinationOffset` of its piece. A one-piece call at offset 0 writes from the start of the buffer.
+- **`CopyBufferRegions`.** It takes a span of `BufferCopyRegion` (`SourceOffset`, `DestinationOffset`, `Size`) and
+  copies each range on one transfer, so the call has one ticket. The regions go into one heap block for the call.
+  The source and the destination can be the same buffer. A host-visible destination still goes through the transfer
+  queue, because the source is on the GPU.
+- **Limits.** One call takes from 1 to `k_MaxTransferRegions` (256) regions. Every offset and size is a multiple of 4.
+  Every range is inside its buffer. A copy has no region of size 0. In a copy inside one buffer, no source range
+  overlaps a destination range, and no two destination ranges overlap. Two upload pieces do not overlap in the
+  destination.
+- **All or nothing.** The worker checks every region before it issues the ticket. One bad region fails the whole call
+  with `InvalidRegion`, and nothing is recorded or written. These are input checks, so they stay in release builds.
+  A call with no region, or with more than 256, fails on the calling thread.
+- **`CopyBufferContents`** is the one-region case. The worker builds the region `{ 0, 0, source size }`. It still fails
+  with `CopySizeMismatch` when the source is larger than the destination, and it does not apply the multiple-of-4
+  rule, so a buffer of any size copies whole.
 
 ### In-frame copies
 

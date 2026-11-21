@@ -46,6 +46,19 @@ struct TransferWaitSet
     int32_t Count{ 0 };
 };
 
+/** @brief The regions of one copy call, in one heap block. One allocation per call, and none per region. */
+struct CopyRegionBlock
+{
+    CopyRegionBlock() noexcept = default;
+    explicit CopyRegionBlock(std::span<const BufferCopyRegion> regions);
+
+    /** @brief Returns the regions. Empty when the block has none. */
+    [[nodiscard]] std::span<const BufferCopyRegion> View() const noexcept;
+
+    std::unique_ptr<BufferCopyRegion[]> Items{ nullptr };
+    int32_t Count{ 0 };
+};
+
 // Users still call functions with the old API on the surface, but we translate to these internal structures
 // so that we can place them in the message queue (type erased by being shoved in a variant, effectively). `Future` is
 // the index of the call's slot in the context's future table: the handlers write the result there
@@ -70,7 +83,8 @@ struct InternalResourceDataContainer
 
         std::unique_ptr<std::byte[]> Data{ nullptr };
         size_t Size{ 0u };
-        size_t Alignment{ 0u };
+        // the byte offset in the destination buffer where this piece starts
+        uint64_t DestinationOffset{ 0u };
     };
 
     using BufferDataVector = std::vector<BufferData>;
@@ -263,6 +277,8 @@ struct CopyResourceContentsMessage
     CopyKind Kind{ CopyKind::Invalid };
     GraphicsResource SourceResource{ GraphicsResource::Null() };
     GraphicsResource DestinationResource{ GraphicsResource::Null() };
+    // read only for BufferToBuffer. A block with no regions means the whole source, as CopyBufferContents asks
+    CopyRegionBlock Regions;
     // each is read only when that side is an image
     rhi::ImageUsageTransition SourceUsage;
     rhi::ImageUsageTransition DestinationUsage;
@@ -388,6 +404,8 @@ struct TransferSystemCopyBufferToBufferMessage
 {
     TransferSystemReqBufferInfo SrcBufferInfo;
     TransferSystemReqBufferInfo DstBufferInfo;
+    // the worker checked every region, and the block is never empty
+    CopyRegionBlock Regions;
     int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
     TransferWaitSet Waits;

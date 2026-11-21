@@ -2,6 +2,7 @@
 #include "ResourceTypes.hpp"
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <optional>
@@ -41,10 +42,27 @@ bool DebugName::Empty() const noexcept
 }
 
 
+CopyRegionBlock::CopyRegionBlock(std::span<const BufferCopyRegion> regions) :
+    Items{ std::make_unique<BufferCopyRegion[]>(regions.size()) },
+    Count{ static_cast<int32_t>(regions.size()) }
+{
+    std::ranges::copy(regions, Items.get());
+}
+
+std::span<const BufferCopyRegion> CopyRegionBlock::View() const noexcept
+{
+    if (Items == nullptr)
+    {
+        return {};
+    }
+
+    return std::span<const BufferCopyRegion>(Items.get(), static_cast<size_t>(Count));
+}
+
 InternalResourceDataContainer::BufferData::BufferData(const RhiBufferResourceData& _data) :
     Data{ std::make_unique<std::byte[]>(_data.Data.size()) },
     Size{ _data.Data.size() },
-    Alignment{ _data.DataAlignment }
+    DestinationOffset{ _data.DestinationOffset }
 {
     std::memcpy(Data.get(), _data.Data.data(), _data.Data.size());
 }
@@ -52,10 +70,10 @@ InternalResourceDataContainer::BufferData::BufferData(const RhiBufferResourceDat
 InternalResourceDataContainer::BufferData::BufferData(BufferData&& other) noexcept :
     Data{ std::move(other.Data) },
     Size{ other.Size },
-    Alignment{ other.Alignment }
+    DestinationOffset{ other.DestinationOffset }
 {}
 
-InternalResourceDataContainer::BufferData::BufferData() noexcept : Data{ nullptr }, Size{ 0 }, Alignment{ 0 }
+InternalResourceDataContainer::BufferData::BufferData() noexcept : Data{ nullptr }
 {}
 
 InternalResourceDataContainer::InternalResourceDataContainer::BufferData& InternalResourceDataContainer::BufferData::operator=(BufferData&& other) noexcept
@@ -66,7 +84,7 @@ InternalResourceDataContainer::InternalResourceDataContainer::BufferData& Intern
     }
     Data = std::move(other.Data);
     Size = other.Size;
-    Alignment = other.Alignment;
+    DestinationOffset = other.DestinationOffset;
     return *this;
 }
 
@@ -94,12 +112,7 @@ InternalResourceDataContainer::ImageData::ImageData(ImageData&& other) noexcept 
 
 InternalResourceDataContainer::ImageData::ImageData() noexcept :
     Data{ nullptr },
-    Size{ 0 },
-    Width{ 0 },
-    Height{ 0 },
-    ArrayLayer{ 0 },
-    NumLayers{ 1 },
-    MipLevel{ 0 }
+    NumLayers{ 1 }
 {}
 
 InternalResourceDataContainer::InternalResourceDataContainer::ImageData& InternalResourceDataContainer::ImageData::operator=(ImageData&& other) noexcept

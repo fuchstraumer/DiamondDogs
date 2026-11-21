@@ -19,8 +19,9 @@ struct StagingDestination
     std::span<std::byte> Mapped;
 };
 
-/** @brief Returns the bytes that a buffer upload stages. The pieces are packed, because the destination buffer takes
- *  them one after another from its offset 0. */
+/** @brief Returns the bytes that a buffer upload stages. The pieces are packed in the staging range, one after
+ *  another. Where each piece lands in the destination buffer is its `DestinationOffset`, and it does not change the
+ *  staged size. */
 [[nodiscard]] uint64_t StagedBufferSize(const InternalResourceDataContainer::BufferDataVector& data_vector) noexcept;
 
 /** @brief Returns the bytes that an image upload stages, with the start of each piece aligned to `alignment`. */
@@ -30,8 +31,9 @@ struct StagingDestination
  *  block size of the format and 4. A 12-byte texel such as RGB32F is why this is not a power of two. */
 [[nodiscard]] uint64_t ImageStagingAlignment(const ImageFormat& format) noexcept;
 
-/** @brief Copies each piece into `destination` and returns one copy region per piece. The destination must have
- *  StagedBufferSize bytes. */
+/** @brief Copies each piece into `destination`, packed one after another, and returns one copy region per piece. The
+ *  source offset of a region is the place of the piece in staging, and its destination offset is the `DestinationOffset`
+ *  of the piece. The destination must have StagedBufferSize bytes. */
 [[nodiscard]] std::vector<VkBufferCopy> WriteBufferData(
     const StagingDestination& destination,
     const InternalResourceDataContainer::BufferDataVector& data_vector);

@@ -82,6 +82,11 @@ namespace rhi
         InvalidPlacement = 29,
         /** @brief A destroy of a heap that still has placed resources that are not freed yet. The heap stays alive. */
         HeapInUse = 30,
+        /** @brief A region call or an upload with a bad range. The causes are a size of 0 (regions only); a range outside
+         *  the source or the destination; an offset or a size that is not a multiple of 4; two ranges that overlap (in
+         *  a copy inside one buffer, or two upload pieces in the destination); no region; and more than
+         *  k_MaxTransferRegions regions. The whole call fails and nothing is recorded or written. */
+        InvalidRegion = 31,
     };
 
     [[nodiscard]] std::string_view ToString(ResourceError error) noexcept;

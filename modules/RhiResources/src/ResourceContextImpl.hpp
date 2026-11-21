@@ -149,6 +149,11 @@ private:
     void processMessage(UnregisterConsumerTimelineMessage&& message);
     void processMessage(TransferProgressMessage&& message) noexcept;
 
+    /** @brief Checks and enqueues a buffer to buffer copy that passed the resolve, wait and usage checks. A message with
+     *  no regions is the whole-source copy of CopyBufferContents, and gets its one region here. A message with regions
+     *  must pass BufferCopyRegionsAreValid. Fails the future when a check fails. */
+    void enqueueBufferCopy(CopyResourceContentsMessage& message, entt::entity src_entity, entt::entity dst_entity);
+
     /** @brief Issues the next ticket, publishes it in the future with the Created state, records it on every entity
      *  the transfer touches, and enqueues the transfer with its waits. The only path into the transfer system. */
     template<typename TransferMessage>

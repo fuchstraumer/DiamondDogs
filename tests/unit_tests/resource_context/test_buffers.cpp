@@ -75,7 +75,7 @@ TEST_F(ResourceContextTest, InitialDataRegionsAreWrittenBackToBack)
     const std::array<RhiBufferResourceData, 2> data
     {
         RhiBufferResourceData{ std::as_bytes(std::span{ first }), 0u },
-        RhiBufferResourceData{ std::as_bytes(std::span{ second }), 0u },
+        RhiBufferResourceData{ std::as_bytes(std::span{ second }), first.size() * sizeof(uint32_t) },
     };
     const size_t totalBytes = data[0].Data.size() + data[1].Data.size();
 
@@ -102,7 +102,8 @@ TEST_F(ResourceContextTest, ManyInitialDataRegionsAreWrittenBackToBack)
 
     for (size_t index = 0u; index < regions.size(); ++index)
     {
-        data[index] = RhiBufferResourceData{ std::as_bytes(std::span{ regions[index] }), 0u };
+        // each piece starts where the pieces before it end
+        data[index] = RhiBufferResourceData{ std::as_bytes(std::span{ regions[index] }), expected.size() * sizeof(uint32_t) };
         expected.insert(expected.end(), regions[index].begin(), regions[index].end());
     }
 

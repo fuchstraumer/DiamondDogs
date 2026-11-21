@@ -346,6 +346,43 @@ rhi::OperationFuture ResourceContext::CopyBufferContents(
     return PushCopyContents(*impl, std::move(message), waits);
 }
 
+rhi::OperationFuture ResourceContext::CopyBufferRegions(
+    GraphicsResource src,
+    GraphicsResource dst,
+    std::span<const BufferCopyRegion> regions,
+    std::span<const rhi::TransferWait> waits)
+{
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
+    const bool regionCountIsValid = !regions.empty() && std::ssize(regions) <= k_MaxTransferRegions;
+    if (!regionCountIsValid)
+    {
+        impl->Futures().Fail(slot, rhi::ResourceError::InvalidRegion);
+        return future;
+    }
+
+    if (RefuseTooManyWaits(*impl, slot, waits))
+    {
+        return future;
+    }
+
+    CopyResourceContentsMessage message;
+    message.Kind = CopyKind::BufferToBuffer;
+    message.SourceResource = src;
+    message.DestinationResource = dst;
+    message.Regions = CopyRegionBlock(regions);
+    message.Waits = MakeWaitSet(waits);
+    message.Future = slot;
+
+    impl->PushMessage(std::move(message));
+    return future;
+}
+
 rhi::OperationFuture ResourceContext::CopyImageToBuffer(
     GraphicsResource image,
     rhi::ImageUsageTransition image_usage,

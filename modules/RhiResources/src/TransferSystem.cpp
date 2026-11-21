@@ -25,6 +25,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <thread>
 #include <utility>
@@ -860,13 +861,13 @@ void ResourceTransferSystem::processMessage(TransferSystemFillBufferMessage&& me
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToBufferMessage&& message)
 {
-    // the context worker checked that the source fits in the destination
-    const VkBufferCopy copy
+    // the context worker checked every region
+    const std::span<const BufferCopyRegion> regions = message.Regions.View();
+    std::array<VkBufferCopy, k_MaxTransferRegions> copies{};
+    for (auto&& [index, region] : std::views::enumerate(regions))
     {
-        0u,
-        0u,
-        message.SrcBufferInfo.CreateInfo.Size
-    };
+        copies[static_cast<size_t>(index)] = VkBufferCopy{ region.SourceOffset, region.DestinationOffset, region.Size };
+    }
 
     const VkCommandBuffer cmd = beginTransfer(message.Waits);
     if (cmd == VK_NULL_HANDLE)
@@ -875,7 +876,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToBufferMess
         return;
     }
 
-    vkCmdCopyBuffer(cmd, message.SrcBufferInfo.BufferHandle, message.DstBufferInfo.BufferHandle, 1, &copy);
+    vkCmdCopyBuffer(cmd, message.SrcBufferInfo.BufferHandle, message.DstBufferInfo.BufferHandle, static_cast<uint32_t>(regions.size()), copies.data());
     endTransfer(message.Future, StagingGrant{}, message.Ticket, message.Waits);
 }
 

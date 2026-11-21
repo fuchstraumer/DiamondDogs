@@ -14,13 +14,26 @@
  * @brief Contains definitions for user-facing resource data structures for use with the resource context and RHI.
  */
 
-/** @brief Holds the raw data and some metadata that will be used to set the contents of a buffer resource (especially during initial creation).
- *  Build Data with std::as_bytes(std::span{ values }). The context copies the bytes before the call returns. */
+/** @brief Holds the raw data and the place in the buffer where it goes (especially during initial creation).
+ *  Build Data with std::as_bytes(std::span{ values }). The context copies the bytes before the call returns.
+ *  `DestinationOffset` is the byte offset in the destination buffer where this piece starts. Each piece has its own
+ *  offset: the context does not pack the pieces. */
 struct RhiBufferResourceData
 {
     std::span<const std::byte> Data;
-    size_t DataAlignment{ 0u };
+    uint64_t DestinationOffset{ 0u };
 };
+
+/** @brief One byte range of a buffer to buffer copy. */
+struct BufferCopyRegion
+{
+    uint64_t SourceOffset{ 0u };
+    uint64_t DestinationOffset{ 0u };
+    uint64_t Size{ 0u };
+};
+
+/** @brief The most regions that one transfer call takes. */
+constexpr int32_t k_MaxTransferRegions = 256;
 
 /** @brief Holds the raw data and some dimensional metadata that will be made the contents of an image resource. */
 struct RhiImageResourceData

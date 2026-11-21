@@ -103,6 +103,8 @@ namespace rhi
             return "InvalidPlacement";
         case ResourceError::HeapInUse:
             return "HeapInUse";
+        case ResourceError::InvalidRegion:
+            return "InvalidRegion";
         }
 
         return "Unknown ResourceError";

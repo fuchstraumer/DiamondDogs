@@ -85,7 +85,7 @@ std::vector<VkBufferCopy> WriteBufferData(
 
         VkBufferCopy& copy = bufferCopies[static_cast<size_t>(index)];
         copy.srcOffset = destination.Offset + offset;
-        copy.dstOffset = offset;
+        copy.dstOffset = data.DestinationOffset;
         copy.size = data.Size;
         offset += static_cast<uint64_t>(data.Size);
     }
