@@ -1,4 +1,6 @@
 #include "Declarations.hpp"
+#include "PassStatements.hpp"
+#include "ResourceFlags.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "GraphBuilder.hpp"
 #include "ImageDataFormats.hpp"
@@ -10,9 +12,11 @@
 #include "order/OrderContext.hpp"
 #include "order/Sort.hpp"
 #include "order/OrderedGraph.hpp"
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <source_location>
+#include <utility>
 #include <vector>
 #include <gtest/gtest.h>
 

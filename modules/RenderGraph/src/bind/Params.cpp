@@ -1,4 +1,5 @@
 #include "bind/Params.hpp"
+#include "ShaderLibraryTypes.hpp"
 #include "bind/BindContext.hpp"
 #include "bind/Layout.hpp"
 #include "bind/BoundGraph.hpp"
@@ -10,6 +11,7 @@
 #include "ShaderManifestLayout.hpp"
 #include <algorithm>
 #include <cstdint>
+#include <source_location>
 #include <string_view>
 
 // LM305: the Params struct does not fit the entry point constants. The generated Params<CookProfile> already asserts

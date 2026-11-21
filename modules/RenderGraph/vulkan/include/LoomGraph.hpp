@@ -25,7 +25,7 @@ namespace rhi
     class Device;
 }
 
-// loom_vulkan: the Vulkan backend of Loom (spec step 5). Realize turns a CompiledGraph into a runtime Graph on one
+// loom_vulkan: the Vulkan backend of Loom. Realize turns a CompiledGraph into a runtime Graph on one
 // device; Tick decides, records and submits one frame without blocking. The core decides what runs and which
 // barriers go where (FramePlan.hpp); this backend creates the objects, polls the futures, and records.
 namespace loom

@@ -8,8 +8,9 @@
 #include <span>
 #include <vector>
 
-// The values of the graph's params keys (R2, G8). Graph::Set copies a value in; Tick reads the bytes of each running
-// pass. One slot per key, sized at Prepare, so Set and Tick allocate nothing.
+// The values of the graph's params keys. Graph::Set copies a value in; Tick reads the bytes of each running
+// pass. One slot per key, sized at Prepare, so Set and Tick allocate nothing. Recall that "Params" is just
+// our name for the entrypoint resources attached to a single entry point, since Slang handles those uniquely
 namespace loom
 {
     class CompiledGraph;
@@ -21,8 +22,7 @@ namespace loom
     public:
         void Prepare(const CompiledGraph& compiled);
 
-        // LM704 when the size or the alignment differs from the type that the key's Params statement used. A key that
-        // no pass reads is ignored.
+        // LM704 when the size or the alignment differs from the type that the key's Params statement used
         void Set(KeyRef key, std::span<const std::byte> bytes, uint32_t alignment, std::source_location where,
                  DiagnosticSink& sink);
 

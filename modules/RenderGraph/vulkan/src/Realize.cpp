@@ -1,5 +1,11 @@
 #include "Realize.hpp"
+#include "Declarations.hpp"
+#include "FramePlan.hpp"
 #include "GraphImpl.hpp"
+#include "ShaderLibraryTypes.hpp"
+#include "RhiHandle.hpp"
+#include "RhiTypes.hpp"
+#include "Records.hpp"
 #include "VulkanMapping.hpp"
 #include "CommandPool.hpp"
 #include "CompiledGraph.hpp"
@@ -10,7 +16,11 @@
 #include "ResourceTypes.hpp"
 #include "ShaderProgram.hpp"
 #include "ShaderTypes.hpp"
+#include "bind/BoundGraph.hpp"
 #include "compile/CompiledData.hpp"
+#include <cstddef>
+#include "freeze/FrozenGraph.hpp"
+#include "layout/LaidOutGraph.hpp"
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
 #include <array>

@@ -1,3 +1,5 @@
+#include "PassStatements.hpp"
+#include "Declarations.hpp"
 #include "order/Explain.hpp"
 #include "content/JsonWriter.hpp"
 #include "freeze/FrozenGraph.hpp"
@@ -8,6 +10,7 @@
 #include "freeze_test_helpers.hpp"
 #include "order/OrderContext.hpp"
 #include "order/OrderedGraph.hpp"
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <optional>

@@ -1,6 +1,14 @@
 #include "LoomGraph.hpp"
+#include "GpuTimers.hpp"
+#include "FramePlan.hpp"
+#include "LoomKeys.hpp"
+#include "LoomDeviceLimits.hpp"
 #include "Realize.hpp"
 #include "GraphImpl.hpp"
+#include "Records.hpp"
+#include "ResourceFuture.hpp"
+#include "ResourceTypes.hpp"
+#include "RhiHandle.hpp"
 #include "Tick.hpp"
 #include "DecideRuns.hpp"
 #include "PlanBarriers.hpp"
@@ -8,6 +16,10 @@
 #include "Device.hpp"
 #include "ResourceContext.hpp"
 #include "compile/CompiledData.hpp"
+#include "freeze/FrozenGraph.hpp"
+#include <span>
+#include <cstddef>
+#include <source_location>
 #include <vulkan/vulkan_core.h>
 #include <chrono>
 #include <cstdint>

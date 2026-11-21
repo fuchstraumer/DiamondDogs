@@ -3,12 +3,15 @@
 #include "FramePlan.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
+#include "LoomKeys.hpp"
 #include "compile/CompiledData.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <source_location>
 #include <span>
+#include <string_view>
 
 namespace loom
 {

@@ -1,4 +1,5 @@
 #include "Declarations.hpp"
+#include "LoomFormats.hpp"
 #include "LoomKeys.hpp"
 #include <cstdint>
 #include <string>

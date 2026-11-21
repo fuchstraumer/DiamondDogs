@@ -52,7 +52,11 @@ stage's output type has its own header, apart from the stage function: `SizedGra
 `Size.hpp` declares `Size()`, which `Size.cpp` defines (likewise `LaidOutGraph.hpp` and `Layout.hpp`). A
 `*Context.hpp` holds only a stage's shared state, the context struct that its steps pass along, and has no source.
 Public headers follow the same rule: `Compile.hpp` and `Compile.cpp`, `CompiledGraph.hpp` and `CompiledGraph.cpp`,
-`DecideRuns.hpp` and `DecideRuns.cpp`. The headers forward-declare what they take by reference.
+`DecideRuns.hpp` and `DecideRuns.cpp`. The headers forward-declare what they take by reference. Freeze follows the
+rule too: `FreezeContext.hpp` holds its state, `Reports.hpp` its LM101 and LM109 helpers, and `Publish`, `ResolveKey`,
+`ResolveNames`, `ResolveDraw` and `Validate` are header and source pairs. Only templates and `constexpr` functions keep
+their bodies in a header. Source files include what they use directly (clang-tidy `misc-include-cleaner`, 0 findings
+on 2026-11-20); headers include only what their declarations need.
 
 ## The stages
 

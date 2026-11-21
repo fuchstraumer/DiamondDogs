@@ -1,4 +1,5 @@
 #include "CompiledGraph.hpp"
+#include "LoomKeys.hpp"
 #include "compile/CompiledData.hpp"
 #include <cstdint>
 #include <memory>

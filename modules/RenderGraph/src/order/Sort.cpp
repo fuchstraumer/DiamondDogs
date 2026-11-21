@@ -3,6 +3,8 @@
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
 #include "freeze/FrozenGraph.hpp"
+#include "order/OrderContext.hpp"
+#include "order/OrderedGraph.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -146,7 +148,7 @@ namespace loom
             int32_t currentNode = firstUnemittedNode;
             while (repeatedNode == -1)
             {
-                bool stepped = false;
+                [[maybe_unused]] bool stepped = false;
                 for (auto&& [idx, edge] : context.Edges | std::views::enumerate)
                 {
                     if (edge.To.Value != currentNode)

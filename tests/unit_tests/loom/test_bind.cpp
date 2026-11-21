@@ -15,7 +15,7 @@
 #include "ShaderManifestDevice.hpp"
 #include "freeze_test_helpers.hpp"
 #include "ShaderLibrary.host.hpp"
-#include "utility/delegate.hpp"
+#include "utility/Delegate.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>

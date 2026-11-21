@@ -1,6 +1,7 @@
 #include "LoomFormats.hpp"
 #include "ImageDataFormats.hpp"
 #include "ShaderManifestLayout.hpp"
+#include <cstdint>
 #include <optional>
 #include <string_view>
 

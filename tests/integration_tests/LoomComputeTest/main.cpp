@@ -3,6 +3,9 @@
 #include "Declarations.hpp"
 #include "Device.hpp"
 #include "DeviceConfig.hpp"
+#include "FramePlan.hpp"
+#include "GpuTimers.hpp"
+#include "DeviceStage.hpp"
 #include "GraphBuilder.hpp"
 #include "HeadlessBoot.hpp"
 #include "LoadedBundle.hpp"
@@ -12,7 +15,12 @@
 #include "LoomKeys.hpp"
 #include "PassBuilders.hpp"
 #include "ResourceContext.hpp"
+#include "ResourceFuture.hpp"
+#include "ResourceTypes.hpp"
+#include "RhiResourceFlags.hpp"
+#include "RhiFlags.hpp"
 #include "RhiSystem.hpp"
+#include "ShaderBundle.hpp"
 #include "ShaderLibrary.host.hpp"
 #include "SpineNeeds.hpp"
 #include <chrono>
@@ -26,6 +34,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 // Loom's first GPU proof (spec step 5). A two-pass graph, compiled from the device-free bundle, realized on a headless

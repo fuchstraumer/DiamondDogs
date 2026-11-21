@@ -1,3 +1,7 @@
+#include "Declarations.hpp"
+#include "ResourceFlags.hpp"
+#include "PassStatements.hpp"
+#include "size/Size.hpp"
 #include "size/SizedGraph.hpp"
 #include "bind/BoundGraph.hpp"
 #include "resolve/ResolvedGraph.hpp"
@@ -11,12 +15,15 @@
 #include "ShaderManifestDevice.hpp"
 #include "ShaderManifestLayout.hpp"
 #include "freeze_test_helpers.hpp"
+#include "utility/Delegate.hpp"
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <source_location>
 #include <string_view>
 #include <gtest/gtest.h>
+#include <utility>
 
 // The Size stage, and Bind's view rule (LM307), against LoomSizeTest (tests/unit_tests/loom/shaders).
 // Counters is 64 uints and CountersIn is a view of it as 16 uint4s: 256 bytes either way. Fixed is 32 floats (128

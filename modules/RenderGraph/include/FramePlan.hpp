@@ -3,7 +3,6 @@
 #define DIAMOND_DOGS_LOOM_FRAME_PLAN_HPP
 #include "utility/EnumFlagUtils.hpp"
 #include <cstdint>
-#include <span>
 #include <vector>
 
 // The core runtime's data: what the backend tells the core each Tick (the readiness of each resource), and what the
@@ -93,7 +92,7 @@ namespace loom
         Disabled = 3,
         NotCreated = 4,
         Failed = 5,
-        Propagated = 6      // a skipped initializing writer of something this pass reads (Q3g)
+        Propagated = 6      // a skipped initializing writer of something this pass reads
     };
 
     struct PassDecision

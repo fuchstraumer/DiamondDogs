@@ -1,6 +1,9 @@
 #include "GraphImpl.hpp"
+#include "CompiledGraph.hpp"
 #include "Device.hpp"
+#include "LoomGraph.hpp"
 #include "ResourceContext.hpp"
+#include "ResourceFuture.hpp"
 #include <vulkan/vulkan_core.h>
 #include <cstdint>
 #include <utility>

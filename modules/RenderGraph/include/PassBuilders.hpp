@@ -4,7 +4,7 @@
 #include "Declarations.hpp"
 #include "LoomKeys.hpp"
 #include "PassStatements.hpp"
-#include "utility/delegate.hpp"
+#include "utility/Delegate.hpp"
 #include <cstdint>
 #include <memory>
 #include <source_location>

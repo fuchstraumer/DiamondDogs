@@ -1,6 +1,8 @@
 #include "CompiledGraph.hpp"
 #include "DecideRuns.hpp"
+#include "Declarations.hpp"
 #include "FramePlan.hpp"
+#include "PassStatements.hpp"
 #include "compile/CompiledData.hpp"
 #include <algorithm>
 #include <cstdint>

@@ -1,4 +1,6 @@
 #include "Declarations.hpp"
+#include "PassStatements.hpp"
+#include "Records.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "GraphBuilder.hpp"
 #include "LoomDiagnostic.hpp"
@@ -10,6 +12,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <utility>
 #include <vector>
 #include <gtest/gtest.h>
 

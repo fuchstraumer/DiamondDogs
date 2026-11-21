@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "LoomDiagnostic.hpp"
+#include "LoomError.hpp"
 #include "content/JsonWriter.hpp"
 #include <cstdint>
 #include <format>

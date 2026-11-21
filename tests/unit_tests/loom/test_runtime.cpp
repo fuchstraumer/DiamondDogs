@@ -1,6 +1,7 @@
 #include "Compile.hpp"
 #include "CompiledGraph.hpp"
 #include "DecideRuns.hpp"
+#include "LoomDeviceLimits.hpp"
 #include "PlanBarriers.hpp"
 #include "Declarations.hpp"
 #include "FramePlan.hpp"
@@ -12,13 +13,16 @@
 #include "PassBuilders.hpp"
 #include "ShaderBundle.hpp"
 #include "ShaderLibrary.host.hpp"
+#include "ShaderLibraryTypes.hpp"
 #include "compile/CompiledData.hpp"
 #include "freeze_test_helpers.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <source_location>
 #include <span>
+#include <utility>
 #include <vector>
 #include <gtest/gtest.h>
 

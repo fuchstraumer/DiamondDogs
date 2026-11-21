@@ -1,8 +1,9 @@
 #include "CompiledGraph.hpp"
 #include "PlanBarriers.hpp"
 #include "FramePlan.hpp"
+#include "PassStatements.hpp"
 #include "compile/CompiledData.hpp"
-#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 
@@ -40,7 +41,9 @@ namespace
         into.Accesses |= scope.Accesses;
     }
 
-    constexpr SyncAccess k_ReadAccesses = SyncAccess::IndirectRead | SyncAccess::UniformRead | SyncAccess::ShaderRead |
+    constexpr SyncAccess k_ReadAccesses = SyncAccess::IndirectRead |
+                                          SyncAccess::UniformRead |
+                                          SyncAccess::ShaderRead |
                                           SyncAccess::TransferRead;
     constexpr SyncAccess k_WriteAccesses = SyncAccess::ShaderWrite | SyncAccess::TransferWrite;
 

@@ -1,3 +1,5 @@
+#include "Declarations.hpp"
+#include "Records.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "GraphBuilder.hpp"
 #include "LoomDiagnostic.hpp"

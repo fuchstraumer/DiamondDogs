@@ -3,6 +3,7 @@
 #include "order/DataChecks.hpp"
 #include "order/Edges.hpp"
 #include "order/Liveness.hpp"
+#include "order/OrderContext.hpp"
 #include "order/Sort.hpp"
 #include "LoomDiagnostic.hpp"
 #include "freeze/FrozenGraph.hpp"

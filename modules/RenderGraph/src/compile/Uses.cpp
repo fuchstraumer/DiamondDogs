@@ -1,8 +1,11 @@
 #include "compile/Uses.hpp"
+#include "bind/BoundGraph.hpp"
+#include "Records.hpp"
 #include "compile/CompiledData.hpp"
 #include "FramePlan.hpp"
 #include "PassStatements.hpp"
 #include "ShaderLibraryTypes.hpp"
+#include "freeze/FrozenGraph.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <vector>

@@ -1,3 +1,6 @@
+#include "Declarations.hpp"
+#include "ResourceFlags.hpp"
+#include "PassStatements.hpp"
 #include "size/Size.hpp"
 #include "layout/Layout.hpp"
 #include "layout/LaidOutGraph.hpp"
@@ -13,11 +16,13 @@
 #include "ShaderBundle.hpp"
 #include "ShaderManifestDevice.hpp"
 #include "freeze_test_helpers.hpp"
+#include "utility/Delegate.hpp"
 #include <array>
 #include <cstdint>
 #include <optional>
 #include <string_view>
 #include <gtest/gtest.h>
+#include <utility>
 
 // The Layout stage, against LoomLayoutTest (tests/unit_tests/loom/shaders). GridCS runs 8x8 groups over Grid (an
 // rgba32f storage image) and reads Weights. LayoutVS reads no vertex input; MeshVS reads POSITION. ColorPS writes one

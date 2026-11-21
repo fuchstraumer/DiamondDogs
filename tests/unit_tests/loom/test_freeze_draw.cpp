@@ -1,4 +1,5 @@
 #include "Declarations.hpp"
+#include "ResourceFlags.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "GraphBuilder.hpp"
 #include "ImageDataFormats.hpp"
@@ -9,7 +10,7 @@
 #include "PassStatements.hpp"
 #include "Records.hpp"
 #include "freeze_test_helpers.hpp"
-#include "utility/delegate.hpp"
+#include "utility/Delegate.hpp"
 #include <cstdint>
 #include <optional>
 #include <source_location>

@@ -5,6 +5,8 @@
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
 #include "freeze/FrozenGraph.hpp"
+#include "order/OrderContext.hpp"
+#include "order/OrderedGraph.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>

@@ -1,6 +1,7 @@
 #include "../include/LoomError.hpp" // what
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 namespace loom

@@ -1,3 +1,8 @@
+#include "Declarations.hpp"
+#include "VariantKey.hpp"
+#include "ShaderManifestLayout.hpp"
+#include "PassStatements.hpp"
+#include "math/MathStorage.hpp"
 #include "resolve/ResolvedGraph.hpp"
 #include "resolve/Helpers.hpp"
 #include "freeze/FrozenGraph.hpp"
@@ -14,12 +19,16 @@
 #include "ShaderManifestIndex.hpp"
 #include "freeze_test_helpers.hpp"
 #include "ShaderLibrary.host.hpp"
+#include "utility/Delegate.hpp"
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <optional>
 #include <ranges>
 #include <span>
 #include <string_view>
+#include <utility>
 #include <vector>
 #include <gtest/gtest.h>
 

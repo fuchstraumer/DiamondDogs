@@ -1,11 +1,14 @@
+#include "ShaderManifestFormat.hpp"
 #include "bind/Layout.hpp"
 #include "compile/Pipelines.hpp"
 #include "resolve/ResolvedGraph.hpp"
 #include "compile/CompiledData.hpp"
 #include "ShaderLibraryTypes.hpp"
 #include "ShaderManifestLayout.hpp"
+#include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 

@@ -36,6 +36,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-variable"
 #pragma clang diagnostic ignored "-Wnullability-completeness"
+#pragma clang diagnostic ignored "-Wunused-private-field"
 #endif
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
@@ -1626,7 +1627,7 @@ void ResourceContextImpl::setBufferDataHostOnly(entt::entity entity, InternalRes
     const bool mappedHere = (mappedAddress == nullptr);
     if (mappedHere)
     {
-        VkResult result = vmaMapMemory(allocatorHandle, alloc, &mappedAddress);
+        [[maybe_unused]] VkResult result = vmaMapMemory(allocatorHandle, alloc, &mappedAddress);
         assert(result == VK_SUCCESS);
     }
 
@@ -1829,7 +1830,7 @@ void ResourceContextImpl::setObjectName(VkObjectType object_type, uint64_t handl
         return;
     }
     
-    VkResult result = device->SetObjectName(object_type, handle, name.CString());
+    [[maybe_unused]] VkResult result = device->SetObjectName(object_type, handle, name.CString());
     assert(result == VK_SUCCESS);
 }
 

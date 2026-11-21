@@ -1,5 +1,12 @@
 #include "Tick.hpp"
+#include "FramePlan.hpp"
+#include "GpuTimers.hpp"
 #include "GraphImpl.hpp"
+#include "ResourceFuture.hpp"
+#include "RhiHandle.hpp"
+#include "RhiTypes.hpp"
+#include "RhiFlags.hpp"
+#include "RhiResourceFlags.hpp"
 #include "VulkanMapping.hpp"
 #include "CommandBuffer.hpp"
 #include "CompiledGraph.hpp"
@@ -8,7 +15,11 @@
 #include "LoomGraph.hpp"
 #include "Queue.hpp"
 #include "ResourceTypes.hpp"
+#include "bind/BoundGraph.hpp"
 #include "compile/CompiledData.hpp"
+#include "freeze/FrozenGraph.hpp"
+#include "layout/LaidOutGraph.hpp"
+#include <cstddef>
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
 #include <chrono>

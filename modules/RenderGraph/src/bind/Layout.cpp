@@ -1,4 +1,6 @@
 #include "bind/Layout.hpp"
+#include "ShaderManifestFormat.hpp"
+#include "ShaderLibraryTypes.hpp"
 #include "bind/BindContext.hpp"
 #include "bind/Helpers.hpp"
 #include "bind/BoundGraph.hpp"
