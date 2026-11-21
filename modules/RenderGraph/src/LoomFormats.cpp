@@ -201,4 +201,86 @@ std::string_view TextureFormatName(lodestone::TextureFormat format) noexcept
     return "Invalid";
 }
 
+FormatClass FormatClassOf(lodestone::TextureFormat format) noexcept
+{
+    switch (format)
+    {
+    case TextureFormat::Depth16Unorm:
+        [[fallthrough]];
+    case TextureFormat::Depth24Plus:
+        [[fallthrough]];
+    case TextureFormat::Depth24PlusStencil8:
+        [[fallthrough]];
+    case TextureFormat::Depth32Float:
+        return FormatClass::Depth;
+    case TextureFormat::R32Uint:
+        [[fallthrough]];
+    case TextureFormat::RG32Uint:
+        [[fallthrough]];
+    case TextureFormat::RGBA32Uint:
+        return FormatClass::Uint;
+    case TextureFormat::Invalid:
+        return FormatClass::Invalid;
+    default:
+        break;
+    }
+
+    return FormatClass::Float;
+}
+
+int32_t ComponentCountOf(lodestone::TextureFormat format) noexcept
+{
+    switch (format)
+    {
+    case TextureFormat::R8Unorm:
+        [[fallthrough]];
+    case TextureFormat::R16Float:
+        [[fallthrough]];
+    case TextureFormat::R32Float:
+        [[fallthrough]];
+    case TextureFormat::R32Uint:
+        [[fallthrough]];
+    case TextureFormat::Depth16Unorm:
+        [[fallthrough]];
+    case TextureFormat::Depth24Plus:
+        [[fallthrough]];
+    case TextureFormat::Depth24PlusStencil8:
+        [[fallthrough]];
+    case TextureFormat::Depth32Float:
+        return 1;
+    case TextureFormat::RG8Unorm:
+        [[fallthrough]];
+    case TextureFormat::RG16Float:
+        [[fallthrough]];
+    case TextureFormat::RG32Float:
+        [[fallthrough]];
+    case TextureFormat::RG32Uint:
+        return 2;
+    case TextureFormat::R11G11B10Ufloat:
+        return 3;
+    case TextureFormat::RGBA8Unorm:
+        [[fallthrough]];
+    case TextureFormat::RGBA8UnormSrgb:
+        [[fallthrough]];
+    case TextureFormat::BGRA8Unorm:
+        [[fallthrough]];
+    case TextureFormat::BGRA8UnormSrgb:
+        [[fallthrough]];
+    case TextureFormat::RGBA16Float:
+        [[fallthrough]];
+    case TextureFormat::RGBA32Float:
+        [[fallthrough]];
+    case TextureFormat::RGBA32Uint:
+        [[fallthrough]];
+    case TextureFormat::R10G10B10A2Unorm:
+        [[fallthrough]];
+    case TextureFormat::RGBA8Snorm:
+        return 4;
+    case TextureFormat::Invalid:
+        break;
+    }
+
+    return 0;
+}
+
 }

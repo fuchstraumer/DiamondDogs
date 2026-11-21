@@ -291,6 +291,9 @@ namespace loom
     // Reports every Freeze error it finds, not only the first one. Returns no graph when it reported an error.
     [[nodiscard]] std::optional<FrozenGraph> Freeze(const GraphRecord& record, DiagnosticSink& sink);
 
+    // An image row's format: a declared image states it, and an imported one promises it in its expectation.
+    [[nodiscard]] lodestone::TextureFormat ImageFormatOf(const FrozenGraph& frozen, const FrozenResource& row);
+
 }
 
 #endif // !DIAMOND_DOGS_LOOM_FROZEN_GRAPH_HPP

@@ -102,9 +102,11 @@ namespace loom
             CatalogEntry{ LM601, "LM601", k_Error,
                                "A device limit is exceeded." },
             CatalogEntry{ LM602, "LM602", k_Error,
-                               "The color targets do not match the attachments." },
+                               "The attachments do not match the outputs of the fragment shader." },
             CatalogEntry{ LM603, "LM603", k_Error,
-                               "A vertex input semantic is not found." },
+                               "A vertex shader has a vertex input, and Loom has no vertex format for it." },
+            CatalogEntry{ LM604, "LM604", k_Error,
+                               "A pass reads an image that it also writes as a target." },
 
             CatalogEntry{ LM701, "LM701", k_Error,
                                "A supplied future does not match its ImportDeclaration." },

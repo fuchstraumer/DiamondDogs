@@ -135,11 +135,8 @@ void SortFrontPointsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupT
         return;
     }
 
-    uint paddedCount = 128u;
-    while (paddedCount < count)
-    {
-        paddedCount <<= 1u;
-    }
+    // compute the next power-of-2 greater than or equal to count, with a minimum of 128
+    const uint paddedCount = max(128u, 1u << (firstbithigh(count - 1u) + 1u));
 
     // Setup register array: we do 8 keys locally, purely on this thread, before bouncing out to waves then SMEM
     static const uint KeysPerThread = 8u; // making a constant for now so we can tweak and tune if needed (occupancy)
@@ -151,6 +148,16 @@ void SortFrontPointsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupT
     // localKeyStart needs to be relative to all waves, while `thisLaneLocal` is for our wave-relative indexing. oops!
     const uint localKeyStart = thisLaneGlobal * KeysPerThread;
 
+    // try something different; perfectly coalesced load into SMEM, and then one barrier
+    // the previous approach was hitting different cache lines for each thread's keys, causing inefficient memory access patterns
+    // this should be cleaner, but it requires one barrier: benchmark to compare.
+    for (uint i = thisLaneGlobal; i < paddedCount; i += SortGroupSize)
+    {
+        SharedSortPixels[i] = (i < count) ? asuint(FrontPoints.Load(begin + i).w) : 0xFFFFFFFFu;
+    }
+
+    GroupMemoryBarrierWithGroupSync(); // ensure all threads have finished writing to SharedSortPixels before proceeding
+
     // populate the threadlocal array. this is going to hammer DRAM as each thread is going to get 8 
     // values from the bound resource, but we only have to do this once and we can avoid barriers
     // (also the scheduler can hide memory latency by interleaving other threads' work *BECAUSE* no barriers)
@@ -158,7 +165,7 @@ void SortFrontPointsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupT
     for (uint k = 0u; k < KeysPerThread; ++k)
     {
         const uint globalIdx = localKeyStart + k;
-        localKeys[k] = (globalIdx < count) ? asuint(FrontPoints.Load(begin + globalIdx).w) : 0xFFFFFFFFu;
+        localKeys[k] = (globalIdx < paddedCount) ? SharedSortPixels[globalIdx] : 0xFFFFFFFFu;
     }
 
     // now run the local sort
@@ -178,8 +185,10 @@ void SortFrontPointsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupT
                     const bool ascending = ((localKeyStart + i) & stepSize) == 0u;
                     const uint key = localKeys[i];
                     const uint partnerKey = localKeys[partnerIdx];
-                    localKeys[i] = (ascending == (key < partnerKey)) ? key : partnerKey;
-                    localKeys[partnerIdx] = (ascending == (key < partnerKey)) ? partnerKey : key;
+                    const uint minKey = min(key, partnerKey);
+                    const uint maxKey = max(key, partnerKey);
+                    localKeys[i] = ascending ? minKey : maxKey;
+                    localKeys[partnerIdx] = ascending ? maxKey : minKey;
                 }
             }
         }
@@ -219,8 +228,10 @@ void SortFrontPointsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupT
                         const bool ascending = ((localKeyStart + i) & waveStepSize) == 0u;
                         const uint key = localKeys[i];
                         const uint partnerKey = localKeys[partnerIdx];
-                        localKeys[i] = (ascending == (key < partnerKey)) ? key : partnerKey;
-                        localKeys[partnerIdx] = (ascending == (key < partnerKey)) ? partnerKey : key;
+                        const uint minKey = min(key, partnerKey);
+                        const uint maxKey = max(key, partnerKey);
+                        localKeys[i] = ascending ? minKey : maxKey;
+                        localKeys[partnerIdx] = ascending ? maxKey : minKey;
                     }
                 }
             }

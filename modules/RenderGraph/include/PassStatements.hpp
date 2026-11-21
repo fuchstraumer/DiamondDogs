@@ -100,6 +100,8 @@ namespace loom
         PolygonMode Polygon{ PolygonMode::Fill };
         rhi::CullMode Cull{ rhi::CullMode::None };
         rhi::FrontFace Front{ rhi::FrontFace::CounterClockwise };
+
+        bool operator==(const RasterState&) const noexcept = default;
     };
 
     enum class IndexType : uint8_t

@@ -34,9 +34,10 @@ untracked `docs/` folder. This README is the map of the code.
                          │   Order   │◀──────────┘     LM5xx    edges, run order, hazards, dead writes
                          └─────┬─────┘
                           OrderedGraph
-                         ┌─────▼─────┐
-                         │  Layout   │  LM6xx          not written yet
-                         └─────┬─────┘
+                         ┌─────▼─────┐   ◀── LayoutLimits (device limits)
+                         │  Layout   │  LM601-LM604    group counts, attachments, feedback loops, limits,
+                         └─────┬─────┘                  one description per distinct pipeline
+                          LaidOutGraph
                                ▼
                  Realize, Tick (LM7xx)                  not written yet
 ```
@@ -54,6 +55,9 @@ an error. After Bind, no stage reads a binding name, and Tick touches no Lodesto
 | Bind | `Bind(frozen, resolved, sink)` | `BoundGraph`: the slot table and the access table. | `src/bind/` |
 | Size | `Size(frozen, bound, sink)` | `SizedGraph`: per resource, the buffer byte size, the image extent and dimension, and the GPU usage. | `src/size/` |
 | Order | `Order(frozen, accesses, sink)` | `OrderedGraph`: the run order and the reason for each edge. `Explain` prints it. | `src/order/` |
+| Layout | `Layout(frozen, resolved, bound, sized, limits, sink)` | `LaidOutGraph`: per pass, the group count and a pipeline index; the table of distinct pipeline descriptions. | `src/layout/` |
+
+Layout reads no `OrderedGraph`: it checks each pass alone, so Order and Layout can run in either order.
 
 ### Freeze
 
@@ -158,6 +162,44 @@ declaration-order tie-break, and checks the data: LM501 (cycle), LM502 (a hazard
 read before any write), LM504 (dead write) and LM505 (orphan pass). `Explain` and `ExplainPass` print the order and
 the reason for each edge.
 
+### Layout
+
+Layout is the last Compile stage. It gives Realize the facts that it needs to create pipelines and record dispatches,
+so that Realize makes no decision of its own. Each check lives in the file named for its question (`src/layout/`).
+
+- **Group counts** (`Dispatch.cpp`). A dispatch states threads, and the device runs groups. Each axis is the thread
+  count divided by the reflected workgroup size, rounded up: 65 threads in groups of 8 is 9 groups, and the shader
+  tests its bounds. `DispatchThreadsOver(image)` divides the image's extent from Size. An image sized from a frame
+  target, or an import of any extent, has no extent yet, so the source is `AtRealize` and Layout keeps the workgroup
+  size for Realize. An indirect dispatch reads its count from its buffer. A count above `maxComputeWorkGroupCount` is
+  LM601.
+- **Attachments, LM602** (`Attachments.cpp`). Each output location of the fragment shader needs a `Color` statement
+  at that slot, and each `Color` slot needs an output: an attachment with no output receives undefined values. The
+  output's scalar class must fit the format (float to a float format, uint to a uint format), and the shader must
+  write every component that the format holds. That rule is the opposite of the one for sampled bindings: Vulkan
+  fills the components that a sampled read lacks, but not the components that a fragment shader leaves out. A shader
+  that writes depth needs a `Depth` statement. A frame target's format is known at Realize, which checks it there.
+  `Expected` is the attachment's side, `Actual` the shader's side.
+- **Vertex inputs, LM603** (`Attachments.cpp`). Loom has no vertex format statement, so each reflected vertex input
+  is LM603, with the semantic in `Binding`. Draws read their vertices from a buffer with `SV_VertexID` (vertex
+  pulling), as every ocean draw does. A vertex format statement waits for a real consumer; WebGPU may need one.
+- **Feedback loops, LM604** (`Feedback.cpp`). A pass that reads an image that it also writes as a target reads
+  undefined texels, because Loom records barriers between passes, never inside one. A depth target with depth writes
+  off is read-only, so the pass may sample it (soft particles). An input attachment reads the target through the
+  attachment, which is its purpose. A Record pass states both sides as uses.
+- **Device limits, LM601** (`Limits.cpp`). Resolve already checks the workgroup size, invocations, workgroup memory
+  and push constant bytes (LM207). Layout checks the rest that Compile can see: descriptor sets (highest group + 1),
+  descriptors per stage (a combined image sampler counts as a sampler and a sampled image; `maxPerStageResources`
+  counts the color attachments and not the samplers), color attachments (highest slot + 1), buffer ranges (Bind has
+  no range, so a descriptor covers the whole buffer), and image extents per dimension. Only `Bound` slots are
+  descriptors, and an unbounded array is not counted: bindless has its own limits. `LayoutLimits` holds the limits
+  in `VkPhysicalDeviceLimits` terms, so Compile stays device-free; fill every field, because 0 rejects. `Expected` is
+  the limit and `Actual` the value, both under the limit's name.
+- **Pipelines.** Each dispatch and draw gets a `PipelineDescription`: module, variant suffix, entry points, color
+  formats and blend per slot, depth format, compare and write, and raster state. Identity is by name (G9), never by
+  `VariantKey`. Equal descriptions (`==`) share one row. There is no hash: the cache across recompiles belongs to
+  Realize, and the pipeline shape itself waits for a design that suits Vulkan and WebGPU both.
+
 ## Formats
 
 Image declarations use Lodestone's `TextureFormat` (`include/LoomFormats.hpp`), because reflection reports a storage
@@ -207,6 +249,7 @@ When Loom needs something from Lodestone, it stubs it here and adds a row to Lod
 | `test_resolve.cpp` (`LoomResolveTest.slang`, `LoomResolveOther.slang`) | Resolve, and the host header layout. |
 | `test_bind.cpp` (`LoomBindTest.slang`) | Bind, Freeze's bind rules, and Freeze to Order with Bind's access table. |
 | `test_size.cpp` (`LoomSizeTest.slang`) | Size for buffers and images, and LM307. |
+| `test_layout.cpp` (`LoomLayoutTest.slang`) | Layout: group counts, LM601-LM604, and pipeline sharing. |
 | `test_order.cpp`, `test_explain.cpp` | Order and `Explain`, from hand-made access tables. |
 | `test_diagnostics.cpp` | The catalog and the sinks. |
 

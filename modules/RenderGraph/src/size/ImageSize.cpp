@@ -29,15 +29,6 @@ namespace loom
 
 namespace
 {
-    // The scalar class that a shader reads from a format. Lodestone has no signed integer format yet.
-    enum class FormatClass : uint8_t
-    {
-        Invalid = 0,
-        Float = 1,
-        Depth = 2,
-        Uint = 3
-    };
-
     struct StatedExtent
     {
         ImageExtent Extent;
@@ -65,33 +56,6 @@ namespace
         std::string_view Name;
         std::source_location Where;
     };
-
-    FormatClass FormatClassOf(lodestone::TextureFormat format)
-    {
-        switch (format)
-        {
-        case lodestone::TextureFormat::Depth16Unorm:
-            [[fallthrough]];
-        case lodestone::TextureFormat::Depth24Plus:
-            [[fallthrough]];
-        case lodestone::TextureFormat::Depth24PlusStencil8:
-            [[fallthrough]];
-        case lodestone::TextureFormat::Depth32Float:
-            return FormatClass::Depth;
-        case lodestone::TextureFormat::R32Uint:
-            [[fallthrough]];
-        case lodestone::TextureFormat::RG32Uint:
-            [[fallthrough]];
-        case lodestone::TextureFormat::RGBA32Uint:
-            return FormatClass::Uint;
-        case lodestone::TextureFormat::Invalid:
-            return FormatClass::Invalid;
-        default:
-            break;
-        }
-
-        return FormatClass::Float;
-    }
 
     // A float binding reads a depth format too (the depth value in the first component). Filterability is a device
     // question, so UnfilterableFloat and Float accept the same formats here.
@@ -244,17 +208,6 @@ namespace
         return resource.IsValid() && frozen.Resources[resource.Value].Kind == ResourceKind::Image;
     }
 
-    // A declared image states its format; an imported one promises it in its expectation.
-    lodestone::TextureFormat FormatOf(const FrozenGraph& frozen, const FrozenResource& row)
-    {
-        if (row.Origin == ResourceOrigin::Imported)
-        {
-            return frozen.Imports[row.DeclarationIndex].Expectation.Format;
-        }
-
-        return frozen.Images[row.DeclarationIndex].Declaration.Format;
-    }
-
     DiagnosticValue TextValue(std::string_view field_name, std::string_view text)
     {
         return DiagnosticValue{ .FieldName = field_name, .Kind = DiagnosticValueKind::Text, .Text = text };
@@ -383,7 +336,7 @@ namespace
             {
                 .Reflection = source.Reflection,
                 .Row = row,
-                .Format = FormatOf(frozen, row),
+                .Format = ImageFormatOf(frozen, row),
                 .Pass = pass.Key,
                 .Name = bind.BindingName,
                 .Where = bind.Where,
@@ -410,7 +363,7 @@ namespace
                            ResourceIndex resource, ImageUse use, std::source_location where)
     {
         const FrozenResource& row = frozen.Resources[resource.Value];
-        const lodestone::TextureFormat format = FormatOf(frozen, row);
+        const lodestone::TextureFormat format = ImageFormatOf(frozen, row);
         const bool isDepth = FormatClassOf(format) == FormatClass::Depth;
         const bool fits = (use == ImageUse::DepthTarget) == isDepth;
 

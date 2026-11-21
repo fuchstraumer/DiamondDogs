@@ -82,6 +82,7 @@ namespace loom
         LM601 = 601, // A device limit is exceeded
         LM602 = 602, // Color targets do not match the attachments
         LM603 = 603, // Vertex input semantic not found
+        LM604 = 604, // A pass reads an image that it also writes as a target
 
         // Runtime
         LM701 = 701, // A supplied future does not match its ImportDeclaration

@@ -13,6 +13,16 @@
 namespace loom
 {
 
+lodestone::TextureFormat ImageFormatOf(const FrozenGraph& frozen, const FrozenResource& row)
+{
+    if (row.Origin == ResourceOrigin::Imported)
+    {
+        return frozen.Imports[row.DeclarationIndex].Expectation.Format;
+    }
+
+    return frozen.Images[row.DeclarationIndex].Declaration.Format;
+}
+
 std::optional<FrozenGraph> Freeze(const GraphRecord& record, DiagnosticSink& sink)
 {
     const int32_t errorsBefore = sink.ErrorCount();

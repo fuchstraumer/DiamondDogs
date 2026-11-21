@@ -56,6 +56,14 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/size/Size.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/size/ImageSize.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/size/ImageSize.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/layout/LaidOutGraph.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/layout/LayoutContext.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/layout/Layout.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/layout/Dispatch.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/layout/Attachments.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/layout/Feedback.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/layout/Limits.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/layout/Diagnostics.cpp"
 )
 
 add_module(loom
