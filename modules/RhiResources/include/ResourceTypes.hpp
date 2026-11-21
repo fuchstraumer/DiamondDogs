@@ -198,4 +198,35 @@ struct GraphicsResource
     uint64_t DeviceAddress{ 0u };
 };
 
+/**
+ * @brief Facts about a resource that never change after it is created. `ResourceFuture<GraphicsResource>::Description()`
+ * returns it. A field that does not apply to the resource type has its zero value.
+ *
+ * The context is stateless. It does not track the usage of a resource after the creating call. Whoever hands the
+ * resource on states its usage at that time.
+ */
+struct ResourceDescription
+{
+    ResourceType Type{ ResourceType::Invalid };
+    ResourceDomain Domain{ ResourceDomain::Invalid };
+    /** @brief Buffers: the usage that the context created the buffer with. */
+    BufferUsageBits BufferUsage{ BufferUsageBits::Invalid };
+    /** @brief Buffers: the size that the caller asked for. It is not the size of the allocation. */
+    uint64_t ByteSize{ 0u };
+    /** @brief Images: the usage that the context created the image with. It includes `TransferDestination` when the
+     *  creating call had initial data. */
+    ImageUsageBits ImageUsage{ ImageUsageBits::Invalid };
+    ImageType Dimensions{ ImageType::Invalid };
+    ImageFormat Format{};
+    int32_t Width{ 0 };
+    int32_t Height{ 0 };
+    int32_t Depth{ 0 };
+    int32_t MipLevels{ 0 };
+    int32_t ArrayLayers{ 0 };
+    int32_t SampleCount{ 0 };
+    /** @brief The usage that the creating call left the image in. Invalid when that call wrote no data: the image
+     *  has no defined contents yet. */
+    ImageUsageBits InitialUsage{ ImageUsageBits::Invalid };
+};
+
 #endif //!DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP

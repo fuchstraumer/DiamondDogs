@@ -200,6 +200,12 @@ namespace rhi
         return table->Pointer(slotIndex);
     }
 
+    template<>
+    const ResourceDescription& ResourceFuture<GraphicsResource>::Description() const noexcept
+    {
+        return table->Description(slotIndex);
+    }
+
     template class ResourceFuture<GraphicsResource>;
     template class ResourceFuture<void*>;
 
@@ -213,6 +219,7 @@ namespace rhi
         device = _device;
         transferTimeline = transfer_timeline;
         slots = std::make_unique<FutureSlot[]>(static_cast<size_t>(capacity));
+        descriptions = std::make_unique<ResourceDescription[]>(static_cast<size_t>(capacity));
         slots[k_FullTableSlot].Word.store(PackStateAndError(FutureState::Failed, ResourceError::FutureTableFull), std::memory_order_relaxed);
         freeHead.store(PackFreeHead(0u, k_NoFreeSlot), std::memory_order_relaxed);
 
@@ -253,9 +260,10 @@ namespace rhi
         return slot_index == k_FullTableSlot;
     }
 
-    void FutureTable::StoreResource(int32_t slot_index, const GraphicsResource& resource) noexcept
+    void FutureTable::StoreResource(int32_t slot_index, const GraphicsResource& resource, const ResourceDescription& description) noexcept
     {
         slots[slot_index].Resource = resource;
+        descriptions[slot_index] = description;
     }
 
     void FutureTable::SetTransferring(int32_t slot_index, uint64_t ticket) noexcept
@@ -275,9 +283,10 @@ namespace rhi
         publish(slot_index, FutureState::Complete, ResourceError::Success);
     }
 
-    void FutureTable::CompleteWithResource(int32_t slot_index, const GraphicsResource& resource) noexcept
+    void FutureTable::CompleteWithResource(int32_t slot_index, const GraphicsResource& resource, const ResourceDescription& description) noexcept
     {
         slots[slot_index].Resource = resource;
+        descriptions[slot_index] = description;
         publish(slot_index, FutureState::Complete, ResourceError::Success);
     }
 
@@ -329,6 +338,11 @@ namespace rhi
     const GraphicsResource& FutureTable::Resource(int32_t slot_index) const noexcept
     {
         return slots[slot_index].Resource;
+    }
+
+    const ResourceDescription& FutureTable::Description(int32_t slot_index) const noexcept
+    {
+        return descriptions[slot_index];
     }
 
     void* const& FutureTable::Pointer(int32_t slot_index) const noexcept
@@ -471,6 +485,7 @@ namespace rhi
         slot.TicketOrNextFree.store(0u, std::memory_order_relaxed);
         slot.Resource = GraphicsResource::Null();
         slot.Pointer = nullptr;
+        descriptions[slotIndex] = ResourceDescription{};
         slot.Word.store(PackStateAndError(FutureState::Pending, ResourceError::Success), std::memory_order_relaxed);
         liveCount.fetch_add(1, std::memory_order_relaxed);
         return slotIndex;

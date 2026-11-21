@@ -1,4 +1,13 @@
 
+# the plain types (ResourceTypes.hpp and what it includes), with no RHI: code that must not reach the device links this
+# target alone. foundation does not export its folder, so this target adds it
+add_library(rhi_resource_types INTERFACE)
+target_include_directories(rhi_resource_types INTERFACE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../foundation/include")
+target_link_libraries(rhi_resource_types INTERFACE foundation)
+bootstrap_assert_no_rhi(rhi_resource_types)
+
 ADD_MODULE(rhi_resources
     "include/ManifestDescriptors.hpp"
     "include/ResourceBarriers.hpp"
@@ -34,5 +43,5 @@ TARGET_INCLUDE_DIRECTORIES(rhi_resources PUBLIC
 TARGET_INCLUDE_DIRECTORIES(rhi_resources PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-TARGET_LINK_LIBRARIES(rhi_resources PUBLIC rhi_system ${Vulkan_LIBRARY})
+TARGET_LINK_LIBRARIES(rhi_resources PUBLIC rhi_resource_types rhi_system ${Vulkan_LIBRARY})
 TARGET_LINK_LIBRARIES(rhi_resources PRIVATE EnTT VulkanMemoryAllocator)

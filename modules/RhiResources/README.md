@@ -35,6 +35,28 @@ timeout. Use `rhi::k_WaitForever` for no limit. A `Created` future sleeps on the
 | `Complete` | The call is done, and its transfer finished on the GPU. |
 | `Failed` | Permanent. `Error()` gives the `rhi::ResourceError`. |
 
+### The description
+
+`ResourceFuture<GraphicsResource>::Description()` returns a `ResourceDescription` (in `ResourceTypes.hpp`, which has
+no Vulkan or RHI include). It holds the facts that never change after the create: the type, the domain, and for a
+buffer the usage and the byte size that the caller asked for, and for an image the usage, the dimensions, the format,
+the extent, the mip and layer counts and the sample count. Usage fields are the usage that the context really used,
+so they include any bit that the context added (`CopyDestination` or `TransferDestination` for initial data). For
+an image, `InitialUsage` is the usage that the creating call left it in: `usage_after_upload` for `CreateImage` with
+data, `copy_usage_after` for `CopyImage`, and `Invalid` for every other image (it has no defined contents yet). A
+sampler has only `Type` set.
+
+The description is valid in the `Created` and `Complete` states, as `Get()` is. The producer writes it in the same
+call that stores the resource, before it publishes the state with a release store, so an owner that reads the state
+with acquire sees the description. It takes no message, no lock and no wait. The description lives in an array beside
+the slots, with the same index, so `FutureSlot` stays one cache line.
+
+The context tracks no usage after the creating call. Whoever hands the resource on states its usage at that time.
+`CopyBuffer` and `CopyImage` name the new resource after its source, with the suffix `_copy`.
+
+`rhi_resource_types` is a CMake interface target for these plain types. It links `foundation` and no RHI, and
+`bootstrap_assert_no_rhi` accepts it. `rhi_resources` links it publicly.
+
 ### The future table
 
 A future holds no heap object. It is a pointer to its context's `FutureTable` and a slot index. The table is one

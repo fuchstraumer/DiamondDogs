@@ -49,6 +49,11 @@ static_assert(static_cast<uint32_t>(k_MaxMemoryHeaps) == VK_MAX_MEMORY_HEAPS, "k
 namespace
 {
     [[nodiscard]] bool HasFlag(ResourceCreationFlags flags, ResourceCreationFlags flag) noexcept;
+    /** @brief The description builders take the create info that the worker used, after it added any usage bits. */
+    [[nodiscard]] ResourceDescription DescribeBuffer(const BufferCreateInfo& info) noexcept;
+    [[nodiscard]] ResourceDescription DescribeImage(const ImageCreateInfo& info, ResourceType type, ImageUsageBits initial_usage) noexcept;
+    [[nodiscard]] ResourceDescription DescribeSampler() noexcept;
+    [[nodiscard]] ResourceDescription DescribeHeap(uint64_t byte_size) noexcept;
     // transfer usage is opt-in (CopySource/CopyDestination, TransferSource/TransferDestination), so every operation
     // that records a transfer checks it here, at the surface, and fails the reply instead of recording invalid commands
     [[nodiscard]] bool CanBeTransferSource(const entt::registry& registry, entt::entity entity) noexcept;
@@ -321,11 +326,12 @@ void ResourceContextImpl::processMessage(CreateBufferMessage&& message)
         return;
     }
 
+    const ResourceDescription description = DescribeBuffer(message.BufferInfo);
     const entt::entity newEntity = entt::entity(createdResource->EntityHandle);
     if (message.InitialData.has_value() && !allocationIsHostVisible(newEntity))
     {
         // pass responsiblity on to transfer system now, transferring ownership of data with a move
-        futures.StoreResource(message.Future, *createdResource);
+        futures.StoreResource(message.Future, *createdResource, description);
         enqueueBufferUpload(newEntity, std::move(*message.InitialData), TransferWaitSet{}, message.Future);
         return;
     }
@@ -335,7 +341,7 @@ void ResourceContextImpl::processMessage(CreateBufferMessage&& message)
         setBufferDataHostOnly(newEntity, *message.InitialData);
     }
 
-    futures.CompleteWithResource(message.Future, *createdResource);
+    futures.CompleteWithResource(message.Future, *createdResource, description);
 }
 
 void ResourceContextImpl::processMessage(CreateImageMessage&& message)
@@ -370,14 +376,16 @@ void ResourceContextImpl::processMessage(CreateImageMessage&& message)
 
     if (message.InitialData.has_value())
     {
-        futures.StoreResource(message.Future, *createdResource);
+        const ResourceDescription uploadDescription = DescribeImage(message.ImageInfo, createdResource->Type, message.UsageAfterUpload);
+        futures.StoreResource(message.Future, *createdResource, uploadDescription);
         const entt::entity newEntity = entt::entity(createdResource->EntityHandle);
         const TransferSystemReqImageInfo imageInfo = newImageTransferInfo(newEntity, message.UsageAfterUpload);
         enqueueImageUpload(imageInfo, newEntity, std::move(*message.InitialData), TransferWaitSet{}, message.Future);
         return;
     }
 
-    futures.CompleteWithResource(message.Future, *createdResource);
+    const ResourceDescription description = DescribeImage(message.ImageInfo, createdResource->Type, ImageUsageBits::Invalid);
+    futures.CompleteWithResource(message.Future, *createdResource, description);
 }
 
 std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::createBufferEntity(const BufferCreateInfo& info, const DebugName& name)
@@ -568,7 +576,7 @@ void ResourceContextImpl::processMessage(CreateSamplerMessage&& message)
         0u
     };
 
-    futures.CompleteWithResource(message.Future, created);
+    futures.CompleteWithResource(message.Future, created, DescribeSampler());
 }
 
 void ResourceContextImpl::processMessage(CreateMemoryHeapMessage&& message)
@@ -626,7 +634,7 @@ void ResourceContextImpl::processMessage(CreateMemoryHeapMessage&& message)
         0u
     };
 
-    futures.CompleteWithResource(message.Future, created);
+    futures.CompleteWithResource(message.Future, created, DescribeHeap(message.Size));
 }
 
 void ResourceContextImpl::processMessage(CreatePlacedBufferMessage&& message)
@@ -667,7 +675,7 @@ void ResourceContextImpl::processMessage(CreatePlacedBufferMessage&& message)
         return;
     }
 
-    futures.CompleteWithResource(message.Create.Future, *created);
+    futures.CompleteWithResource(message.Create.Future, *created, DescribeBuffer(info));
 }
 
 void ResourceContextImpl::processMessage(CreatePlacedImageMessage&& message)
@@ -709,7 +717,7 @@ void ResourceContextImpl::processMessage(CreatePlacedImageMessage&& message)
         return;
     }
 
-    futures.CompleteWithResource(message.Create.Future, *created);
+    futures.CompleteWithResource(message.Create.Future, *created, DescribeImage(info, created->Type, ImageUsageBits::Invalid));
 }
 
 void ResourceContextImpl::processMessage(SetBufferDataMessage&& message)
@@ -949,8 +957,11 @@ void ResourceContextImpl::processMessage(CopyResourceMessage&& message)
         }
     }
 
-    // the source's name string belongs to the source, so the copy goes unnamed. a sampler has no copy path
+    // the copy is named after its source, with a suffix. a sampler has no copy path
+    const DebugName* sourceName = resourceRegistry.try_get<DebugName>(srcEntity);
+    const DebugName copyName = sourceName != nullptr ? sourceName->WithSuffix("_copy") : DebugName{};
     std::expected<GraphicsResource, rhi::ResourceError> created = std::unexpected(rhi::ResourceError::UnsupportedCopy);
+    ResourceDescription description{};
     if (bufferInfo != nullptr)
     {
         BufferCreateInfo copyInfo = *bufferInfo;
@@ -960,7 +971,8 @@ void ResourceContextImpl::processMessage(CopyResourceMessage&& message)
             copyInfo.Usage |= BufferUsageBits::CopyDestination;
         }
 
-        created = createBufferEntity(copyInfo, DebugName{});
+        created = createBufferEntity(copyInfo, copyName);
+        description = DescribeBuffer(copyInfo);
     }
     else if (imageInfo != nullptr)
     {
@@ -971,7 +983,9 @@ void ResourceContextImpl::processMessage(CopyResourceMessage&& message)
             copyInfo.Usage |= ImageUsageBits::TransferDestination;
         }
 
-        created = createImageEntity(copyInfo, DebugName{});
+        created = createImageEntity(copyInfo, copyName);
+        const ImageUsageBits initialUsage = message.CopyContents ? message.CopyUsageAfter : ImageUsageBits::Invalid;
+        description = DescribeImage(copyInfo, created.has_value() ? created->Type : ResourceType::Image, initialUsage);
     }
 
     if (!created.has_value())
@@ -982,11 +996,11 @@ void ResourceContextImpl::processMessage(CopyResourceMessage&& message)
 
     if (!message.CopyContents)
     {
-        futures.CompleteWithResource(message.Future, *created);
+        futures.CompleteWithResource(message.Future, *created, description);
         return;
     }
 
-    futures.StoreResource(message.Future, *created);
+    futures.StoreResource(message.Future, *created, description);
 
     CopyResourceContentsMessage copyMessage;
     copyMessage.Kind = message.SourceIsImage ? CopyKind::ImageToImage : CopyKind::BufferToBuffer;
@@ -1894,6 +1908,50 @@ namespace
     bool HasFlag(ResourceCreationFlags flags, ResourceCreationFlags flag) noexcept
     {
         return (flags & flag) != ResourceCreationFlags::None;
+    }
+
+    ResourceDescription DescribeBuffer(const BufferCreateInfo& info) noexcept
+    {
+        ResourceDescription description{};
+        description.Type = ResourceType::Buffer;
+        description.Domain = info.Domain;
+        description.BufferUsage = info.Usage;
+        description.ByteSize = static_cast<uint64_t>(info.Size);
+        return description;
+    }
+
+    ResourceDescription DescribeImage(const ImageCreateInfo& info, ResourceType type, ImageUsageBits initial_usage) noexcept
+    {
+        ResourceDescription description{};
+        description.Type = type;
+        description.Domain = info.Domain;
+        description.ImageUsage = info.Usage;
+        description.Dimensions = info.Type;
+        description.Format = info.Format;
+        description.Width = static_cast<int32_t>(info.Width);
+        description.Height = static_cast<int32_t>(info.Height);
+        description.Depth = static_cast<int32_t>(info.Depth);
+        description.MipLevels = static_cast<int32_t>(info.MipLevels);
+        description.ArrayLayers = static_cast<int32_t>(info.ArrayLayers);
+        description.SampleCount = static_cast<int32_t>(info.SampleCount);
+        description.InitialUsage = initial_usage;
+        return description;
+    }
+
+    ResourceDescription DescribeSampler() noexcept
+    {
+        ResourceDescription description{};
+        description.Type = ResourceType::Sampler;
+        return description;
+    }
+
+    ResourceDescription DescribeHeap(uint64_t byte_size) noexcept
+    {
+        ResourceDescription description{};
+        description.Type = ResourceType::Heap;
+        description.Domain = ResourceDomain::GPUOnly;
+        description.ByteSize = byte_size;
+        return description;
     }
 
     bool ImagesHaveTheSameShape(const ImageCreateInfo& src, const ImageCreateInfo& dst) noexcept

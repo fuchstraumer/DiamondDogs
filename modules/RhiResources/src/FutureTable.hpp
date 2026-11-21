@@ -39,13 +39,14 @@ namespace rhi
 
         // the producers: the context worker, and the transfer thread. after a final state, the producer must not
         // touch the slot again, because the owner may have freed it
-        /** @brief Stores the resource without a state change. The next SetTransferring publishes it. */
-        void StoreResource(int32_t slot_index, const GraphicsResource& resource) noexcept;
+        /** @brief Stores the resource and its description without a state change. The next SetTransferring publishes
+         *  them. */
+        void StoreResource(int32_t slot_index, const GraphicsResource& resource, const ResourceDescription& description) noexcept;
         /** @brief Stores the ticket, then publishes Created. */
         void SetTransferring(int32_t slot_index, uint64_t ticket) noexcept;
         void SetSubmitted(int32_t slot_index) noexcept;
         void Complete(int32_t slot_index) noexcept;
-        void CompleteWithResource(int32_t slot_index, const GraphicsResource& resource) noexcept;
+        void CompleteWithResource(int32_t slot_index, const GraphicsResource& resource, const ResourceDescription& description) noexcept;
         void CompleteWithPointer(int32_t slot_index, void* pointer) noexcept;
         void Fail(int32_t slot_index, ResourceError error) noexcept;
 
@@ -54,6 +55,8 @@ namespace rhi
         [[nodiscard]] ResourceError Error(int32_t slot_index) const noexcept;
         [[nodiscard]] GpuWait Completion(int32_t slot_index) const noexcept;
         [[nodiscard]] const GraphicsResource& Resource(int32_t slot_index) const noexcept;
+        /** @brief Valid once the state is Created or Complete. The producer writes it before it publishes the state. */
+        [[nodiscard]] const ResourceDescription& Description(int32_t slot_index) const noexcept;
         [[nodiscard]] void* const& Pointer(int32_t slot_index) const noexcept;
         /** @brief Blocks until the future is done or the timeout passes. Returns the state at that moment. */
         [[nodiscard]] FutureState Wait(int32_t slot_index, uint64_t timeout_ns) const noexcept;
@@ -88,6 +91,8 @@ namespace rhi
         void freeSlot(int32_t slot_index) noexcept;
 
         std::unique_ptr<FutureSlot[]> slots;
+        // beside the slots, not in them: a FutureSlot is one cache line. same index, same capacity
+        std::unique_ptr<ResourceDescription[]> descriptions;
         int32_t capacity{ 0 };
         // the free list is a Treiber stack. the high 32 bits are a tag that changes on every pop and push, so that a
         // pop that read a stale head fails its compare-exchange

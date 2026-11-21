@@ -1,8 +1,9 @@
 # Loom
 
 Loom is the render graph of DiamondDogs (namespace `loom`, target `loom`). A module declares its resources and
-passes through a builder. Compile then turns those declarations into a checked, ordered graph, with no GPU. Realize
-and Tick (not written yet) run that graph on a device.
+passes through a builder. Compile then turns those declarations into a checked, ordered graph, with no GPU. The
+backend's Realize and Tick run that graph on a device (target `loom_vulkan`; step 5 runs buffers and compute
+dispatches only).
 
 The design record is the API spec, and the agent handbook holds the working state. Both are in the author's
 untracked `docs/` folder. This README is the map of the code.
@@ -38,8 +39,16 @@ untracked `docs/` folder. This README is the map of the code.
                          │  Layout   │  LM601-LM604    group counts, attachments, feedback loops, limits,
                          └─────┬─────┘                  one description per distinct pipeline
                           LaidOutGraph
-                               ▼
-                 Realize, Tick (LM7xx)                  not written yet
+                               │
+                         CompiledGraph                  Compile() chains the six stages; owns copies, no bundle
+═══════════════════════════════╪══════════════ loom (no RHI) above, loom_vulkan below ══════════
+                         ┌─────▼─────┐   ◀── ResourceContext, rhi::Device, frame slot count
+                         │  Realize  │                  creates resources, layouts, shader objects, sets
+                         └─────┬─────┘
+                             Graph
+                         ┌─────▼─────┐   ◀── Set<T>, Supply, Enable
+                         │   Tick    │  LM701-LM704     poll ─▶ DecideRuns ─▶ PlanBarriers ─▶ record ─▶ submit
+                         └───────────┘                  (DecideRuns and PlanBarriers are core: FramePlan)
 ```
 
 Each stage is a free function with a typed input and output, so a unit test can feed one stage directly. Each stage
@@ -71,6 +80,9 @@ on 2026-11-20); headers include only what their declarations need.
 
 Layout reads no `OrderedGraph`: it checks each pass alone, so Order and Layout can run in either order.
 
+`Compile(builder, inputs, sink)` (`include/Compile.hpp`, `src/compile/`) runs the six stages in turn and stops after
+the first stage that reported an error. It returns a `CompiledGraph`, described in "Compile output" below.
+
 ### Freeze
 
 Freeze needs no shader and no device. It publishes every declaration into one symbol table, then resolves each name
@@ -80,6 +92,10 @@ that a statement uses. It also runs the checks that need only the declarations:
   has no shader or two, or a statement that may appear once appears twice.
 - **LM113 and LM306 on binds** (`CheckPassBinds` in `Validate.hpp`): a binding name bound twice in a pass, `Params`
   twice, and `BindPrevious` on a resource with no history ring. LM306 keeps its Bind number, but it needs no shader.
+
+`Import(BufferImportDeclaration)` declares a buffer that the app supplies at run time (`Graph::Supply`). It becomes a
+resource row of kind `Buffer`, origin `Imported`, that points into `FrozenGraph::BufferImports`. Its `ByteSize` is
+required: a missing or non-positive size is LM109.
 
 ### Resolve
 
@@ -142,8 +158,9 @@ Each binding or statement that names a buffer is a requirement:
 Sizes compare in **bytes**, never in elements, so two typed views of one buffer agree. A `Bytes(n)` buffer must fit
 every requirement. A `Derived` buffer takes its size from the first exact requirement, or from the largest one when
 none is exact; a requirement that does not fit is LM401, and no requirement at all is LM402. `DescribeCreation`
-decides whether the shader gives a size. An imported buffer gets no size here: its future brings it, and Realize
-checks it (LM701).
+decides whether the shader gives a size. An imported buffer gets no size here: its declaration states `ByteSize`,
+and its future brings the object. Tick checks the supplied object's kind (LM701); a check of its size against
+`ByteSize` is not written yet.
 
 Usage is the union of `RequiredBufferUsage()` over the shader bindings, plus the pass statements: indirect arguments,
 vertex and index buffers, and a Record pass's uses. CPU access (maps, upload copies) belongs to Realize.
@@ -173,6 +190,16 @@ Order builds the edges (anchors, sequences, single-writer data flow), sorts with
 declaration-order tie-break, and checks the data: LM501 (cycle), LM502 (a hazard with no ordering path), LM503 (a
 read before any write), LM504 (dead write) and LM505 (orphan pass). `Explain` and `ExplainPass` print the order and
 the reason for each edge.
+
+- **Levels.** Each pass gets a Kahn level: the longest path to it, counted in passes. An anchor orders passes but
+  adds no level of its own. `OrderedGraph::Levels[pass]` and `LevelCount` hold them.
+- **Run order is level-major:** level 0 first, then level 1, and so on, with declaration order inside a level. In a
+  graph where pass 0 writes Data, pass 1 reads it, and pass 2 touches nothing, Kahn's heap alone gives 0, 1, 2; the
+  run order is 0, 2, 1. LM502 proves that two passes in one level have no hazard, so the runtime needs a barrier only
+  at a level boundary (see "Barriers" below).
+- **Persistence (LM503).** A writer whose run policy is not `EveryFrame` keeps its contents across frames, so it is a
+  source for reads that come before it in the frame. An imported buffer has its contents at frame start, so a read
+  of it needs no writer.
 
 ### Layout
 
@@ -211,6 +238,129 @@ so that Realize makes no decision of its own. Each check lives in the file named
   formats and blend per slot, depth format, compare and write, and raster state. Identity is by name (G9), never by
   `VariantKey`. Equal descriptions (`==`) share one row. There is no hash: the cache across recompiles belongs to
   Realize, and the pipeline shape itself waits for a design that suits Vulkan and WebGPU both.
+
+## Compile output
+
+`CompiledGraph` (`include/CompiledGraph.hpp`) is opaque to the app: it gives the pass and resource counts and the
+index of a key. Backends read `Data()`, a `CompiledData` (`src/compile/CompiledData.hpp`). Every table in it owns its
+data, with no view into the bundle (G4), so the bundle can close when Compile returns. Keep it open while the sink
+still holds Compile's diagnostics, because their binding names are views into it.
+
+`CompiledData` holds each stage's output, plus the tables that a backend needs and no stage made:
+
+- `Pipelines` (`compile/Pipelines.cpp`): per distinct pipeline, a copy of each stage's code and entry point, the
+  workgroup, the push constant range, and the pass whose slots give its descriptor layout.
+- `Uses` (`compile/Uses.cpp`): per pass, one entry per resource row it touches, merged over its slots and statements:
+  the access, the `SyncScope` (stages and accesses, in Loom's own terms), and `Initializes` (a write with no read,
+  for Q3g).
+- `Params`: per `Params` statement, the key and the size and alignment of its type.
+- The first and last level that uses each row, for the aliasing stage that comes after step 6.
+
+## The core runtime
+
+The core (`loom`, `src/runtime/`) decides what runs and where the barriers go. It links no RHI:
+`bootstrap_assert_no_rhi` fails the configure if `loom` or `loom_tests` reaches `rhi_system`. Every type in
+`include/FramePlan.hpp` is plain data, so `loom_tests` checks every decision with no GPU, and a WebGPU backend can
+read the same plan.
+
+The backend gives the core one `ResourceState` per resource row each Tick: a `ResourceReadiness` (`Pending`,
+`Created`, `Complete`, `Failed`) and an epoch. The epoch counts the objects that the row has had: a `Supply` of a new
+future, or the graph's own create, adds one. The core then fills a `FramePlan`. `PrepareFramePlan` sizes its arrays
+once, at Realize, so a Tick allocates nothing.
+
+### Which passes run (`DecideRuns`)
+
+Each pass, in run order:
+
+1. **Enabled:** `Graph::Enable(pass, false)` skips it (`Disabled`).
+2. **Run policy:** a `Once` pass that already ran and was submitted skips (`Policy`). `CommitRuns` marks it after the
+   submit. `WhenInputsChange` and `OnTrigger` wait for step 6, and Realize refuses them.
+3. **Readiness:** a `Failed` row stops the pass for good (`Failed`). A `Pending` row stops it this Tick
+   (`NotCreated`). `Created` is enough to run: the submit waits for the transfer.
+4. **Propagation (Q3g):** if an initializing writer of a row skipped earlier in this Tick, a pass that reads the row
+   skips too (`Propagated`, with the writer as `Cause`). A `Policy` skip does not propagate: a `Once` pass left valid
+   contents behind.
+
+`FramePlan::Decisions[pass]` holds each reason and its cause, and `Runs` holds the passes that run.
+
+### Barriers (`PlanBarriers`)
+
+`ResourceSync` carries, per row, from Tick to Tick: the last write's scope, the read scopes that a barrier already
+made it visible to, and the reads since the last write. Against that state, per row:
+
+- a read after a write needs a barrier from the write to the read, unless an earlier barrier already made the write
+  visible to that read scope;
+- a write after a write needs a barrier from the old write to the new one;
+- a write after reads needs a barrier from the reads to the write (an execution dependency only).
+
+All barriers before one level go into one `BarrierBatch`, with one barrier per row (a second need on the row widens
+the first). Because the state carries over from the last Tick, the first batch is the frame-start batch: it orders
+this frame's first accesses after earlier frames' work on the same queue. A row whose epoch changed starts with no
+pending work, because a new object owes nothing to the old one. Split barriers come later, from measured timestamps.
+
+### Params (`ParamsStore`)
+
+"Params" is Loom's name for the uniform parameters of one entry point, which Slang treats on their own; Loom writes
+them as push constants. `Graph::Set<T>(key, value)` copies the bytes into one slot per key, sized at Realize. A type
+whose size or alignment differs from the `Params` statement's type is LM704. A running pass whose key was never set
+is LM703, and that Tick fails before it records anything.
+
+## The Vulkan backend (`loom_vulkan`)
+
+`vulkan/include/LoomGraph.hpp` is the face: `RealizeInputs`, `Graph`, `ShaderLimitsOf` and `LayoutLimitsOf` (they
+fill `CompileInputs` from a device). `loom_vulkan` links `loom`, `rhi_system` and `rhi_resources`.
+
+### Realize
+
+`Graph::Realize(compiled, inputs)` first checks that step 5 can run the graph, and refuses with a `RealizeError` if
+not. The "NotYet" values name the step that adds the feature: Draw and Record passes (step 7), images, history, and
+`WhenInputsChange` or `OnTrigger` (step 6), the `Handle` and `Pointer` placements (T2), and binding kinds other than
+uniform and storage buffers. It then:
+
+- creates each graph-declared buffer through `ResourceContext` and keeps the future, so a graph resource and an
+  import have one readiness path;
+- builds its own set layouts, pipeline layouts and shader objects from the slot table and the copied SPIR-V
+  (`rhi::ShaderProgram`), with no `VkPipeline`;
+- makes one descriptor set per (pass, frame slot), one command pool per frame slot, and a timeline semaphore that it
+  registers with `ResourceContext` as a consumer timeline;
+- with `PassTimestamps::On`, makes `rhi::GpuTimers` for per-pass times (`LatestTimings()`).
+
+Realize does not block. `FrameSlots` and `Timestamps` have no defaults. The `Graph` destructor blocks: it waits for
+the last submit, unregisters the timeline, then frees what the graph made.
+
+### Tick
+
+`Graph::Tick` never blocks (T1). Each status other than `Submitted` means "try again next Tick". In order:
+
+1. **Frame slot.** If the timeline has not reached the value that this slot last signaled, return `NoFrameSlot`.
+   `WaitForFrameSlot(timeout)` blocks for it, outside Tick, on desktop only.
+2. **Poll** (`PollRows`). Map each future to a readiness. A `Created` future whose transfer is not submitted yet is
+   `Pending` (Q4): there is nothing a submit could wait on. LM701 (a supplied object is not a buffer; its size is not
+   checked yet) and LM702 (a future failed) are reported once per epoch.
+3. **Decide** (`DecideRuns`). No pass runs: return `NothingToRun`.
+4. **Params** (`ParamsStore::CheckRuns`). LM703: return `Failed`.
+5. **Barriers** (`PlanBarriers`), then **descriptors** (`WriteDescriptors`). A slot's sets are written again only
+   where a row changed epoch since the last write.
+6. **Record and submit** (`SubmitFrame`). One `vkCmdPipelineBarrier2` per batch, then the passes of that level. The
+   submit waits for each row that a running pass uses and that is `Created`, not `Complete` (CC-R2), with one wait
+   per semaphore at the highest value. It signals the graph's timeline.
+7. **Commit** (`CommitRuns`) and return `Submitted`.
+
+For the app: `Timeline()` and `PendingValue()` feed `ResourceContext::Tick`, and `LastSubmit()` is the `GpuWait` that
+a transfer must wait on before it reads what the graph wrote. `Supply` on an imported buffer starts a new epoch. The
+supplier still owns the buffer, and frees an old one only after `LastSubmit()` passes (CC-R4). `BufferOf(key)` gives
+a buffer row's object.
+
+**Frames in flight.** Each resource has one copy, and the frame-start batch orders frame N+1 after frame N. Copies per
+frame slot come with async compute (step 8), chosen per resource from measurements.
+
+### What synchronization validation sees
+
+The layer's synchronization validation does not check the descriptor accesses of shader-object dispatches (SDK
+1.4.357). It skips a dispatch that has no bound `VkPipeline`, and it ignores shader accesses unless
+`syncval_shader_accesses_heuristic` is on. A spike with `VkPipeline` compute and the heuristic on still caught none
+of the planted barrier faults, so Loom has no pipeline mode for it (removed 2026-11-21). The barrier rules are proven
+in `loom_tests` instead. Syncval still checks copies, fills, layout transitions and present, which steps 6 and 7 use.
 
 ## Formats
 
@@ -264,5 +414,12 @@ When Loom needs something from Lodestone, it stubs it here and adds a row to Lod
 | `test_layout.cpp` (`LoomLayoutTest.slang`) | Layout: group counts, LM601-LM604, and pipeline sharing. |
 | `test_order.cpp`, `test_explain.cpp` | Order and `Explain`, from hand-made access tables. |
 | `test_diagnostics.cpp` | The catalog and the sinks. |
+| `test_levels.cpp` | Kahn levels, the level-major run order, the persistence rule for LM503, and buffer imports. |
+| `test_runtime.cpp` (`LoomHashFill.slang`) | `Compile`, `DecideRuns` (pending and failed rows, `Once`, and Q3g), `PlanBarriers` (level and frame-start batches, write after reads, epochs), and `ParamsStore` (LM703, LM704), from readiness values written by hand. |
+
+`tests/integration_tests/LoomComputeTest` runs on a real device, headless. `HashFillCS` writes `Output` (an imported
+buffer that the test supplies with a sentinel), and `HashAgainCS` reads it and writes `Output2`, so the graph has two
+levels. It runs three Ticks on two frame slots, for both `HASH_TWICE` variants (a graph pin). Every word must match
+the CPU, with zero validation messages.
 
 Every test must be able to fail: plant the fault, see the test fail, and restore the source.

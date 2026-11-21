@@ -154,6 +154,10 @@ namespace rhi
         /** @brief Returns the value. Valid in the Created and Complete states only, so check State() first. The
          *  reference stays valid while this future lives. */
         [[nodiscard]] const T& Get() const noexcept;
+        /** @brief Returns the facts that the creating call set, for ResourceFuture<GraphicsResource> only. Valid in the
+         *  Created and Complete states only, as Get() is. The reference stays valid while this future lives. It takes
+         *  no lock and no wait. */
+        [[nodiscard]] const ResourceDescription& Description() const noexcept;
 
     private:
         friend class FutureTable;
@@ -164,6 +168,8 @@ namespace rhi
     const GraphicsResource& ResourceFuture<GraphicsResource>::Get() const noexcept;
     template<>
     void* const& ResourceFuture<void*>::Get() const noexcept;
+    template<>
+    const ResourceDescription& ResourceFuture<GraphicsResource>::Description() const noexcept;
 
     extern template class ResourceFuture<GraphicsResource>;
     extern template class ResourceFuture<void*>;
