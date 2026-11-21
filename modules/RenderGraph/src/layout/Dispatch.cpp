@@ -1,5 +1,13 @@
+#include "LoomKeys.hpp"
 #include "layout/LayoutContext.hpp"
-#include "bind/BindContext.hpp"
+#include "bind/Layout.hpp"
+#include "freeze/FrozenGraph.hpp"
+#include "layout/LaidOutGraph.hpp"
+#include "layout/Dispatch.hpp"
+#include "layout/Diagnostics.hpp"
+#include "bind/BoundGraph.hpp"
+#include "LoomDiagnostic.hpp"
+#include "resolve/ResolvedGraph.hpp"
 #include "size/SizedGraph.hpp"
 #include "Records.hpp"
 #include "ShaderLibraryTypes.hpp"
@@ -8,6 +16,7 @@
 #include <cstdint>
 #include <optional>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // A dispatch states threads; the device runs groups. The group count on each axis is the thread count divided by the
@@ -69,7 +78,7 @@ namespace
 
         for (const AxisLimit& axis : axes)
         {
-            if (axis.Groups > static_cast<int64_t>(axis.Limit))
+            if (std::cmp_greater(axis.Groups ,axis.Limit))
             {
                 ReportLimit(context, pass.Key, KeyRef{}, pass.Dispatch.Where, axis.Name, axis.Limit, axis.Groups);
             }

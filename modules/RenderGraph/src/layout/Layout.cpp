@@ -1,5 +1,11 @@
-#include "layout/LaidOutGraph.hpp"
+#include "LoomDeviceLimits.hpp"
 #include "layout/LayoutContext.hpp"
+#include "layout/LaidOutGraph.hpp"
+#include "layout/Layout.hpp"
+#include "layout/Attachments.hpp"
+#include "layout/Dispatch.hpp"
+#include "layout/Feedback.hpp"
+#include "layout/Limits.hpp"
 #include "bind/BoundGraph.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "resolve/ResolvedGraph.hpp"
@@ -8,6 +14,7 @@
 #include "Records.hpp"
 #include "ShaderManifest.hpp"
 #include "ShaderManifestLayout.hpp"
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>

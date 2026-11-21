@@ -1,13 +1,12 @@
 #pragma once
 #ifndef DIAMOND_DOGS_LOOM_LAID_OUT_GRAPH_HPP
 #define DIAMOND_DOGS_LOOM_LAID_OUT_GRAPH_HPP
+#include "LoomDeviceLimits.hpp"
 #include "LoomFormats.hpp"
 #include "PassStatements.hpp"
-#include "RhiFlags.hpp"
 #include "ShaderLibraryTypes.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -17,33 +16,6 @@
 // reads and writes as a target (LM604), and the device limits that Resolve does not check (LM601).
 namespace loom
 {
-    class DiagnosticSink;
-    struct BoundGraph;
-    struct ResolvedGraph;
-    struct SizedGraph;
-
-    // The device limits that Layout checks, in VkPhysicalDeviceLimits terms. Resolve checks the workgroup size, the
-    // invocations, the workgroup memory and the push constant bytes (LM207), so they are not here. Fill every field:
-    // a limit of 0 rejects each pass that uses that kind of thing.
-    struct LayoutLimits
-    {
-        uint32_t MaxComputeWorkGroupCountX{ 0u };
-        uint32_t MaxComputeWorkGroupCountY{ 0u };
-        uint32_t MaxComputeWorkGroupCountZ{ 0u };
-        uint32_t MaxColorAttachments{ 0u };
-        uint32_t MaxBoundDescriptorSets{ 0u };
-        uint32_t MaxPerStageDescriptorSamplers{ 0u };
-        uint32_t MaxPerStageDescriptorUniformBuffers{ 0u };
-        uint32_t MaxPerStageDescriptorStorageBuffers{ 0u };
-        uint32_t MaxPerStageDescriptorSampledImages{ 0u };
-        uint32_t MaxPerStageDescriptorStorageImages{ 0u };
-        uint32_t MaxPerStageResources{ 0u };
-        uint32_t MaxUniformBufferRange{ 0u };
-        uint32_t MaxStorageBufferRange{ 0u };
-        uint32_t MaxImageDimension1D{ 0u };
-        uint32_t MaxImageDimension2D{ 0u };
-        uint32_t MaxImageDimension3D{ 0u };
-    };
 
     enum class GroupCountSource : uint8_t
     {
@@ -89,7 +61,7 @@ namespace loom
         std::string FragmentEntryPoint;
         std::vector<LaidOutColor> Colors;   // by slot
         lodestone::TextureFormat DepthFormat{ k_NoTextureFormat };
-        rhi::CompareOp DepthCompare{ rhi::CompareOp::Never };
+        CompareOp DepthCompare{ CompareOp::Invalid };
         DepthWrite DepthWrites{ DepthWrite::Invalid };
         RasterState Raster;
 
@@ -105,20 +77,12 @@ namespace loom
         int32_t Pipeline{ k_NoPipeline };   // an index into LaidOutGraph::Pipelines
     };
 
+    // The stage that fills it, Layout(), is in Layout.hpp.
     struct LaidOutGraph
     {
         std::vector<LaidOutPass> Passes;
         std::vector<PipelineDescription> Pipelines;
     };
-
-    // Reports every Layout error it finds, not only the first one. Returns no graph when it reported an error. Keep
-    // the bundle open while the sink holds diagnostics: a semantic or a binding name is a view into it.
-    [[nodiscard]] std::optional<LaidOutGraph> Layout(const FrozenGraph& frozen,
-                                                     const ResolvedGraph& resolved,
-                                                     const BoundGraph& bound,
-                                                     const SizedGraph& sized,
-                                                     const LayoutLimits& limits,
-                                                     DiagnosticSink& sink);
 
 }
 

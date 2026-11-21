@@ -171,6 +171,29 @@ namespace loom::freeze
             context.Graph.Resources.emplace_back(resource);
             context.Graph.Imports.emplace_back(decl.Value);
         }
+
+        for (const DeclarationRecord<BufferImportDeclaration>& decl : context.Record.BufferImports)
+        {
+            const int32_t resourceIndex = static_cast<int32_t>(context.Graph.Resources.size());
+            const KeyRef key = decl.Value.Key.ToRef();
+
+            if (!Publish(context, key, KeyClass::Buffer, resourceIndex, decl.Where))
+            {
+                continue;
+            }
+
+            FrozenResource resource
+            {
+                .Key=key,
+                .Kind=ResourceKind::Buffer,
+                .Origin=ResourceOrigin::Imported,
+                .DeclarationIndex=static_cast<int32_t>(context.Graph.BufferImports.size()),
+                .Where=decl.Where
+            };
+
+            context.Graph.Resources.emplace_back(resource);
+            context.Graph.BufferImports.emplace_back(decl.Value);
+        }
     }
 
     inline void PublishAnchors(FreezeContext& context)

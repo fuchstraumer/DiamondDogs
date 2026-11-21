@@ -1,12 +1,25 @@
+#include "LoomDeviceLimits.hpp"
 #include "layout/LayoutContext.hpp"
+#include "LoomKeys.hpp"
+#include "PassStatements.hpp"
+#include "bind/BoundGraph.hpp"
+#include "freeze/FrozenGraph.hpp"
+#include "layout/Limits.hpp"
+#include "layout/Diagnostics.hpp"
+#include "layout/LaidOutGraph.hpp"
+#include "resolve/ResolvedGraph.hpp"
+#include "LoomDiagnostic.hpp"
 #include "Records.hpp"
 #include "ResourceFlags.hpp"
 #include "ShaderLibraryTypes.hpp"
+#include "size/SizedGraph.hpp"
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <source_location>
 #include <string_view>
+#include <utility>
 
 // LM601 for the limits that a pass's pipeline meets: descriptor sets, descriptors per stage, color attachments and
 // buffer ranges. An image's extent meets maxImageDimension. Only Bound slots are descriptors: a Handle or a Pointer is
@@ -141,7 +154,7 @@ namespace
             largest = std::max(largest, value_of(stage));
         }
 
-        if (largest > static_cast<int64_t>(limit))
+        if (std::cmp_greater(largest ,limit))
         {
             ReportLimit(context, pass.Key, KeyRef{}, pass.Shader.Where, limit_name, limit, largest);
         }
@@ -210,7 +223,7 @@ namespace
             }
         }
 
-        if (sets > static_cast<int64_t>(context.Limits.MaxBoundDescriptorSets))
+        if (std::cmp_greater(sets ,context.Limits.MaxBoundDescriptorSets))
         {
             ReportLimit(context, pass.Key, KeyRef{}, pass.Shader.Where, "MaxBoundDescriptorSets",
                         context.Limits.MaxBoundDescriptorSets, sets);
@@ -233,7 +246,7 @@ namespace
         const FrozenColorTarget& highest = *std::ranges::max_element(pass.Colors, bySlot);
         const int64_t attachments = static_cast<int64_t>(highest.Slot) + 1;
 
-        if (attachments > static_cast<int64_t>(context.Limits.MaxColorAttachments))
+        if (std::cmp_greater(attachments ,context.Limits.MaxColorAttachments))
         {
             ReportLimit(context, pass.Key, KeyRef{}, highest.Where, "MaxColorAttachments",
                         context.Limits.MaxColorAttachments, attachments);
@@ -323,7 +336,7 @@ namespace
                 limitName = "MaxImageDimension3D";
             }
 
-            if (largest > static_cast<int64_t>(limit))
+            if (std::cmp_greater(largest ,limit))
             {
                 ReportLimit(context, KeyRef{}, row.Key, row.Where, limitName, limit, largest);
             }

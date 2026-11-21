@@ -1,7 +1,12 @@
 #include "order/OrderedGraph.hpp"
-#include "order/OrderContext.hpp"
+#include "order/Accesses.hpp"
+#include "order/DataChecks.hpp"
+#include "order/Edges.hpp"
+#include "order/Liveness.hpp"
+#include "order/Sort.hpp"
 #include "LoomDiagnostic.hpp"
 #include "freeze/FrozenGraph.hpp"
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <ranges>
@@ -61,7 +66,11 @@ namespace loom
 
             const int32_t errorsBefore = context.Sink.ErrorCount();
             const std::vector<uint8_t> hazardSlots = CheckHazards(context, collated, reachability);
-            const std::vector<int32_t> positions = PositionsOf(context, orderedNodes);
+
+            // the checks read positions in the run order, the order the passes run in
+            const std::vector<int32_t> levels = PassLevels(context, orderedNodes);
+            const std::vector<NodeIndex> runOrder = LevelMajorOrder(context, levels);
+            const std::vector<int32_t> positions = PositionsOf(context, runOrder);
             CheckReadsBeforeWrites(context, collated, positions, hazardSlots);
 
             // if we found hazards, then we can't return a valid ordered graph
@@ -75,16 +84,12 @@ namespace loom
             const Liveness liveness = CheckDeadWrites(context, collated, positions);
             CheckOrphans(context, liveness);
 
-            // copy each pass node (pass.Value < context.PassCount) into result passes
             OrderedGraph result;
-            auto filterFn = [&](NodeIndex node) { return node.Value < context.PassCount; };
-            auto toPassIdx = [&](NodeIndex node) { return PassIndex{ node.Value }; };
-            // important: filter *then* transform, otherwise you pay a perf penalty
-            result.Passes = orderedNodes |
-                            std::views::filter(filterFn) |
-                            std::views::transform(toPassIdx) |
-                            std::ranges::to<std::vector>();
+            auto toPassIdx = [](NodeIndex node) { return PassIndex{ node.Value }; };
+            result.Passes = runOrder | std::views::transform(toPassIdx) | std::ranges::to<std::vector>();
             result.Edges = std::move(context.Edges);
+            result.LevelCount = levels.empty() ? 0 : std::ranges::max(levels) + 1;
+            result.Levels = levels;
             return result;
         }
     }

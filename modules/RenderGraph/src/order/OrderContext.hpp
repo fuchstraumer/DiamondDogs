@@ -6,13 +6,13 @@
 #include "PassStatements.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include <cstdint>
-#include <optional>
 #include <source_location>
-#include <string_view>
 #include <vector>
 
-// The Order stage's internals, shared by its source files and by the reachability tests. The public part
-// (OrderedGraph, Order) is in OrderedGraph.hpp.
+// The Order stage's shared state: the context its steps pass along, the reachability matrix, the per-slot access
+// tables, and the index helpers. Each step's functions are in the header named for its source file (Accesses.hpp,
+// Edges.hpp, Sort.hpp, DataChecks.hpp, Liveness.hpp, Explain.hpp). The public part (OrderedGraph, Order) is in
+// OrderedGraph.hpp.
 namespace loom
 {
     class DiagnosticSink;
@@ -64,9 +64,6 @@ namespace loom
         {
             return Reaches(reach, lhs, rhs) || Reaches(reach, rhs, lhs);
         }
-
-        // Reads context.Edges and context.Successors. ordered_nodes must be a topological order of every node.
-        Reachability ComputeReachability(OrderContext& context, const std::vector<NodeIndex>& ordered_nodes);
 
         inline NodeIndex NodeOfPass(PassIndex pass)
         {
@@ -132,122 +129,6 @@ namespace loom
             std::vector<std::vector<AccessRef>> Writers;
             std::vector<std::vector<AccessRef>> Readers;
         };
-
-        struct Hazard
-        {
-            int32_t LowPass{ -1 };
-            int32_t HighPass{ -1 };
-            int32_t Slot{ -1 };
-            std::source_location LowWhere;
-            std::source_location HighWhere;
-        };
-
-        void AddEdge(OrderContext& context,
-                     NodeIndex from,
-                     NodeIndex to,
-                     EdgeReason reason,
-                     std::source_location where,
-                     ResourceSlot slot = ResourceSlot{ -1 });
-        void AddAnchorEdges(OrderContext& context);
-        void AddFrameBoundEdges(OrderContext& context);
-        void AddSequenceEdges(OrderContext& context);
-        void AppendBindingAccesses(const std::vector<ResourceAccess>& inputs,
-                                  std::vector<PassAccess>& results,
-                                  const FrozenPass& pass);
-        void AppendRecordAccesses(OrderContext& context,
-                                  std::vector<PassAccess>& results,
-                                  const FrozenPass& pass);
-        ResourceAccess ColorTargetAccess(const FrozenColorTarget& color);
-        ResourceAccess DepthTargetAccess(const FrozenDepthTarget& depth);
-        void AppendDrawAccesses(const OrderContext& context,
-                                std::vector<PassAccess>& results,
-                                const FrozenPass& pass);
-        void AppendDispatchAccesses(std::vector<PassAccess>& results, const FrozenPass& pass);
-        void GatherAccesses(OrderContext& context);
-        CollatedAccesses CollateAccessesBySlot(OrderContext& context);
-        void AddDataFlowEdges(OrderContext& context, const CollatedAccesses& collated);
-        void BuildSuccessors(OrderContext& context);
-        std::optional<std::vector<NodeIndex>> SortNodes(OrderContext& context);
-        void RecordHazard(const OrderContext& context,
-                          std::vector<Hazard>& hazards,
-                          int32_t slot,
-                          const CollatedAccesses::AccessRef& lhs,
-                          const CollatedAccesses::AccessRef& rhs);
-        void ReportHazards(const OrderContext& context, const std::vector<Hazard>& hazards);
-        std::vector<uint8_t> CheckHazards(OrderContext& context,
-                                          const CollatedAccesses& collated,
-                                          const Reachability& reachability);
-        void ReportReadBeforeWrite(const OrderContext& context,
-                                    const ResourceSlot slot,
-                                    const CollatedAccesses::AccessRef& first_reader,
-                                    const CollatedAccesses::AccessRef& first_writer);
-        void CheckReadsBeforeWrites(OrderContext& context,
-                                    const CollatedAccesses& collated,
-                                    const std::vector<int32_t>& positions,
-                                    const std::vector<uint8_t>& hazard_slots);
-        // What LM504 learns about the writes, for LM505 to walk.
-        struct Liveness
-        {
-            std::vector<std::vector<int32_t>> Feeders; // [reader pass] -> the writer passes whose write it reads
-            std::vector<uint8_t> Roots;                // [pass] is 1 when a sink reads one of its writes
-        };
-
-        void ReportDeadWrite(const OrderContext& context,
-                             ResourceSlot slot,
-                             const CollatedAccesses::AccessRef& writer,
-                             const CollatedAccesses::AccessRef& next_writer);
-        Liveness CheckDeadWrites(OrderContext& context,
-                                 const CollatedAccesses& collated,
-                                 const std::vector<int32_t>& positions);
-        void CheckOrphans(OrderContext& context, const Liveness& liveness);
-
-        void ReportCycle(const OrderContext& context, const std::vector<NodeIndex>& emitted);
-        void ReportCycleEdges(const OrderContext& context, const std::vector<int32_t>& cycle_edges);
-        std::string_view EdgeReasonName(EdgeReason reason) noexcept;
-        KeyRef PassOfEdge(const OrderContext& context, const OrderEdge& edge);
-        
-        std::vector<int32_t> PositionsOf(const OrderContext& context, const std::vector<NodeIndex>& ordered_nodes);
-        // True when resource at the given slot has a source (for it's contents) from outside the frame/graph
-        bool HasSource(const OrderContext& context, ResourceSlot slot);
-        bool HasSink(const OrderContext& context, ResourceSlot slot);
-
-        // Explain
-
-        enum class EdgeEnd : uint8_t
-        {
-            Invalid = 0,
-            From = 1,
-            To = 2
-        };
-
-        // Edges grouped by one endpoint (CSR): node n's edges are EdgeIndices[Offsets[n], Offsets[n + 1])
-        struct EdgesByNode
-        {
-            std::vector<int32_t> Offsets;       // NodeCount + 1 entries
-            std::vector<int32_t> EdgeIndices;   // indices into OrderedGraph::Edges
-        };
-
-        // One edge seen from one pass: Other is the node at the edge's far end
-        struct ExplainedEdge
-        {
-            NodeIndex Other;
-            EdgeReason Reason{ EdgeReason::Invalid };
-            ResourceSlot Resource;      // DataFlow only
-            std::source_location Where;
-        };
-
-        // FrameBounds edges are left out of both lists: every pass has them, so they explain nothing
-        struct ExplainedPass
-        {
-            int32_t Position{ -1 };     // place in the run order
-            PassIndex Pass;
-            std::vector<ExplainedEdge> Incoming;    // the nodes that run before this pass, and why
-            std::vector<ExplainedEdge> Outgoing;    // the nodes that run after it, and why
-        };
-
-        EdgesByNode GroupEdgesByNode(const std::vector<OrderEdge>& edges, int32_t node_count, EdgeEnd which_end);
-        // One entry per pass, in run order
-        std::vector<ExplainedPass> ExplainPasses(const FrozenGraph& frozen, const OrderedGraph& ordered);
 
     }
 

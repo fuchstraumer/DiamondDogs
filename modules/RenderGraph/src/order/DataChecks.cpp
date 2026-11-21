@@ -1,10 +1,9 @@
+#include "order/DataChecks.hpp"
 #include "Records.hpp"
-#include "order/OrderContext.hpp"
 #include "Declarations.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
 #include "freeze/FrozenGraph.hpp"
-#include "order/OrderedGraph.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -184,7 +183,8 @@ namespace loom::order
         for (int32_t i = 0; i < context.SlotCount; ++i)
         {
             const auto& readers = collated.Readers[i];
-            const bool hasSource = HasSource(context, ResourceSlot{i});
+            const bool hasSource = HasSource(context, ResourceSlot{i}) ||
+                                   HasPersistentWriter(context, collated, ResourceSlot{i});
             const bool hasHazard = hazard_slots[i] != 0;
             // if nothing reads this, if it has data sources outside the graph, or if we already
             // marked that it has a hazard - skip it
@@ -220,6 +220,16 @@ namespace loom::order
             }
 
         }
+    }
+
+    bool HasPersistentWriter(const OrderContext& context, const CollatedAccesses& collated, ResourceSlot slot)
+    {
+        const auto persists = [&context](const CollatedAccesses::AccessRef& writer)
+        {
+            return context.Frozen.Passes[writer.PassIdx].Policy != RunPolicy::EveryFrame;
+        };
+
+        return std::ranges::any_of(collated.Writers[slot.Value], persists);
     }
 
     bool HasSource(const OrderContext& context, ResourceSlot slot)

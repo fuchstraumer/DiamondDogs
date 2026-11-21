@@ -1,5 +1,7 @@
 #include "freeze/FrozenGraph.hpp"
 #include "resolve/ResolveContext.hpp"
+#include "resolve/Helpers.hpp"
+#include "resolve/ResolvedGraph.hpp"
 #include "Declarations.hpp"
 #include "Records.hpp"
 #include "ShaderLibraryTypes.hpp"

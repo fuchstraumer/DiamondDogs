@@ -1,7 +1,11 @@
 #include "resolve/ResolvedGraph.hpp"
+#include "resolve/ResolveContext.hpp"
 #include "Records.hpp"
 #include "VariantKey.hpp"
-#include "resolve/ResolveContext.hpp"
+#include "resolve/Pins.hpp"
+#include "resolve/Shaders.hpp"
+#include "resolve/Variants.hpp"
+#include "ShaderManifestIndex.hpp"
 #include "LoomDiagnostic.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include <cstddef>

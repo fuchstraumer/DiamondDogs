@@ -357,6 +357,14 @@ namespace loom::freeze
             CheckImport(context, decl);
         }
 
+        for (const DeclarationRecord<BufferImportDeclaration>& decl : context.Record.BufferImports)
+        {
+            if (decl.Value.ByteSize < 1)
+            {
+                ReportOutOfRange(context, "ByteSize", decl.Value.ByteSize, decl.Where);
+            }
+        }
+
         for (const DeclarationRecord<OutputDeclaration>& decl : context.Record.Outputs)
         {
             CheckOutput(context, decl);

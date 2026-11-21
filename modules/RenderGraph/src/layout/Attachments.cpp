@@ -1,8 +1,12 @@
 #include "LoomKeys.hpp"
+#include "layout/LayoutContext.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "layout/LaidOutGraph.hpp"
-#include "layout/LayoutContext.hpp"
-#include "bind/BindContext.hpp"
+#include "layout/Attachments.hpp"
+#include "layout/Diagnostics.hpp"
+#include "bind/BoundGraph.hpp"
+#include "size/SizedGraph.hpp"
+#include "bind/Layout.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
 #include "LoomFormats.hpp"
@@ -18,6 +22,7 @@
 #include <source_location>
 #include <span>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // LM602: the attachments of a draw against the outputs of its fragment shader. Each output location needs a Color
@@ -123,7 +128,7 @@ namespace
     {
         for (const lsm::ColorTarget& output : outputs.Colors)
         {
-            if (static_cast<int32_t>(output.Location) == slot)
+            if (std::cmp_equal(output.Location, slot))
             {
                 return &output;
             }
@@ -136,7 +141,7 @@ namespace
     {
         for (const FrozenColorTarget& color : pass.Colors)
         {
-            if (color.Slot == static_cast<int32_t>(location))
+            if (std::cmp_equal(color.Slot, location))
             {
                 return true;
             }

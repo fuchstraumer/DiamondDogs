@@ -6,7 +6,6 @@
 #include "LoomKeys.hpp"
 #include "PassStatements.hpp"
 #include "Records.hpp"
-#include "RhiFlags.hpp"
 #include "utility/Delegate.hpp"
 #include <cstdint>
 #include <optional>
@@ -56,11 +55,11 @@ namespace loom
     {
         Invalid = 0,
         Declared = 1,       // Declare(Buffer, Image or Sampler declaration): the graph creates it
-        Imported = 2        // Import(ImportDeclaration): a future supplies it at Realize
+        Imported = 2        // Import(...): Supply gives it to the graph after Realize
     };
 
     // One row for every resource key, whatever its kind, so a bind needs one index only. DeclarationIndex points into
-    // the table that Kind and Origin select: Buffers, Images, Samplers or Imports.
+    // the table that Kind and Origin select: Buffers, Images, Samplers, Imports (images) or BufferImports.
     struct FrozenResource
     {
         KeyRef Key;
@@ -179,7 +178,7 @@ namespace loom
         ResourceIndex Image;
         DepthLoad Load;
         AttachmentStore Store{ AttachmentStore::Invalid };
-        rhi::CompareOp Compare{ rhi::CompareOp::Never };
+        CompareOp Compare{ CompareOp::Invalid };
         DepthWrite Write{ DepthWrite::Invalid };
         std::source_location Where;
     };
@@ -278,6 +277,7 @@ namespace loom
         std::vector<FrozenImage> Images;
         std::vector<SamplerDeclaration> Samplers;
         std::vector<ImportDeclaration> Imports;
+        std::vector<BufferImportDeclaration> BufferImports;
         std::vector<FrozenFrameTarget> FrameTargets;
         std::vector<FrozenOutput> Outputs;
 

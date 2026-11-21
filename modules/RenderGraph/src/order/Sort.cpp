@@ -1,9 +1,8 @@
+#include "order/Sort.hpp"
 #include "LoomKeys.hpp"
-#include "order/OrderContext.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
 #include "freeze/FrozenGraph.hpp"
-#include "order/OrderedGraph.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -269,6 +268,58 @@ namespace loom
 
                 context.Sink.Report(note);
             }
+        }
+
+        std::vector<int32_t> PassLevels(const OrderContext& context, const std::vector<NodeIndex>& ordered_nodes)
+        {
+            // Depth: the count of passes on the longest path that ends at a node, the node included. A node's depth
+            // is final when the topological walk reaches it, because every predecessor came first.
+            std::vector<int32_t> depth(context.NodeCount, 0);
+
+            for (const NodeIndex node : ordered_nodes)
+            {
+                const bool isPass = node.Value < context.PassCount;
+                depth[node.Value] += isPass ? 1 : 0;
+
+                for (const int32_t edgeIndex : context.Successors[node.Value])
+                {
+                    const int32_t successor = context.Edges[edgeIndex].To.Value;
+                    depth[successor] = std::max(depth[successor], depth[node.Value]);
+                }
+            }
+
+            std::vector<int32_t> levels(context.PassCount, -1);
+
+            for (int32_t pass = 0; pass < context.PassCount; ++pass)
+            {
+                levels[pass] = depth[pass] - 1;
+            }
+
+            return levels;
+        }
+
+        std::vector<NodeIndex> LevelMajorOrder(const OrderContext& context, const std::vector<int32_t>& levels)
+        {
+            std::vector<NodeIndex> passes(context.PassCount);
+
+            for (int32_t pass = 0; pass < context.PassCount; ++pass)
+            {
+                passes[pass] = NodeIndex{ pass };
+            }
+
+            // a pass's index is its declaration order (Freeze sorts them), so the index breaks ties in a level
+            const auto byLevel = [&levels](NodeIndex lhs, NodeIndex rhs)
+            {
+                if (levels[lhs.Value] != levels[rhs.Value])
+                {
+                    return levels[lhs.Value] < levels[rhs.Value];
+                }
+
+                return lhs.Value < rhs.Value;
+            };
+
+            std::ranges::sort(passes, byLevel);
+            return passes;
         }
 
         std::vector<int32_t> PositionsOf(const OrderContext& context, const std::vector<NodeIndex>& ordered_nodes)

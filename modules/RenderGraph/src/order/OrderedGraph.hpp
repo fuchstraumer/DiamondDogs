@@ -3,7 +3,6 @@
 #define DIAMOND_DOGS_LOOM_ORDERED_GRAPH_HPP
 #include "PassStatements.hpp"
 #include "freeze/FrozenGraph.hpp"
-#include "content/JsonWriter.hpp"
 #include <cstdint>
 #include <optional>
 #include <source_location>
@@ -46,24 +45,21 @@ namespace loom
         std::vector<std::vector<ResourceAccess>> Accesses;
     };
 
+    // Passes is the run order: level first, then declaration order inside a level. A pass's level is the count of
+    // passes on the longest ordering path into it; anchors add nothing. Two passes in one level have no path between
+    // them, so LM502 proves they have no hazard, and the barriers go only at level boundaries.
     struct OrderedGraph
     {
         std::vector<PassIndex> Passes;
         std::vector<OrderEdge> Edges;
+        std::vector<int32_t> Levels;        // [pass] its level, from 0
+        int32_t LevelCount{ 0 };
     };
 
+    // Explain, ExplainPass and ExplainJson are in Explain.hpp (Q3e).
     std::optional<OrderedGraph> Order(const FrozenGraph& frozen,
                                       const BindAccessTable& binds,
                                       DiagnosticSink& sink);
-
-    // Q3e. Text: the run order, and each pass's incoming edges with reason and location. Then the anchor orders.
-    std::string Explain(const FrozenGraph& frozen, const OrderedGraph& ordered);
-    // One pass: its place in the order, the edges into it (upstream) and out of it (downstream). One hop each.
-    std::string ExplainPass(const FrozenGraph& frozen, const OrderedGraph& ordered, PassIndex pass);
-    // The same data for an agent: every pass with both edge lists, then the anchor orders
-    foundation::content::JsonResult<std::string> ExplainJson(const FrozenGraph& frozen,
-                                                             const OrderedGraph& ordered,
-                                                             foundation::content::JsonStyle style);
 
 } // namespace loom
 
