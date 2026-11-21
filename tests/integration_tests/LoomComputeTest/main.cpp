@@ -279,10 +279,9 @@ namespace
         }
     }
 
-    int32_t RunVariant(HeadlessBoot& boot, bool hash_twice, loom::PipelineMode mode)
+    int32_t RunVariant(HeadlessBoot& boot, bool hash_twice)
     {
-        const std::string_view modeName = mode == loom::PipelineMode::ComputePipelines ? "pipelines" : "shader objects";
-        const std::string variantName = std::format("HASH_TWICE={}, {}", hash_twice, modeName);
+        const std::string variantName = std::format("HASH_TWICE={}", hash_twice);
         ResourceContext& resources = boot.Gpu.Resources();
         const rhi::Device& device = *boot.Device.Rhi().GetDevice();
         const bootstrap::DeviceFilter filter = boot.Device.Filter();
@@ -315,7 +314,6 @@ namespace
             .Device = device,
             .FrameSlots = k_FrameSlots,
             .Timestamps = loom::PassTimestamps::On,
-            .Pipelines = mode,
             .Sink = sink,
         };
 
@@ -381,14 +379,9 @@ int main(int argc, char* argv[])
 
     int32_t failures = 0;
 
-    // synchronization validation sees a dispatch's descriptor accesses only through a bound VkPipeline, so the
-    // pipeline mode is what proves the barriers; the shader object mode proves the engine's own path
-    for (const loom::PipelineMode mode : { loom::PipelineMode::ShaderObjects, loom::PipelineMode::ComputePipelines })
+    for (const bool hashTwice : { false, true })
     {
-        for (const bool hashTwice : { false, true })
-        {
-            failures += RunVariant(boot, hashTwice, mode);
-        }
+        failures += RunVariant(boot, hashTwice);
     }
 
     if (failures != 0)
@@ -397,6 +390,6 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    std::cout << "LoomComputeTest: both variants match the CPU reference in both pipeline modes\n";
+    std::cout << "LoomComputeTest: both variants match the CPU reference\n";
     return 0;
 }

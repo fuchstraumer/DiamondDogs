@@ -113,12 +113,7 @@ namespace
         const PipelineRuntime& pipeline = graph.Pipelines[laidOut.Pipeline];
         const PassRuntime& pass = graph.Passes[pass_index];
 
-        if (pipeline.Pipeline != VK_NULL_HANDLE)
-        {
-            const VkCommandBuffer vkCommandBuffer = command_buffer.Handle().As<VkCommandBuffer>();
-            vkCmdBindPipeline(vkCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.Pipeline);
-        }
-        else if (command_buffer.BindShaders(*pipeline.Program).IsFailure())
+        if (command_buffer.BindShaders(*pipeline.Program).IsFailure())
         {
             return false;
         }

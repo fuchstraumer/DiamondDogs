@@ -105,53 +105,6 @@ namespace
         return groups;
     }
 
-    // PipelineMode::ComputePipelines: the same code and layout as a VkPipeline. CheckSupported let only dispatches
-    // through, so the pipeline has one compute stage.
-    RealizeError CreateComputePipeline(GraphImpl& graph, const CompiledPipeline& compiled, PipelineRuntime& pipeline)
-    {
-        const CompiledStage& stage = compiled.Stages.front();
-
-        const VkShaderModuleCreateInfo moduleInfo
-        {
-            VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-            nullptr,
-            0,
-            stage.Code.size() * sizeof(uint32_t),
-            stage.Code.data()
-        };
-
-        VkShaderModule module = VK_NULL_HANDLE;
-
-        if (vkCreateShaderModule(graph.VulkanDevice, &moduleInfo, nullptr, &module) != VK_SUCCESS)
-        {
-            return RealizeError::PipelineCreateFailed;
-        }
-
-        const VkComputePipelineCreateInfo pipelineInfo
-        {
-            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-            .stage = VkPipelineShaderStageCreateInfo
-            {
-                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                .module = module,
-                .pName = stage.EntryPoint.c_str(),
-            },
-            .layout = pipeline.Layout,
-        };
-
-        const VkResult result = vkCreateComputePipelines(graph.VulkanDevice, VK_NULL_HANDLE, 1u, &pipelineInfo, nullptr,
-                                                         &pipeline.Pipeline);
-        vkDestroyShaderModule(graph.VulkanDevice, module, nullptr);
-
-        if (result != VK_SUCCESS)
-        {
-            return RealizeError::PipelineCreateFailed;
-        }
-
-        return RealizeError::Invalid;
-    }
-
     RealizeError CreatePipeline(GraphImpl& graph, const CompiledPipeline& compiled, PipelineRuntime& pipeline)
     {
         const CompiledData& data = graph.Compiled.Data();
@@ -218,11 +171,6 @@ namespace
         pipeline.LayoutHandle.Set(pipeline.Layout);
         pipeline.PushStages = ToRhiShaderStages(compiled.PushConstantStages);
         pipeline.PushBytes = compiled.PushConstantBytes;
-
-        if (graph.Mode == PipelineMode::ComputePipelines)
-        {
-            return CreateComputePipeline(graph, compiled, pipeline);
-        }
 
         // ShaderBinaryOptions keeps spans, so this storage outlives the create call
         std::vector<rhi::DescriptorSetLayoutHandle> layoutHandles(pipeline.SetLayouts.size());

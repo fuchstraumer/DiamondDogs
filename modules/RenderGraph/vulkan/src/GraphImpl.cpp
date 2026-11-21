@@ -41,7 +41,6 @@ namespace
         Resources{ inputs.Resources },
         Device{ inputs.Device },
         Sink{ inputs.Sink },
-        Mode{ inputs.Pipelines },
         VulkanDevice{ inputs.Device.Handle().As<VkDevice>() },
         Queue{ inputs.Device.GetGeneralQueue() },
         Timeline{ inputs.Device.Handle() }
@@ -67,11 +66,6 @@ namespace
         for (PipelineRuntime& pipeline : Pipelines)
         {
             pipeline.Program.reset();
-
-            if (pipeline.Pipeline != VK_NULL_HANDLE)
-            {
-                vkDestroyPipeline(VulkanDevice, pipeline.Pipeline, nullptr);
-            }
 
             if (pipeline.Layout != VK_NULL_HANDLE)
             {

@@ -43,8 +43,7 @@ namespace loom
         std::vector<VkDescriptorSetLayout> SetLayouts;
         VkPipelineLayout Layout{ VK_NULL_HANDLE };
         rhi::PipelineLayoutHandle LayoutHandle;
-        std::unique_ptr<rhi::ShaderProgram> Program;     // PipelineMode::ShaderObjects
-        VkPipeline Pipeline{ VK_NULL_HANDLE };          // PipelineMode::ComputePipelines
+        std::unique_ptr<rhi::ShaderProgram> Program;
         rhi::ShaderStageFlags PushStages{ rhi::ShaderStageFlags::None };
         uint32_t PushBytes{ 0u };
     };
@@ -73,7 +72,6 @@ namespace loom
         ResourceContext& Resources;
         const rhi::Device& Device;
         DiagnosticSink& Sink;
-        PipelineMode Mode{ PipelineMode::Invalid };
         VkDevice VulkanDevice{ VK_NULL_HANDLE };
         rhi::QueueHandle Queue;
 

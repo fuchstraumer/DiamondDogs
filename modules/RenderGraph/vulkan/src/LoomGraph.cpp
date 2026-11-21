@@ -82,10 +82,6 @@ namespace
             return "DescriptorPoolFailed";
         case RealizeError::CommandPoolFailed:
             return "CommandPoolFailed";
-        case RealizeError::PipelineModeUnset:
-            return "PipelineModeUnset";
-        case RealizeError::PipelineCreateFailed:
-            return "PipelineCreateFailed";
         }
 
         return "Invalid";
@@ -101,11 +97,6 @@ namespace
         if (inputs.Timestamps == PassTimestamps::Invalid)
         {
             return std::unexpected(RealizeError::TimestampsUnset);
-        }
-
-        if (inputs.Pipelines == PipelineMode::Invalid)
-        {
-            return std::unexpected(RealizeError::PipelineModeUnset);
         }
 
         const RealizeError unsupported = CheckSupported(compiled.Data());

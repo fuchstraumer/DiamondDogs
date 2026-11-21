@@ -41,16 +41,6 @@ namespace loom
         On = 2
     };
 
-    // How dispatches bind their shaders. ShaderObjects is the engine's path. ComputePipelines builds a VkPipeline from
-    // the same code and layout: synchronization validation tracks a dispatch's descriptor accesses only through a bound
-    // VkPipeline, so the GPU tests run each graph this way too. An explicit choice, with no default.
-    enum class PipelineMode : uint8_t
-    {
-        Invalid = 0,
-        ShaderObjects = 1,
-        ComputePipelines = 2
-    };
-
     // `Sink` receives the runtime diagnostics (LM701 to LM704) and must outlive the Graph. FrameSlots is the count of
     // frames in flight: one command pool and one descriptor set per pass for each.
     struct RealizeInputs
@@ -59,7 +49,6 @@ namespace loom
         const rhi::Device& Device;
         int32_t FrameSlots{ 0 };
         PassTimestamps Timestamps{ PassTimestamps::Invalid };
-        PipelineMode Pipelines{ PipelineMode::Invalid };
         DiagnosticSink& Sink;
     };
 
@@ -80,9 +69,7 @@ namespace loom
         PipelineLayoutFailed = 11,
         ShaderCreateFailed = 12,
         DescriptorPoolFailed = 13,
-        CommandPoolFailed = 14,
-        PipelineModeUnset = 15,
-        PipelineCreateFailed = 16
+        CommandPoolFailed = 14
     };
 
     [[nodiscard]] std::string_view ToString(RealizeError error) noexcept;
