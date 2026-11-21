@@ -3,7 +3,6 @@
 #include "LoomKeys.hpp"
 #include "PassStatements.hpp"
 #include "Records.hpp"
-#include "RhiFlags.hpp"
 #include "utility/delegate.hpp"
 #include <cstdint>
 #include <memory>
@@ -225,7 +224,7 @@ namespace loom
         record->Colors.push_back(MakeColor(slot, target.ToRef(), TargetKind::FrameTarget, load, store, blend, where));
     }
 
-    void DrawBuilder::Depth(ResourceKey<Image> target, DepthLoad load, AttachmentStore store, rhi::CompareOp compare,
+    void DrawBuilder::Depth(ResourceKey<Image> target, DepthLoad load, AttachmentStore store, CompareOp compare,
         DepthWrite write, std::source_location where)
     {
         DepthTargetRecord depth{};

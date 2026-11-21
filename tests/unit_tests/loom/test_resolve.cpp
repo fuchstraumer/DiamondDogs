@@ -1,5 +1,5 @@
 #include "resolve/ResolvedGraph.hpp"
-#include "resolve/ResolveContext.hpp"
+#include "resolve/Helpers.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "GraphBuilder.hpp"
 #include "LoomDiagnostic.hpp"

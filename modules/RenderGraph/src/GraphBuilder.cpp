@@ -49,6 +49,11 @@ namespace loom
         record->Imports.push_back(DeclarationRecord<ImportDeclaration>{ .Value = declaration, .Where = where });
     }
 
+    void GraphBuilder::Import(const BufferImportDeclaration& declaration, std::source_location where)
+    {
+        record->BufferImports.push_back(DeclarationRecord<BufferImportDeclaration>{ .Value = declaration, .Where = where });
+    }
+
     void GraphBuilder::Import(FrameTargetKey target, std::source_location where)
     {
         record->FrameTargets.push_back(FrameTargetImportRecord{ .Target = target.ToRef(), .Where = where });

@@ -1,0 +1,19 @@
+#pragma once
+#ifndef DIAMOND_DOGS_LOOM_COMPILE_USES_HPP
+#define DIAMOND_DOGS_LOOM_COMPILE_USES_HPP
+
+// Uses.cpp: each pass's merged use of each resource row, with its sync scope; the params keys; the history reads;
+// and each row's first and last level.
+namespace loom
+{
+    struct CompiledData;
+
+    namespace compile
+    {
+        void GatherUses(CompiledData& data);
+        void GatherParams(CompiledData& data);
+        void ComputeSpans(CompiledData& data);
+    }
+}
+
+#endif // !DIAMOND_DOGS_LOOM_COMPILE_USES_HPP

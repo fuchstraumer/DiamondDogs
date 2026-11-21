@@ -1,3 +1,4 @@
+#include "size/Size.hpp"
 #include "Declarations.hpp"
 #include "LoomKeys.hpp"
 #include "PassStatements.hpp"
@@ -221,12 +222,10 @@ namespace
         return requirement.Kind == Need::Exact ? requirement.Bytes == size : requirement.Bytes <= size;
     }
 
-    // A declared Bytes(n) buffer: each requirement must fit n. OtherWhere is the declaration.
-    int64_t CheckDeclaredSize(DiagnosticSink& sink, const FrozenResource& row, const BufferDeclaration& declaration,
-                              const BufferFacts& buffer)
+    // A stated size (a declared Bytes(n) buffer, or an import's ByteSize): each requirement must fit it. OtherWhere is
+    // the declaration.
+    int64_t CheckStatedSize(DiagnosticSink& sink, const FrozenResource& row, int64_t size, const BufferFacts& buffer)
     {
-        const int64_t size = declaration.Size.Size;
-
         for (const Requirement& requirement : buffer.Requirements)
         {
             if (!Fits(requirement, size))
@@ -299,9 +298,16 @@ std::optional<SizedGraph> Size(const FrozenGraph& frozen, const BoundGraph& boun
         SizedResource& sized = result.Resources[rowIndex];
         sized.BufferUsage = facts[rowIndex].Usage;
 
-        // an imported buffer's size arrives with its future, and Realize checks it (LM701)
-        if (row.Kind != ResourceKind::Buffer || row.Origin != ResourceOrigin::Declared)
+        if (row.Kind != ResourceKind::Buffer)
         {
+            continue;
+        }
+
+        // an imported buffer promises its size; Realize checks the supplied buffer (LM701)
+        if (row.Origin == ResourceOrigin::Imported)
+        {
+            const int64_t promised = frozen.BufferImports[row.DeclarationIndex].ByteSize;
+            sized.ByteSize = CheckStatedSize(sink, row, promised, facts[rowIndex]);
             continue;
         }
 
@@ -309,7 +315,7 @@ std::optional<SizedGraph> Size(const FrozenGraph& frozen, const BoundGraph& boun
 
         if (declaration.Size.Kind == SizeSource::Kind::Bytes)
         {
-            sized.ByteSize = CheckDeclaredSize(sink, row, declaration, facts[rowIndex]);
+            sized.ByteSize = CheckStatedSize(sink, row, declaration.Size.Size, facts[rowIndex]);
             continue;
         }
 

@@ -130,7 +130,7 @@ namespace loom
         void Color(int32_t slot, FrameTargetKey target, ColorLoad load, AttachmentStore store, BlendMode blend,
                    std::source_location where = std::source_location::current());
         // Compare Always with DepthWrite::Disabled turns the depth test off.
-        void Depth(ResourceKey<Image> target, DepthLoad load, AttachmentStore store, rhi::CompareOp compare,
+        void Depth(ResourceKey<Image> target, DepthLoad load, AttachmentStore store, CompareOp compare,
                    DepthWrite write, std::source_location where = std::source_location::current());
         // Optional: without it, the draw uses RasterState's defaults.
         void Raster(const RasterState& state, std::source_location where = std::source_location::current());

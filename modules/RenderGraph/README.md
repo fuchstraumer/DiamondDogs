@@ -46,6 +46,14 @@ Each stage is a free function with a typed input and output, so a unit test can 
 reports every error it finds to a `DiagnosticSink`, not only the first one, and returns no output when it reported
 an error. After Bind, no stage reads a binding name, and Tick touches no Lodestone type.
 
+**File layout (2026-11-20).** Each source file has a header of the same name beside it, and that header declares
+what the source defines: `order/Sort.cpp` and `order/Sort.hpp`, `layout/Feedback.cpp` and `layout/Feedback.hpp`. A
+stage's output type has its own header, apart from the stage function: `SizedGraph.hpp` holds the table, and
+`Size.hpp` declares `Size()`, which `Size.cpp` defines (likewise `LaidOutGraph.hpp` and `Layout.hpp`). A
+`*Context.hpp` holds only a stage's shared state, the context struct that its steps pass along, and has no source.
+Public headers follow the same rule: `Compile.hpp` and `Compile.cpp`, `CompiledGraph.hpp` and `CompiledGraph.cpp`,
+`DecideRuns.hpp` and `DecideRuns.cpp`. The headers forward-declare what they take by reference.
+
 ## The stages
 
 | Stage | Entry point | Output | Code |

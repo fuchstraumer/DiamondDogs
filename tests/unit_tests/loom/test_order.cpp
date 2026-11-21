@@ -8,6 +8,7 @@
 #include "PassBuilders.hpp"
 #include "freeze_test_helpers.hpp"
 #include "order/OrderContext.hpp"
+#include "order/Sort.hpp"
 #include "order/OrderedGraph.hpp"
 #include <cstdint>
 #include <optional>

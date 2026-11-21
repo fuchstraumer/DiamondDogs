@@ -8,7 +8,6 @@
 #include "PassBuilders.hpp"
 #include "PassStatements.hpp"
 #include "Records.hpp"
-#include "RhiFlags.hpp"
 #include "freeze_test_helpers.hpp"
 #include "utility/delegate.hpp"
 #include <cstdint>
@@ -72,14 +71,14 @@ TEST(Draw, ValidDrawResolvesEveryTarget)
     DeclareDrawResources(graph);
 
     const loom::RasterState raster{ .Topology = loom::PrimitiveTopology::TriangleStrip, .Polygon = loom::PolygonMode::Fill,
-                                    .Cull = rhi::CullMode::Back, .Front = rhi::FrontFace::Clockwise };
+                                    .Cull = loom::CullMode::Back, .Front = loom::FrontFace::Clockwise };
 
     auto build = [&raster](loom::DrawBuilder& pass)
     {
         pass.Shaders("Test", "MainVS", "MainPS");
         pass.Color(0, k_Albedo, loom::ColorLoad::Clear(0.0f, 0.0f, 0.0f, 1.0f), loom::AttachmentStore::Store, loom::BlendMode::Opaque);
         pass.Color(1, k_Backbuffer, loom::ColorLoad::Keep(), loom::AttachmentStore::Store, loom::BlendMode::AlphaBlend);
-        pass.Depth(k_SceneDepth, loom::DepthLoad::Clear(1.0f), loom::AttachmentStore::DontCare, rhi::CompareOp::Less,
+        pass.Depth(k_SceneDepth, loom::DepthLoad::Clear(1.0f), loom::AttachmentStore::DontCare, loom::CompareOp::Less,
                    loom::DepthWrite::Enabled);
         pass.Raster(raster);
         pass.VertexBuffer(0, k_Data);
@@ -110,7 +109,7 @@ TEST(Draw, ValidDrawResolvesEveryTarget)
     EXPECT_EQ(frozen->Resources[pass.Depth.Image.Value].Key.Hash, k_SceneDepth.Hash);
     EXPECT_EQ(pass.Depth.Write, loom::DepthWrite::Enabled);
     EXPECT_EQ(pass.Raster.Topology, loom::PrimitiveTopology::TriangleStrip);
-    EXPECT_EQ(pass.Raster.Cull, rhi::CullMode::Back);
+    EXPECT_EQ(pass.Raster.Cull, loom::CullMode::Back);
 
     ASSERT_EQ(pass.VertexBuffers.size(), 1u);
     EXPECT_EQ(frozen->Resources[pass.VertexBuffers[0].Buffer.Value].Key.Hash, k_Data.Hash);
@@ -127,7 +126,7 @@ TEST(Draw, DepthOnlyDrawIsValid)
     auto build = [](loom::DrawBuilder& pass)
     {
         pass.Shaders("Test", "DepthVS", "");
-        pass.Depth(k_SceneDepth, loom::DepthLoad::Clear(1.0f), loom::AttachmentStore::Store, rhi::CompareOp::Less,
+        pass.Depth(k_SceneDepth, loom::DepthLoad::Clear(1.0f), loom::AttachmentStore::Store, loom::CompareOp::Less,
                    loom::DepthWrite::Enabled);
         pass.Draw(3, 1, 0, 0);
     };
@@ -224,9 +223,9 @@ TEST(Draw, TwoDepthTargetsIsLM113)
     auto build = [](loom::DrawBuilder& pass)
     {
         ShadersColorAndDraw(pass);
-        pass.Depth(k_SceneDepth, loom::DepthLoad::Keep(), loom::AttachmentStore::Store, rhi::CompareOp::Less,
+        pass.Depth(k_SceneDepth, loom::DepthLoad::Keep(), loom::AttachmentStore::Store, loom::CompareOp::Less,
                    loom::DepthWrite::Enabled);
-        pass.Depth(k_SceneDepth, loom::DepthLoad::Keep(), loom::AttachmentStore::Store, rhi::CompareOp::Less,
+        pass.Depth(k_SceneDepth, loom::DepthLoad::Keep(), loom::AttachmentStore::Store, loom::CompareOp::Less,
                    loom::DepthWrite::Disabled);
     };
 
@@ -273,7 +272,7 @@ TEST(Draw, DepthClearAboveOneIsLM109AsReal)
     auto build = [](loom::DrawBuilder& pass)
     {
         ShadersColorAndDraw(pass);
-        pass.Depth(k_SceneDepth, loom::DepthLoad::Clear(2.0f), loom::AttachmentStore::Store, rhi::CompareOp::Less,
+        pass.Depth(k_SceneDepth, loom::DepthLoad::Clear(2.0f), loom::AttachmentStore::Store, loom::CompareOp::Less,
                    loom::DepthWrite::Enabled);
     };
 

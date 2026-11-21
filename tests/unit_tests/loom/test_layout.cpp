@@ -1,3 +1,5 @@
+#include "size/Size.hpp"
+#include "layout/Layout.hpp"
 #include "layout/LaidOutGraph.hpp"
 #include "size/SizedGraph.hpp"
 #include "bind/BoundGraph.hpp"
@@ -8,7 +10,6 @@
 #include "LoomError.hpp"
 #include "LoomKeys.hpp"
 #include "PassBuilders.hpp"
-#include "RhiFlags.hpp"
 #include "ShaderBundle.hpp"
 #include "ShaderManifestDevice.hpp"
 #include "freeze_test_helpers.hpp"
@@ -207,7 +208,7 @@ namespace
 
     void DepthOn(loom::DrawBuilder& pass, loom::DepthWrite write)
     {
-        pass.Depth(k_Depth, loom::DepthLoad::Clear(1.0f), loom::AttachmentStore::Store, rhi::CompareOp::Less, write);
+        pass.Depth(k_Depth, loom::DepthLoad::Clear(1.0f), loom::AttachmentStore::Store, loom::CompareOp::Less, write);
     }
 
     // ColorPS onto Color at slot 0, sampling Source

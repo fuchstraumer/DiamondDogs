@@ -154,7 +154,7 @@ namespace loom
         KeyRef Target;
         DepthLoad Load;
         AttachmentStore Store{ AttachmentStore::Invalid };
-        rhi::CompareOp Compare{ rhi::CompareOp::Never };
+        CompareOp Compare{ CompareOp::Invalid };
         DepthWrite Write{ DepthWrite::Invalid };
         std::source_location Where;
     };
@@ -299,6 +299,7 @@ namespace loom
         std::vector<DeclarationRecord<ImageDeclaration>> Images;
         std::vector<DeclarationRecord<SamplerDeclaration>> Samplers;
         std::vector<DeclarationRecord<ImportDeclaration>> Imports;
+        std::vector<DeclarationRecord<BufferImportDeclaration>> BufferImports;
         std::vector<FrameTargetImportRecord> FrameTargets;
         std::vector<DeclarationRecord<OutputDeclaration>> Outputs;
 

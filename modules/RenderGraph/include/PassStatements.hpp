@@ -1,15 +1,43 @@
 #pragma once
 #ifndef DIAMOND_DOGS_LOOM_PASS_STATEMENTS_HPP
 #define DIAMOND_DOGS_LOOM_PASS_STATEMENTS_HPP
-#include "RhiFlags.hpp"
 #include "math/Math.hpp"
 #include <cstdint>
 
 // The values a draw or a Record pass states: attachment load and store, blend, depth, raster state, and the uses of a
-// Record pass. Cull, front face and depth compare use RhiSystem's enums, as samplers use RhiResources' types; only
-// Lodestone types stay out of Loom's public headers.
+// Record pass. Cull, front face and depth compare are Loom's own enums: the core links no RHI, and each backend maps
+// them to its API.
 namespace loom
 {
+
+    enum class CompareOp : uint8_t
+    {
+        Invalid = 0,
+        Never = 1,
+        Less = 2,
+        Equal = 3,
+        LessOrEqual = 4,
+        Greater = 5,
+        NotEqual = 6,
+        GreaterOrEqual = 7,
+        Always = 8
+    };
+
+    enum class CullMode : uint8_t
+    {
+        Invalid = 0,
+        None = 1,
+        Front = 2,
+        Back = 3,
+        FrontAndBack = 4
+    };
+
+    enum class FrontFace : uint8_t
+    {
+        Invalid = 0,
+        CounterClockwise = 1,
+        Clockwise = 2
+    };
 
     // What a Record pass's callback receives: handles for its declared uses, and no barrier call (Q1). Realize defines it.
     class RecordContext;
@@ -98,8 +126,8 @@ namespace loom
     {
         PrimitiveTopology Topology{ PrimitiveTopology::TriangleList };
         PolygonMode Polygon{ PolygonMode::Fill };
-        rhi::CullMode Cull{ rhi::CullMode::None };
-        rhi::FrontFace Front{ rhi::FrontFace::CounterClockwise };
+        CullMode Cull{ CullMode::None };
+        FrontFace Front{ FrontFace::CounterClockwise };
 
         bool operator==(const RasterState&) const noexcept = default;
     };

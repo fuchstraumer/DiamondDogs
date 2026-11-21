@@ -46,6 +46,8 @@ namespace loom
                      std::source_location where = std::source_location::current());
         void Import(const ImportDeclaration& declaration,
                     std::source_location where = std::source_location::current());
+        void Import(const BufferImportDeclaration& declaration,
+                    std::source_location where = std::source_location::current());
         // The FrameTarget object itself goes to Realize, so Compile stays pure (T2, correction 2).
         void Import(FrameTargetKey target,
                     std::source_location where = std::source_location::current());

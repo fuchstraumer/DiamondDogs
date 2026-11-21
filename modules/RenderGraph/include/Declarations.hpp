@@ -198,6 +198,14 @@ namespace loom
         ImageExpectation Expectation;
     };
 
+    // An imported buffer: the caller creates it, and Supply gives it to the graph (CC-R3). Size checks the bindings
+    // against ByteSize at compile time, as for a declared buffer with SizeSource::Bytes.
+    struct BufferImportDeclaration
+    {
+        ResourceKey<Buffer> Key;
+        int64_t ByteSize{ -1 };     // signed, so a negative count reaches Freeze as itself (LM109)
+    };
+
     // What a frame target shows when the pass that writes it is skipped (Q4), so the frame still presents.
     struct OutputFallback
     {
