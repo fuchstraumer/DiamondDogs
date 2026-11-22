@@ -9,6 +9,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <variant>
 
 /**
  * @brief Contains definitions for user-facing resource data structures for use with the resource context and RHI.
@@ -286,5 +287,76 @@ struct ResourceDescription
      *  has no defined contents yet. */
     ImageUsageBits InitialUsage{ ImageUsageBits::Invalid };
 };
+
+/** @brief What one op of a transfer set does. Each kind reads the fields of `TransferSetOp` that its row lists, and
+ *  `Region` must hold the alternative that its row names. A set with an op whose `Region` holds another alternative
+ *  fails with `InvalidTransferSet`. */
+enum class TransferOpKind : uint8_t
+{
+    Invalid = 0,
+    /** @brief Copies bytes of `TransferSetDesc::Data` into the `Destination` buffer. `Region` holds a
+     *  `BufferCopyRegion`: `SourceOffset` is an offset into `Data`, and `DestinationOffset` is an offset into the
+     *  buffer. */
+    UploadBuffer = 1,
+    /** @brief Copies texels of `Data` into the `Destination` image. `Region` holds a `BufferImageRegion`, which is
+     *  the box, and its `BufferOffset` is an offset into `Data`. */
+    UploadImage = 2,
+    /** @brief Fills a range of the `Destination` buffer with `FillValue`. `Region` holds a `BufferCopyRegion`, with
+     *  `DestinationOffset` and `Size`. */
+    FillBuffer = 3,
+    /** @brief Copies one range of the `Source` buffer to the `Destination` buffer. `Region` holds a
+     *  `BufferCopyRegion`. */
+    CopyBuffer = 4,
+    /** @brief Copies one box from the `Source` buffer to the `Destination` image. `Region` holds a
+     *  `BufferImageRegion`, which is the box. */
+    CopyBufferToImage = 5,
+    /** @brief Copies one box from the `Source` image to the `Destination` buffer. `Region` holds a
+     *  `BufferImageRegion`, which is the box. */
+    CopyImageToBuffer = 6,
+    /** @brief Copies one box from the `Source` image to the `Destination` image. `Region` holds an
+     *  `ImageCopyRegion`. */
+    CopyImage = 7,
+};
+
+/**
+ * @brief One region of one transfer in a transfer set. A caller that wants several regions of one resource uses
+ * several ops. `SourceUsage` and `DestinationUsage` are read only for an image on that side, and mean what they mean in
+ * the single calls (`Discard` as `Before` of a destination needs the region to cover its whole mip level).
+ *
+ * `Region` holds one alternative, and `Kind` decides which one (the rows of `TransferOpKind` list them). A variant
+ * stores one region and not three, so an op is smaller, and the worker checks the alternative before it reads it.
+ */
+struct TransferSetOp
+{
+    TransferOpKind Kind{ TransferOpKind::Invalid };
+    GraphicsResource Source;
+    GraphicsResource Destination;
+    rhi::ImageUsageTransition SourceUsage;
+    rhi::ImageUsageTransition DestinationUsage;
+    std::variant<BufferCopyRegion, BufferImageRegion, ImageCopyRegion> Region;
+    uint32_t FillValue{ 0u };
+};
+
+/**
+ * @brief The ops of a transfer set, in ranges, and the bytes that its uploads read.
+ *
+ * `RangeEnds` lists the end index of each range, and the values rise. The last one equals `Ops.size()`, and each range
+ * has at least one op. The ops of one range are independent: the transfer thread records them with no barrier between
+ * them, so no two ops of a range may write one resource, and no resource may be both read and written. Debug builds
+ * check this and fail the set with `RangeHazard`. The ranges run in order, and each range sees the writes of the ranges
+ * before it.
+ *
+ * The context is stateless, and it does not check that the usages of an image agree from range to range. When an image
+ * is in two ranges, the `Before` usage of the later op must be the `After` usage that the earlier op gave.
+ */
+struct TransferSetDesc
+{
+    std::span<const TransferSetOp> Ops;
+    std::span<const int32_t> RangeEnds;
+    std::span<const std::byte> Data;
+};
+
+/** @brief The most ops that one transfer set takes. A fixed cap, so that one set cannot block the transfer thread for long. */
+constexpr int32_t k_MaxTransferSetOps = 256;
 
 #endif //!DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP

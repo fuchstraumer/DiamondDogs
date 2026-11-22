@@ -111,12 +111,15 @@ private:
         uint64_t CompletedValue{ 0u };
     };
 
-    // a value of 0 waits for nothing. TimelineValues is indexed like consumerTimelines
+    // a value of 0 waits for nothing. TimelineValues is indexed like consumerTimelines. AfterSemaphore is a VkSemaphore
+    // cast to uint64_t, and the caller of DestroyResource chose it, so it can be a timeline that is not registered
     struct RetiringResource
     {
         entt::entity Entity{ entt::null };
         std::array<uint64_t, k_MaxConsumerTimelines> TimelineValues{};
         uint64_t TransferTicket{ 0u };
+        uint64_t AfterSemaphore{ 0u };
+        uint64_t AfterValue{ 0u };
         int32_t Future{ -1 };
     };
 
@@ -142,6 +145,7 @@ private:
     void processMessage(UnmapResourceMessage&& message);
     void processMessage(CopyResourceMessage&& message);
     void processMessage(CopyResourceContentsMessage&& message);
+    void processMessage(TransferSetMessage&& message);
     void processMessage(DestroyResourceMessage&& message);
     void processMessage(ExitWorkerMessage&& message) noexcept;
     void processMessage(TickMessage&& message);
@@ -163,6 +167,40 @@ private:
     /** @brief As enqueueBufferToImageCopy, for an image to buffer copy (CopyImageToBuffer). */
     void enqueueImageToBufferCopy(CopyResourceContentsMessage& message, entt::entity src_entity, entt::entity dst_entity);
 
+    // a buffer or an image that a transfer set op reads or writes, once resolved and checked
+    struct SetBufferSide
+    {
+        VkBuffer Handle{ VK_NULL_HANDLE };
+        uint64_t Size{ 0u };
+    };
+
+    struct SetImageSide
+    {
+        VkImage Handle{ VK_NULL_HANDLE };
+        // every aspect that the format has
+        VkImageAspectFlags Aspect{ 0u };
+        VkImageLayout BeforeLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
+        VkImageLayout AfterLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
+        const ImageCreateInfo* Info{ nullptr };
+    };
+
+    /** @brief Resolves one op of a transfer set and checks it with the rules of its single call. Returns Success, or the
+     *  error of the first check that fails. `data_size` is the size of the set's data, for the upload kinds. */
+    [[nodiscard]] rhi::ResourceError resolveTransferSetOp(const TransferSetOp& op, uint64_t data_size, ResolvedTransferOp& resolved) const;
+    /** @brief Resolves a buffer that a set op reads or writes: it must be alive, have the transfer usage for its side, and
+     *  a writer must be in device-local memory. Sets are device side only, and host data goes through SetBufferData. */
+    [[nodiscard]] std::expected<SetBufferSide, rhi::ResourceError> resolveSetBuffer(const GraphicsResource& resource, bool is_destination) const;
+    /** @brief As resolveSetBuffer, for an image. The usages must be valid for the side: `Discard` as `Before` only on a
+     *  destination. */
+    [[nodiscard]] std::expected<SetImageSide, rhi::ResourceError> resolveSetImage(const GraphicsResource& resource, rhi::ImageUsageTransition usage, bool is_destination) const;
+    [[nodiscard]] rhi::ResourceError resolveUploadBufferOp(const TransferSetOp& op, uint64_t data_size, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveUploadImageOp(const TransferSetOp& op, uint64_t data_size, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveFillBufferOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveCopyBufferOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveCopyBufferToImageOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveCopyImageToBufferOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveCopyImageOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const;
+
     /** @brief Issues the next ticket, publishes it in the future with the Created state, records it on every entity
      *  the transfer touches, and enqueues the transfer with its waits. The only path into the transfer system. */
     template<typename TransferMessage>
@@ -172,6 +210,9 @@ private:
      *  waits, so the worker calls it after every message. */
     void retireReady();
     [[nodiscard]] bool isReadyToRetire(const RetiringResource& entry, uint64_t completed_ticket) const noexcept;
+    /** @brief Reads the counter of the timeline semaphore. Returns true when it is at least `value`. A failed read
+     *  returns false. */
+    [[nodiscard]] bool timelineReached(uint64_t semaphore, uint64_t value) const noexcept;
     void retire(RetiringResource& entry);
 
     /** @brief Returns the entity that `resource` refers to, when that entity is alive, is a buffer, and its buffer

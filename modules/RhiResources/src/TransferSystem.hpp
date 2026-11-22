@@ -42,6 +42,8 @@ struct TransferSystemCounters
     int64_t StagingRingStalls{ 0 };
     int64_t StagingDedicatedUploads{ 0 };
     int64_t StagingRingBytesInUse{ 0 };
+    int64_t TransferSetsRecorded{ 0 };
+    int64_t BarriersRecorded{ 0 };
 };
 
 class ResourceTransferSystem
@@ -149,7 +151,16 @@ private:
     void processMessage(TransferSystemCopyImageToImageMessage&& message);
     void processMessage(TransferSystemCopyImageToBufferMessage&& message);
     void processMessage(TransferSystemCopyBufferToImageMessage&& message);
+    void processMessage(TransferSystemTransferSetMessage&& message);
     void processMessage(TransferSystemExitMessage&& message) noexcept;
+
+    /** @brief Records every range of a transfer set, in order, with the staged data at `staging`. Returns nothing: the
+     *  worker checked every op. */
+    void recordTransferSet(VkCommandBuffer cmd, const TransferSystemTransferSetMessage& message, const StagingDestination& staging);
+    /** @brief Records one range: the barrier for the layouts that its images start from, the copies and fills, and the
+     *  barrier for the layouts that they end in. A range that is not the last one also makes its writes visible to the
+     *  next range. Counts each barrier call. */
+    void recordTransferSetRange(VkCommandBuffer cmd, std::span<const ResolvedTransferOp> range_ops, const StagingDestination& staging, bool is_last_range);
 
     mwsrQueue<TransferPayloadType> messageQueue;
     mwsrQueue<ResourceMessagePayloadType>* contextQueue{ nullptr };
@@ -182,6 +193,8 @@ private:
     std::atomic<int64_t> ringStalls{ 0 };
     std::atomic<int64_t> dedicatedUploads{ 0 };
     std::atomic<int64_t> ringBytesInUse{ 0 };
+    std::atomic<int64_t> transferSetsRecorded{ 0 };
+    std::atomic<int64_t> barriersRecorded{ 0 };
 
     const rhi::Device* device{ nullptr };
     VmaAllocator allocatorHandle{ VK_NULL_HANDLE };

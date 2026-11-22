@@ -25,6 +25,7 @@
 #include <expected>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -140,6 +141,42 @@ namespace
     /** @brief Returns true when a resource with these requirements fits at the offset: aligned, inside the heap, and
      *  of a memory type that the resource allows. */
     [[nodiscard]] bool PlacementFits(const VkMemoryRequirements& requirements, uint64_t offset, uint64_t heap_size, uint32_t heap_memory_type_index) noexcept;
+
+    // the buffer offset alignment that a transfer set needs at least: the one that a buffer upload has
+    constexpr uint64_t k_SetMinimumStagingAlignment = 16u;
+
+    // the range hazard validator is for debug builds: a check that runs in shipped code on every set is a cost paid always
+#ifndef NDEBUG
+    constexpr bool k_RangeHazardValidatorEnabled = true;
+#else
+    constexpr bool k_RangeHazardValidatorEnabled = false;
+#endif
+
+    /** @brief One read or write of a resource by an op of a transfer set. */
+    struct RangeAccess
+    {
+        uint32_t Entity{ 0u };
+        bool IsWrite{ false };
+    };
+
+    /** @brief Returns every aspect that the format of the image has. A barrier lists all of them. */
+    [[nodiscard]] VkImageAspectFlags BarrierAspectOf(const ImageCreateInfo& info) noexcept;
+    /** @brief Returns true for the kinds whose `Source` is a resource that the op reads. The upload kinds read the data of the set. */
+    [[nodiscard]] bool TransferOpReadsSource(TransferOpKind kind) noexcept;
+    /** @brief Returns true when the alternative that `Region` holds is the one that the kind of the op reads. Returns
+     *  false for the invalid kind. Every read of `Region` comes after this check. */
+    [[nodiscard]] bool TransferOpRegionMatchesKind(const TransferSetOp& op) noexcept;
+    /** @brief Returns true when two ops of one range write one resource, or when one resource is both read and written
+     *  in one range. Sorts at most 2 entries for each op, in a fixed array. Allocates nothing. */
+    [[nodiscard]] bool TransferSetHasRangeHazard(std::span<const TransferSetOp> ops, std::span<const int32_t> range_ends) noexcept;
+    /** @brief Writes the entity of every resource that an op reads or writes into `out`, which needs 2 entries for each
+     *  op. An entity can appear more than once. Returns the count. */
+    [[nodiscard]] size_t CollectTouchedEntities(std::span<const TransferSetOp> ops, std::span<entt::entity> out) noexcept;
+    /** @brief Returns true when an op of the set uploads bytes of the data of the set. */
+    [[nodiscard]] bool TransferSetUploads(std::span<const TransferSetOp> ops) noexcept;
+    /** @brief Returns the alignment that the start of the staged data needs, so that the buffer offset of every image
+     *  upload keeps the alignment of its format. At least 16, as a buffer upload has. */
+    [[nodiscard]] uint64_t StagingAlignmentOfSet(const entt::registry& registry, std::span<const TransferSetOp> ops) noexcept;
 }
 
 ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateInfo& create_info)
@@ -329,7 +366,9 @@ ResourceContextCounters ResourceContextImpl::Counters() const noexcept
         futures.FullCount(),
         transfer.StagingRingStalls,
         transfer.StagingDedicatedUploads,
-        transfer.StagingRingBytesInUse
+        transfer.StagingRingBytesInUse,
+        transfer.TransferSetsRecorded,
+        transfer.BarriersRecorded
     };
 }
 
@@ -1347,8 +1386,373 @@ void ResourceContextImpl::enqueueImageToBufferCopy(CopyResourceContentsMessage& 
     enqueueTransfer(std::move(transferMessage), touched, message.Waits);
 }
 
+void ResourceContextImpl::processMessage(TransferSetMessage&& message)
+{
+    if (!WaitsAreValid(message.Waits))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidWait);
+        return;
+    }
+
+    const std::span<const TransferSetOp> ops = message.Set.Ops();
+    const size_t opCount = ops.size();
+    std::unique_ptr<ResolvedTransferOp[]> resolvedOps = std::make_unique<ResolvedTransferOp[]>(opCount);
+
+    // all or nothing: every op is checked before the ticket exists, and the first bad op decides the error
+    for (size_t opIndex = 0u; opIndex < opCount; ++opIndex)
+    {
+        const rhi::ResourceError error = resolveTransferSetOp(ops[opIndex], message.Data.Size, resolvedOps[opIndex]);
+        if (error != rhi::ResourceError::Success)
+        {
+            futures.Fail(message.Future, error);
+            return;
+        }
+    }
+
+    if constexpr (k_RangeHazardValidatorEnabled)
+    {
+        if (TransferSetHasRangeHazard(ops, message.Set.RangeEnds()))
+        {
+            futures.Fail(message.Future, rhi::ResourceError::RangeHazard);
+            return;
+        }
+    }
+
+    std::array<entt::entity, 2u * static_cast<size_t>(k_MaxTransferSetOps)> touched;
+    const size_t touchedCount = CollectTouchedEntities(ops, touched);
+
+    // a set that has no upload stages nothing, whatever data the caller passed
+    const bool usesData = TransferSetUploads(ops);
+
+    TransferSystemTransferSetMessage transferMessage;
+    transferMessage.Ops = std::move(resolvedOps);
+    transferMessage.OpCount = static_cast<int32_t>(opCount);
+    transferMessage.StagingAlignment = StagingAlignmentOfSet(resourceRegistry, ops);
+    transferMessage.Set = std::move(message.Set);
+    transferMessage.Data = usesData ? std::move(message.Data) : ByteBlock{};
+    transferMessage.Future = message.Future;
+
+    enqueueTransfer(std::move(transferMessage), std::span<const entt::entity>(touched.data(), touchedCount), message.Waits);
+}
+
+rhi::ResourceError ResourceContextImpl::resolveTransferSetOp(const TransferSetOp& op, uint64_t data_size, ResolvedTransferOp& resolved) const
+{
+    resolved.Kind = op.Kind;
+
+    if (!TransferOpRegionMatchesKind(op))
+    {
+        return rhi::ResourceError::InvalidTransferSet;
+    }
+
+    switch (op.Kind)
+    {
+    case TransferOpKind::UploadBuffer:
+        return resolveUploadBufferOp(op, data_size, resolved);
+    case TransferOpKind::UploadImage:
+        return resolveUploadImageOp(op, data_size, resolved);
+    case TransferOpKind::FillBuffer:
+        return resolveFillBufferOp(op, resolved);
+    case TransferOpKind::CopyBuffer:
+        return resolveCopyBufferOp(op, resolved);
+    case TransferOpKind::CopyBufferToImage:
+        return resolveCopyBufferToImageOp(op, resolved);
+    case TransferOpKind::CopyImageToBuffer:
+        return resolveCopyImageToBufferOp(op, resolved);
+    case TransferOpKind::CopyImage:
+        return resolveCopyImageOp(op, resolved);
+    case TransferOpKind::Invalid:
+        break;
+    }
+
+    return rhi::ResourceError::InvalidTransferSet;
+}
+
+std::expected<ResourceContextImpl::SetBufferSide, rhi::ResourceError> ResourceContextImpl::resolveSetBuffer(const GraphicsResource& resource, bool is_destination) const
+{
+    const std::expected<entt::entity, rhi::ResourceError> entity = resolveBuffer(resource);
+    if (!entity.has_value())
+    {
+        return std::unexpected(entity.error());
+    }
+
+    const bool hasTransferUsage = is_destination ? CanBeTransferDestination(resourceRegistry, *entity) : CanBeTransferSource(resourceRegistry, *entity);
+    if (!hasTransferUsage)
+    {
+        return std::unexpected(rhi::ResourceError::MissingTransferUsage);
+    }
+
+    if (is_destination && allocationIsHostVisible(*entity))
+    {
+        return std::unexpected(rhi::ResourceError::InvalidTransferSet);
+    }
+
+    return SetBufferSide{ resourceRegistry.get<VkBuffer>(*entity), resourceRegistry.get<BufferCreateInfo>(*entity).Size };
+}
+
+std::expected<ResourceContextImpl::SetImageSide, rhi::ResourceError> ResourceContextImpl::resolveSetImage(const GraphicsResource& resource, rhi::ImageUsageTransition usage, bool is_destination) const
+{
+    const std::expected<entt::entity, rhi::ResourceError> entity = resolveImage(resource);
+    if (!entity.has_value())
+    {
+        return std::unexpected(entity.error());
+    }
+
+    const bool hasTransferUsage = is_destination ? CanBeTransferDestination(resourceRegistry, *entity) : CanBeTransferSource(resourceRegistry, *entity);
+    if (!hasTransferUsage)
+    {
+        return std::unexpected(rhi::ResourceError::MissingTransferUsage);
+    }
+
+    const ImageCreateInfo& info = resourceRegistry.get<ImageCreateInfo>(*entity);
+    const bool usageIsValid = is_destination ? DestinationTransitionIsValidForImage(info.Usage, usage) : TransitionIsValidForImage(info.Usage, usage);
+    if (!usageIsValid)
+    {
+        return std::unexpected(rhi::ResourceError::InvalidUsageTransition);
+    }
+
+    if (is_destination && allocationIsHostVisible(*entity))
+    {
+        return std::unexpected(rhi::ResourceError::InvalidTransferSet);
+    }
+
+    return SetImageSide
+    {
+        resourceRegistry.get<VkImage>(*entity),
+        BarrierAspectOf(info),
+        LayoutBeforeTransfer(usage.Before),
+        ImageLayoutFromUsageBits(usage.After),
+        &info
+    };
+}
+
+rhi::ResourceError ResourceContextImpl::resolveUploadBufferOp(const TransferSetOp& op, uint64_t data_size, ResolvedTransferOp& resolved) const
+{
+    const std::expected<SetBufferSide, rhi::ResourceError> destination = resolveSetBuffer(op.Destination, true);
+    if (!destination.has_value())
+    {
+        return destination.error();
+    }
+
+    const BufferCopyRegion& region = std::get<BufferCopyRegion>(op.Region);
+
+    // the bytes must be in the data of the set. the other rules are the rules of SetBufferData
+    if (!RangeIsInside(region.SourceOffset, region.Size, data_size))
+    {
+        return rhi::ResourceError::InvalidTransferSet;
+    }
+
+    if (!BufferCopyRegionsAreValid(std::span<const BufferCopyRegion>(&region, 1u), data_size, destination->Size, false))
+    {
+        return rhi::ResourceError::InvalidRegion;
+    }
+
+    resolved.DestinationBuffer = destination->Handle;
+    resolved.Buffer = region;
+    return rhi::ResourceError::Success;
+}
+
+rhi::ResourceError ResourceContextImpl::resolveUploadImageOp(const TransferSetOp& op, uint64_t data_size, ResolvedTransferOp& resolved) const
+{
+    const std::expected<SetImageSide, rhi::ResourceError> destination = resolveSetImage(op.Destination, op.DestinationUsage, true);
+    if (!destination.has_value())
+    {
+        return destination.error();
+    }
+
+    const BufferImageRegion& region = std::get<BufferImageRegion>(op.Region);
+
+    // the rules of SetImageData first, with no buffer size: the bytes come from the data of the set
+    const bool imageIsDiscarded = op.DestinationUsage.Before == ImageUsageBits::Discard;
+    if (!BufferToImageRegionsAreValid(std::span<const BufferImageRegion>(&region, 1u), *destination->Info, std::nullopt, imageIsDiscarded))
+    {
+        return rhi::ResourceError::InvalidRegion;
+    }
+
+    const std::optional<uint64_t> footprint = BufferImageFootprintBytes(region, destination->Info->Format);
+    if (!footprint.has_value() || !RangeIsInside(region.BufferOffset, *footprint, data_size))
+    {
+        return rhi::ResourceError::InvalidTransferSet;
+    }
+
+    resolved.DestinationImage = destination->Handle;
+    resolved.DestinationAspect = destination->Aspect;
+    resolved.DestinationBeforeLayout = destination->BeforeLayout;
+    resolved.DestinationAfterLayout = destination->AfterLayout;
+    resolved.BufferImage = region;
+    return rhi::ResourceError::Success;
+}
+
+rhi::ResourceError ResourceContextImpl::resolveFillBufferOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const
+{
+    const std::expected<SetBufferSide, rhi::ResourceError> destination = resolveSetBuffer(op.Destination, true);
+    if (!destination.has_value())
+    {
+        return destination.error();
+    }
+
+    const BufferCopyRegion& region = std::get<BufferCopyRegion>(op.Region);
+
+    // vkCmdFillBuffer needs both multiples of 4, as in FillBuffer. a set has no whole-size fill
+    const bool isUnaligned = region.DestinationOffset % 4u != 0u || region.Size % 4u != 0u;
+    if (isUnaligned)
+    {
+        return rhi::ResourceError::InvalidFillRange;
+    }
+
+    if (region.Size == 0u || !RangeIsInside(region.DestinationOffset, region.Size, destination->Size))
+    {
+        return rhi::ResourceError::InvalidRegion;
+    }
+
+    resolved.DestinationBuffer = destination->Handle;
+    resolved.Buffer = region;
+    resolved.FillValue = op.FillValue;
+    return rhi::ResourceError::Success;
+}
+
+rhi::ResourceError ResourceContextImpl::resolveCopyBufferOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const
+{
+    const std::expected<SetBufferSide, rhi::ResourceError> source = resolveSetBuffer(op.Source, false);
+    if (!source.has_value())
+    {
+        return source.error();
+    }
+
+    const std::expected<SetBufferSide, rhi::ResourceError> destination = resolveSetBuffer(op.Destination, true);
+    if (!destination.has_value())
+    {
+        return destination.error();
+    }
+
+    // an op never reads and writes one resource. CopyBufferRegions copies inside one buffer
+    if (op.Source.EntityHandle == op.Destination.EntityHandle)
+    {
+        return rhi::ResourceError::InvalidTransferSet;
+    }
+
+    const BufferCopyRegion& region = std::get<BufferCopyRegion>(op.Region);
+    if (!BufferCopyRegionsAreValid(std::span<const BufferCopyRegion>(&region, 1u), source->Size, destination->Size, false))
+    {
+        return rhi::ResourceError::InvalidRegion;
+    }
+
+    resolved.SourceBuffer = source->Handle;
+    resolved.DestinationBuffer = destination->Handle;
+    resolved.Buffer = region;
+    return rhi::ResourceError::Success;
+}
+
+rhi::ResourceError ResourceContextImpl::resolveCopyBufferToImageOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const
+{
+    const std::expected<SetBufferSide, rhi::ResourceError> source = resolveSetBuffer(op.Source, false);
+    if (!source.has_value())
+    {
+        return source.error();
+    }
+
+    const std::expected<SetImageSide, rhi::ResourceError> destination = resolveSetImage(op.Destination, op.DestinationUsage, true);
+    if (!destination.has_value())
+    {
+        return destination.error();
+    }
+
+    const BufferImageRegion& region = std::get<BufferImageRegion>(op.Region);
+    const bool imageIsDiscarded = op.DestinationUsage.Before == ImageUsageBits::Discard;
+    if (!BufferToImageRegionsAreValid(std::span<const BufferImageRegion>(&region, 1u), *destination->Info, source->Size, imageIsDiscarded))
+    {
+        return rhi::ResourceError::InvalidRegion;
+    }
+
+    resolved.SourceBuffer = source->Handle;
+    resolved.DestinationImage = destination->Handle;
+    resolved.DestinationAspect = destination->Aspect;
+    resolved.DestinationBeforeLayout = destination->BeforeLayout;
+    resolved.DestinationAfterLayout = destination->AfterLayout;
+    resolved.BufferImage = region;
+    return rhi::ResourceError::Success;
+}
+
+rhi::ResourceError ResourceContextImpl::resolveCopyImageToBufferOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const
+{
+    const std::expected<SetImageSide, rhi::ResourceError> source = resolveSetImage(op.Source, op.SourceUsage, false);
+    if (!source.has_value())
+    {
+        return source.error();
+    }
+
+    const std::expected<SetBufferSide, rhi::ResourceError> destination = resolveSetBuffer(op.Destination, true);
+    if (!destination.has_value())
+    {
+        return destination.error();
+    }
+
+    const BufferImageRegion& region = std::get<BufferImageRegion>(op.Region);
+    if (!ImageToBufferRegionsAreValid(std::span<const BufferImageRegion>(&region, 1u), *source->Info, destination->Size))
+    {
+        return rhi::ResourceError::InvalidRegion;
+    }
+
+    resolved.SourceImage = source->Handle;
+    resolved.SourceAspect = source->Aspect;
+    resolved.SourceBeforeLayout = source->BeforeLayout;
+    resolved.SourceAfterLayout = source->AfterLayout;
+    resolved.DestinationBuffer = destination->Handle;
+    resolved.BufferImage = region;
+    return rhi::ResourceError::Success;
+}
+
+rhi::ResourceError ResourceContextImpl::resolveCopyImageOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const
+{
+    const std::expected<SetImageSide, rhi::ResourceError> source = resolveSetImage(op.Source, op.SourceUsage, false);
+    if (!source.has_value())
+    {
+        return source.error();
+    }
+
+    const std::expected<SetImageSide, rhi::ResourceError> destination = resolveSetImage(op.Destination, op.DestinationUsage, true);
+    if (!destination.has_value())
+    {
+        return destination.error();
+    }
+
+    // an op never reads and writes one resource. CopyImageRegions copies inside one image
+    if (op.Source.EntityHandle == op.Destination.EntityHandle)
+    {
+        return rhi::ResourceError::InvalidTransferSet;
+    }
+
+    if (!ImagesAreCopyCompatible(*source->Info, *destination->Info))
+    {
+        return rhi::ResourceError::CopyShapeMismatch;
+    }
+
+    const ImageCopyRegion& region = std::get<ImageCopyRegion>(op.Region);
+    const bool destinationIsDiscarded = op.DestinationUsage.Before == ImageUsageBits::Discard;
+    if (!ImageCopyRegionsAreValid(std::span<const ImageCopyRegion>(&region, 1u), *source->Info, *destination->Info, false, destinationIsDiscarded))
+    {
+        return rhi::ResourceError::InvalidRegion;
+    }
+
+    resolved.SourceImage = source->Handle;
+    resolved.SourceAspect = source->Aspect;
+    resolved.SourceBeforeLayout = source->BeforeLayout;
+    resolved.SourceAfterLayout = source->AfterLayout;
+    resolved.DestinationImage = destination->Handle;
+    resolved.DestinationAspect = destination->Aspect;
+    resolved.DestinationBeforeLayout = destination->BeforeLayout;
+    resolved.DestinationAfterLayout = destination->AfterLayout;
+    resolved.Image = region;
+    return rhi::ResourceError::Success;
+}
+
 void ResourceContextImpl::processMessage(DestroyResourceMessage&& message)
 {
+    if (message.HasAfter && (message.After.Semaphore.Get() == 0u || message.After.Value == 0u))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidWait);
+        return;
+    }
+
     const std::expected<entt::entity, rhi::ResourceError> entity = resolveResource(message.Resource);
     if (!entity.has_value())
     {
@@ -1380,6 +1784,13 @@ void ResourceContextImpl::processMessage(DestroyResourceMessage&& message)
     if (lastTicket != nullptr && lastTicket->Value > transferSystem.CompletedTicket())
     {
         entry.TransferTicket = lastTicket->Value;
+        mustWait = true;
+    }
+
+    if (message.HasAfter && !timelineReached(message.After.Semaphore.Get(), message.After.Value))
+    {
+        entry.AfterSemaphore = message.After.Semaphore.Get();
+        entry.AfterValue = message.After.Value;
         mustWait = true;
     }
 
@@ -1576,7 +1987,20 @@ bool ResourceContextImpl::isReadyToRetire(const RetiringResource& entry, uint64_
         }
     }
 
+    if (entry.AfterValue != 0u && !timelineReached(entry.AfterSemaphore, entry.AfterValue))
+    {
+        return false;
+    }
+
     return true;
+}
+
+bool ResourceContextImpl::timelineReached(uint64_t semaphore, uint64_t value) const noexcept
+{
+    uint64_t counter = 0u;
+    const VkResult result = vkGetSemaphoreCounterValue(device->Handle().As<VkDevice>(), reinterpret_cast<VkSemaphore>(semaphore), &counter);
+
+    return result == VK_SUCCESS && counter >= value;
 }
 
 void ResourceContextImpl::retire(RetiringResource& entry)
@@ -2643,6 +3067,141 @@ namespace
         const bool isInside = offset <= heap_size && requirements.size <= heap_size - offset;
         const bool typeIsAllowed = (requirements.memoryTypeBits & (1u << heap_memory_type_index)) != 0u;
         return isAligned && isInside && typeIsAllowed;
+    }
+
+    VkImageAspectFlags BarrierAspectOf(const ImageCreateInfo& info) noexcept
+    {
+        return ToVkImageAspect(AspectFromVkFormat(ToVkFormat(info.Format)));
+    }
+
+    bool TransferOpReadsSource(TransferOpKind kind) noexcept
+    {
+        switch (kind)
+        {
+        case TransferOpKind::CopyBuffer:
+        case TransferOpKind::CopyBufferToImage:
+        case TransferOpKind::CopyImageToBuffer:
+        case TransferOpKind::CopyImage:
+            return true;
+        case TransferOpKind::Invalid:
+        case TransferOpKind::UploadBuffer:
+        case TransferOpKind::UploadImage:
+        case TransferOpKind::FillBuffer:
+            break;
+        }
+
+        return false;
+    }
+
+    bool TransferOpRegionMatchesKind(const TransferSetOp& op) noexcept
+    {
+        switch (op.Kind)
+        {
+        case TransferOpKind::UploadBuffer:
+        case TransferOpKind::FillBuffer:
+        case TransferOpKind::CopyBuffer:
+            return std::holds_alternative<BufferCopyRegion>(op.Region);
+        case TransferOpKind::UploadImage:
+        case TransferOpKind::CopyBufferToImage:
+        case TransferOpKind::CopyImageToBuffer:
+            return std::holds_alternative<BufferImageRegion>(op.Region);
+        case TransferOpKind::CopyImage:
+            return std::holds_alternative<ImageCopyRegion>(op.Region);
+        case TransferOpKind::Invalid:
+            break;
+        }
+
+        return false;
+    }
+
+    bool TransferSetHasRangeHazard(std::span<const TransferSetOp> ops, std::span<const int32_t> range_ends) noexcept
+    {
+        std::array<RangeAccess, 2u * static_cast<size_t>(k_MaxTransferSetOps)> accesses;
+        int32_t rangeStart = 0;
+
+        for (const int32_t rangeEnd : range_ends)
+        {
+            size_t accessCount = 0u;
+            for (int32_t opIndex = rangeStart; opIndex < rangeEnd; ++opIndex)
+            {
+                const TransferSetOp& op = ops[static_cast<size_t>(opIndex)];
+                if (TransferOpReadsSource(op.Kind))
+                {
+                    accesses[accessCount] = RangeAccess{ op.Source.EntityHandle, false };
+                    ++accessCount;
+                }
+
+                accesses[accessCount] = RangeAccess{ op.Destination.EntityHandle, true };
+                ++accessCount;
+            }
+
+            const std::span<RangeAccess> rangeAccesses(accesses.data(), accessCount);
+            std::ranges::sort(rangeAccesses, {}, &RangeAccess::Entity);
+
+            // a resource that appears twice is a hazard unless both appearances are reads
+            for (size_t index = 1u; index < accessCount; ++index)
+            {
+                const RangeAccess& earlier = rangeAccesses[index - 1u];
+                const RangeAccess& later = rangeAccesses[index];
+                if (earlier.Entity == later.Entity && (earlier.IsWrite || later.IsWrite))
+                {
+                    return true;
+                }
+            }
+
+            rangeStart = rangeEnd;
+        }
+
+        return false;
+    }
+
+    size_t CollectTouchedEntities(std::span<const TransferSetOp> ops, std::span<entt::entity> out) noexcept
+    {
+        size_t count = 0u;
+        for (const TransferSetOp& op : ops)
+        {
+            if (TransferOpReadsSource(op.Kind))
+            {
+                out[count] = entt::entity(op.Source.EntityHandle);
+                ++count;
+            }
+
+            out[count] = entt::entity(op.Destination.EntityHandle);
+            ++count;
+        }
+
+        return count;
+    }
+
+    bool TransferSetUploads(std::span<const TransferSetOp> ops) noexcept
+    {
+        for (const TransferSetOp& op : ops)
+        {
+            if (op.Kind == TransferOpKind::UploadBuffer || op.Kind == TransferOpKind::UploadImage)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    uint64_t StagingAlignmentOfSet(const entt::registry& registry, std::span<const TransferSetOp> ops) noexcept
+    {
+        // the staged data starts on the alignment of a buffer upload, and on the alignment of each image upload format
+        uint64_t alignment = k_SetMinimumStagingAlignment;
+        for (const TransferSetOp& op : ops)
+        {
+            if (op.Kind != TransferOpKind::UploadImage)
+            {
+                continue;
+            }
+
+            const ImageCreateInfo& info = registry.get<ImageCreateInfo>(entt::entity(op.Destination.EntityHandle));
+            alignment = std::lcm(alignment, ImageStagingAlignment(info.Format));
+        }
+
+        return alignment;
     }
 
     bool CanBeTransferSource(const entt::registry& registry, entt::entity entity) noexcept

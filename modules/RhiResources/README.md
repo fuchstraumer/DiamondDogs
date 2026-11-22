@@ -91,7 +91,7 @@ the ticket, the `GraphicsResource`, and the mapped pointer.
 `StaleResource`, `WrongResourceKind` or `ResourceRetiring`. The create checks return `InvalidCreateInfo` or
 `UnsupportedUsage`. The transfer checks return `MissingTransferUsage`, `InvalidFillRange`, `CopySizeMismatch`,
 `CopyShapeMismatch`, `UnsupportedCopy`, `InvalidUsageTransition`, `TooManyWaits`, `InvalidWait`, `WaitOnHostWrite` or
-`InvalidRegion`.
+`InvalidRegion`. A transfer set adds `InvalidTransferSet` and, in debug builds, `RangeHazard`.
 The placed creates return `InvalidPlacement`, and a destroy of a heap that still has
 placed resources returns `HeapInUse`. The transfer thread returns `StagingFailed`, `RecordingFailed` or
 `SubmitFailed`. The timeline calls return `InvalidTimeline`, `TimelineAlreadyRegistered`, `NoFreeTimelineSlot` or
@@ -246,7 +246,7 @@ check stops a usage that gives a layout that validation rejects later, far from 
 
 A transfer can wait for GPU work on another queue. `SetBufferData`, `SetImageData`, `FillBuffer`, `CopyBuffer`,
 `CopyImage`, `CopyBufferContents`, `CopyBufferRegions`, `CopyImageToBuffer`, `CopyBufferToImage`, `CopyImageContents`,
-`CopyBufferToImageRegions`, `CopyImageToBufferRegions` and `CopyImageRegions` take
+`CopyBufferToImageRegions`, `CopyImageToBufferRegions`, `CopyImageRegions` and `SubmitTransferSet` take
 `std::span<const rhi::TransferWait> waits` as their last parameter. An empty span means no wait. The create calls,
 `MapBuffer`, `UnmapBuffer` and `DestroyResource` take none.
 
@@ -355,6 +355,105 @@ Images:
 In-frame copies are not for this API. A readback of the target of the current frame is work for the render graph. It
 records the copy on its own command buffer. The copy calls of the context are for work outside a frame.
 
+## Transfer sets
+
+A transfer set is many transfers that the caller already ordered, submitted as one transfer. The render graph builds
+one from its DAG. A single call costs one message, one future slot, one ticket, one staging range and one ordering
+barrier. A set costs one of each, and its barriers are for each range, not for each transfer.
+
+`SubmitTransferSet(const TransferSetDesc& set, std::span<const rhi::TransferWait> waits)` takes:
+
+- **Ops.** A `TransferSetOp` is one region of one transfer. Its `Kind` says what it does (`UploadBuffer`, `UploadImage`,
+  `FillBuffer`, `CopyBuffer`, `CopyBufferToImage`, `CopyImageToBuffer`, `CopyImage`), and the doc comment of
+  `TransferOpKind` says which fields each kind reads. The region is one member, `Region`, a
+  `std::variant<BufferCopyRegion, BufferImageRegion, ImageCopyRegion>`, so an op stores one region and not three.
+  `Kind` decides the alternative:
+
+  | Kinds | `Region` holds |
+  |---|---|
+  | `UploadBuffer`, `FillBuffer`, `CopyBuffer` | `BufferCopyRegion` |
+  | `UploadImage`, `CopyBufferToImage`, `CopyImageToBuffer` | `BufferImageRegion` |
+  | `CopyImage` | `ImageCopyRegion` |
+
+  The worker checks that `Region` holds the alternative of the `Kind` before it reads any region, and fails the set with
+  `InvalidTransferSet` when it does not. A caller that wants many regions of one resource gives many ops. An op never
+  reads and writes one resource: a copy inside one buffer or one image goes through `CopyBufferRegions` or
+  `CopyImageRegions`.
+- **Ranges.** `RangeEnds` lists the end index of each range. The values rise, each range has at least one op, and the
+  last value is the op count. The ops of one range are independent, so the transfer thread records them with no barrier
+  between them. The ranges run in order, and each range sees the writes of the ranges before it.
+- **Data.** One byte span for all uploads. The context copies it once, on the calling thread. `UploadBuffer` reads its
+  bytes at `SourceOffset` of its `BufferCopyRegion`, and `UploadImage` reads its texels at `BufferOffset` of its
+  `BufferImageRegion`. The transfer thread
+  stages the whole span as one transfer does today: in the staging ring, or in a buffer of its own when it is larger
+  than the ring. A set with no upload stages nothing.
+
+The call makes two heap allocations on the calling thread, one for the ops and the range ends and one for the data, and
+none for each op. At most `k_MaxTransferSetOps` (256) ops are allowed, so that one set cannot hold the transfer thread
+for long.
+
+### One future, one ticket
+
+A set has one future and one ticket. Every resource that an op reads or writes gets that ticket as its
+`LastTransferTicket`, so a destroy of any of them waits for the whole set. `Completion()` returns the ticket of the set.
+The set counts as one transfer in `TransfersRecorded`, and in the 64 transfers of a batch.
+
+### All or nothing
+
+The worker checks every op before it issues the ticket, with the rules of the single call for that op: the kind of
+resource, the transfer usages, the usage transitions, the region rules (`InvalidRegion`), and `Discard` that must cover
+whole mip levels. The first bad op decides the error, and nothing is recorded. These errors are new for sets:
+
+| Error | Cause | Where it fails |
+|---|---|---|
+| `InvalidTransferSet` | No op, more than 256 ops, or range ends that are not valid. | On the calling thread. |
+| `InvalidTransferSet` | An op of an invalid kind, an op whose `Region` does not hold the alternative of its kind, or an upload whose bytes are not inside the data. | On the worker. |
+| `InvalidTransferSet` | A destination in host-visible memory, or a copy that reads and writes one resource. | On the worker. |
+| `RangeHazard` | Two ops of one range that write one resource, or that read and write one resource. | On the worker, in debug builds only. |
+
+Sets are device side only. Host data goes through `SetBufferData`. A fill range must be non-empty, inside the buffer, and
+a multiple of 4 in offset and size (`InvalidFillRange` for the multiple, and `InvalidRegion` for the rest). A set has no
+whole-size fill. `TooManyWaits` and `InvalidWait` work as they do for every other call.
+
+### The hazard validator
+
+In a debug build (no `NDEBUG`), the worker checks each range before it issues the ticket. It writes the resource of each
+read and each write into a fixed array of at most 512 entries, sorts it, and fails with `RangeHazard` when a resource
+appears twice and one of the two appearances is a write. The rule is for each resource. Two writes to disjoint regions
+of one buffer are still a hazard, because the graph's DAG would have put such ops in different ranges. The check
+compares the answer of the graph with an independent one. It is a validator and not a defensive check, so a release
+build does not run it. Two reads of one resource are no hazard.
+
+### Recording
+
+The transfer thread records a set as follows. The ordering barrier of a single transfer goes first. Then, for each range:
+
+1. One `vkCmdPipelineBarrier2` with the layout transition of every image that the range touches, from the layout of
+   `Before` to the transfer layout. A transition covers the touched subresources only. The transitions of one image
+   with the same layouts and role merge their layer ranges, so that no subresource is in two barriers of one call. A range
+   with no image has no such barrier.
+2. The copies and fills of the range, each as one command, with no barrier between them.
+3. One `vkCmdPipelineBarrier2` with the transition of every image from the transfer layout to the layout of `After`, and
+   a memory barrier from transfer writes to later transfer reads and writes. The next range sees the writes of this
+   range through it. The last range has no memory barrier, because the ordering barrier of the next transfer covers it.
+
+That is two barrier calls for each range with an image, and not about three for each transfer. Recording allocates
+nothing beyond the staging: the arrays are on the stack. `TransferBarriersRecorded` counts these calls (the ordering
+barrier is not counted), and `TransferSetsRecorded` counts the sets.
+
+### Usages from range to range
+
+The context is stateless. An image that is in two ranges gets its usages from each op, so the `Before` of the later op
+must be the `After` that the earlier op gave. The context does not check it, as it does not check the `Before` of any
+single call. A wrong `Before` shows as a validation error at the submit.
+
+### Batching and waits
+
+A set without waits goes into the open batch as one entry. A full batch is submitted first. A set with waits takes a
+batch of its own, as a single transfer with waits does: the open batch is submitted first, and the batch of the set is
+submitted at once. The waits follow the inbound wait rule of the single calls, and the own-batch rule does not help the
+transfers issued after the set, as before.
+
 ## Usage bits and barriers
 
 `BufferUsageBits` and `ImageUsageBits` (`RhiResourceFlags.hpp`) name how a resource is used. They are the create usage,
@@ -457,12 +556,22 @@ the GPU must be done with one aliasing resource before the next one is used, and
 `DestroyResource` does not free at once when the GPU can still use the resource. The destroy records:
 
 - the last ticket that touches the entity, while that ticket is above the completed ticket;
-- the pending value of each registered consumer timeline, while that value is above the timeline's completed value.
+- the pending value of each registered consumer timeline, while that value is above the timeline's completed value;
+- the `after` wait of `DestroyResource(resource, after)`, while the counter of its semaphore is below its value.
 
 When nothing is recorded, the objects are freed at once. Otherwise the entity gets a `Retiring` tag and goes into
 the retirement list. The resolve functions refuse a retiring entity, so every later call that names it fails. The
 worker checks the list after each message, and frees an entry when all its values have passed. The destroy's future
 completes only when the objects are freed.
+
+`DestroyResource(resource)` covers only the pending values that the last `Tick` reported. A submit that `Tick` has not
+reported yet is not covered, so the rule for that overload is: call `Tick` after the submit, before the destroy, on the
+same thread. `DestroyResource(resource, after)` removes the rule. `after` is an `rhi::GpuWait`: a timeline and a value.
+The worker stores it with the retirement entry, and frees the resource only when `vkGetSemaphoreCounterValue` of the
+semaphore is at least the value. The semaphore does not need to be registered. Use the value that your last submit
+signals. A null semaphore or a value of 0 fails the future with `InvalidWait`, and the resource stays alive and usable.
+The worker reads the counter of each such entry after every message it processes, so a `Tick` or any other call frees
+the resource soon after the GPU passes the value. The semaphore must live until the destroy future completes.
 
 At shutdown, `Destroy` waits for the transfer queue, then frees every entry in the list. The owner must wait for its
 own timelines before it destroys the context.
@@ -488,7 +597,8 @@ They count messages, recorded and failed transfers, submitted batches, timeline 
 consumer), staged bytes, retired and pending retirements, pushes that blocked on a full queue, live futures, and
 calls that found the future table full. Three counters are for the staging ring: `StagingRingStalls`,
 `StagingDedicatedUploads`, and `StagingRingBytesInUse` (the bytes between the oldest live range and the end of the
-newest, as of the last poll of the timeline). The tests use them to prove that completion costs one counter read per loop,
+newest, as of the last poll of the timeline). Two counters are for transfer sets: `TransferSetsRecorded` and
+`TransferBarriersRecorded`. The tests use them to prove that completion costs one counter read per loop,
 not one per future, and that every future slot comes back.
 
 The context queue holds 64 messages. A push to a full queue blocks until the worker takes one. The 64 comes from the

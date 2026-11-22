@@ -65,6 +65,33 @@ using CopyRegionBlock = RegionBlock<BufferCopyRegion>;
 using BufferImageRegionBlock = RegionBlock<BufferImageRegion>;
 using ImageCopyRegionBlock = RegionBlock<ImageCopyRegion>;
 
+/** @brief The ops and the range ends of one transfer set, in one heap block: the ops first, then the range ends. One
+ *  allocation for each set, and none for each op. */
+struct TransferSetBlock
+{
+    TransferSetBlock() noexcept = default;
+    TransferSetBlock(std::span<const TransferSetOp> ops, std::span<const int32_t> range_ends);
+
+    [[nodiscard]] std::span<const TransferSetOp> Ops() const noexcept;
+    [[nodiscard]] std::span<const int32_t> RangeEnds() const noexcept;
+
+    std::unique_ptr<std::byte[]> Storage{ nullptr };
+    int32_t OpCount{ 0 };
+    int32_t RangeCount{ 0 };
+};
+
+/** @brief A copy of a byte span, in one heap block. A span with no bytes makes no allocation. */
+struct ByteBlock
+{
+    ByteBlock() noexcept = default;
+    explicit ByteBlock(std::span<const std::byte> bytes);
+
+    [[nodiscard]] std::span<const std::byte> View() const noexcept;
+
+    std::unique_ptr<std::byte[]> Items{ nullptr };
+    uint64_t Size{ 0u };
+};
+
 // Users still call functions with the old API on the surface, but we translate to these internal structures
 // so that we can place them in the message queue (type erased by being shoved in a variant, effectively). `Future` is
 // the index of the call's slot in the context's future table: the handlers write the result there
@@ -303,9 +330,21 @@ struct CopyResourceContentsMessage
     int32_t Future{ -1 };
 };
 
+// the set and its data were copied on the calling thread. the shape of the set (op count, range ends) was checked there
+struct TransferSetMessage
+{
+    TransferSetBlock Set;
+    ByteBlock Data;
+    TransferWaitSet Waits;
+    int32_t Future{ -1 };
+};
+
 struct DestroyResourceMessage
 {
     GraphicsResource Resource{ GraphicsResource::Null() };
+    // read only when HasAfter is true: the resource is not freed before the timeline reaches this value
+    rhi::TransferWait After;
+    bool HasAfter{ false };
     int32_t Future{ -1 };
 };
 
@@ -360,6 +399,7 @@ using ResourceMessagePayloadType = std::variant<CreateBufferMessage,
                                                 UnmapResourceMessage,
                                                 CopyResourceMessage,
                                                 CopyResourceContentsMessage,
+                                                TransferSetMessage,
                                                 DestroyResourceMessage,
                                                 ExitWorkerMessage,
                                                 TickMessage,
@@ -459,6 +499,44 @@ struct TransferSystemCopyBufferToImageMessage
     TransferWaitSet Waits;
 };
 
+/** @brief One op of a transfer set after the worker resolved and checked it: the API handles, the aspects and the layouts
+ *  that the transfer thread uses as they are. A side that the kind does not use has null handles. The source buffer of an
+ *  upload is the staging buffer, which only the transfer thread knows, so it is not here. */
+struct ResolvedTransferOp
+{
+    TransferOpKind Kind{ TransferOpKind::Invalid };
+    VkBuffer SourceBuffer{ VK_NULL_HANDLE };
+    VkBuffer DestinationBuffer{ VK_NULL_HANDLE };
+    VkImage SourceImage{ VK_NULL_HANDLE };
+    VkImage DestinationImage{ VK_NULL_HANDLE };
+    // every aspect that the format has, as a barrier lists them
+    VkImageAspectFlags SourceAspect{ 0u };
+    VkImageAspectFlags DestinationAspect{ 0u };
+    VkImageLayout SourceBeforeLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
+    VkImageLayout SourceAfterLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
+    VkImageLayout DestinationBeforeLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
+    VkImageLayout DestinationAfterLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
+    BufferCopyRegion Buffer;
+    BufferImageRegion BufferImage;
+    ImageCopyRegion Image;
+    uint32_t FillValue{ 0u };
+};
+
+/** @brief A transfer set for the transfer thread. The worker checked every op. `Set` is kept for its range ends, and
+ *  `Data` is the bytes of the uploads: the transfer thread stages them once, and the ops read them by offset.
+ *  `StagingAlignment` is a multiple of the buffer offset alignment of every image upload in the set. */
+struct TransferSystemTransferSetMessage
+{
+    std::unique_ptr<ResolvedTransferOp[]> Ops;
+    int32_t OpCount{ 0 };
+    TransferSetBlock Set;
+    ByteBlock Data;
+    uint64_t StagingAlignment{ 1u };
+    int32_t Future{ -1 };
+    uint64_t Ticket{ 0u };
+    TransferWaitSet Waits;
+};
+
 /** @brief Tells the transfer thread to return, so that it can block on an empty queue instead of polling a flag. */
 struct TransferSystemExitMessage
 {
@@ -471,6 +549,7 @@ using TransferPayloadType = std::variant<TransferSystemSetBufferDataMessage,
                                          TransferSystemCopyImageToImageMessage,
                                          TransferSystemCopyImageToBufferMessage,
                                          TransferSystemCopyBufferToImageMessage,
+                                         TransferSystemTransferSetMessage,
                                          TransferSystemExitMessage>;
 
 #endif // RESOURCE_MESSAGE_TYPES_INTERNAL_HPP

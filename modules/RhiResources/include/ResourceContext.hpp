@@ -99,6 +99,11 @@ struct ResourceContextCounters
     int64_t StagingDedicatedUploads{ 0 };
     /** @brief The bytes of the staging ring that were in use at the last poll of the transfer timeline. */
     int64_t StagingRingBytesInUse{ 0 };
+    /** @brief Transfer sets that the transfer thread recorded. Each is also one of TransfersRecorded. */
+    int64_t TransferSetsRecorded{ 0 };
+    /** @brief Barrier calls (`vkCmdPipelineBarrier2`) that the transfer thread recorded inside transfer sets, between
+     *  ranges and around them. The ordering barrier before each transfer is not counted. */
+    int64_t TransferBarriersRecorded{ 0 };
 };
 
 /** @brief The largest number of memory heaps that a Vulkan device reports (VK_MAX_MEMORY_HEAPS). */
@@ -568,6 +573,31 @@ public:
         std::span<const rhi::TransferWait> waits);
 
     /**
+     * @brief Submits many transfers that the caller already ordered, as one transfer: one message, one future, one
+     * ticket, one copy of the data, and a barrier before and after each range instead of one for each op. Every
+     * resource that an op touches gets the ticket of the set, so a destroy waits for the whole set.
+     *
+     * @param set The ops, the range ends and the bytes of the uploads. The context copies all of it before the call
+     *        returns. A set with no op, or with more than k_MaxTransferSetOps ops, or with range ends that are empty,
+     *        that do not rise, or whose last value is not the op count, fails at once on the calling thread with
+     *        InvalidTransferSet.
+     * @param waits Up to k_MaxTransferWaits timeline values that the set waits for on the GPU. Empty for none. A set
+     *        with waits takes a batch of its own, as a single transfer with waits does, and a set without waits shares
+     *        the open batch. **The caller must make sure that a submit already signals each value, or will signal it
+     *        without waiting for this set.** Otherwise the GPU can deadlock. The context does not check this. A call
+     *        with more waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
+     * @return Future for tracking the set. The worker checks every op before it issues the ticket, with the rules of
+     *         the single call for that op. One bad op fails the whole set with the error of the first bad op, and
+     *         nothing is recorded. Sets are device side: a destination in host-visible memory fails with
+     *         InvalidTransferSet, and host data goes through SetBufferData. In a debug build, two ops of one range that
+     *         write one resource, or that read and write one resource, fail with RangeHazard.
+     */
+    [[nodiscard]] rhi::OperationFuture SubmitTransferSet(
+        const TransferSetDesc& set,
+        std::span<const rhi::TransferWait> waits);
+
+    /**
      * @brief Destroy a graphics resource and free its memory, once the GPU is done with it.
      *
      * The destroy records the pending value of every registered consumer timeline, and the last transfer that touches
@@ -582,6 +612,21 @@ public:
      */
     [[nodiscard]] rhi::OperationFuture DestroyResource(
         GraphicsResource resource);
+
+    /**
+     * @brief As DestroyResource(resource), and the resource is also not freed before `after` passes on the GPU. Use it
+     * when the last GPU use is on a timeline that is not registered, or a submit that Tick has not reported yet.
+     *
+     * @param resource The resource to destroy
+     * @param after A timeline and a value. The resource is freed once the timeline counter is at least the value. A
+     *        null semaphore or a value of 0 fails the future with InvalidWait, and the resource is not destroyed. The
+     *        semaphore must live until the future completes. A value that no submit will signal keeps the resource
+     *        until the context shuts down.
+     * @return Future that completes when the objects are freed
+     */
+    [[nodiscard]] rhi::OperationFuture DestroyResource(
+        GraphicsResource resource,
+        rhi::GpuWait after);
 
     /**
      * @brief Adds a timeline that destroys wait for, such as the renderer's frame timeline. At most

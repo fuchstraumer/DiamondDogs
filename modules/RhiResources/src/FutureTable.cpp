@@ -105,6 +105,10 @@ namespace rhi
             return "HeapInUse";
         case ResourceError::InvalidRegion:
             return "InvalidRegion";
+        case ResourceError::InvalidTransferSet:
+            return "InvalidTransferSet";
+        case ResourceError::RangeHazard:
+            return "RangeHazard";
         }
 
         return "Unknown ResourceError";

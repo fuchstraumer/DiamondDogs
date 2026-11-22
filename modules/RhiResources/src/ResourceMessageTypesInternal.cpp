@@ -8,6 +8,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 DebugName::DebugName(std::string_view name) noexcept
@@ -64,6 +65,65 @@ std::span<const Region> RegionBlock<Region>::View() const noexcept
 template struct RegionBlock<BufferCopyRegion>;
 template struct RegionBlock<BufferImageRegion>;
 template struct RegionBlock<ImageCopyRegion>;
+
+TransferSetBlock::TransferSetBlock(std::span<const TransferSetOp> ops, std::span<const int32_t> range_ends) :
+    OpCount{ static_cast<int32_t>(ops.size()) },
+    RangeCount{ static_cast<int32_t>(range_ends.size()) }
+{
+    // the op is 8-byte aligned and its size is a multiple of 8, so the range ends that follow the ops are 4-byte aligned
+    static_assert(alignof(TransferSetOp) >= alignof(int32_t));
+    static_assert(sizeof(TransferSetOp) % alignof(int32_t) == 0u);
+    static_assert(std::is_trivially_copyable_v<TransferSetOp>);
+
+    const size_t opBytes = ops.size() * sizeof(TransferSetOp);
+    const size_t rangeBytes = range_ends.size() * sizeof(int32_t);
+    Storage = std::make_unique<std::byte[]>(opBytes + rangeBytes);
+    std::memcpy(Storage.get(), ops.data(), opBytes);
+    std::memcpy(Storage.get() + opBytes, range_ends.data(), rangeBytes);
+}
+
+std::span<const TransferSetOp> TransferSetBlock::Ops() const noexcept
+{
+    if (Storage == nullptr)
+    {
+        return {};
+    }
+
+    return std::span<const TransferSetOp>(reinterpret_cast<const TransferSetOp*>(Storage.get()), static_cast<size_t>(OpCount));
+}
+
+std::span<const int32_t> TransferSetBlock::RangeEnds() const noexcept
+{
+    if (Storage == nullptr)
+    {
+        return {};
+    }
+
+    const size_t opBytes = static_cast<size_t>(OpCount) * sizeof(TransferSetOp);
+    return std::span<const int32_t>(reinterpret_cast<const int32_t*>(Storage.get() + opBytes), static_cast<size_t>(RangeCount));
+}
+
+ByteBlock::ByteBlock(std::span<const std::byte> bytes) :
+    Size{ static_cast<uint64_t>(bytes.size()) }
+{
+    if (bytes.empty())
+    {
+        return;
+    }
+
+    Items = std::make_unique<std::byte[]>(bytes.size());
+    std::memcpy(Items.get(), bytes.data(), bytes.size());
+}
+
+std::span<const std::byte> ByteBlock::View() const noexcept
+{
+    if (Items == nullptr)
+    {
+        return {};
+    }
+
+    return std::span<const std::byte>(Items.get(), static_cast<size_t>(Size));
+}
 
 InternalResourceDataContainer::BufferData::BufferData(const RhiBufferResourceData& _data) :
     Data{ std::make_unique<std::byte[]>(_data.Data.size()) },

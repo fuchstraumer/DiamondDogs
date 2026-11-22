@@ -22,12 +22,14 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <ranges>
 #include <span>
 #include <thread>
+#include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -84,6 +86,58 @@ namespace
         const std::array<rhi::TransferWait, rhi::k_MaxTransferWaits>& waits,
         int32_t wait_count,
         std::array<VkSemaphoreSubmitInfo, rhi::k_MaxTransferWaits>& out) noexcept;
+
+    // an op of a set has at most two image sides, and each side is one subresource range
+    constexpr size_t k_MaxSetTransitions = 2u * static_cast<size_t>(k_MaxTransferSetOps);
+
+    enum class SetBarrierPhase : uint8_t
+    {
+        Before,
+        After,
+    };
+
+    /** @brief One layout transition that a transfer set op needs on one subresource range of an image. */
+    struct SetTransition
+    {
+        uint64_t Image;
+        VkImageSubresourceRange Range;
+        VkImageLayout OldLayout;
+        VkImageLayout NewLayout;
+        // true when the op reads the image (TRANSFER_SRC), false when it writes it (TRANSFER_DST)
+        bool IsRead;
+    };
+
+    /** @brief The arrays that recording one range needs, on the stack. They are not initialized: each function fills
+     *  only the entries that it uses. */
+    struct SetBarrierScratch
+    {
+        std::array<SetTransition, k_MaxSetTransitions> Transitions;
+        std::array<VkImageSubresourceRange, k_MaxSetTransitions> Ranges;
+        std::array<VkImageMemoryBarrier2, k_MaxSetTransitions> Barriers;
+    };
+
+    [[nodiscard]] SetTransition MakeSetTransition(VkImage image, const VkImageSubresourceRange& range, VkImageLayout caller_layout, bool is_read, SetBarrierPhase phase) noexcept;
+    /** @brief Writes the transitions of the image sides of every op into `out` and returns how many. `out` needs room for
+     *  two for each op. */
+    [[nodiscard]] size_t CollectSetTransitions(std::span<const ResolvedTransferOp> range_ops, SetBarrierPhase phase, std::span<SetTransition> out) noexcept;
+    [[nodiscard]] bool SetTransitionIsBefore(const SetTransition& first, const SetTransition& second) noexcept;
+    /** @brief Returns true when the two transitions can share a barrier: one image, the same layouts and the same role. */
+    [[nodiscard]] bool SetTransitionsShareBarrier(const SetTransition& first, const SetTransition& second) noexcept;
+    [[nodiscard]] VkImageMemoryBarrier2 MakeSetImageBarrier(const SetTransition& transition, const VkImageSubresourceRange& range, SetBarrierPhase phase) noexcept;
+    /** @brief Builds one barrier for each group of transitions that share an image, layouts and role, with their ranges
+     *  merged. Returns the barriers, which are in `scratch`. Allocates nothing. */
+    [[nodiscard]] std::span<const VkImageMemoryBarrier2> BuildSetImageBarriers(std::span<const ResolvedTransferOp> range_ops, SetBarrierPhase phase, SetBarrierScratch& scratch) noexcept;
+    /** @brief Records one vkCmdPipelineBarrier2 with the image barriers, and with a memory barrier from transfer writes
+     *  to later transfer reads and writes when `include_memory_barrier` is true. */
+    void RecordSetDependency(VkCommandBuffer cmd, bool include_memory_barrier, std::span<const VkImageMemoryBarrier2> image_barriers) noexcept;
+    void RecordTransferSetOp(VkCommandBuffer cmd, const ResolvedTransferOp& op, const StagingDestination& staging) noexcept;
+    void RecordUploadBufferOp(VkCommandBuffer cmd, const ResolvedTransferOp& op, const StagingDestination& staging) noexcept;
+    void RecordUploadImageOp(VkCommandBuffer cmd, const ResolvedTransferOp& op, const StagingDestination& staging) noexcept;
+    void RecordFillBufferOp(VkCommandBuffer cmd, const ResolvedTransferOp& op) noexcept;
+    void RecordCopyBufferOp(VkCommandBuffer cmd, const ResolvedTransferOp& op) noexcept;
+    void RecordCopyBufferToImageOp(VkCommandBuffer cmd, const ResolvedTransferOp& op) noexcept;
+    void RecordCopyImageToBufferOp(VkCommandBuffer cmd, const ResolvedTransferOp& op) noexcept;
+    void RecordCopyImageOp(VkCommandBuffer cmd, const ResolvedTransferOp& op) noexcept;
 }
 
 ResourceTransferSystem::ResourceTransferSystem() = default;
@@ -220,7 +274,9 @@ TransferSystemCounters ResourceTransferSystem::Counters() const noexcept
         messageQueue.BlockedPushCount(),
         ringStalls.load(std::memory_order_relaxed),
         dedicatedUploads.load(std::memory_order_relaxed),
-        ringBytesInUse.load(std::memory_order_relaxed)
+        ringBytesInUse.load(std::memory_order_relaxed),
+        transferSetsRecorded.load(std::memory_order_relaxed),
+        barriersRecorded.load(std::memory_order_relaxed)
     };
 }
 
@@ -1081,6 +1137,83 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToImageMessa
     endTransfer(message.Future, StagingGrant{}, message.Ticket, message.Waits);
 }
 
+void ResourceTransferSystem::processMessage(TransferSystemTransferSetMessage&& message)
+{
+    // the data of the set is staged once, and each upload op reads its part by offset. a set with no data stages nothing
+    std::optional<StagingGrant> staging;
+    if (message.Data.Size > 0u)
+    {
+        staging = acquireStaging(message.Data.Size, message.StagingAlignment, message.Ticket);
+        if (!staging.has_value())
+        {
+            failTransfer(message.Future, message.Ticket, rhi::ResourceError::StagingFailed);
+            return;
+        }
+
+        std::memcpy(staging->Destination.Mapped.data(), message.Data.Items.get(), static_cast<size_t>(message.Data.Size));
+        flushStaging(*staging);
+    }
+
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
+    if (cmd == VK_NULL_HANDLE)
+    {
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
+        return;
+    }
+
+    const StagingDestination destination = staging.has_value() ? staging->Destination : StagingDestination{};
+    recordTransferSet(cmd, message, destination);
+    transferSetsRecorded.fetch_add(1, std::memory_order_relaxed);
+
+    // the batch counts the whole set as one transfer
+    endTransfer(message.Future, staging.has_value() ? std::move(*staging) : StagingGrant{}, message.Ticket, message.Waits);
+}
+
+void ResourceTransferSystem::recordTransferSet(VkCommandBuffer cmd, const TransferSystemTransferSetMessage& message, const StagingDestination& staging)
+{
+    const std::span<const ResolvedTransferOp> ops(message.Ops.get(), static_cast<size_t>(message.OpCount));
+    const std::span<const int32_t> rangeEnds = message.Set.RangeEnds();
+    const int32_t rangeCount = static_cast<int32_t>(rangeEnds.size());
+    int32_t rangeStart = 0;
+
+    for (int32_t rangeIndex = 0; rangeIndex < rangeCount; ++rangeIndex)
+    {
+        const int32_t rangeEnd = rangeEnds[static_cast<size_t>(rangeIndex)];
+        const std::span<const ResolvedTransferOp> rangeOps = ops.subspan(static_cast<size_t>(rangeStart), static_cast<size_t>(rangeEnd - rangeStart));
+        recordTransferSetRange(cmd, rangeOps, staging, rangeIndex == rangeCount - 1);
+        rangeStart = rangeEnd;
+    }
+}
+
+void ResourceTransferSystem::recordTransferSetRange(VkCommandBuffer cmd, std::span<const ResolvedTransferOp> range_ops, const StagingDestination& staging, bool is_last_range)
+{
+    SetBarrierScratch scratch;
+
+    // a range with no image to transition needs no barrier before it: the barrier after the range before it (or the
+    // ordering barrier, for the first range) already made its writes visible
+    const std::span<const VkImageMemoryBarrier2> beforeBarriers = BuildSetImageBarriers(range_ops, SetBarrierPhase::Before, scratch);
+    if (!beforeBarriers.empty())
+    {
+        RecordSetDependency(cmd, false, beforeBarriers);
+        barriersRecorded.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    for (const ResolvedTransferOp& op : range_ops)
+    {
+        RecordTransferSetOp(cmd, op, staging);
+    }
+
+    // the next range reads what this range wrote, so the writes must be visible. the last range needs no memory
+    // barrier: the ordering barrier of the next transfer covers it
+    const bool includeMemoryBarrier = !is_last_range;
+    const std::span<const VkImageMemoryBarrier2> afterBarriers = BuildSetImageBarriers(range_ops, SetBarrierPhase::After, scratch);
+    if (!afterBarriers.empty() || includeMemoryBarrier)
+    {
+        RecordSetDependency(cmd, includeMemoryBarrier, afterBarriers);
+        barriersRecorded.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
 void ResourceTransferSystem::processMessage([[maybe_unused]] TransferSystemExitMessage&& message) noexcept
 {
     exitRequested = true;
@@ -1261,5 +1394,234 @@ namespace
         }
 
         return merged;
+    }
+
+    SetTransition MakeSetTransition(VkImage image, const VkImageSubresourceRange& range, VkImageLayout caller_layout, bool is_read, SetBarrierPhase phase) noexcept
+    {
+        const VkImageLayout transferLayout = is_read ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        const bool isBefore = phase == SetBarrierPhase::Before;
+        return SetTransition
+        {
+            reinterpret_cast<uint64_t>(image),
+            range,
+            isBefore ? caller_layout : transferLayout,
+            isBefore ? transferLayout : caller_layout,
+            is_read
+        };
+    }
+
+    size_t CollectSetTransitions(std::span<const ResolvedTransferOp> range_ops, SetBarrierPhase phase, std::span<SetTransition> out) noexcept
+    {
+        const bool isBefore = phase == SetBarrierPhase::Before;
+        size_t count = 0u;
+
+        for (const ResolvedTransferOp& op : range_ops)
+        {
+            const bool writesImageFromBuffer = op.Kind == TransferOpKind::UploadImage || op.Kind == TransferOpKind::CopyBufferToImage;
+            if (writesImageFromBuffer)
+            {
+                const ImageRegion& box = op.BufferImage.Image;
+                const VkImageSubresourceRange range = TouchedRangeOf(op.DestinationAspect, box.MipLevel, box.BaseArrayLayer, box.LayerCount);
+                const VkImageLayout layout = isBefore ? op.DestinationBeforeLayout : op.DestinationAfterLayout;
+                out[count] = MakeSetTransition(op.DestinationImage, range, layout, false, phase);
+                ++count;
+            }
+
+            if (op.Kind == TransferOpKind::CopyImageToBuffer)
+            {
+                const ImageRegion& box = op.BufferImage.Image;
+                const VkImageSubresourceRange range = TouchedRangeOf(op.SourceAspect, box.MipLevel, box.BaseArrayLayer, box.LayerCount);
+                const VkImageLayout layout = isBefore ? op.SourceBeforeLayout : op.SourceAfterLayout;
+                out[count] = MakeSetTransition(op.SourceImage, range, layout, true, phase);
+                ++count;
+            }
+
+            if (op.Kind == TransferOpKind::CopyImage)
+            {
+                const ImageRegion& source = op.Image.Source;
+                const ImageRegion& destination = op.Image.Destination;
+                const VkImageSubresourceRange sourceRange = TouchedRangeOf(op.SourceAspect, source.MipLevel, source.BaseArrayLayer, source.LayerCount);
+                const VkImageSubresourceRange destinationRange = TouchedRangeOf(op.DestinationAspect, destination.MipLevel, destination.BaseArrayLayer, source.LayerCount);
+                out[count] = MakeSetTransition(op.SourceImage, sourceRange, isBefore ? op.SourceBeforeLayout : op.SourceAfterLayout, true, phase);
+                ++count;
+                out[count] = MakeSetTransition(op.DestinationImage, destinationRange, isBefore ? op.DestinationBeforeLayout : op.DestinationAfterLayout, false, phase);
+                ++count;
+            }
+        }
+
+        return count;
+    }
+
+    bool SetTransitionIsBefore(const SetTransition& first, const SetTransition& second) noexcept
+    {
+        const auto firstKey = std::tie(first.Image, first.OldLayout, first.NewLayout, first.IsRead, first.Range.baseMipLevel, first.Range.baseArrayLayer);
+        const auto secondKey = std::tie(second.Image, second.OldLayout, second.NewLayout, second.IsRead, second.Range.baseMipLevel, second.Range.baseArrayLayer);
+        return firstKey < secondKey;
+    }
+
+    bool SetTransitionsShareBarrier(const SetTransition& first, const SetTransition& second) noexcept
+    {
+        return first.Image == second.Image && first.OldLayout == second.OldLayout && first.NewLayout == second.NewLayout && first.IsRead == second.IsRead;
+    }
+
+    VkImageMemoryBarrier2 MakeSetImageBarrier(const SetTransition& transition, const VkImageSubresourceRange& range, SetBarrierPhase phase) noexcept
+    {
+        // the stages and accesses are the ones of the single transfers. stages are limited to the ones a transfer queue has
+        const bool isBefore = phase == SetBarrierPhase::Before;
+        const VkAccessFlags2 beforeDestinationAccess = transition.IsRead ? VK_ACCESS_2_TRANSFER_READ_BIT : VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        const VkAccessFlags2 afterSourceAccess = transition.IsRead ? VK_ACCESS_2_NONE : VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+        return VkImageMemoryBarrier2
+        {
+            VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            nullptr,
+            VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+            isBefore ? VK_ACCESS_2_TRANSFER_WRITE_BIT : afterSourceAccess,
+            isBefore ? VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT : VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            isBefore ? beforeDestinationAccess : VK_ACCESS_2_NONE,
+            transition.OldLayout,
+            transition.NewLayout,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            reinterpret_cast<VkImage>(transition.Image),
+            range
+        };
+    }
+
+    std::span<const VkImageMemoryBarrier2> BuildSetImageBarriers(std::span<const ResolvedTransferOp> range_ops, SetBarrierPhase phase, SetBarrierScratch& scratch) noexcept
+    {
+        const size_t transitionCount = CollectSetTransitions(range_ops, phase, scratch.Transitions);
+        const std::span<SetTransition> transitions(scratch.Transitions.data(), transitionCount);
+        std::ranges::sort(transitions, SetTransitionIsBefore);
+
+        for (size_t index = 0u; index < transitionCount; ++index)
+        {
+            scratch.Ranges[index] = transitions[index].Range;
+        }
+
+        size_t barrierCount = 0u;
+        size_t groupStart = 0u;
+        while (groupStart < transitionCount)
+        {
+            size_t groupEnd = groupStart + 1u;
+            while (groupEnd < transitionCount && SetTransitionsShareBarrier(transitions[groupStart], transitions[groupEnd]))
+            {
+                ++groupEnd;
+            }
+
+            // ranges of one image that touch merge, so that no subresource is in two barriers of one call
+            const std::span<VkImageSubresourceRange> groupRanges(scratch.Ranges.data() + groupStart, groupEnd - groupStart);
+            const size_t mergedCount = static_cast<size_t>(MergeTouchedRanges(groupRanges));
+            for (size_t mergedIndex = 0u; mergedIndex < mergedCount; ++mergedIndex)
+            {
+                scratch.Barriers[barrierCount] = MakeSetImageBarrier(transitions[groupStart], groupRanges[mergedIndex], phase);
+                ++barrierCount;
+            }
+
+            groupStart = groupEnd;
+        }
+
+        return std::span<const VkImageMemoryBarrier2>(scratch.Barriers.data(), barrierCount);
+    }
+
+    void RecordSetDependency(VkCommandBuffer cmd, bool include_memory_barrier, std::span<const VkImageMemoryBarrier2> image_barriers) noexcept
+    {
+        const VkMemoryBarrier2 memoryBarrier
+        {
+            VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            nullptr,
+            VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+            VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+            VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT
+        };
+        const VkDependencyInfo dependency
+        {
+            VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            nullptr,
+            0,
+            include_memory_barrier ? 1u : 0u,
+            include_memory_barrier ? &memoryBarrier : nullptr,
+            0,
+            nullptr,
+            static_cast<uint32_t>(image_barriers.size()),
+            image_barriers.data()
+        };
+        vkCmdPipelineBarrier2(cmd, &dependency);
+    }
+
+    void RecordTransferSetOp(VkCommandBuffer cmd, const ResolvedTransferOp& op, const StagingDestination& staging) noexcept
+    {
+        switch (op.Kind)
+        {
+        case TransferOpKind::UploadBuffer:
+            RecordUploadBufferOp(cmd, op, staging);
+            break;
+        case TransferOpKind::UploadImage:
+            RecordUploadImageOp(cmd, op, staging);
+            break;
+        case TransferOpKind::FillBuffer:
+            RecordFillBufferOp(cmd, op);
+            break;
+        case TransferOpKind::CopyBuffer:
+            RecordCopyBufferOp(cmd, op);
+            break;
+        case TransferOpKind::CopyBufferToImage:
+            RecordCopyBufferToImageOp(cmd, op);
+            break;
+        case TransferOpKind::CopyImageToBuffer:
+            RecordCopyImageToBufferOp(cmd, op);
+            break;
+        case TransferOpKind::CopyImage:
+            RecordCopyImageOp(cmd, op);
+            break;
+        case TransferOpKind::Invalid:
+            break;
+        }
+    }
+
+    void RecordUploadBufferOp(VkCommandBuffer cmd, const ResolvedTransferOp& op, const StagingDestination& staging) noexcept
+    {
+        // the source offset of the op is an offset into the data, which starts at the start of the staging range
+        const VkBufferCopy copy{ staging.Offset + op.Buffer.SourceOffset, op.Buffer.DestinationOffset, op.Buffer.Size };
+        vkCmdCopyBuffer(cmd, staging.Buffer, op.DestinationBuffer, 1u, &copy);
+    }
+
+    void RecordUploadImageOp(VkCommandBuffer cmd, const ResolvedTransferOp& op, const StagingDestination& staging) noexcept
+    {
+        BufferImageRegion region = op.BufferImage;
+        region.BufferOffset += staging.Offset;
+
+        const VkBufferImageCopy copy = ToVkBufferImageCopy(region, BufferCopyAspect(op.DestinationAspect));
+        vkCmdCopyBufferToImage(cmd, staging.Buffer, op.DestinationImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copy);
+    }
+
+    void RecordFillBufferOp(VkCommandBuffer cmd, const ResolvedTransferOp& op) noexcept
+    {
+        vkCmdFillBuffer(cmd, op.DestinationBuffer, op.Buffer.DestinationOffset, op.Buffer.Size, op.FillValue);
+    }
+
+    void RecordCopyBufferOp(VkCommandBuffer cmd, const ResolvedTransferOp& op) noexcept
+    {
+        const VkBufferCopy copy{ op.Buffer.SourceOffset, op.Buffer.DestinationOffset, op.Buffer.Size };
+        vkCmdCopyBuffer(cmd, op.SourceBuffer, op.DestinationBuffer, 1u, &copy);
+    }
+
+    void RecordCopyBufferToImageOp(VkCommandBuffer cmd, const ResolvedTransferOp& op) noexcept
+    {
+        const VkBufferImageCopy copy = ToVkBufferImageCopy(op.BufferImage, BufferCopyAspect(op.DestinationAspect));
+        vkCmdCopyBufferToImage(cmd, op.SourceBuffer, op.DestinationImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copy);
+    }
+
+    void RecordCopyImageToBufferOp(VkCommandBuffer cmd, const ResolvedTransferOp& op) noexcept
+    {
+        const VkBufferImageCopy copy = ToVkBufferImageCopy(op.BufferImage, BufferCopyAspect(op.SourceAspect));
+        vkCmdCopyImageToBuffer(cmd, op.SourceImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, op.DestinationBuffer, 1u, &copy);
+    }
+
+    void RecordCopyImageOp(VkCommandBuffer cmd, const ResolvedTransferOp& op) noexcept
+    {
+        const VkImageCopy copy = ToVkImageCopy(op.Image, op.SourceAspect, op.DestinationAspect);
+        vkCmdCopyImage(cmd, op.SourceImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, op.DestinationImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copy);
     }
 }

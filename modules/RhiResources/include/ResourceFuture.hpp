@@ -93,6 +93,15 @@ namespace rhi
          *  `Before` with a box that does not cover its whole subresource. A copy inside one image whose two usages
          *  differ also fails with it. The whole call fails and nothing is recorded or written. */
         InvalidRegion = 31,
+        /** @brief A transfer set that the context cannot take. The causes are a set with no op or with more than
+         *  k_MaxTransferSetOps ops; range ends that are empty, not rising, or whose last value is not the op count; an
+         *  op of an invalid kind; an upload whose bytes are not inside `TransferSetDesc::Data`; a destination in
+         *  host-visible memory (a set is device side only); and a copy that reads and writes one resource. The whole
+         *  set fails and nothing is recorded. */
+        InvalidTransferSet = 32,
+        /** @brief Two ops of one range that write one resource, or that read and write one resource. Debug builds
+         *  only: a release build does not look for it. */
+        RangeHazard = 33,
     };
 
     [[nodiscard]] std::string_view ToString(ResourceError error) noexcept;

@@ -6,6 +6,7 @@ set(RESOURCE_CONTEXT_TEST_SOURCES
     ResourceContextFixture.hpp
     ResourceContextFixture.cpp
     test_buffers.cpp
+    test_device_address.cpp
     test_regions.cpp
     test_images.cpp
     test_concurrency.cpp
@@ -13,6 +14,7 @@ set(RESOURCE_CONTEXT_TEST_SOURCES
     test_futures.cpp
     test_handoff.cpp
     test_placement.cpp
+    test_transfer_sets.cpp
     test_waits.cpp
     test_staging_ring.cpp
     test_memory_budget.cpp

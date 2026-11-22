@@ -164,6 +164,83 @@ TEST_F(ResourceContextTest, DestroyWaitsForQueuedUploads)
     }
 }
 
+TEST_F(ResourceContextTest, DestroyAfterAWaitOnAnUnregisteredTimelineWaitsForIt)
+{
+    // the context does not know this timeline, so only the wait of the destroy can hold the resource
+    rhi::TimelineSemaphore timeline(rhiSystem->GetDevice()->Handle());
+    const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(256u), {});
+    const rhi::GpuWait after{ timeline.Handle(), 5u, true };
+    rhi::OperationFuture destroy = context->DestroyResource(buffer, after);
+    EXPECT_EQ(context->Wait(destroy, k_ShortWaitNs), rhi::FutureState::Pending);
+
+    // a retiring resource is refused at once. this future also orders the counter read after the destroy
+    const rhi::OperationFuture refusedFill = context->FillBuffer(buffer, 0u, 0u, 256u, {});
+    EXPECT_EQ(context->Wait(refusedFill, k_TimeoutNs), rhi::FutureState::Failed);
+    EXPECT_EQ(refusedFill.Error(), rhi::ResourceError::ResourceRetiring);
+    EXPECT_EQ(context->Counters().RetirementsPending, 1);
+
+    // ticks before the GPU passes the value free nothing, and neither does a value that is one too low
+    context->Tick({});
+    context->Tick({});
+    EXPECT_EQ(context->Wait(destroy, k_ShortWaitNs), rhi::FutureState::Pending);
+
+    ASSERT_TRUE(timeline.SetValue(4u).IsSuccess());
+    context->Tick({});
+    EXPECT_EQ(context->Wait(destroy, k_ShortWaitNs), rhi::FutureState::Pending);
+    EXPECT_EQ(context->Counters().RetirementsPending, 1);
+
+    ASSERT_TRUE(timeline.SetValue(5u).IsSuccess());
+    context->Tick({});
+    EXPECT_EQ(context->Wait(destroy, k_TimeoutNs), rhi::FutureState::Complete);
+    EXPECT_EQ(context->Counters().RetirementsPending, 0);
+}
+
+TEST_F(ResourceContextTest, DestroyAfterAWaitThatPassedAlreadyFreesAtOnce)
+{
+    rhi::TimelineSemaphore timeline(rhiSystem->GetDevice()->Handle());
+    ASSERT_TRUE(timeline.SetValue(7u).IsSuccess());
+
+    const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(256u), {});
+    rhi::OperationFuture destroy = context->DestroyResource(buffer, rhi::GpuWait{ timeline.Handle(), 5u, true });
+    EXPECT_EQ(context->Wait(destroy, k_TimeoutNs), rhi::FutureState::Complete);
+    EXPECT_EQ(context->Counters().RetirementsPending, 0);
+}
+
+TEST_F(ResourceContextTest, DestroyAfterAnInvalidWaitFailsAndKeepsTheResource)
+{
+    rhi::TimelineSemaphore timeline(rhiSystem->GetDevice()->Handle());
+    const std::vector<uint32_t> words = MakeWordPattern(64u, 0xFA11u);
+    const RhiBufferResourceData data{ std::as_bytes(std::span{ words }), 0u };
+    const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(256u), std::span{ &data, 1u });
+
+    // a value of 0, and a null semaphore. each leaves the resource alive and usable
+    const rhi::OperationFuture zeroValue = context->DestroyResource(buffer, rhi::GpuWait{ timeline.Handle(), 0u, true });
+    EXPECT_EQ(context->Wait(zeroValue, k_TimeoutNs), rhi::FutureState::Failed);
+    EXPECT_EQ(zeroValue.Error(), rhi::ResourceError::InvalidWait);
+
+    const rhi::OperationFuture nullSemaphore = context->DestroyResource(buffer, rhi::GpuWait{ rhi::TimelineSemaphoreHandle{}, 5u, true });
+    EXPECT_EQ(context->Wait(nullSemaphore, k_TimeoutNs), rhi::FutureState::Failed);
+    EXPECT_EQ(nullSemaphore.Error(), rhi::ResourceError::InvalidWait);
+
+    EXPECT_EQ(context->Counters().RetirementsPending, 0);
+    EXPECT_EQ(ReadBackWords(buffer, 256u).front(), words.front());
+
+    // the plain destroy still works on it
+    DestroyAndWait(buffer);
+}
+
+TEST_F(ResourceContextTest, ShutdownFreesADestroyThatStillWaitsForItsWait)
+{
+    // the semaphore outlives the context, and nothing ever signals it. the shutdown must free the resource anyway
+    rhi::TimelineSemaphore timeline(rhiSystem->GetDevice()->Handle());
+    const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(256u), {});
+    rhi::OperationFuture destroy = context->DestroyResource(buffer, rhi::GpuWait{ timeline.Handle(), 9u, true });
+    EXPECT_EQ(context->Wait(destroy, k_ShortWaitNs), rhi::FutureState::Pending);
+
+    destroy = rhi::OperationFuture{};
+    context.reset();
+}
+
 TEST_F(ResourceContextTest, ShutdownFreesQueuedRetirements)
 {
     rhi::TimelineSemaphore timeline(rhiSystem->GetDevice()->Handle());

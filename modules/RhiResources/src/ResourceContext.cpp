@@ -27,6 +27,12 @@ namespace
     /** @brief Fails the future with InvalidRegion on the calling thread, with no message, when a region call has no
      *  region or more than k_MaxTransferRegions. Returns true when it did. */
     [[nodiscard]] bool RefuseBadRegionCount(ResourceContextImpl& impl, int32_t slot, int64_t region_count);
+    /** @brief Returns true when the set has 1 to k_MaxTransferSetOps ops and rising range ends, with at least one op in
+     *  each range, the last one being the op count. */
+    [[nodiscard]] bool TransferSetShapeIsValid(const TransferSetDesc& set) noexcept;
+    /** @brief Fails the future with InvalidTransferSet on the calling thread, with no message, when the shape of the set
+     *  is not valid. Returns true when it did. */
+    [[nodiscard]] bool RefuseBadTransferSet(ResourceContextImpl& impl, int32_t slot, const TransferSetDesc& set);
     [[nodiscard]] TransferWaitSet MakeWaitSet(std::span<const rhi::TransferWait> waits) noexcept;
 }
 
@@ -544,6 +550,38 @@ rhi::OperationFuture ResourceContext::CopyImageContents(
     return PushCopyContents(*impl, std::move(message), waits);
 }
 
+rhi::OperationFuture ResourceContext::SubmitTransferSet(
+    const TransferSetDesc& set,
+    std::span<const rhi::TransferWait> waits)
+{
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
+    if (RefuseTooManyWaits(*impl, slot, waits))
+    {
+        return future;
+    }
+
+    if (RefuseBadTransferSet(*impl, slot, set))
+    {
+        return future;
+    }
+
+    // two allocations for the whole set: the ops and range ends, and the data
+    TransferSetMessage message;
+    message.Set = TransferSetBlock(set.Ops, set.RangeEnds);
+    message.Data = ByteBlock(set.Data);
+    message.Waits = MakeWaitSet(waits);
+    message.Future = slot;
+
+    impl->PushMessage(std::move(message));
+    return future;
+}
+
 rhi::OperationFuture ResourceContext::DestroyResource(
     GraphicsResource resource)
 {
@@ -556,6 +594,27 @@ rhi::OperationFuture ResourceContext::DestroyResource(
 
     DestroyResourceMessage message;
     message.Resource = resource;
+    message.Future = slot;
+
+    impl->PushMessage(std::move(message));
+    return future;
+}
+
+rhi::OperationFuture ResourceContext::DestroyResource(
+    GraphicsResource resource,
+    rhi::GpuWait after)
+{
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
+    DestroyResourceMessage message;
+    message.Resource = resource;
+    message.After = rhi::TransferWait{ after.Semaphore, after.Value };
+    message.HasAfter = true;
     message.Future = slot;
 
     impl->PushMessage(std::move(message));
@@ -669,6 +728,40 @@ namespace
         }
 
         impl.Futures().Fail(slot, rhi::ResourceError::InvalidRegion);
+        return true;
+    }
+
+    bool TransferSetShapeIsValid(const TransferSetDesc& set) noexcept
+    {
+        const int64_t opCount = std::ssize(set.Ops);
+        if (opCount <= 0 || opCount > k_MaxTransferSetOps || set.RangeEnds.empty())
+        {
+            return false;
+        }
+
+        // every range has an op, so its end is above the end before it. the ends cannot pass the op count
+        int32_t previousEnd = 0;
+        for (const int32_t rangeEnd : set.RangeEnds)
+        {
+            if (rangeEnd <= previousEnd || rangeEnd > opCount)
+            {
+                return false;
+            }
+
+            previousEnd = rangeEnd;
+        }
+
+        return previousEnd == opCount;
+    }
+
+    bool RefuseBadTransferSet(ResourceContextImpl& impl, int32_t slot, const TransferSetDesc& set)
+    {
+        if (TransferSetShapeIsValid(set))
+        {
+            return false;
+        }
+
+        impl.Futures().Fail(slot, rhi::ResourceError::InvalidTransferSet);
         return true;
     }
 
