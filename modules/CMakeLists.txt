@@ -44,7 +44,10 @@ add_subdirectory(InputSystem)
 # recipes, kinds and ingestion of the content compiler; depends on foundation only
 add_subdirectory(ContentCompiler)
 
-if(NOT EMSCRIPTEN)
+if(EMSCRIPTEN)
+    # the device stages on WebGPU
+    add_subdirectory(BootstrapWebGpu)
+else()
     add_subdirectory(PlatformSystem)
     # the device stages on Vulkan: window, device, GPU
     add_subdirectory(BootstrapVulkan)
