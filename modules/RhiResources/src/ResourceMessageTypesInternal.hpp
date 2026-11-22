@@ -46,18 +46,24 @@ struct TransferWaitSet
     int32_t Count{ 0 };
 };
 
-/** @brief The regions of one copy call, in one heap block. One allocation per call, and none per region. */
-struct CopyRegionBlock
+/** @brief The regions of one copy call, in one heap block. One allocation per call, and none per region. Defined for
+ *  the three region types in the source file. */
+template<typename Region>
+struct RegionBlock
 {
-    CopyRegionBlock() noexcept = default;
-    explicit CopyRegionBlock(std::span<const BufferCopyRegion> regions);
+    RegionBlock() noexcept = default;
+    explicit RegionBlock(std::span<const Region> regions);
 
     /** @brief Returns the regions. Empty when the block has none. */
-    [[nodiscard]] std::span<const BufferCopyRegion> View() const noexcept;
+    [[nodiscard]] std::span<const Region> View() const noexcept;
 
-    std::unique_ptr<BufferCopyRegion[]> Items{ nullptr };
+    std::unique_ptr<Region[]> Items{ nullptr };
     int32_t Count{ 0 };
 };
+
+using CopyRegionBlock = RegionBlock<BufferCopyRegion>;
+using BufferImageRegionBlock = RegionBlock<BufferImageRegion>;
+using ImageCopyRegionBlock = RegionBlock<ImageCopyRegion>;
 
 // Users still call functions with the old API on the surface, but we translate to these internal structures
 // so that we can place them in the message queue (type erased by being shoved in a variant, effectively). `Future` is
@@ -105,11 +111,16 @@ struct InternalResourceDataContainer
         std::unique_ptr<std::byte[]> Data{ nullptr };
         // size of the actual image data, not width/height info
         size_t Size{ 0u };
-        uint32_t Width{ 0u };
-        uint32_t Height{ 0u };
-        uint32_t ArrayLayer{ 0u };
-        uint32_t NumLayers{ 0u };
-        uint32_t MipLevel{ 0u };
+        int32_t Width{ 0 };
+        int32_t Height{ 0 };
+        // 0 until the worker sets it to the depth of the mip level
+        int32_t Depth{ 0 };
+        int32_t X{ 0 };
+        int32_t Y{ 0 };
+        int32_t Z{ 0 };
+        int32_t ArrayLayer{ 0 };
+        int32_t NumLayers{ 0 };
+        int32_t MipLevel{ 0 };
     };
 
     using ImageDataVector = std::vector<ImageData>;
@@ -279,6 +290,10 @@ struct CopyResourceContentsMessage
     GraphicsResource DestinationResource{ GraphicsResource::Null() };
     // read only for BufferToBuffer. A block with no regions means the whole source, as CopyBufferContents asks
     CopyRegionBlock Regions;
+    // read only for BufferToImage and ImageToBuffer. A block with no regions means the whole-resource copy
+    BufferImageRegionBlock BufferImageRegions;
+    // read only for ImageToImage. A block with no regions means every mip level and layer
+    ImageCopyRegionBlock ImageCopyRegions;
     // each is read only when that side is an image
     rhi::ImageUsageTransition SourceUsage;
     rhi::ImageUsageTransition DestinationUsage;
@@ -415,6 +430,8 @@ struct TransferSystemCopyImageToImageMessage
 {
     TransferSystemReqImageInfo SrcImageInfo;
     TransferSystemReqImageInfo DstImageInfo;
+    // the worker checked every region, and the block is never empty
+    ImageCopyRegionBlock Regions;
     int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
     TransferWaitSet Waits;
@@ -424,6 +441,8 @@ struct TransferSystemCopyImageToBufferMessage
 {
     TransferSystemReqImageInfo ImageInfo;
     TransferSystemReqBufferInfo BufferInfo;
+    // the worker checked every region, and the block is never empty
+    BufferImageRegionBlock Regions;
     int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
     TransferWaitSet Waits;
@@ -433,6 +452,8 @@ struct TransferSystemCopyBufferToImageMessage
 {
     TransferSystemReqBufferInfo BufferInfo;
     TransferSystemReqImageInfo ImageInfo;
+    // the worker checked every region, and the block is never empty
+    BufferImageRegionBlock Regions;
     int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
     TransferWaitSet Waits;

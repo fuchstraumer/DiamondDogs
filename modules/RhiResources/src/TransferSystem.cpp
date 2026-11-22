@@ -55,19 +55,29 @@ namespace
     constexpr uint64_t k_BufferStagingAlignment = 16u;
 
     void RecordTransferOrderingBarrier(VkCommandBuffer cmd) noexcept;
-    void RecordImageLayoutTransition(
+    /** @brief Records one barrier for each range, all in one command. A call with more than k_MaxTransferRegions ranges
+     *  records them in several commands. The ranges must not name one subresource twice. */
+    void RecordImageLayoutTransitions(
         VkCommandBuffer cmd,
         VkImage image,
-        const VkImageSubresourceRange& range,
+        std::span<const VkImageSubresourceRange> ranges,
         VkImageLayout old_layout,
         VkImageLayout new_layout,
         VkPipelineStageFlags2 src_stage,
         VkAccessFlags2 src_access,
         VkPipelineStageFlags2 dst_stage,
         VkAccessFlags2 dst_access) noexcept;
+    /** @brief Returns every aspect that the format has. A barrier names all of them. */
     [[nodiscard]] VkImageAspectFlags AspectMaskForImage(const ImageCreateInfo& create_info) noexcept;
-    [[nodiscard]] VkImageSubresourceRange WholeImageRange(const ImageCreateInfo& create_info) noexcept;
-    [[nodiscard]] VkExtent3D ImageExtent(const ImageCreateInfo& create_info) noexcept;
+    /** @brief Returns the one aspect that a copy between a buffer and the image can use: the depth aspect when the image
+     *  has depth and stencil. */
+    [[nodiscard]] VkImageAspectFlags BufferCopyAspect(VkImageAspectFlags image_aspect) noexcept;
+    [[nodiscard]] VkImageSubresourceRange TouchedRangeOf(VkImageAspectFlags aspect, int32_t mip_level, int32_t base_layer, int32_t layer_count) noexcept;
+    /** @brief Sorts the ranges, and merges the ones that share a mip level and have layers that overlap or touch. The
+     *  merged ranges are written to the start of `ranges`. Returns how many there are. Allocates nothing. */
+    [[nodiscard]] int32_t MergeTouchedRanges(std::span<VkImageSubresourceRange> ranges) noexcept;
+    [[nodiscard]] VkBufferImageCopy ToVkBufferImageCopy(const BufferImageRegion& region, VkImageAspectFlags aspect) noexcept;
+    [[nodiscard]] VkImageCopy ToVkImageCopy(const ImageCopyRegion& region, VkImageAspectFlags src_aspect, VkImageAspectFlags dst_aspect) noexcept;
     /** @brief Writes one wait info for each distinct semaphore into `out`, with the largest value that any wait gives
      *  for it, and returns the count. A timeline that two waits name needs only the larger value. */
     [[nodiscard]] uint32_t MergeWaits(
@@ -802,10 +812,21 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
 {
     const ImageCreateInfo& imageInfo = message.ImageInfo.CreateInfo;
     const VkImage imageHandle = message.ImageInfo.ImageHandle;
-    const VkImageSubresourceRange range = WholeImageRange(imageInfo);
+    const VkImageAspectFlags barrierAspect = AspectMaskForImage(imageInfo);
+    const VkImageAspectFlags copyAspect = BufferCopyAspect(barrierAspect);
     const VkImageLayout finalLayout = message.ImageInfo.AfterLayout;
 
     InternalResourceDataContainer::ImageDataVector& imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(message.Data.DataVector);
+
+    // only the subresources that the pieces write change layout. the others can be in use, in any layout
+    std::vector<VkImageSubresourceRange> touchedRanges(imageDataVector.size());
+    for (auto&& [index, piece] : std::views::enumerate(imageDataVector))
+    {
+        touchedRanges[static_cast<size_t>(index)] = TouchedRangeOf(barrierAspect, piece.MipLevel, piece.ArrayLayer, piece.NumLayers);
+    }
+
+    const int32_t touchedCount = MergeTouchedRanges(touchedRanges);
+    const std::span<const VkImageSubresourceRange> touched(touchedRanges.data(), static_cast<size_t>(touchedCount));
 
     const uint64_t stagingAlignment = ImageStagingAlignment(imageInfo.Format);
     std::optional<StagingGrant> staging = acquireStaging(StagedImageSize(imageDataVector, stagingAlignment), stagingAlignment, message.Ticket);
@@ -815,7 +836,7 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
         return;
     }
 
-    const std::vector<VkBufferImageCopy> bufferImageCopies = WriteImageData(staging->Destination, imageDataVector, range.aspectMask, stagingAlignment);
+    const std::vector<VkBufferImageCopy> bufferImageCopies = WriteImageData(staging->Destination, imageDataVector, copyAspect, stagingAlignment);
     flushStaging(*staging);
 
     const VkCommandBuffer cmd = beginTransfer(message.Waits);
@@ -826,7 +847,7 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
     }
 
     // required, unlike with buffers. forces a layout transition. stages are limited to the ones a transfer queue has
-    RecordImageLayoutTransition(cmd, imageHandle, range,
+    RecordImageLayoutTransitions(cmd, imageHandle, touched,
         message.ImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -837,7 +858,7 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         static_cast<uint32_t>(bufferImageCopies.size()),
         bufferImageCopies.data());
-    RecordImageLayoutTransition(cmd, imageHandle, range,
+    RecordImageLayoutTransitions(cmd, imageHandle, touched,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, finalLayout,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
@@ -882,32 +903,65 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToBufferMess
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessage&& message)
 {
-    // the context worker checked that the two images have the same shape
+    // the context worker checked every region
     const ImageCreateInfo& srcInfo = message.SrcImageInfo.CreateInfo;
     const ImageCreateInfo& dstInfo = message.DstImageInfo.CreateInfo;
     const VkImage srcHandle = message.SrcImageInfo.ImageHandle;
     const VkImage dstHandle = message.DstImageInfo.ImageHandle;
-    const VkImageSubresourceRange srcRange = WholeImageRange(srcInfo);
-    const VkImageSubresourceRange dstRange = WholeImageRange(dstInfo);
+    const VkImageAspectFlags srcAspect = AspectMaskForImage(srcInfo);
+    const VkImageAspectFlags dstAspect = AspectMaskForImage(dstInfo);
+    const std::span<const ImageCopyRegion> regions = message.Regions.View();
+    const size_t regionCount = regions.size();
 
-    const VkExtent3D extent = ImageExtent(srcInfo);
-    std::vector<VkImageCopy> imageCopies;
-    imageCopies.reserve(srcInfo.MipLevels);
-    for (uint32_t mip = 0; mip < srcInfo.MipLevels; ++mip)
+    // the first half of the ranges is the source side, and the second half is the destination side
+    std::array<VkImageCopy, static_cast<size_t>(k_MaxTransferRegions)> copies{};
+    std::array<VkImageSubresourceRange, 2u * static_cast<size_t>(k_MaxTransferRegions)> ranges{};
+    for (auto&& [index, region] : std::views::enumerate(regions))
     {
-        // all layers of a mip level go in one region
-        const VkExtent3D mipExtent
-        {
-            std::max(extent.width >> mip, 1u),
-            std::max(extent.height >> mip, 1u),
-            std::max(extent.depth >> mip, 1u)
-        };
-        const VkImageSubresourceLayers subresource{ srcRange.aspectMask, mip, 0u, srcInfo.ArrayLayers };
-        imageCopies.push_back(VkImageCopy{ subresource, VkOffset3D{ 0, 0, 0 }, subresource, VkOffset3D{ 0, 0, 0 }, mipExtent });
+        const size_t regionIndex = static_cast<size_t>(index);
+        copies[regionIndex] = ToVkImageCopy(region, srcAspect, dstAspect);
+        ranges[regionIndex] = TouchedRangeOf(srcAspect, region.Source.MipLevel, region.Source.BaseArrayLayer, region.Source.LayerCount);
+        ranges[regionCount + regionIndex] = TouchedRangeOf(dstAspect, region.Destination.MipLevel, region.Destination.BaseArrayLayer, region.Source.LayerCount);
     }
 
     const VkImageLayout srcFinal = message.SrcImageInfo.AfterLayout;
     const VkImageLayout dstFinal = message.DstImageInfo.AfterLayout;
+
+    if (srcHandle == dstHandle)
+    {
+        // one image has one layout during the copy, and the worker made the two usages equal
+        const int32_t touchedCount = MergeTouchedRanges(std::span<VkImageSubresourceRange>(ranges.data(), 2u * regionCount));
+        const std::span<const VkImageSubresourceRange> touched(ranges.data(), static_cast<size_t>(touchedCount));
+
+        const VkCommandBuffer cmd = beginTransfer(message.Waits);
+        if (cmd == VK_NULL_HANDLE)
+        {
+            failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
+            return;
+        }
+
+        RecordImageLayoutTransitions(cmd, srcHandle, touched,
+            message.SrcImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_GENERAL,
+            VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        vkCmdCopyImage(
+            cmd,
+            srcHandle, VK_IMAGE_LAYOUT_GENERAL,
+            dstHandle, VK_IMAGE_LAYOUT_GENERAL,
+            static_cast<uint32_t>(regionCount), copies.data());
+        RecordImageLayoutTransitions(cmd, srcHandle, touched,
+            VK_IMAGE_LAYOUT_GENERAL, srcFinal,
+            VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
+
+        endTransfer(message.Future, StagingGrant{}, message.Ticket, message.Waits);
+        return;
+    }
+
+    const int32_t srcTouchedCount = MergeTouchedRanges(std::span<VkImageSubresourceRange>(ranges.data(), regionCount));
+    const int32_t dstTouchedCount = MergeTouchedRanges(std::span<VkImageSubresourceRange>(ranges.data() + regionCount, regionCount));
+    const std::span<const VkImageSubresourceRange> srcTouched(ranges.data(), static_cast<size_t>(srcTouchedCount));
+    const std::span<const VkImageSubresourceRange> dstTouched(ranges.data() + regionCount, static_cast<size_t>(dstTouchedCount));
 
     const VkCommandBuffer cmd = beginTransfer(message.Waits);
     if (cmd == VK_NULL_HANDLE)
@@ -916,11 +970,11 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessag
         return;
     }
 
-    RecordImageLayoutTransition(cmd, srcHandle, srcRange,
+    RecordImageLayoutTransitions(cmd, srcHandle, srcTouched,
         message.SrcImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
-    RecordImageLayoutTransition(cmd, dstHandle, dstRange,
+    RecordImageLayoutTransitions(cmd, dstHandle, dstTouched,
         message.DstImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -929,12 +983,12 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessag
         cmd,
         srcHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         dstHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        static_cast<uint32_t>(imageCopies.size()), imageCopies.data());
-    RecordImageLayoutTransition(cmd, srcHandle, srcRange,
+        static_cast<uint32_t>(regionCount), copies.data());
+    RecordImageLayoutTransitions(cmd, srcHandle, srcTouched,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, srcFinal,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_NONE,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
-    RecordImageLayoutTransition(cmd, dstHandle, dstRange,
+    RecordImageLayoutTransitions(cmd, dstHandle, dstTouched,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dstFinal,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
@@ -944,21 +998,24 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessag
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyImageToBufferMessage&& message)
 {
+    // the context worker checked every region
     const ImageCreateInfo& srcInfo = message.ImageInfo.CreateInfo;
     const VkImage srcHandle = message.ImageInfo.ImageHandle;
-    const VkImageSubresourceRange srcRange = WholeImageRange(srcInfo);
+    const VkImageAspectFlags barrierAspect = AspectMaskForImage(srcInfo);
+    const VkImageAspectFlags copyAspect = BufferCopyAspect(barrierAspect);
+    const std::span<const BufferImageRegion> regions = message.Regions.View();
 
-    // the mirror of the buffer to image copy: mip 0 of every layer, tightly packed from offset 0. the caller sizes the
-    // buffer (width * height * depth * layers * texel size); there is no format size table to check it here
-    const VkBufferImageCopy copyParams
+    std::array<VkBufferImageCopy, static_cast<size_t>(k_MaxTransferRegions)> copies{};
+    std::array<VkImageSubresourceRange, static_cast<size_t>(k_MaxTransferRegions)> ranges{};
+    for (auto&& [index, region] : std::views::enumerate(regions))
     {
-        0u,
-        0u,
-        0u,
-        VkImageSubresourceLayers{ srcRange.aspectMask, 0u, 0u, srcInfo.ArrayLayers },
-        VkOffset3D{ 0, 0, 0 },
-        ImageExtent(srcInfo)
-    };
+        const size_t regionIndex = static_cast<size_t>(index);
+        copies[regionIndex] = ToVkBufferImageCopy(region, copyAspect);
+        ranges[regionIndex] = TouchedRangeOf(barrierAspect, region.Image.MipLevel, region.Image.BaseArrayLayer, region.Image.LayerCount);
+    }
+
+    const int32_t touchedCount = MergeTouchedRanges(std::span<VkImageSubresourceRange>(ranges.data(), regions.size()));
+    const std::span<const VkImageSubresourceRange> touched(ranges.data(), static_cast<size_t>(touchedCount));
 
     const VkCommandBuffer cmd = beginTransfer(message.Waits);
     if (cmd == VK_NULL_HANDLE)
@@ -967,12 +1024,12 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToBufferMessa
         return;
     }
 
-    RecordImageLayoutTransition(cmd, srcHandle, srcRange,
+    RecordImageLayoutTransitions(cmd, srcHandle, touched,
         message.ImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
-    vkCmdCopyImageToBuffer(cmd, srcHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, message.BufferInfo.BufferHandle, 1u, &copyParams);
-    RecordImageLayoutTransition(cmd, srcHandle, srcRange,
+    vkCmdCopyImageToBuffer(cmd, srcHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, message.BufferInfo.BufferHandle, static_cast<uint32_t>(regions.size()), copies.data());
+    RecordImageLayoutTransitions(cmd, srcHandle, touched,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, message.ImageInfo.AfterLayout,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_NONE,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
@@ -984,20 +1041,24 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToBufferMessa
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToImageMessage&& message)
 {
+    // the context worker checked every region
     const ImageCreateInfo& dstInfo = message.ImageInfo.CreateInfo;
     const VkImage dstHandle = message.ImageInfo.ImageHandle;
-    const VkImageSubresourceRange dstRange = WholeImageRange(dstInfo);
+    const VkImageAspectFlags barrierAspect = AspectMaskForImage(dstInfo);
+    const VkImageAspectFlags copyAspect = BufferCopyAspect(barrierAspect);
+    const std::span<const BufferImageRegion> regions = message.Regions.View();
 
-    // copies the whole buffer into mip 0 of every layer, tightly packed
-    const VkBufferImageCopy copyParams
+    std::array<VkBufferImageCopy, static_cast<size_t>(k_MaxTransferRegions)> copies{};
+    std::array<VkImageSubresourceRange, static_cast<size_t>(k_MaxTransferRegions)> ranges{};
+    for (auto&& [index, region] : std::views::enumerate(regions))
     {
-        0u,
-        0u,
-        0u,
-        VkImageSubresourceLayers{ dstRange.aspectMask, 0u, 0u, dstInfo.ArrayLayers },
-        VkOffset3D{ 0, 0, 0 },
-        ImageExtent(dstInfo)
-    };
+        const size_t regionIndex = static_cast<size_t>(index);
+        copies[regionIndex] = ToVkBufferImageCopy(region, copyAspect);
+        ranges[regionIndex] = TouchedRangeOf(barrierAspect, region.Image.MipLevel, region.Image.BaseArrayLayer, region.Image.LayerCount);
+    }
+
+    const int32_t touchedCount = MergeTouchedRanges(std::span<VkImageSubresourceRange>(ranges.data(), regions.size()));
+    const std::span<const VkImageSubresourceRange> touched(ranges.data(), static_cast<size_t>(touchedCount));
 
     const VkCommandBuffer cmd = beginTransfer(message.Waits);
     if (cmd == VK_NULL_HANDLE)
@@ -1006,13 +1067,13 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToImageMessa
         return;
     }
 
-    RecordImageLayoutTransition(cmd, dstHandle, dstRange,
+    RecordImageLayoutTransitions(cmd, dstHandle, touched,
         message.ImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     // fixed: the copy named the usage layout instead of TRANSFER_DST_OPTIMAL
-    vkCmdCopyBufferToImage(cmd, message.BufferInfo.BufferHandle, dstHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copyParams);
-    RecordImageLayoutTransition(cmd, dstHandle, dstRange,
+    vkCmdCopyBufferToImage(cmd, message.BufferInfo.BufferHandle, dstHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(regions.size()), copies.data());
+    RecordImageLayoutTransitions(cmd, dstHandle, touched,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, message.ImageInfo.AfterLayout,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
@@ -1042,10 +1103,10 @@ namespace
         vkCmdPipelineBarrier2(cmd, &dependency);
     }
 
-    void RecordImageLayoutTransition(
+    void RecordImageLayoutTransitions(
         VkCommandBuffer cmd,
         VkImage image,
-        const VkImageSubresourceRange& range,
+        std::span<const VkImageSubresourceRange> ranges,
         VkImageLayout old_layout,
         VkImageLayout new_layout,
         VkPipelineStageFlags2 src_stage,
@@ -1053,23 +1114,33 @@ namespace
         VkPipelineStageFlags2 dst_stage,
         VkAccessFlags2 dst_access) noexcept
     {
-        const VkImageMemoryBarrier2 barrier
+        std::array<VkImageMemoryBarrier2, static_cast<size_t>(k_MaxTransferRegions)> barriers{};
+
+        for (size_t first = 0u; first < ranges.size(); first += barriers.size())
         {
-            VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            nullptr,
-            src_stage,
-            src_access,
-            dst_stage,
-            dst_access,
-            old_layout,
-            new_layout,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            image,
-            range
-        };
-        const VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO, nullptr, 0, 0, nullptr, 0, nullptr, 1, &barrier };
-        vkCmdPipelineBarrier2(cmd, &dependency);
+            const size_t count = std::min(barriers.size(), ranges.size() - first);
+            for (size_t index = 0u; index < count; ++index)
+            {
+                barriers[index] = VkImageMemoryBarrier2
+                {
+                    VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                    nullptr,
+                    src_stage,
+                    src_access,
+                    dst_stage,
+                    dst_access,
+                    old_layout,
+                    new_layout,
+                    VK_QUEUE_FAMILY_IGNORED,
+                    VK_QUEUE_FAMILY_IGNORED,
+                    image,
+                    ranges[first + index]
+                };
+            }
+
+            const VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO, nullptr, 0, 0, nullptr, 0, nullptr, static_cast<uint32_t>(count), barriers.data() };
+            vkCmdPipelineBarrier2(cmd, &dependency);
+        }
     }
 
     VkImageAspectFlags AspectMaskForImage(const ImageCreateInfo& create_info) noexcept
@@ -1077,14 +1148,78 @@ namespace
         return ToVkImageAspect(AspectFromVkFormat(ToVkFormat(create_info.Format)));
     }
 
-    VkImageSubresourceRange WholeImageRange(const ImageCreateInfo& create_info) noexcept
+    VkImageAspectFlags BufferCopyAspect(VkImageAspectFlags image_aspect) noexcept
     {
-        return VkImageSubresourceRange{ AspectMaskForImage(create_info), 0u, create_info.MipLevels, 0u, create_info.ArrayLayers };
+        const bool hasDepthAndStencil = (image_aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0u && (image_aspect & VK_IMAGE_ASPECT_STENCIL_BIT) != 0u;
+        return hasDepthAndStencil ? VK_IMAGE_ASPECT_DEPTH_BIT : image_aspect;
     }
 
-    VkExtent3D ImageExtent(const ImageCreateInfo& create_info) noexcept
+    VkImageSubresourceRange TouchedRangeOf(VkImageAspectFlags aspect, int32_t mip_level, int32_t base_layer, int32_t layer_count) noexcept
     {
-        return VkExtent3D{ create_info.Width, std::max(create_info.Height, 1u), std::max(create_info.Depth, 1u) };
+        return VkImageSubresourceRange{ aspect, static_cast<uint32_t>(mip_level), 1u, static_cast<uint32_t>(base_layer), static_cast<uint32_t>(layer_count) };
+    }
+
+    int32_t MergeTouchedRanges(std::span<VkImageSubresourceRange> ranges) noexcept
+    {
+        if (ranges.empty())
+        {
+            return 0;
+        }
+
+        const auto isBefore = [](const VkImageSubresourceRange& first, const VkImageSubresourceRange& second)
+        {
+            return first.baseMipLevel != second.baseMipLevel ? first.baseMipLevel < second.baseMipLevel : first.baseArrayLayer < second.baseArrayLayer;
+        };
+        std::ranges::sort(ranges, isBefore);
+
+        size_t mergedCount = 0u;
+        for (const VkImageSubresourceRange& range : ranges.subspan(1u))
+        {
+            VkImageSubresourceRange& open = ranges[mergedCount];
+            const bool sharesMip = open.baseMipLevel == range.baseMipLevel;
+            const bool touchesOpenRange = range.baseArrayLayer <= open.baseArrayLayer + open.layerCount;
+            if (!sharesMip || !touchesOpenRange)
+            {
+                ++mergedCount;
+                ranges[mergedCount] = range;
+                continue;
+            }
+
+            const uint32_t openEnd = open.baseArrayLayer + open.layerCount;
+            const uint32_t rangeEnd = range.baseArrayLayer + range.layerCount;
+            open.layerCount = std::max(openEnd, rangeEnd) - open.baseArrayLayer;
+        }
+
+        return static_cast<int32_t>(mergedCount + 1u);
+    }
+
+    VkBufferImageCopy ToVkBufferImageCopy(const BufferImageRegion& region, VkImageAspectFlags aspect) noexcept
+    {
+        const ImageRegion& image = region.Image;
+        return VkBufferImageCopy
+        {
+            region.BufferOffset,
+            static_cast<uint32_t>(region.BufferRowTexels),
+            static_cast<uint32_t>(region.BufferImageRows),
+            VkImageSubresourceLayers{ aspect, static_cast<uint32_t>(image.MipLevel), static_cast<uint32_t>(image.BaseArrayLayer), static_cast<uint32_t>(image.LayerCount) },
+            VkOffset3D{ image.X, image.Y, image.Z },
+            VkExtent3D{ static_cast<uint32_t>(image.Width), static_cast<uint32_t>(image.Height), static_cast<uint32_t>(image.Depth) }
+        };
+    }
+
+    VkImageCopy ToVkImageCopy(const ImageCopyRegion& region, VkImageAspectFlags src_aspect, VkImageAspectFlags dst_aspect) noexcept
+    {
+        const ImageRegion& source = region.Source;
+        const ImageRegion& destination = region.Destination;
+        const uint32_t layerCount = static_cast<uint32_t>(source.LayerCount);
+        return VkImageCopy
+        {
+            VkImageSubresourceLayers{ src_aspect, static_cast<uint32_t>(source.MipLevel), static_cast<uint32_t>(source.BaseArrayLayer), layerCount },
+            VkOffset3D{ source.X, source.Y, source.Z },
+            VkImageSubresourceLayers{ dst_aspect, static_cast<uint32_t>(destination.MipLevel), static_cast<uint32_t>(destination.BaseArrayLayer), layerCount },
+            VkOffset3D{ destination.X, destination.Y, destination.Z },
+            VkExtent3D{ static_cast<uint32_t>(source.Width), static_cast<uint32_t>(source.Height), static_cast<uint32_t>(source.Depth) }
+        };
     }
 
     uint32_t MergeWaits(

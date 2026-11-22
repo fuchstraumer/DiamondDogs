@@ -42,22 +42,28 @@ bool DebugName::Empty() const noexcept
 }
 
 
-CopyRegionBlock::CopyRegionBlock(std::span<const BufferCopyRegion> regions) :
-    Items{ std::make_unique<BufferCopyRegion[]>(regions.size()) },
+template<typename Region>
+RegionBlock<Region>::RegionBlock(std::span<const Region> regions) :
+    Items{ std::make_unique<Region[]>(regions.size()) },
     Count{ static_cast<int32_t>(regions.size()) }
 {
     std::ranges::copy(regions, Items.get());
 }
 
-std::span<const BufferCopyRegion> CopyRegionBlock::View() const noexcept
+template<typename Region>
+std::span<const Region> RegionBlock<Region>::View() const noexcept
 {
     if (Items == nullptr)
     {
         return {};
     }
 
-    return std::span<const BufferCopyRegion>(Items.get(), static_cast<size_t>(Count));
+    return std::span<const Region>(Items.get(), static_cast<size_t>(Count));
 }
+
+template struct RegionBlock<BufferCopyRegion>;
+template struct RegionBlock<BufferImageRegion>;
+template struct RegionBlock<ImageCopyRegion>;
 
 InternalResourceDataContainer::BufferData::BufferData(const RhiBufferResourceData& _data) :
     Data{ std::make_unique<std::byte[]>(_data.Data.size()) },
@@ -93,6 +99,10 @@ InternalResourceDataContainer::ImageData::ImageData(const RhiImageResourceData& 
     Size{ _data.Data.size() },
     Width{ _data.Width },
     Height{ _data.Height },
+    Depth{ _data.Depth },
+    X{ _data.X },
+    Y{ _data.Y },
+    Z{ _data.Z },
     ArrayLayer{ _data.ArrayLayer },
     NumLayers{ _data.NumLayers },
     MipLevel{ _data.MipLevel }
@@ -105,6 +115,10 @@ InternalResourceDataContainer::ImageData::ImageData(ImageData&& other) noexcept 
     Size{ other.Size },
     Width{ other.Width },
     Height{ other.Height },
+    Depth{ other.Depth },
+    X{ other.X },
+    Y{ other.Y },
+    Z{ other.Z },
     ArrayLayer{ other.ArrayLayer },
     NumLayers{ other.NumLayers },
     MipLevel{ other.MipLevel }
@@ -125,6 +139,10 @@ InternalResourceDataContainer::InternalResourceDataContainer::ImageData& Interna
     Size = other.Size;
     Width = other.Width;
     Height = other.Height;
+    Depth = other.Depth;
+    X = other.X;
+    Y = other.Y;
+    Z = other.Z;
     ArrayLayer = other.ArrayLayer;
     NumLayers = other.NumLayers;
     MipLevel = other.MipLevel;
@@ -137,7 +155,11 @@ InternalResourceDataContainer::InternalResourceDataContainer() noexcept :
 
 InternalResourceDataContainer::InternalResourceDataContainer(std::span<const RhiImageResourceData> data)
 {
-    NumLayers = data[0].NumLayers;
+    if (!data.empty())
+    {
+        NumLayers = static_cast<uint32_t>(data[0].NumLayers);
+    }
+
     ImageDataVector imageData(data.size());
     for (size_t i = 0; i < data.size(); ++i)
     {

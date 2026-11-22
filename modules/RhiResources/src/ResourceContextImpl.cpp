@@ -11,6 +11,7 @@
 #include "ResourceTypes.hpp"
 #include "RhiFlags.hpp"
 #include "RhiSystem.hpp"
+#include "UploadBuffer.hpp"
 #include "VulkanConversions.hpp"
 #include "entt/entity/fwd.hpp"
 #include "vulkan/vulkan_core.h"
@@ -22,6 +23,7 @@
 #include <cstdint>
 #include <cstring>
 #include <expected>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <span>
@@ -86,6 +88,55 @@ namespace
     /** @brief Returns true when every upload piece has an offset and a size that are multiples of 4, ends inside the
      *  buffer, and overlaps no other piece in the destination. */
     [[nodiscard]] bool BufferUploadPiecesAreValid(const InternalResourceDataContainer& data, uint64_t buffer_size) noexcept;
+    /** @brief The extent of one mip level of an image, in texels. */
+    struct MipExtent
+    {
+        int32_t Width{ 0 };
+        int32_t Height{ 0 };
+        int32_t Depth{ 0 };
+    };
+    /** @brief Returns the extent of the mip level. Only a 3D image has a depth above 1. */
+    [[nodiscard]] MipExtent MipExtentOf(const ImageCreateInfo& info, int32_t mip_level) noexcept;
+    /** @brief Returns true when the region has an extent and a layer count above 0, a mip level and layers that the
+     *  image has, and a box inside the mip level. For a block-compressed format, the box must start on a block edge,
+     *  and end on a block edge or on the edge of the mip level. */
+    [[nodiscard]] bool ImageRegionIsValid(const ImageRegion& region, const ImageCreateInfo& info) noexcept;
+    /** @brief Returns true when the box covers every texel of its mip level. */
+    [[nodiscard]] bool RegionCoversWholeMip(const ImageRegion& region, const ImageCreateInfo& info) noexcept;
+    /** @brief Returns true when both regions touch a texel of the same subresource: one mip level, one layer. */
+    [[nodiscard]] bool ImageBoxesOverlap(const ImageRegion& first, const ImageRegion& second) noexcept;
+    /** @brief Returns the product, or nullopt when it overflows 64 bits. */
+    [[nodiscard]] std::optional<uint64_t> CheckedProduct(uint64_t first, uint64_t second) noexcept;
+    /** @brief Returns the bytes from the buffer offset of the region to the end of its last texel block, or nullopt when
+     *  the arithmetic overflows. The region must have passed ImageRegionIsValid. */
+    [[nodiscard]] std::optional<uint64_t> BufferImageFootprintBytes(const BufferImageRegion& region, const ImageFormat& format) noexcept;
+    /** @brief Returns true when the buffer side of the region is valid: an offset that is a multiple of the staging
+     *  alignment, row and image heights that are 0 or large enough and a multiple of the block size, and, when a buffer
+     *  size is given, a footprint inside the buffer. */
+    [[nodiscard]] bool BufferImageRegionIsValid(const BufferImageRegion& region, const ImageCreateInfo& info, std::optional<uint64_t> checked_buffer_size) noexcept;
+    /** @brief Returns true when every region is valid, and no region is outside the buffer when a size is given. */
+    [[nodiscard]] bool ImageToBufferRegionsAreValid(std::span<const BufferImageRegion> regions, const ImageCreateInfo& info, std::optional<uint64_t> checked_buffer_size) noexcept;
+    /** @brief As ImageToBufferRegionsAreValid, and also no two boxes of the image overlap. When the image is discarded,
+     *  every box must cover its whole mip level. */
+    [[nodiscard]] bool BufferToImageRegionsAreValid(std::span<const BufferImageRegion> regions, const ImageCreateInfo& info, std::optional<uint64_t> checked_buffer_size, bool image_is_discarded) noexcept;
+    /** @brief Returns the destination box of an image copy region: the extent and layer count of the source at the
+     *  mip level, layers and offset of the destination. */
+    [[nodiscard]] ImageRegion DestinationBoxOf(const ImageCopyRegion& region) noexcept;
+    /** @brief Returns true when the two images have the same aspect, the same texel size and the same compression. */
+    [[nodiscard]] bool ImagesAreCopyCompatible(const ImageCreateInfo& src, const ImageCreateInfo& dst) noexcept;
+    /** @brief Returns true when every region is valid on both sides, and no two destination boxes overlap. For a copy
+     *  inside one image, no source box overlaps a destination box either. When the destination is discarded, every
+     *  destination box must cover its whole mip level. */
+    [[nodiscard]] bool ImageCopyRegionsAreValid(std::span<const ImageCopyRegion> regions, const ImageCreateInfo& src_info, const ImageCreateInfo& dst_info, bool is_same_image, bool destination_is_discarded) noexcept;
+    /** @brief Sets the depth of each upload piece that has a depth of 0 to the depth of its mip level. */
+    void SetUploadPieceDepths(InternalResourceDataContainer& data, const ImageCreateInfo& info) noexcept;
+    /** @brief Returns true when there is at least one piece, every piece is valid and has the bytes that its box needs,
+     *  and no two pieces overlap. When the image is discarded, every piece must cover its whole mip level. */
+    [[nodiscard]] bool ImageUploadPiecesAreValid(const InternalResourceDataContainer& data, const ImageCreateInfo& info, bool image_is_discarded) noexcept;
+    /** @brief Returns the one region that copies mip 0 of every layer, tightly packed from buffer offset 0. */
+    [[nodiscard]] BufferImageRegionBlock MakeMipZeroRegionBlock(const ImageCreateInfo& info);
+    /** @brief Returns one region for each mip level of the image, each with every layer. */
+    [[nodiscard]] ImageCopyRegionBlock MakeEveryMipRegionBlock(const ImageCreateInfo& info);
     /** @brief Returns true when a resource with these requirements fits at the offset: aligned, inside the heap, and
      *  of a memory type that the resource allows. */
     [[nodiscard]] bool PlacementFits(const VkMemoryRequirements& requirements, uint64_t offset, uint64_t heap_size, uint32_t heap_memory_type_index) noexcept;
@@ -340,6 +391,15 @@ void ResourceContextImpl::processMessage(CreateBufferMessage&& message)
 
     const ResourceDescription description = DescribeBuffer(message.BufferInfo);
     const entt::entity newEntity = entt::entity(createdResource->EntityHandle);
+
+    // before anything is written or staged: a bad piece would write outside the buffer
+    if (message.InitialData.has_value() && !BufferUploadPiecesAreValid(*message.InitialData, message.BufferInfo.Size))
+    {
+        destroyEntityResources(newEntity);
+        futures.Fail(message.Future, rhi::ResourceError::InvalidRegion);
+        return;
+    }
+
     if (message.InitialData.has_value() && !allocationIsHostVisible(newEntity))
     {
         // pass responsiblity on to transfer system now, transferring ownership of data with a move
@@ -388,9 +448,19 @@ void ResourceContextImpl::processMessage(CreateImageMessage&& message)
 
     if (message.InitialData.has_value())
     {
+        const entt::entity newEntity = entt::entity(createdResource->EntityHandle);
+
+        // the image is new, so its old contents do not matter and a piece may cover part of a mip level
+        SetUploadPieceDepths(*message.InitialData, message.ImageInfo);
+        if (!ImageUploadPiecesAreValid(*message.InitialData, message.ImageInfo, false))
+        {
+            destroyEntityResources(newEntity);
+            futures.Fail(message.Future, rhi::ResourceError::InvalidRegion);
+            return;
+        }
+
         const ResourceDescription uploadDescription = DescribeImage(message.ImageInfo, createdResource->Type, message.UsageAfterUpload);
         futures.StoreResource(message.Future, *createdResource, uploadDescription);
-        const entt::entity newEntity = entt::entity(createdResource->EntityHandle);
         const TransferSystemReqImageInfo imageInfo = newImageTransferInfo(newEntity, message.UsageAfterUpload);
         enqueueImageUpload(imageInfo, newEntity, std::move(*message.InitialData), TransferWaitSet{}, message.Future);
         return;
@@ -816,6 +886,16 @@ void ResourceContextImpl::processMessage(SetImageDataMessage&& message)
         return;
     }
 
+    const ImageCreateInfo& createInfo = resourceRegistry.get<ImageCreateInfo>(*entity);
+    SetUploadPieceDepths(message.Data, createInfo);
+
+    const bool imageIsDiscarded = message.Usage.Before == ImageUsageBits::Discard;
+    if (!ImageUploadPiecesAreValid(message.Data, createInfo, imageIsDiscarded))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidRegion);
+        return;
+    }
+
     const TransferSystemReqImageInfo imageInfo = imageTransferInfo(*entity, message.Usage);
     enqueueImageUpload(imageInfo, *entity, std::move(message.Data), message.Waits, message.Future);
 }
@@ -1099,8 +1179,6 @@ void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
         return;
     }
 
-    const std::array<entt::entity, 2> touched{ srcEntity, dstEntity };
-
     if (srcIsImage && !TransitionIsValidForImage(resourceRegistry.get<ImageCreateInfo>(srcEntity).Usage, message.SourceUsage))
     {
         futures.Fail(message.Future, rhi::ResourceError::InvalidUsageTransition);
@@ -1117,29 +1195,17 @@ void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
 
     if (message.Kind == CopyKind::ImageToImage)
     {
-        if (!ImagesHaveTheSameShape(resourceRegistry.get<ImageCreateInfo>(srcEntity), resourceRegistry.get<ImageCreateInfo>(dstEntity)))
-        {
-            futures.Fail(message.Future, rhi::ResourceError::CopyShapeMismatch);
-            return;
-        }
-
-        const TransferSystemReqImageInfo srcInfo = imageTransferInfo(srcEntity, message.SourceUsage);
-        const TransferSystemReqImageInfo dstInfo = message.DestinationStartsUndefined ?
-            newImageTransferInfo(dstEntity, message.DestinationUsage.After) :
-            imageTransferInfo(dstEntity, message.DestinationUsage);
-        enqueueTransfer(TransferSystemCopyImageToImageMessage{ srcInfo, dstInfo, message.Future }, touched, message.Waits);
+        enqueueImageToImageCopy(message, srcEntity, dstEntity);
         return;
     }
 
     if (message.Kind == CopyKind::BufferToImage)
     {
-        const TransferSystemReqImageInfo dstInfo = imageTransferInfo(dstEntity, message.DestinationUsage);
-        enqueueTransfer(TransferSystemCopyBufferToImageMessage{ bufferTransferInfo(srcEntity), dstInfo, message.Future }, touched, message.Waits);
+        enqueueBufferToImageCopy(message, srcEntity, dstEntity);
         return;
     }
 
-    const TransferSystemReqImageInfo srcInfo = imageTransferInfo(srcEntity, message.SourceUsage);
-    enqueueTransfer(TransferSystemCopyImageToBufferMessage{ srcInfo, bufferTransferInfo(dstEntity), message.Future }, touched, message.Waits);
+    enqueueImageToBufferCopy(message, srcEntity, dstEntity);
 }
 
 void ResourceContextImpl::enqueueBufferCopy(CopyResourceContentsMessage& message, entt::entity src_entity, entt::entity dst_entity)
@@ -1170,6 +1236,111 @@ void ResourceContextImpl::enqueueBufferCopy(CopyResourceContentsMessage& message
 
     TransferSystemCopyBufferToBufferMessage transferMessage{ bufferTransferInfo(src_entity), bufferTransferInfo(dst_entity) };
     transferMessage.Regions = std::move(message.Regions);
+    transferMessage.Future = message.Future;
+
+    const std::array<entt::entity, 2> touched{ src_entity, dst_entity };
+    enqueueTransfer(std::move(transferMessage), touched, message.Waits);
+}
+
+void ResourceContextImpl::enqueueImageToImageCopy(CopyResourceContentsMessage& message, entt::entity src_entity, entt::entity dst_entity)
+{
+    const ImageCreateInfo& srcCreateInfo = resourceRegistry.get<ImageCreateInfo>(src_entity);
+    const ImageCreateInfo& dstCreateInfo = resourceRegistry.get<ImageCreateInfo>(dst_entity);
+    const bool copiesEveryMip = message.ImageCopyRegions.Count == 0;
+
+    // CopyImageContents and CopyImage send no regions: they need the same shape, and get one region for each mip level
+    const bool shapeIsValid = copiesEveryMip ? ImagesHaveTheSameShape(srcCreateInfo, dstCreateInfo) : ImagesAreCopyCompatible(srcCreateInfo, dstCreateInfo);
+    if (!shapeIsValid)
+    {
+        futures.Fail(message.Future, rhi::ResourceError::CopyShapeMismatch);
+        return;
+    }
+
+    if (copiesEveryMip)
+    {
+        message.ImageCopyRegions = MakeEveryMipRegionBlock(srcCreateInfo);
+    }
+
+    // one image has one layout during the copy, so both sides must ask for the same usages
+    const bool isSameImage = src_entity == dst_entity;
+    const bool usagesAreEqual = message.SourceUsage.Before == message.DestinationUsage.Before &&
+                                message.SourceUsage.After == message.DestinationUsage.After;
+    if (isSameImage && !usagesAreEqual)
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidRegion);
+        return;
+    }
+
+    const bool destinationIsDiscarded = message.DestinationUsage.Before == ImageUsageBits::Discard;
+    if (!ImageCopyRegionsAreValid(message.ImageCopyRegions.View(), srcCreateInfo, dstCreateInfo, isSameImage, destinationIsDiscarded))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidRegion);
+        return;
+    }
+
+    // a fresh image (the copy that CopyImage made) has no Before usage, and CopyImage checked its After usage already
+    const TransferSystemReqImageInfo srcInfo = imageTransferInfo(src_entity, message.SourceUsage);
+    const TransferSystemReqImageInfo dstInfo = message.DestinationStartsUndefined ?
+        newImageTransferInfo(dst_entity, message.DestinationUsage.After) :
+        imageTransferInfo(dst_entity, message.DestinationUsage);
+
+    TransferSystemCopyImageToImageMessage transferMessage{ srcInfo, dstInfo };
+    transferMessage.Regions = std::move(message.ImageCopyRegions);
+    transferMessage.Future = message.Future;
+
+    const std::array<entt::entity, 2> touched{ src_entity, dst_entity };
+    enqueueTransfer(std::move(transferMessage), touched, message.Waits);
+}
+
+void ResourceContextImpl::enqueueBufferToImageCopy(CopyResourceContentsMessage& message, entt::entity src_entity, entt::entity dst_entity)
+{
+    const ImageCreateInfo& imageCreateInfo = resourceRegistry.get<ImageCreateInfo>(dst_entity);
+    const bool copiesMipZero = message.BufferImageRegions.Count == 0;
+
+    // CopyBufferToImage sends no regions. The caller sizes the buffer for its one region, and the context does not check it
+    if (copiesMipZero)
+    {
+        message.BufferImageRegions = MakeMipZeroRegionBlock(imageCreateInfo);
+    }
+
+    const uint64_t bufferSize = resourceRegistry.get<BufferCreateInfo>(src_entity).Size;
+    const std::optional<uint64_t> checkedBufferSize = copiesMipZero ? std::nullopt : std::optional<uint64_t>(bufferSize);
+    const bool imageIsDiscarded = message.DestinationUsage.Before == ImageUsageBits::Discard;
+    if (!BufferToImageRegionsAreValid(message.BufferImageRegions.View(), imageCreateInfo, checkedBufferSize, imageIsDiscarded))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidRegion);
+        return;
+    }
+
+    TransferSystemCopyBufferToImageMessage transferMessage{ bufferTransferInfo(src_entity), imageTransferInfo(dst_entity, message.DestinationUsage) };
+    transferMessage.Regions = std::move(message.BufferImageRegions);
+    transferMessage.Future = message.Future;
+
+    const std::array<entt::entity, 2> touched{ src_entity, dst_entity };
+    enqueueTransfer(std::move(transferMessage), touched, message.Waits);
+}
+
+void ResourceContextImpl::enqueueImageToBufferCopy(CopyResourceContentsMessage& message, entt::entity src_entity, entt::entity dst_entity)
+{
+    const ImageCreateInfo& imageCreateInfo = resourceRegistry.get<ImageCreateInfo>(src_entity);
+    const bool copiesMipZero = message.BufferImageRegions.Count == 0;
+
+    // CopyImageToBuffer sends no regions. The caller sizes the buffer for its one region, and the context does not check it
+    if (copiesMipZero)
+    {
+        message.BufferImageRegions = MakeMipZeroRegionBlock(imageCreateInfo);
+    }
+
+    const uint64_t bufferSize = resourceRegistry.get<BufferCreateInfo>(dst_entity).Size;
+    const std::optional<uint64_t> checkedBufferSize = copiesMipZero ? std::nullopt : std::optional<uint64_t>(bufferSize);
+    if (!ImageToBufferRegionsAreValid(message.BufferImageRegions.View(), imageCreateInfo, checkedBufferSize))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidRegion);
+        return;
+    }
+
+    TransferSystemCopyImageToBufferMessage transferMessage{ imageTransferInfo(src_entity, message.SourceUsage), bufferTransferInfo(dst_entity) };
+    transferMessage.Regions = std::move(message.BufferImageRegions);
     transferMessage.Future = message.Future;
 
     const std::array<entt::entity, 2> touched{ src_entity, dst_entity };
@@ -2155,6 +2326,314 @@ namespace
         }
 
         return true;
+    }
+
+    MipExtent MipExtentOf(const ImageCreateInfo& info, int32_t mip_level) noexcept
+    {
+        const int32_t shift = std::clamp(mip_level, 0, 31);
+        const int32_t baseWidth = static_cast<int32_t>(info.Width);
+        const int32_t baseHeight = std::max(static_cast<int32_t>(info.Height), 1);
+        const int32_t baseDepth = info.Type == ImageType::Type3D ? std::max(static_cast<int32_t>(info.Depth), 1) : 1;
+        return MipExtent{ std::max(baseWidth >> shift, 1), std::max(baseHeight >> shift, 1), std::max(baseDepth >> shift, 1) };
+    }
+
+    bool ImageRegionIsValid(const ImageRegion& region, const ImageCreateInfo& info) noexcept
+    {
+        const bool hasExtent = region.Width > 0 && region.Height > 0 && region.Depth > 0 && region.LayerCount > 0;
+        if (!hasExtent)
+        {
+            return false;
+        }
+
+        const int32_t mipLevels = static_cast<int32_t>(info.MipLevels);
+        const int32_t arrayLayers = static_cast<int32_t>(info.ArrayLayers);
+        const bool mipIsValid = region.MipLevel >= 0 && region.MipLevel < mipLevels;
+        const bool layersAreValid = region.BaseArrayLayer >= 0 && region.BaseArrayLayer < arrayLayers &&
+                                    region.LayerCount <= arrayLayers - region.BaseArrayLayer;
+        if (!mipIsValid || !layersAreValid || region.X < 0 || region.Y < 0 || region.Z < 0)
+        {
+            return false;
+        }
+
+        // 64 bits, so that offset + extent cannot overflow
+        const MipExtent mip = MipExtentOf(info, region.MipLevel);
+        const int64_t endX = static_cast<int64_t>(region.X) + region.Width;
+        const int64_t endY = static_cast<int64_t>(region.Y) + region.Height;
+        const int64_t endZ = static_cast<int64_t>(region.Z) + region.Depth;
+        if (endX > mip.Width || endY > mip.Height || endZ > mip.Depth)
+        {
+            return false;
+        }
+
+        const int32_t blockEdge = ImageTexelBlockEdge(info.Format);
+        const bool startsOnBlockEdge = region.X % blockEdge == 0 && region.Y % blockEdge == 0;
+        const bool endsOnBlockEdgeX = endX % blockEdge == 0 || endX == mip.Width;
+        const bool endsOnBlockEdgeY = endY % blockEdge == 0 || endY == mip.Height;
+        return startsOnBlockEdge && endsOnBlockEdgeX && endsOnBlockEdgeY;
+    }
+
+    bool RegionCoversWholeMip(const ImageRegion& region, const ImageCreateInfo& info) noexcept
+    {
+        const MipExtent mip = MipExtentOf(info, region.MipLevel);
+        const bool startsAtOrigin = region.X == 0 && region.Y == 0 && region.Z == 0;
+        return startsAtOrigin && region.Width == mip.Width && region.Height == mip.Height && region.Depth == mip.Depth;
+    }
+
+    bool ImageBoxesOverlap(const ImageRegion& first, const ImageRegion& second) noexcept
+    {
+        if (first.MipLevel != second.MipLevel)
+        {
+            return false;
+        }
+
+        const int64_t firstLayerEnd = static_cast<int64_t>(first.BaseArrayLayer) + first.LayerCount;
+        const int64_t secondLayerEnd = static_cast<int64_t>(second.BaseArrayLayer) + second.LayerCount;
+        const bool layersOverlap = first.BaseArrayLayer < secondLayerEnd && second.BaseArrayLayer < firstLayerEnd;
+        const bool xOverlaps = first.X < static_cast<int64_t>(second.X) + second.Width && second.X < static_cast<int64_t>(first.X) + first.Width;
+        const bool yOverlaps = first.Y < static_cast<int64_t>(second.Y) + second.Height && second.Y < static_cast<int64_t>(first.Y) + first.Height;
+        const bool zOverlaps = first.Z < static_cast<int64_t>(second.Z) + second.Depth && second.Z < static_cast<int64_t>(first.Z) + first.Depth;
+        return layersOverlap && xOverlaps && yOverlaps && zOverlaps;
+    }
+
+    std::optional<uint64_t> BufferImageFootprintBytes(const BufferImageRegion& region, const ImageFormat& format) noexcept
+    {
+        const ImageRegion& image = region.Image;
+        const uint64_t blockEdge = static_cast<uint64_t>(ImageTexelBlockEdge(format));
+        const uint64_t blockBytes = ImageTexelBlockBytes(format);
+        const uint64_t rowTexels = static_cast<uint64_t>(region.BufferRowTexels != 0 ? region.BufferRowTexels : image.Width);
+        const uint64_t imageRows = static_cast<uint64_t>(region.BufferImageRows != 0 ? region.BufferImageRows : image.Height);
+        const uint64_t blocksPerRow = (rowTexels + blockEdge - 1u) / blockEdge;
+        const uint64_t blockRowsPerImage = (imageRows + blockEdge - 1u) / blockEdge;
+        const uint64_t rowBytes = blocksPerRow * blockBytes;
+
+        // the layers and the depth slices of a box are images in the buffer, one after another. the last image ends at its
+        // last texel block, and not at the end of its image height
+        const uint64_t imageCount = static_cast<uint64_t>(image.LayerCount) * static_cast<uint64_t>(image.Depth);
+        const uint64_t lastImageRows = (static_cast<uint64_t>(image.Height) + blockEdge - 1u) / blockEdge;
+        const uint64_t lastImageColumns = (static_cast<uint64_t>(image.Width) + blockEdge - 1u) / blockEdge;
+        const uint64_t lastRowBytes = lastImageColumns * blockBytes;
+
+        const std::optional<uint64_t> imageBytes = CheckedProduct(blockRowsPerImage, rowBytes);
+        const std::optional<uint64_t> earlierImageBytes = imageBytes.has_value() ? CheckedProduct(imageCount - 1u, *imageBytes) : std::nullopt;
+        const std::optional<uint64_t> earlierRowBytes = CheckedProduct(lastImageRows - 1u, rowBytes);
+        if (!earlierImageBytes.has_value() || !earlierRowBytes.has_value())
+        {
+            return std::nullopt;
+        }
+
+        const uint64_t largest = std::numeric_limits<uint64_t>::max();
+        const bool sumOverflows = *earlierRowBytes > largest - lastRowBytes ||
+                                  *earlierImageBytes > largest - (*earlierRowBytes + lastRowBytes);
+        if (sumOverflows)
+        {
+            return std::nullopt;
+        }
+
+        return *earlierImageBytes + *earlierRowBytes + lastRowBytes;
+    }
+
+    std::optional<uint64_t> CheckedProduct(uint64_t first, uint64_t second) noexcept
+    {
+        if (first != 0u && second > std::numeric_limits<uint64_t>::max() / first)
+        {
+            return std::nullopt;
+        }
+
+        return first * second;
+    }
+
+    bool BufferImageRegionIsValid(const BufferImageRegion& region, const ImageCreateInfo& info, std::optional<uint64_t> checked_buffer_size) noexcept
+    {
+        if (!ImageRegionIsValid(region.Image, info))
+        {
+            return false;
+        }
+
+        const int32_t blockEdge = ImageTexelBlockEdge(info.Format);
+        const bool offsetIsAligned = region.BufferOffset % ImageStagingAlignment(info.Format) == 0u;
+        const bool rowsAreValid = region.BufferRowTexels == 0 ||
+                                  (region.BufferRowTexels >= region.Image.Width && region.BufferRowTexels % blockEdge == 0);
+        const bool imageRowsAreValid = region.BufferImageRows == 0 ||
+                                       (region.BufferImageRows >= region.Image.Height && region.BufferImageRows % blockEdge == 0);
+        if (!offsetIsAligned || !rowsAreValid || !imageRowsAreValid)
+        {
+            return false;
+        }
+
+        if (!checked_buffer_size.has_value())
+        {
+            return true;
+        }
+
+        const std::optional<uint64_t> footprint = BufferImageFootprintBytes(region, info.Format);
+        return footprint.has_value() && RangeIsInside(region.BufferOffset, *footprint, *checked_buffer_size);
+    }
+
+    bool ImageToBufferRegionsAreValid(std::span<const BufferImageRegion> regions, const ImageCreateInfo& info, std::optional<uint64_t> checked_buffer_size) noexcept
+    {
+        for (const BufferImageRegion& region : regions)
+        {
+            if (!BufferImageRegionIsValid(region, info, checked_buffer_size))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    bool BufferToImageRegionsAreValid(std::span<const BufferImageRegion> regions, const ImageCreateInfo& info, std::optional<uint64_t> checked_buffer_size, bool image_is_discarded) noexcept
+    {
+        if (!ImageToBufferRegionsAreValid(regions, info, checked_buffer_size))
+        {
+            return false;
+        }
+
+        const int32_t regionCount = static_cast<int32_t>(regions.size());
+        for (int32_t firstIndex = 0; firstIndex < regionCount; ++firstIndex)
+        {
+            const ImageRegion& first = regions[static_cast<size_t>(firstIndex)].Image;
+            if (image_is_discarded && !RegionCoversWholeMip(first, info))
+            {
+                return false;
+            }
+
+            for (int32_t secondIndex = firstIndex + 1; secondIndex < regionCount; ++secondIndex)
+            {
+                const ImageRegion& second = regions[static_cast<size_t>(secondIndex)].Image;
+                if (ImageBoxesOverlap(first, second))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    ImageRegion DestinationBoxOf(const ImageCopyRegion& region) noexcept
+    {
+        ImageRegion box = region.Source;
+        box.MipLevel = region.Destination.MipLevel;
+        box.BaseArrayLayer = region.Destination.BaseArrayLayer;
+        box.X = region.Destination.X;
+        box.Y = region.Destination.Y;
+        box.Z = region.Destination.Z;
+        return box;
+    }
+
+    bool ImagesAreCopyCompatible(const ImageCreateInfo& src, const ImageCreateInfo& dst) noexcept
+    {
+        const VkImageAspectFlags srcAspect = ToVkImageAspect(AspectFromVkFormat(ToVkFormat(src.Format)));
+        const VkImageAspectFlags dstAspect = ToVkImageAspect(AspectFromVkFormat(ToVkFormat(dst.Format)));
+        return srcAspect == dstAspect &&
+               ImageTexelBlockBytes(src.Format) == ImageTexelBlockBytes(dst.Format) &&
+               IsCompressedFormat(src.Format) == IsCompressedFormat(dst.Format);
+    }
+
+    bool ImageCopyRegionsAreValid(std::span<const ImageCopyRegion> regions, const ImageCreateInfo& src_info, const ImageCreateInfo& dst_info, bool is_same_image, bool destination_is_discarded) noexcept
+    {
+        const int32_t regionCount = static_cast<int32_t>(regions.size());
+        for (int32_t firstIndex = 0; firstIndex < regionCount; ++firstIndex)
+        {
+            const ImageCopyRegion& first = regions[static_cast<size_t>(firstIndex)];
+            const ImageRegion firstDestination = DestinationBoxOf(first);
+            const bool isValid = ImageRegionIsValid(first.Source, src_info) && ImageRegionIsValid(firstDestination, dst_info);
+            if (!isValid || (destination_is_discarded && !RegionCoversWholeMip(firstDestination, dst_info)))
+            {
+                return false;
+            }
+
+            for (int32_t secondIndex = 0; secondIndex < regionCount; ++secondIndex)
+            {
+                const ImageCopyRegion& second = regions[static_cast<size_t>(secondIndex)];
+                const ImageRegion secondDestination = DestinationBoxOf(second);
+                const bool destinationsOverlap = firstIndex < secondIndex && ImageBoxesOverlap(firstDestination, secondDestination);
+                const bool sourceHitsDestination = is_same_image && ImageBoxesOverlap(first.Source, secondDestination);
+                if (destinationsOverlap || sourceHitsDestination)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    void SetUploadPieceDepths(InternalResourceDataContainer& data, const ImageCreateInfo& info) noexcept
+    {
+        InternalResourceDataContainer::ImageDataVector& pieces = std::get<InternalResourceDataContainer::ImageDataVector>(data.DataVector);
+        const int32_t mipLevels = static_cast<int32_t>(info.MipLevels);
+
+        for (InternalResourceDataContainer::ImageData& piece : pieces)
+        {
+            const bool mipIsValid = piece.MipLevel >= 0 && piece.MipLevel < mipLevels;
+            if (piece.Depth == 0 && mipIsValid)
+            {
+                piece.Depth = MipExtentOf(info, piece.MipLevel).Depth;
+            }
+        }
+    }
+
+    bool ImageUploadPiecesAreValid(const InternalResourceDataContainer& data, const ImageCreateInfo& info, bool image_is_discarded) noexcept
+    {
+        const InternalResourceDataContainer::ImageDataVector& pieces = std::get<InternalResourceDataContainer::ImageDataVector>(data.DataVector);
+        if (pieces.empty())
+        {
+            return false;
+        }
+
+        const int32_t pieceCount = static_cast<int32_t>(pieces.size());
+        for (int32_t firstIndex = 0; firstIndex < pieceCount; ++firstIndex)
+        {
+            const InternalResourceDataContainer::ImageData& first = pieces[static_cast<size_t>(firstIndex)];
+            const ImageRegion firstBox{ first.MipLevel, first.ArrayLayer, first.NumLayers, first.X, first.Y, first.Z, first.Width, first.Height, first.Depth };
+
+            // the piece is tightly packed, so its bytes must reach the last texel block of its box
+            const BufferImageRegion firstRegion{ 0u, 0, 0, firstBox };
+            const bool boxIsValid = ImageRegionIsValid(firstBox, info);
+            const std::optional<uint64_t> footprint = boxIsValid ? BufferImageFootprintBytes(firstRegion, info.Format) : std::nullopt;
+            const bool hasEnoughBytes = footprint.has_value() && *footprint <= static_cast<uint64_t>(first.Size);
+            if (!hasEnoughBytes || (image_is_discarded && !RegionCoversWholeMip(firstBox, info)))
+            {
+                return false;
+            }
+
+            for (int32_t secondIndex = firstIndex + 1; secondIndex < pieceCount; ++secondIndex)
+            {
+                const InternalResourceDataContainer::ImageData& second = pieces[static_cast<size_t>(secondIndex)];
+                const ImageRegion secondBox{ second.MipLevel, second.ArrayLayer, second.NumLayers, second.X, second.Y, second.Z, second.Width, second.Height, second.Depth };
+                if (ImageBoxesOverlap(firstBox, secondBox))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    BufferImageRegionBlock MakeMipZeroRegionBlock(const ImageCreateInfo& info)
+    {
+        const MipExtent mip = MipExtentOf(info, 0);
+        BufferImageRegion region{};
+        region.Image = ImageRegion{ 0, 0, static_cast<int32_t>(info.ArrayLayers), 0, 0, 0, mip.Width, mip.Height, mip.Depth };
+        return BufferImageRegionBlock(std::span<const BufferImageRegion>(&region, 1u));
+    }
+
+    ImageCopyRegionBlock MakeEveryMipRegionBlock(const ImageCreateInfo& info)
+    {
+        std::vector<ImageCopyRegion> regions;
+        regions.reserve(info.MipLevels);
+
+        for (int32_t mipLevel = 0; mipLevel < static_cast<int32_t>(info.MipLevels); ++mipLevel)
+        {
+            const MipExtent mip = MipExtentOf(info, mipLevel);
+            const ImageRegion wholeMip{ mipLevel, 0, static_cast<int32_t>(info.ArrayLayers), 0, 0, 0, mip.Width, mip.Height, mip.Depth };
+            regions.push_back(ImageCopyRegion{ wholeMip, wholeMip });
+        }
+
+        return ImageCopyRegionBlock(std::span<const ImageCopyRegion>(regions));
     }
 
     bool PlacementFits(const VkMemoryRequirements& requirements, uint64_t offset, uint64_t heap_size, uint32_t heap_memory_type_index) noexcept

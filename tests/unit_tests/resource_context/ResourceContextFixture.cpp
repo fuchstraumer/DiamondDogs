@@ -8,11 +8,21 @@
 
 std::unique_ptr<rhi::RhiSystem> ResourceContextTest::rhiSystem = nullptr;
 
+namespace
+{
+    // the block-compressed region tests skip themselves when the device lacks this
+    constexpr rhi::DeviceNeed k_BlockCompressionFeatures[]
+    {
+        rhi::DeviceNeed{ .Name = "VkPhysicalDeviceFeatures.textureCompressionBC", .Level = rhi::DeviceNeedLevel::Wanted },
+    };
+}
+
 void ResourceContextTest::SetUpTestSuite()
 {
     const test_rhi::Needs needs
     {
         .DeviceExtensions = test_rhi::k_MemoryBudgetExtension,
+        .Features = k_BlockCompressionFeatures,
     };
 
     rhiSystem = std::make_unique<rhi::RhiSystem>();

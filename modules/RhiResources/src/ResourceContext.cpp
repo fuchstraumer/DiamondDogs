@@ -24,6 +24,9 @@ namespace
     /** @brief Fails the future on the calling thread, with no message, when there are more waits than a message holds.
      *  Returns true when it did. The slot is still owned by this thread, so no one else writes it. */
     [[nodiscard]] bool RefuseTooManyWaits(ResourceContextImpl& impl, int32_t slot, std::span<const rhi::TransferWait> waits);
+    /** @brief Fails the future with InvalidRegion on the calling thread, with no message, when a region call has no
+     *  region or more than k_MaxTransferRegions. Returns true when it did. */
+    [[nodiscard]] bool RefuseBadRegionCount(ResourceContextImpl& impl, int32_t slot, int64_t region_count);
     [[nodiscard]] TransferWaitSet MakeWaitSet(std::span<const rhi::TransferWait> waits) noexcept;
 }
 
@@ -359,10 +362,8 @@ rhi::OperationFuture ResourceContext::CopyBufferRegions(
         return future;
     }
 
-    const bool regionCountIsValid = !regions.empty() && std::ssize(regions) <= k_MaxTransferRegions;
-    if (!regionCountIsValid)
+    if (RefuseBadRegionCount(*impl, slot, std::ssize(regions)))
     {
-        impl->Futures().Fail(slot, rhi::ResourceError::InvalidRegion);
         return future;
     }
 
@@ -376,6 +377,119 @@ rhi::OperationFuture ResourceContext::CopyBufferRegions(
     message.SourceResource = src;
     message.DestinationResource = dst;
     message.Regions = CopyRegionBlock(regions);
+    message.Waits = MakeWaitSet(waits);
+    message.Future = slot;
+
+    impl->PushMessage(std::move(message));
+    return future;
+}
+
+rhi::OperationFuture ResourceContext::CopyBufferToImageRegions(
+    GraphicsResource buffer,
+    GraphicsResource image,
+    rhi::ImageUsageTransition image_usage,
+    std::span<const BufferImageRegion> regions,
+    std::span<const rhi::TransferWait> waits)
+{
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
+    if (RefuseBadRegionCount(*impl, slot, std::ssize(regions)))
+    {
+        return future;
+    }
+
+    if (RefuseTooManyWaits(*impl, slot, waits))
+    {
+        return future;
+    }
+
+    CopyResourceContentsMessage message;
+    message.Kind = CopyKind::BufferToImage;
+    message.SourceResource = buffer;
+    message.DestinationResource = image;
+    message.DestinationUsage = image_usage;
+    message.BufferImageRegions = BufferImageRegionBlock(regions);
+    message.Waits = MakeWaitSet(waits);
+    message.Future = slot;
+
+    impl->PushMessage(std::move(message));
+    return future;
+}
+
+rhi::OperationFuture ResourceContext::CopyImageToBufferRegions(
+    GraphicsResource image,
+    rhi::ImageUsageTransition image_usage,
+    GraphicsResource buffer,
+    std::span<const BufferImageRegion> regions,
+    std::span<const rhi::TransferWait> waits)
+{
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
+    if (RefuseBadRegionCount(*impl, slot, std::ssize(regions)))
+    {
+        return future;
+    }
+
+    if (RefuseTooManyWaits(*impl, slot, waits))
+    {
+        return future;
+    }
+
+    CopyResourceContentsMessage message;
+    message.Kind = CopyKind::ImageToBuffer;
+    message.SourceResource = image;
+    message.SourceUsage = image_usage;
+    message.DestinationResource = buffer;
+    message.BufferImageRegions = BufferImageRegionBlock(regions);
+    message.Waits = MakeWaitSet(waits);
+    message.Future = slot;
+
+    impl->PushMessage(std::move(message));
+    return future;
+}
+
+rhi::OperationFuture ResourceContext::CopyImageRegions(
+    GraphicsResource src,
+    rhi::ImageUsageTransition src_usage,
+    GraphicsResource dst,
+    rhi::ImageUsageTransition dst_usage,
+    std::span<const ImageCopyRegion> regions,
+    std::span<const rhi::TransferWait> waits)
+{
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
+    if (RefuseBadRegionCount(*impl, slot, std::ssize(regions)))
+    {
+        return future;
+    }
+
+    if (RefuseTooManyWaits(*impl, slot, waits))
+    {
+        return future;
+    }
+
+    CopyResourceContentsMessage message;
+    message.Kind = CopyKind::ImageToImage;
+    message.SourceResource = src;
+    message.SourceUsage = src_usage;
+    message.DestinationResource = dst;
+    message.DestinationUsage = dst_usage;
+    message.ImageCopyRegions = ImageCopyRegionBlock(regions);
     message.Waits = MakeWaitSet(waits);
     message.Future = slot;
 
@@ -543,6 +657,18 @@ namespace
         }
 
         impl.Futures().Fail(slot, rhi::ResourceError::TooManyWaits);
+        return true;
+    }
+
+    bool RefuseBadRegionCount(ResourceContextImpl& impl, int32_t slot, int64_t region_count)
+    {
+        const bool regionCountIsValid = region_count > 0 && region_count <= k_MaxTransferRegions;
+        if (regionCountIsValid)
+        {
+            return false;
+        }
+
+        impl.Futures().Fail(slot, rhi::ResourceError::InvalidRegion);
         return true;
     }
 

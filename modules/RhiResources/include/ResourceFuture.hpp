@@ -82,10 +82,16 @@ namespace rhi
         InvalidPlacement = 29,
         /** @brief A destroy of a heap that still has placed resources that are not freed yet. The heap stays alive. */
         HeapInUse = 30,
-        /** @brief A region call or an upload with a bad range. The causes are a size of 0 (regions only); a range outside
-         *  the source or the destination; an offset or a size that is not a multiple of 4; two ranges that overlap (in
-         *  a copy inside one buffer, or two upload pieces in the destination); no region; and more than
-         *  k_MaxTransferRegions regions. The whole call fails and nothing is recorded or written. */
+        /** @brief A region call or an upload with a bad range. The causes for buffers are a size of 0 (regions only); a
+         *  range outside the source or the destination; an offset or a size that is not a multiple of 4; two ranges that
+         *  overlap (in a copy inside one buffer, or two upload pieces in the destination); no region; and more than
+         *  k_MaxTransferRegions regions. The causes for images are an extent or a layer count of 0; a mip level, a layer
+         *  range or a box outside the image; a box of a block-compressed format that is off the block edges; a buffer
+         *  offset that is not a multiple of the staging alignment of the format; a row length or an image height that
+         *  is too small or not a multiple of the block size; a box whose texels end outside the buffer (or outside the
+         *  data of an upload piece); two boxes that touch the same texels in a copy inside one image; and `Discard` as
+         *  `Before` with a box that does not cover its whole subresource. A copy inside one image whose two usages
+         *  differ also fails with it. The whole call fails and nothing is recorded or written. */
         InvalidRegion = 31,
     };
 

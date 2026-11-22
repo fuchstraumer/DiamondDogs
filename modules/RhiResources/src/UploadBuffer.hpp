@@ -27,6 +27,13 @@ struct StagingDestination
 /** @brief Returns the bytes that an image upload stages, with the start of each piece aligned to `alignment`. */
 [[nodiscard]] uint64_t StagedImageSize(const InternalResourceDataContainer::ImageDataVector& image_data_vector, uint64_t alignment) noexcept;
 
+/** @brief Returns the bytes of one texel block of the format: the texel size, or the size of one 4 by 4 block for a
+ *  block-compressed format. */
+[[nodiscard]] uint64_t ImageTexelBlockBytes(const ImageFormat& format) noexcept;
+
+/** @brief Returns the edge of a texel block in texels: 4 for a block-compressed format, and 1 for every other format. */
+[[nodiscard]] int32_t ImageTexelBlockEdge(const ImageFormat& format) noexcept;
+
 /** @brief Returns the alignment that the buffer offset of an image copy needs: the least common multiple of the texel
  *  block size of the format and 4. A 12-byte texel such as RGB32F is why this is not a power of two. */
 [[nodiscard]] uint64_t ImageStagingAlignment(const ImageFormat& format) noexcept;
@@ -39,7 +46,8 @@ struct StagingDestination
     const InternalResourceDataContainer::BufferDataVector& data_vector);
 
 /** @brief Copies each piece into `destination` and returns one copy region per piece. The destination must have
- *  StagedImageSize bytes, and its offset must be a multiple of `alignment`. */
+ *  StagedImageSize bytes, and its offset must be a multiple of `alignment`. Each piece is tightly packed in staging.
+ *  The worker set the depth of every piece. */
 [[nodiscard]] std::vector<VkBufferImageCopy> WriteImageData(
     const StagingDestination& destination,
     const InternalResourceDataContainer::ImageDataVector& image_data_vector,

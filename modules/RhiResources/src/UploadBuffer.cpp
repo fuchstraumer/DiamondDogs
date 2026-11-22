@@ -65,6 +65,16 @@ uint64_t StagedImageSize(const InternalResourceDataContainer::ImageDataVector& i
     return totalSize;
 }
 
+uint64_t ImageTexelBlockBytes(const ImageFormat& format) noexcept
+{
+    return TexelBlockBytes(format.ComponentFormat);
+}
+
+int32_t ImageTexelBlockEdge(const ImageFormat& format) noexcept
+{
+    return IsCompressedFormat(format) ? 4 : 1;
+}
+
 uint64_t ImageStagingAlignment(const ImageFormat& format) noexcept
 {
     return std::lcm(TexelBlockBytes(format.ComponentFormat), k_TransferQueueOffsetAlignment);
@@ -117,11 +127,11 @@ std::vector<VkBufferImageCopy> WriteImageData(
         copy.bufferRowLength = 0u;
         copy.bufferImageHeight = 0u;
         copy.imageSubresource.aspectMask = aspect_mask;
-        copy.imageSubresource.baseArrayLayer = data.ArrayLayer;
-        copy.imageSubresource.layerCount = data.NumLayers;
-        copy.imageSubresource.mipLevel = data.MipLevel;
-        copy.imageOffset = VkOffset3D{ 0, 0, 0 };
-        copy.imageExtent = VkExtent3D{ data.Width, data.Height, 1u };
+        copy.imageSubresource.baseArrayLayer = static_cast<uint32_t>(data.ArrayLayer);
+        copy.imageSubresource.layerCount = static_cast<uint32_t>(data.NumLayers);
+        copy.imageSubresource.mipLevel = static_cast<uint32_t>(data.MipLevel);
+        copy.imageOffset = VkOffset3D{ data.X, data.Y, data.Z };
+        copy.imageExtent = VkExtent3D{ static_cast<uint32_t>(data.Width), static_cast<uint32_t>(data.Height), static_cast<uint32_t>(data.Depth) };
         offset += static_cast<uint64_t>(data.Size);
     }
 

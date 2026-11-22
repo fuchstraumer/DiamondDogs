@@ -245,7 +245,8 @@ check stops a usage that gives a layout that validation rejects later, far from 
 ### Inbound waits
 
 A transfer can wait for GPU work on another queue. `SetBufferData`, `SetImageData`, `FillBuffer`, `CopyBuffer`,
-`CopyImage`, `CopyBufferContents`, `CopyBufferRegions`, `CopyImageToBuffer`, `CopyBufferToImage` and `CopyImageContents` take
+`CopyImage`, `CopyBufferContents`, `CopyBufferRegions`, `CopyImageToBuffer`, `CopyBufferToImage`, `CopyImageContents`,
+`CopyBufferToImageRegions`, `CopyImageToBufferRegions` and `CopyImageRegions` take
 `std::span<const rhi::TransferWait> waits` as their last parameter. An empty span means no wait. The create calls,
 `MapBuffer`, `UnmapBuffer` and `DestroyResource` take none.
 
@@ -286,7 +287,9 @@ which the completion code needs. A second transfer queue would remove this limit
 
 ### Regions
 
-A buffer transfer can move part of a buffer. Image regions come later.
+A transfer can move part of a buffer, and a box of texels of an image.
+
+Buffers:
 
 - **`DestinationOffset`.** Each `RhiBufferResourceData` piece has a `DestinationOffset`, the byte offset in the
   destination buffer where the piece starts. A call with several pieces gives each piece its own offset, because the
@@ -307,6 +310,45 @@ A buffer transfer can move part of a buffer. Image regions come later.
 - **`CopyBufferContents`** is the one-region case. The worker builds the region `{ 0, 0, source size }`. It still fails
   with `CopySizeMismatch` when the source is larger than the destination, and it does not apply the multiple-of-4
   rule, so a buffer of any size copies whole.
+- **`CreateBuffer`** with initial data checks its pieces as `SetBufferData` does. A bad piece fails the create with
+  `InvalidRegion`, and the worker destroys the buffer before it writes or stages anything.
+
+Images:
+
+- **Boxes.** An `ImageRegion` is a mip level, a range of layers, a texel offset (`X`, `Y`, `Z`) and an extent (`Width`,
+  `Height`, `Depth`). Every extent and the layer count are above 0. An image that is not 3D has `Z` of 0 and `Depth` of
+  1. `RhiImageResourceData` takes the same box, so `SetImageData` and the initial data of `CreateImage` can write a
+  rectangle inside a mip level. `Depth` of 0 in a piece means the depth of the mip level, and a piece with no offset and
+  the extent of the mip level writes the whole mip level, as before. The texels of a piece are tightly packed, layer
+  after layer.
+- **Three calls.** `CopyBufferToImageRegions` and `CopyImageToBufferRegions` take a span of `BufferImageRegion`: a
+  `BufferOffset`, a `BufferRowTexels` and `BufferImageRows` (0 means tightly packed, as in Vulkan), and the box.
+  `CopyImageRegions` takes `ImageCopyRegion`: the box of the source, and a destination with its own mip level, base
+  layer and offset. The extent and the layer count come from the source box. The regions of a call go into one heap
+  block and onto one transfer, as for buffers. A buffer and image copy of a depth and stencil image uses the depth
+  aspect.
+- **One image on both sides.** `CopyImageRegions` accepts the same image as source and destination. No two boxes may
+  touch the same texels of the same subresource, a source box included, and `src_usage` must equal `dst_usage`. The
+  image is in one layout during the copy, so the transfer thread uses `GENERAL` for it.
+- **`Before` and `After` describe the touched subresources only.** The transfer thread groups the boxes by mip level,
+  and merges the layer ranges that overlap or touch. It records one barrier for each merged range, before the copy and
+  after it, in one `vkCmdPipelineBarrier2` for up to 256 ranges. The other mip levels and layers keep their layout, so
+  they can be in another layout, or in use. After `CreateImage` with initial data, the subresources that no piece
+  wrote are still `UNDEFINED`.
+- **`Discard`.** `Discard` as `Before` throws away the whole subresource. Every box of the call must then cover its whole
+  mip level, or the call fails with `InvalidRegion`. A create call is not checked: the new image has no contents.
+- **Checks.** The worker checks every region before the ticket. Beyond the buffer rules, a call fails with
+  `InvalidRegion` for an extent or a layer count of 0; a mip level, a layer range or a box outside the image; a
+  block-compressed box that starts off a block edge, or that ends off one and not on the edge of the mip level; a
+  buffer offset that is not a multiple of the staging alignment of the format; a row length or an image height that is
+  below the box or not a multiple of the block size; a box whose last texel block is outside the buffer (or outside
+  the bytes of an upload piece), counted with overflow-safe arithmetic; two boxes that overlap in the destination
+  image of one call; and no piece in `SetImageData`. Two images of a `CopyImageRegions` call need the same aspect, the
+  same texel size and the same compression, or the call fails with `CopyShapeMismatch`.
+- **The whole-resource calls** are the same path. `CopyBufferToImage` and `CopyImageToBuffer` are one region of mip 0
+  with every layer. `CopyImageContents` and `CopyImage` are one region for each mip level. Each still fails with
+  `CopyShapeMismatch` for images of another shape. They skip the check of the buffer footprint: the caller sizes the
+  buffer, as before. They now transition mip 0 only (or each mip level that they copy), and not the whole image.
 
 ### In-frame copies
 

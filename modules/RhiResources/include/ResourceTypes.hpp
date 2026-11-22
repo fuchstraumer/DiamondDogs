@@ -35,16 +35,61 @@ struct BufferCopyRegion
 /** @brief The most regions that one transfer call takes. */
 constexpr int32_t k_MaxTransferRegions = 256;
 
-/** @brief Holds the raw data and some dimensional metadata that will be made the contents of an image resource. */
+/** @brief A box of texels in one mip level, for each layer of a range of layers. `X`, `Y` and `Z` are the texel offset
+ *  of the box, and `Width`, `Height` and `Depth` are its extent. Every extent and `LayerCount` must be above 0.
+ *  An image that is not 3D has `Z` of 0 and `Depth` of 1. A block-compressed format counts texels, and the box must
+ *  start on a block edge. It must end on a block edge or on the edge of the mip level. */
+struct ImageRegion
+{
+    int32_t MipLevel{ 0 };
+    int32_t BaseArrayLayer{ 0 };
+    int32_t LayerCount{ 0 };
+    int32_t X{ 0 };
+    int32_t Y{ 0 };
+    int32_t Z{ 0 };
+    int32_t Width{ 0 };
+    int32_t Height{ 0 };
+    int32_t Depth{ 0 };
+};
+
+/** @brief One box of an image, and where its texels are in a buffer. The texels are in rows, and the rows are in
+ *  images, and the layers of the box follow each other. `BufferRowTexels` and `BufferImageRows` set the distance between
+ *  rows and between images in texels, as `bufferRowLength` and `bufferImageHeight` do in Vulkan. */
+struct BufferImageRegion
+{
+    uint64_t BufferOffset{ 0u };
+    // 0 means tightly packed, as in Vulkan
+    int32_t BufferRowTexels{ 0 };
+    int32_t BufferImageRows{ 0 };
+    ImageRegion Image;
+};
+
+/** @brief One box of an image to image copy. `Source` gives the extent and the layer count of both sides. Of
+ *  `Destination`, the call reads `MipLevel`, `BaseArrayLayer`, `X`, `Y` and `Z`, and ignores the rest. */
+struct ImageCopyRegion
+{
+    ImageRegion Source;
+    ImageRegion Destination;
+};
+
+/** @brief Holds the raw data of one rectangle of an image, and where the rectangle goes. The texels of each layer are
+ *  tightly packed, layer after layer. The context copies the bytes before the call returns.
+ *  `X`, `Y` and `Z` are the texel offset of the rectangle in the mip level, and `Width`, `Height` and `Depth` are its
+ *  extent. `Depth` of 0 means the depth of the mip level. A piece with no offset and the extent of the mip level
+ *  writes the whole mip level. A block-compressed format counts the extent and the offset in texels, as Vulkan does. */
 struct RhiImageResourceData
 {
     std::span<const std::byte> Data;
-    uint32_t Width{ 0u };
-    uint32_t Height{ 0u };
-    uint32_t ArrayLayer{ 0u };
-    uint32_t NumLayers{ 1u };
-    uint32_t MipLevel{ 0u };
-    uint32_t NumMips{ 0u };
+    int32_t Width{ 0 };
+    int32_t Height{ 0 };
+    int32_t ArrayLayer{ 0 };
+    int32_t NumLayers{ 1 };
+    int32_t MipLevel{ 0 };
+    int32_t NumMips{ 0 };
+    int32_t X{ 0 };
+    int32_t Y{ 0 };
+    int32_t Z{ 0 };
+    int32_t Depth{ 0 };
 };
 
 struct BufferCreateInfo

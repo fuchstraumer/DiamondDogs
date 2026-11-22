@@ -153,6 +153,15 @@ private:
      *  no regions is the whole-source copy of CopyBufferContents, and gets its one region here. A message with regions
      *  must pass BufferCopyRegionsAreValid. Fails the future when a check fails. */
     void enqueueBufferCopy(CopyResourceContentsMessage& message, entt::entity src_entity, entt::entity dst_entity);
+    /** @brief As enqueueBufferCopy, for an image to image copy. A message with no regions is the copy of every mip level
+     *  and layer of CopyImageContents and CopyImage: the images must have the same shape, and the message gets one
+     *  region for each mip level. A message with regions must pass ImageCopyRegionsAreValid. */
+    void enqueueImageToImageCopy(CopyResourceContentsMessage& message, entt::entity src_entity, entt::entity dst_entity);
+    /** @brief As enqueueBufferCopy, for a buffer to image copy. A message with no regions is CopyBufferToImage: it gets
+     *  the one region of mip 0, and its buffer size is not checked, as before. */
+    void enqueueBufferToImageCopy(CopyResourceContentsMessage& message, entt::entity src_entity, entt::entity dst_entity);
+    /** @brief As enqueueBufferToImageCopy, for an image to buffer copy (CopyImageToBuffer). */
+    void enqueueImageToBufferCopy(CopyResourceContentsMessage& message, entt::entity src_entity, entt::entity dst_entity);
 
     /** @brief Issues the next ticket, publishes it in the future with the Created state, records it on every entity
      *  the transfer touches, and enqueues the transfer with its waits. The only path into the transfer system. */

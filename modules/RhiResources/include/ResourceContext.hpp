@@ -206,11 +206,13 @@ public:
     [[nodiscard]] rhi::ResourceFuture<GraphicsResource> CreateImage(const ImageCreateInfo& create_info);
 
     /**
-     * @brief Create an image and upload data to it. The transfer system moves the image from UNDEFINED to the layout
-     * that `usage_after_upload` needs. The context adds TransferDestination to the create usage.
+     * @brief Create an image and upload data to it. The transfer system moves the subresources that the pieces touch
+     * from UNDEFINED to the layout that `usage_after_upload` needs. The other subresources stay UNDEFINED. The context
+     * adds TransferDestination to the create usage.
      *
      * @param create_info Domain, usage, format, extent and optional view and sampler
-     * @param initial_data Initial data, one element per mip level and array layer range
+     * @param initial_data Initial data, one element per box of texels. A bad piece fails the future with InvalidRegion,
+     *        as in SetImageData, and no resource is published.
      * @param usage_after_upload The usage of the image's first GPU use. It must be non-zero and a subset of the usage
      *        of the image, or the future fails with InvalidUsageTransition.
      * @return Future for tracking creation progress
@@ -255,13 +257,19 @@ public:
         std::span<const rhi::TransferWait> waits);
 
     /**
-     * @brief Upload data to an existing image, including specific mip levels and array layers. Uses staging buffers.
-     * The transfer moves the image from the layout of `usage.Before` to the layout of `usage.After`. The caller knows
-     * the image's last GPU use, so the caller gives `Before`.
+     * @brief Upload data to an existing image: boxes of texels in specific mip levels and array layers. Uses staging
+     * buffers. The transfer moves the subresources that the pieces touch from the layout of `usage.Before` to the layout
+     * of `usage.After`. The caller knows the last GPU use of those subresources, so the caller gives `Before`. The
+     * other mip levels and layers of the image keep their layout.
      *
      * @param image The target image resource to update
-     * @param usage The usage of the image before the transfer, and the usage it must have after it
-     * @param data The data regions to upload
+     * @param usage The usage of the touched subresources before the transfer, and the usage they must have after it.
+     *        `Discard` as `Before` needs every piece to cover its whole mip level: the transfer throws away the old
+     *        contents of the subresources that it touches.
+     * @param data The pieces to upload. Each piece writes the box that its `X`, `Y`, `Z`, `Width`, `Height` and
+     *        `Depth` give, in its mip level and layers. A piece whose box is outside the image, whose `Data` has fewer
+     *        bytes than the box needs, or that is off the block edges of a block-compressed format fails the whole call
+     *        with InvalidRegion, and nothing is written.
      * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
      *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
      *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
@@ -410,10 +418,12 @@ public:
 
     /**
      * @brief Copy mip 0 of every layer of an image into a buffer, tightly packed from offset 0 (the readback path).
-     * The image needs TransferSource usage and the buffer TransferDestination usage.
+     * The image needs TransferSource usage and the buffer TransferDestination usage. This is CopyImageToBufferRegions
+     * with the one region that covers mip 0 of every layer. It does not check that the buffer is large enough.
      *
      * @param image The source image
-     * @param image_usage The usage of the image before the copy, and the usage it must have after the copy
+     * @param image_usage The usage of mip 0 before the copy, and the usage it must have after the copy. The other mip
+     *        levels keep their layout.
      * @param buffer The destination buffer
      * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
      *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
@@ -429,12 +439,14 @@ public:
         std::span<const rhi::TransferWait> waits);
 
     /**
-     * @brief Copy a whole buffer into mip 0 of every layer of an image, tightly packed from offset 0. The buffer needs
-     * TransferSource usage and the image TransferDestination usage.
+     * @brief Copy a buffer into mip 0 of every layer of an image, tightly packed from offset 0. The buffer needs
+     * TransferSource usage and the image TransferDestination usage. This is CopyBufferToImageRegions with the one
+     * region that covers mip 0 of every layer. It does not check that the buffer is large enough.
      *
      * @param buffer The source buffer
      * @param image The destination image
-     * @param image_usage The usage of the image before the copy, and the usage it must have after the copy
+     * @param image_usage The usage of mip 0 before the copy, and the usage it must have after the copy. The other mip
+     *        levels keep their layout.
      * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
      *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
      *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
@@ -449,7 +461,8 @@ public:
         std::span<const rhi::TransferWait> waits);
 
     /**
-     * @brief Copy every mip level and layer of one image into another existing image of the same shape.
+     * @brief Copy every mip level and layer of one image into another existing image of the same shape. This is
+     * CopyImageRegions with one region for each mip level.
      *
      * @param src The source image
      * @param src_usage The usage of the source before the copy, and the usage it must have after the copy
@@ -467,6 +480,91 @@ public:
         rhi::ImageUsageTransition src_usage,
         GraphicsResource dst,
         rhi::ImageUsageTransition dst_usage,
+        std::span<const rhi::TransferWait> waits);
+
+    /**
+     * @brief Copy boxes of texels from a buffer into an image, all on one transfer, so the call has one ticket. The
+     * buffer needs TransferSource usage and the image TransferDestination usage.
+     *
+     * @param buffer The source buffer
+     * @param image The destination image
+     * @param image_usage The usage of the subresources that the regions touch, before the copy, and the usage they must
+     *        have after it. The other mip levels and layers keep their layout. `Discard` as `Before` needs every
+     *        region to cover its whole mip level, because the transfer throws away the old contents of the touched
+     *        subresources.
+     * @param regions From 1 to k_MaxTransferRegions regions. A bad region fails the whole call with InvalidRegion, and
+     *        nothing is copied. The causes are listed with ResourceError::InvalidRegion. A call with no region, or with
+     *        more than k_MaxTransferRegions regions, fails at once on the calling thread. The context copies the regions
+     *        before the call returns.
+     * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
+     *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
+     *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
+     *        waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
+     * @return Future for tracking transfer progress
+     */
+    [[nodiscard]] rhi::OperationFuture CopyBufferToImageRegions(
+        GraphicsResource buffer,
+        GraphicsResource image,
+        rhi::ImageUsageTransition image_usage,
+        std::span<const BufferImageRegion> regions,
+        std::span<const rhi::TransferWait> waits);
+
+    /**
+     * @brief Copy boxes of texels from an image into a buffer, all on one transfer, so the call has one ticket. The
+     * image needs TransferSource usage and the buffer TransferDestination usage. A depth and stencil image copies its
+     * depth aspect.
+     *
+     * @param image The source image
+     * @param image_usage The usage of the subresources that the regions touch, before the copy, and the usage they must
+     *        have after it. The other mip levels and layers keep their layout.
+     * @param buffer The destination buffer
+     * @param regions From 1 to k_MaxTransferRegions regions. A bad region fails the whole call with InvalidRegion, and
+     *        nothing is copied. A region of a mip level that the image does not have, or whose texels do not fit in
+     *        the buffer, is bad. The context copies the regions before the call returns.
+     * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
+     *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
+     *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
+     *        waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
+     * @return Future for tracking transfer progress
+     */
+    [[nodiscard]] rhi::OperationFuture CopyImageToBufferRegions(
+        GraphicsResource image,
+        rhi::ImageUsageTransition image_usage,
+        GraphicsResource buffer,
+        std::span<const BufferImageRegion> regions,
+        std::span<const rhi::TransferWait> waits);
+
+    /**
+     * @brief Copy boxes of texels from one image to another, all on one transfer, so the call has one ticket. Both
+     * images need the same aspect and the same texel size. A copy of a compressed format needs a compressed format on
+     * both sides.
+     *
+     * @param src The source image
+     * @param src_usage The usage of the subresources that the regions read, before the copy, and the usage they must
+     *        have after it
+     * @param dst The destination image. It can be `src`, when no two regions touch the same texels of the same
+     *        subresource, and `src_usage` equals `dst_usage`. The copy then runs in the GENERAL layout.
+     * @param dst_usage The usage of the subresources that the regions write, before the copy, and the usage they must
+     *        have after it. `Discard` as `Before` needs every region to cover its whole mip level.
+     * @param regions From 1 to k_MaxTransferRegions regions. A bad region fails the whole call with InvalidRegion, and
+     *        nothing is copied. A pair of images with a different aspect or texel size fails with CopyShapeMismatch.
+     *        A call with no region, or with more than k_MaxTransferRegions regions, fails at once on the calling
+     *        thread. The context copies the regions before the call returns.
+     * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
+     *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
+     *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
+     *        waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
+     * @return Future for tracking transfer progress
+     */
+    [[nodiscard]] rhi::OperationFuture CopyImageRegions(
+        GraphicsResource src,
+        rhi::ImageUsageTransition src_usage,
+        GraphicsResource dst,
+        rhi::ImageUsageTransition dst_usage,
+        std::span<const ImageCopyRegion> regions,
         std::span<const rhi::TransferWait> waits);
 
     /**

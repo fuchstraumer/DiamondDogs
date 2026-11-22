@@ -108,7 +108,7 @@ TEST_F(ResourceContextTest, EachLayerUploadsFromItsOwnRegion)
     for (uint32_t layer = 0u; layer < k_LayerCount; ++layer)
     {
         layers[layer] = MakeWordPattern(k_Size * k_Size, layer + 1u);
-        data[layer] = RhiImageResourceData{ std::as_bytes(std::span{ layers[layer] }), k_Size, k_Size, layer, 1u, 0u, 1u };
+        data[layer] = RhiImageResourceData{ std::as_bytes(std::span{ layers[layer] }), k_Size, k_Size, static_cast<int32_t>(layer), 1, 0, 1 };
         expected.insert(expected.end(), layers[layer].begin(), layers[layer].end());
     }
 
@@ -137,7 +137,7 @@ TEST_F(ResourceContextTest, FullMipChainUploads)
         const uint32_t size = k_Size >> mip;
 
         mips[mip] = MakeWordPattern(size * size, mip + 1u);
-        data[mip] = RhiImageResourceData{ std::as_bytes(std::span{ mips[mip] }), size, size, 0u, 1u, mip, 1u };
+        data[mip] = RhiImageResourceData{ std::as_bytes(std::span{ mips[mip] }), static_cast<int32_t>(size), static_cast<int32_t>(size), 0, 1, static_cast<int32_t>(mip), 1 };
     }
 
     rhi::ResourceFuture<GraphicsResource> reply = context->CreateImage(info, data, ImageUsageBits::SampledImage);
