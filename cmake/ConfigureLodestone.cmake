@@ -22,6 +22,12 @@ if (EMSCRIPTEN)
     set(LODESTONE_BUILD_COOKER OFF CACHE BOOL "The cooker does not build for Emscripten" FORCE)
     if (NOT LODESTONE_COOKER_EXECUTABLE)
         set(diamondDogsCookerCandidates "")
+        foreach(presetDir IN ITEMS ninja-clang-cl ninja-msvc)
+            foreach(config IN ITEMS RelWithDebInfo Release Debug)
+                list(APPEND diamondDogsCookerCandidates
+                    "${DIAMOND_DOGS_LODESTONE_DIR}/build/${presetDir}/tools/cooker_console/${config}/lodestone_cooker_console.exe")
+            endforeach()
+        endforeach()
         foreach(presetDir IN ITEMS ninja-msvc ninja-clang-cl)
             foreach(config IN ITEMS RelWithDebInfo Debug Release)
                 list(APPEND diamondDogsCookerCandidates
