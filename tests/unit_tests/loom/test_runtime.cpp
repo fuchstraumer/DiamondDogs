@@ -351,7 +351,7 @@ TEST(Runtime, CompileCopiesThePipelinesAndTheUses)
     for (const loom::CompiledPipeline& pipeline : data.Pipelines)
     {
         ASSERT_EQ(pipeline.Stages.size(), 1u);
-        EXPECT_FALSE(pipeline.Stages[0].Code.empty());
+        EXPECT_FALSE(pipeline.Stages[0].ShaderCode.empty());
         EXPECT_EQ(pipeline.Workgroup.X, 64u);
     }
 

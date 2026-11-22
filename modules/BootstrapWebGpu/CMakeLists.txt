@@ -1,9 +1,11 @@
 set(BOOTSTRAP_WEBGPU_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/WebGpuDeviceStage.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/WebGpuDisplay.hpp"
 )
 
 set(BOOTSTRAP_WEBGPU_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/WebGpuDeviceStage.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/WebGpuDisplay.cpp"
 )
 
 add_module(bootstrap_webgpu
@@ -20,4 +22,6 @@ target_link_libraries(bootstrap_webgpu PUBLIC
     rhi_context
     emdawnwebgpu_cpp
     bootstrap
+    platform_types
+    color_pipe
 )

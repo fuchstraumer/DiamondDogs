@@ -43,20 +43,21 @@ add_subdirectory(RenderGraph)
 add_subdirectory(InputSystem)
 # recipes, kinds and ingestion of the content compiler; depends on foundation only
 add_subdirectory(ContentCompiler)
+# exposes `platform_types` on both native and Emscripten; full `platform_system` is native only
+add_subdirectory(PlatformSystem)
+# color math for the HDR pipe: gamut matrices, luminance, transfer functions and Kelvin, in double
+add_subdirectory(ColorPipe)
 
 if(EMSCRIPTEN)
     # the device stages on WebGPU
     add_subdirectory(BootstrapWebGpu)
 else()
-    add_subdirectory(PlatformSystem)
     # the device stages on Vulkan: window, device, GPU
     add_subdirectory(BootstrapVulkan)
     # copies rendered images out to PNG files
     add_subdirectory(FrameCapture)
     # fills mip chains with compute shaders (NvproPyramid)
     add_subdirectory(GpuPyramid)
-    # color math for the HDR pipe: gamut matrices, luminance, transfer functions and Kelvin, in double
-    add_subdirectory(ColorPipe)
     # the noise field library (Slang) and its cook; the C++ side comes with the content compiler kinds
     add_subdirectory(NoiseGraph)
     # This module provides imgui as a basic debugging UI

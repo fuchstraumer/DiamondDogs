@@ -29,24 +29,6 @@ namespace loom
         lodestone::ShaderStageKind Stage{ lodestone::ShaderStageKind::Invalid };
         std::string EntryPoint;
         std::vector<std::byte> ShaderCode;
-
-        struct CodeCompat
-        {
-            [[nodiscard]] bool empty() const noexcept
-            {
-                const auto* parent = reinterpret_cast<const CompiledStage*>(
-                    reinterpret_cast<const std::byte*>(this) - offsetof(CompiledStage, Code));
-                return parent->ShaderCode.empty();
-            }
-
-            [[nodiscard]] size_t size() const noexcept
-            {
-                const auto* parent = reinterpret_cast<const CompiledStage*>(
-                    reinterpret_cast<const std::byte*>(this) - offsetof(CompiledStage, Code));
-                return parent->ShaderCode.size();
-            }
-        };
-        CodeCompat Code{};
     };
 
     [[nodiscard]] std::span<const uint32_t> SpirvWords(const CompiledStage& stage) noexcept;
