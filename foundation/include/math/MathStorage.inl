@@ -478,6 +478,16 @@ constexpr int32_t Int3::Dot(const Int3& other) const noexcept
     return (x * other.x) + (y * other.y) + (z * other.z);
 }
 
+constexpr Int3 Int3::Min(const Int3& other) const noexcept
+{
+    return Int3(x < other.x ? x : other.x, y < other.y ? y : other.y, z < other.z ? z : other.z);
+}
+
+constexpr Int3 Int3::Max(const Int3& other) const noexcept
+{
+    return Int3(x > other.x ? x : other.x, y > other.y ? y : other.y, z > other.z ? z : other.z);
+}
+
 constexpr bool Int3::NoneOf(int32_t value) const noexcept
 {
     return x != value && y != value && z != value;
@@ -638,6 +648,26 @@ constexpr int32_t Int4::Dot(const Int4& other) const noexcept
     return (x * other.x) + (y * other.y) + (z * other.z) + (w * other.w);
 }
 
+constexpr Int4 Int4::Min(const Int4& other) const noexcept
+{
+    return Int4(
+        x < other.x ? x : other.x,
+        y < other.y ? y : other.y,
+        z < other.z ? z : other.z,
+        w < other.w ? w : other.w
+    );
+}
+
+constexpr Int4 Int4::Max(const Int4& other) const noexcept
+{
+    return Int4(
+        x > other.x ? x : other.x,
+        y > other.y ? y : other.y,
+        z > other.z ? z : other.z,
+        w > other.w ? w : other.w
+    );
+}
+
 constexpr bool Int4::NoneOf(int32_t value) const noexcept
 {
     return x != value && y != value && z != value && w != value;
@@ -783,6 +813,16 @@ constexpr uint32_t UInt3::LengthSquared() const noexcept
 constexpr uint32_t UInt3::Dot(const UInt3& other) const noexcept
 {
     return (x * other.x) + (y * other.y) + (z * other.z);
+}
+
+constexpr UInt3 UInt3::Min(const UInt3& other) const noexcept
+{
+    return UInt3(x < other.x ? x : other.x, y < other.y ? y : other.y, z < other.z ? z : other.z);
+}
+
+constexpr UInt3 UInt3::Max(const UInt3& other) const noexcept
+{
+    return UInt3(x > other.x ? x : other.x, y > other.y ? y : other.y, z > other.z ? z : other.z);
 }
 
 constexpr bool UInt3::NoneOf(uint32_t value) const noexcept
@@ -940,6 +980,26 @@ constexpr uint32_t UInt4::Dot(const UInt4& other) const noexcept
     return (x * other.x) + (y * other.y) + (z * other.z) + (w * other.w);
 }
 
+constexpr UInt4 UInt4::Min(const UInt4& other) const noexcept
+{
+    return UInt4(
+        x < other.x ? x : other.x,
+        y < other.y ? y : other.y,
+        z < other.z ? z : other.z,
+        w < other.w ? w : other.w
+    );
+}
+
+constexpr UInt4 UInt4::Max(const UInt4& other) const noexcept
+{
+    return UInt4(
+        x > other.x ? x : other.x,
+        y > other.y ? y : other.y,
+        z > other.z ? z : other.z,
+        w > other.w ? w : other.w
+    );
+}
+
 constexpr bool UInt4::NoneOf(uint32_t value) const noexcept
 {
     return x != value && y != value && z != value && w != value;
@@ -992,6 +1052,46 @@ constexpr UInt3 operator*(uint32_t scalar, const UInt3& vec) noexcept
 constexpr UInt4 operator*(uint32_t scalar, const UInt4& vec) noexcept
 {
     return vec * scalar;
+}
+
+constexpr Int3 Min(const Int3& a, const Int3& b) noexcept
+{
+    return a.Min(b);
+}
+
+constexpr Int3 Max(const Int3& a, const Int3& b) noexcept
+{
+    return a.Max(b);
+}
+
+constexpr Int4 Min(const Int4& a, const Int4& b) noexcept
+{
+    return a.Min(b);
+}
+
+constexpr Int4 Max(const Int4& a, const Int4& b) noexcept
+{
+    return a.Max(b);
+}
+
+constexpr UInt3 Min(const UInt3& a, const UInt3& b) noexcept
+{
+    return a.Min(b);
+}
+
+constexpr UInt3 Max(const UInt3& a, const UInt3& b) noexcept
+{
+    return a.Max(b);
+}
+
+constexpr UInt4 Min(const UInt4& a, const UInt4& b) noexcept
+{
+    return a.Min(b);
+}
+
+constexpr UInt4 Max(const UInt4& a, const UInt4& b) noexcept
+{
+    return a.Max(b);
 }
 
 constexpr bool Float4::AnyOf(float value) const noexcept

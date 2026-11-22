@@ -341,6 +341,8 @@ public:
     [[nodiscard]] float Length() const noexcept;
     [[nodiscard]] constexpr int32_t LengthSquared() const noexcept;
     [[nodiscard]] constexpr int32_t Dot(const Int3& other) const noexcept;
+    [[nodiscard]] constexpr Int3 Min(const Int3& other) const noexcept;
+    [[nodiscard]] constexpr Int3 Max(const Int3& other) const noexcept;
 
     [[nodiscard]] constexpr bool NoneOf(int32_t value) const noexcept;
     [[nodiscard]] constexpr bool AnyOf(int32_t value) const noexcept;
@@ -421,6 +423,8 @@ public:
     [[nodiscard]] float Length() const noexcept;
     [[nodiscard]] constexpr int32_t LengthSquared() const noexcept;
     [[nodiscard]] constexpr int32_t Dot(const Int4& other) const noexcept;
+    [[nodiscard]] constexpr Int4 Min(const Int4& other) const noexcept;
+    [[nodiscard]] constexpr Int4 Max(const Int4& other) const noexcept;
 
     [[nodiscard]] constexpr bool NoneOf(int32_t value) const noexcept;
     [[nodiscard]] constexpr bool AnyOf(int32_t value) const noexcept;
@@ -502,6 +506,8 @@ public:
     [[nodiscard]] float Length() const noexcept;
     [[nodiscard]] constexpr uint32_t LengthSquared() const noexcept;
     [[nodiscard]] constexpr uint32_t Dot(const UInt3& other) const noexcept;
+    [[nodiscard]] constexpr UInt3 Min(const UInt3& other) const noexcept;
+    [[nodiscard]] constexpr UInt3 Max(const UInt3& other) const noexcept;
 
     [[nodiscard]] constexpr bool NoneOf(uint32_t value) const noexcept;
     [[nodiscard]] constexpr bool AnyOf(uint32_t value) const noexcept;
@@ -579,6 +585,8 @@ public:
     [[nodiscard]] float Length() const noexcept;
     [[nodiscard]] constexpr uint32_t LengthSquared() const noexcept;
     [[nodiscard]] constexpr uint32_t Dot(const UInt4& other) const noexcept;
+    [[nodiscard]] constexpr UInt4 Min(const UInt4& other) const noexcept;
+    [[nodiscard]] constexpr UInt4 Max(const UInt4& other) const noexcept;
 
     [[nodiscard]] constexpr bool NoneOf(uint32_t value) const noexcept;
     [[nodiscard]] constexpr bool AnyOf(uint32_t value) const noexcept;
@@ -870,6 +878,16 @@ constexpr Int3 operator*(int32_t scalar, const Int3& vec) noexcept;
 constexpr Int4 operator*(int32_t scalar, const Int4& vec) noexcept;
 constexpr UInt3 operator*(uint32_t scalar, const UInt3& vec) noexcept;
 constexpr UInt4 operator*(uint32_t scalar, const UInt4& vec) noexcept;
+
+// Element-wise min/max free functions for integral storage types
+[[nodiscard]] constexpr Int3 Min(const Int3& a, const Int3& b) noexcept;
+[[nodiscard]] constexpr Int3 Max(const Int3& a, const Int3& b) noexcept;
+[[nodiscard]] constexpr Int4 Min(const Int4& a, const Int4& b) noexcept;
+[[nodiscard]] constexpr Int4 Max(const Int4& a, const Int4& b) noexcept;
+[[nodiscard]] constexpr UInt3 Min(const UInt3& a, const UInt3& b) noexcept;
+[[nodiscard]] constexpr UInt3 Max(const UInt3& a, const UInt3& b) noexcept;
+[[nodiscard]] constexpr UInt4 Min(const UInt4& a, const UInt4& b) noexcept;
+[[nodiscard]] constexpr UInt4 Max(const UInt4& a, const UInt4& b) noexcept;
 
 // Matrix-Vector operations (mixing storage and SIMD types). See the
 // "worth flagging" note above the storage types regarding the Float4x3

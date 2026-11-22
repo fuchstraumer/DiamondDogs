@@ -157,6 +157,10 @@ TEST(MathStorage, Int3OperationsAndSwizzles)
 
     EXPECT_EQ(a.zyx(), (Int3{ 6, -4, 2 }));
     EXPECT_EQ(a.yyy(), (Int3{ -4, -4, -4 }));
+    EXPECT_EQ(a.Min(b), (Int3{ 1, -4, 3 }));
+    EXPECT_EQ(a.Max(b), (Int3{ 2, 2, 6 }));
+    EXPECT_EQ(Min(a, b), (Int3{ 1, -4, 3 }));
+    EXPECT_EQ(Max(a, b), (Int3{ 2, 2, 6 }));
 }
 
 TEST(MathStorage, Int4OperationsAndSwizzles)
@@ -188,6 +192,10 @@ TEST(MathStorage, Int4OperationsAndSwizzles)
     EXPECT_EQ(a.rgb(), v3);
     EXPECT_EQ(a.bgra(), (Int4{ 3, -2, 1, 4 }));
     EXPECT_EQ(a.wxyz(), (Int4{ 4, 1, -2, 3 }));
+    EXPECT_EQ(a.Min(Int4{ 5, -5, 2, 4 }), (Int4{ 1, -5, 2, 4 }));
+    EXPECT_EQ(a.Max(Int4{ 5, -5, 2, 4 }), (Int4{ 5, -2, 3, 4 }));
+    EXPECT_EQ(Min(a, b), (Int4{ 1, -2, 3, 4 }));
+    EXPECT_EQ(Max(a, b), (Int4{ 1, 2, 3, 4 }));
 }
 
 TEST(MathStorage, UInt3OperationsAndSwizzles)
@@ -218,6 +226,10 @@ TEST(MathStorage, UInt3OperationsAndSwizzles)
 
     EXPECT_EQ(a.xzy(), (UInt3{ 6u, 10u, 8u }));
     EXPECT_EQ(a.zzz(), (UInt3{ 10u, 10u, 10u }));
+    EXPECT_EQ(a.Min(UInt3{ 9u, 4u, 12u }), (UInt3{ 6u, 4u, 10u }));
+    EXPECT_EQ(a.Max(UInt3{ 9u, 4u, 12u }), (UInt3{ 9u, 8u, 12u }));
+    EXPECT_EQ(Min(a, b), b);
+    EXPECT_EQ(Max(a, b), a);
 }
 
 TEST(MathStorage, UInt4OperationsAndSwizzles)
@@ -249,4 +261,8 @@ TEST(MathStorage, UInt4OperationsAndSwizzles)
     EXPECT_EQ(a.rgb(), v3);
     EXPECT_EQ(a.argb(), (UInt4{ 8u, 2u, 4u, 6u }));
     EXPECT_EQ(a.bgra(), (UInt4{ 6u, 4u, 2u, 8u }));
+    EXPECT_EQ(a.Min(UInt4{ 5u, 2u, 9u, 4u }), (UInt4{ 2u, 2u, 6u, 4u }));
+    EXPECT_EQ(a.Max(UInt4{ 5u, 2u, 9u, 4u }), (UInt4{ 5u, 4u, 9u, 8u }));
+    EXPECT_EQ(Min(a, b), b);
+    EXPECT_EQ(Max(a, b), a);
 }
