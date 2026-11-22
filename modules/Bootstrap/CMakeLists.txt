@@ -3,6 +3,7 @@ set(BOOTSTRAP_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/BootTimings.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/ContentStage.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/CoreStage.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/DeviceConfig.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/DeviceRequirements.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/LaunchStage.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/LoadedBundle.hpp"
@@ -15,6 +16,7 @@ set(BOOTSTRAP_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/BootTimings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ContentStage.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/CoreStage.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/DeviceConfig.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DeviceRequirements.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/LaunchStage.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ModuleDescriptor.cpp"
@@ -30,7 +32,7 @@ add_module(bootstrap
 target_include_directories(bootstrap PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../foundation/include")
-target_link_libraries(bootstrap PUBLIC shader_bundle)
+target_link_libraries(bootstrap PUBLIC shader_bundle rhi_types)
 
 # nlohmann stays private to LaunchStage.cpp, so that it never reaches a public header
 target_include_directories(bootstrap PRIVATE

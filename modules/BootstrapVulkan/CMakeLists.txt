@@ -1,5 +1,4 @@
 set(BOOTSTRAP_VULKAN_HEADERS
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/DeviceConfig.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/DeviceStage.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/GpuStage.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/SpineNeeds.hpp"
@@ -7,7 +6,6 @@ set(BOOTSTRAP_VULKAN_HEADERS
 )
 
 set(BOOTSTRAP_VULKAN_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/DeviceConfig.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DeviceStage.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GpuStage.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/SpineNeeds.cpp"
@@ -21,7 +19,7 @@ add_module(bootstrap_vulkan
 
 # the device stages on Vulkan. An executable links one backend, because this target defines GpuStartContext
 target_include_directories(bootstrap_vulkan PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(bootstrap_vulkan PUBLIC bootstrap rhi_system platform_system rhi_resources)
+target_link_libraries(bootstrap_vulkan PUBLIC bootstrap rhi_context rhi_system platform_system rhi_resources)
 
 # platform_system does not export its folder. nlohmann stays private to DeviceConfig.cpp
 target_include_directories(bootstrap_vulkan PRIVATE
