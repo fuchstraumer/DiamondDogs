@@ -1,16 +1,18 @@
 # WebGPU & Emscripten Integration Plan (formerly Velox Integration)
 
-Updated 2026-11-21.
+Updated 2026-11-22.
 
 ## Progress Note
 
-The foundational items from the original 2026-10-20 draft are now complete in DiamondDogs:
+The foundational items, Milestone 1, and Milestone 2 are now complete and checked in:
 - `foundation/async` (`Scheduler`, `Task`, `Timeline`, `TimelineSource`, `FrameHeap`) is implemented as a single-owner-thread, polled coroutine loop.
 - `foundation/math` includes the WASM SIMD128 backend (`MathBackendWASM.inl`, `QuaternionBackendWASM.inl`, `TranscendentalBackendWASM.inl`) wired under `EMSCRIPTEN`.
 - `ImageDataFormats.hpp` is decoupled from Vulkan (`ImageDataFormatsVulkan.hpp`).
-- The boot and render-graph seams are split and enforced at build time: `Bootstrap` vs `BootstrapVulkan`, and `loom` (RHI-free via `bootstrap_assert_no_rhi`) vs `loom_vulkan`.
+- The boot and render-graph seams are split and enforced at build time: `Bootstrap` vs `BootstrapVulkan` / `BootstrapWebGpu`, and `loom` (RHI-free via `bootstrap_assert_no_rhi`) vs `loom_vulkan`.
+- **Milestone 1 (complete, checked in):** `emscripten` CMake preset, `emsdk` toolchain integration, client-only Lodestone + host cooker detection, CRT `FrameHeapWeb` + `HighResolutionWaitEmscripten` shims, `-fno-exceptions` + `JSON_NOEXCEPTION` + `-msimd128`, and passing Node unit test suites (`foundation_tests`, `loom_tests`, `input_system_tests`, `content_compiler_tests`) with zero `-sASYNCIFY`.
+- **Milestone 2 (complete, checked in: `fbaa5929..9ed8c7d8`):** `modules/RhiContext`, shared `Bootstrap::DeviceConfig`, swapped WebGPU `ResourceContextImpl`, `modules/BootstrapWebGpu` (`std::variant` FSM + `WebGpuSurfaceConfig`), `tests/integration_tests/WebGpuTriangleTest`, and multi-target `.clangd` / `.vscode/settings.json` / `.vscode/c_cpp_properties.json` editor tooling.
 
-Everything below tracks only what remains to bring WebGPU + Emscripten online (targeting desktop browsers and mobile Android/iOS testing) while keeping native Vulkan first-class.
+Next up are the planned M2 refinements (Dawn `emdawnwebgpu_pkg` pinning + lean Emscripten build flags) followed by M3–M4 while keeping native Vulkan first-class.
 
 ---
 
@@ -28,7 +30,7 @@ Everything below tracks only what remains to bring WebGPU + Emscripten online (t
 
 ## Concrete Work Map
 
-### Milestone 1: Emscripten Build & `foundation` Portability
+### Milestone 1: Emscripten Build & `foundation` Portability (Complete — Checked In)
 *Goal: `foundation`, `shader_bundle`, `bootstrap`, and `loom` build cleanly under an `emscripten` CMake preset, and `loom_tests` pass under Node (zero GPU required).*
 
 1. **Gate native-only build config in `CMakeLists.txt` and `modules/CMakeLists.txt`:**
@@ -46,7 +48,7 @@ Everything below tracks only what remains to bring WebGPU + Emscripten online (t
 
 ---
 
-### Milestone 2: `RhiContext`, Multi-Stage FSM Bootstrap & WebGPU `ResourceContextImpl`
+### Milestone 2: `RhiContext`, Multi-Stage FSM Bootstrap & WebGPU `ResourceContextImpl` (Complete — Checked In)
 *Goal: Unify device boot behind `RhiContext` + a `std::variant` type-state FSM, and swap `ResourceContextImpl` for WebGPU.*
 
 1. **`rhi::RhiContext` + `std::variant` Bootstrap FSM (replacing VeloxRhi's manual phase enum):**
@@ -79,6 +81,14 @@ Everything below tracks only what remains to bring WebGPU + Emscripten online (t
    - *Prerequisite check:* Verify how Lodestone lowers Slang push-constant blocks into WGSL uniform bindings.
 4. **Render-pass coalescing (when Loom Step 7 lands):**
    - Merge consecutive raster passes that share attachments (without reading prior outputs as sampled textures) into a single `GPURenderPassEncoder` to avoid `storeOp`/`loadOp` round-trips on mobile TBDR GPUs.
+5. **ColorPipe parity & responsive WebGPU display handling:**
+   - Extract plain display/surface vocabulary types (`SurfaceFormatPair`, `ColorSpace`) from `PlatformSystem` into a shared vocabulary header so `ColorPipe`'s math, `DisplayTarget`, `ChooseSurface(...)`, and Lodestone-cooked WGSL tonemapping shaders compile identically on Vulkan and WebGPU.
+   - Add a swapped `src/webgpu/` TU for `ColorPipe`'s fullscreen composite pass (`FullscreenDrawState` / `ColorComposite`) once WebGPU raster pipelines land.
+   - Expose WebGPU surface capabilities (`BGRA8Unorm`/`RGBA8Unorm` SDR and `RGBA16Float` extended/HDR with `srgb`/`display-p3` and `toneMapping.mode: "extended"`) as `SurfaceFormatPair`s fed into `color::ChooseSurface(...)`, and listen to `window.matchMedia("(dynamic-range: high)")` and `"(color-gamut: p3)"` to reconfigure the surface and rebuild `DisplayTarget` when moving between SDR and HDR/P3 displays.
+   - **Web/mobile `DisplayOverrides` & optional HDR calibration:** Because browsers withhold exact `PeakNits`, `BlackNits`, and `PaperWhiteNits` for privacy, start with sensible SDR/extended-HDR defaults and plan an optional, config-menu-accessible HDR calibration shader (not a forced startup wizard) so web and mobile users can tune `PeakNits`, `BlackNits`, and `PaperWhiteNits` via `DisplayOverrides` when needed.
+6. **WebGPU `ResourceContextImpl` frame-budgeted uploads & async callbacks:**
+   - Cap `queue.WriteBuffer` / `queue.WriteTexture` bytes or milliseconds per `Update()` tick (chunking large uploads across `rAF` frames) so main-thread staging copies do not stall the browser event loop.
+   - Use WebGPU callbacks (`MapAsync`, `OnSubmittedWorkDone`) to resolve `FutureTable` slots directly without blocking or forcing `co_await` into the shared `ResourceContext` API.
 
 ---
 
@@ -99,6 +109,49 @@ Everything below tracks only what remains to bring WebGPU + Emscripten online (t
 
 ---
 
+## Dawn Dependency Management & Emscripten Build Optimization (Planned M2 Refinements)
+
+### 1. Syncing, Pinning, and Upgrading Dawn (Option A — `emdawnwebgpu_pkg` Releases)
+Because DiamondDogs uses native Vulkan on desktop and Lodestone for offline Slang compilation, Web builds only need **`emdawnwebgpu`** (`<webgpu/webgpu.h>`, `<webgpu/webgpu_cpp.h>`, `webgpu.cpp`, and `library_webgpu.js` glue) rather than a full multi-GB Dawn checkout with native backends, Tint, Abseil, or Python/Jinja generators. Google publishes text-only `emdawnwebgpu_pkg-<date>.zip` packages under `https://github.com/google/dawn/releases`.
+
+- **Lockfile (`cmake/dawn-lock.json`):** Check in a small lockfile pinning the Dawn release tag, archive download URL for `emdawnwebgpu_pkg-*.zip`, and SHA-256 checksum.
+- **CMake Integration (`cmake/ConfigureDawn.cmake`):**
+  - Keep `DIAMOND_DOGS_DAWN_DIR` as an optional local override for testing unreleased Dawn commits or local patches.
+  - By default (when `DIAMOND_DOGS_DAWN_DIR` is unset), use CMake `FetchContent` with `URL` + `URL_HASH SHA256=...` from `cmake/dawn-lock.json` to download and unpack `emdawnwebgpu_pkg`.
+  - Expose an `INTERFACE` target named **`emdawnwebgpu_cpp`** attaching `--use-port=${EMDAWNWEBGPU_PKG_DIR}/emdawnwebgpu.port.py` to both `INTERFACE_COMPILE_OPTIONS` and `INTERFACE_LINK_OPTIONS`, preserving all downstream `target_link_libraries(... emdawnwebgpu_cpp)` targets unchanged.
+  - Moving to a current `emdawnwebgpu_pkg` release also eliminates the `../VeloxRhi` checkout dependency, removes the temporary `<string>` header workaround needed for emsdk 7.x libc++ against VeloxRhi's older snapshot, and automatically registers `webgpu-externs.js` for Closure Compiler.
+- **Sync/Upgrade Script (`scripts/sync_dawn.py`):**
+  - `--check`: queries the GitHub Releases API (`google/dawn/releases/latest`), compares against `cmake/dawn-lock.json`, and reports available updates.
+  - `--upgrade` / `--tag <release>`: downloads the specified `emdawnwebgpu_pkg` release zip, computes/verifies its SHA-256 checksum, and updates `cmake/dawn-lock.json` so the next `cmake --preset emscripten` pulls and builds against it cleanly.
+
+### 2. Lean & Compact Emscripten Build Flags
+
+#### Per-Configuration Optimization & Debug Stripping
+Apply configuration-specific flags via CMake generator expressions (`$<$<CONFIG:...>:...>`):
+
+| Config | Compile Flags | Link Flags | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Debug** | `-O0 -g` | `-g -sASSERTIONS=2 -sSTACK_OVERFLOW_CHECK=2` | Fast iteration, assertions, readable stack traces |
+| **RelWithDebInfo** | `-O2 -g2` | `-O2 -g2 -sASSERTIONS=0` | Chrome DevTools CPU profiling (keeps function names, drops heavy DWARF) |
+| **Release** | `-O3 -flto` | `-O3 -flto -g0 -sASSERTIONS=0 -sSTACK_OVERFLOW_CHECK=0 --closure=1` | Max runtime speed, LTO + Binaryen `wasm-opt`, stripped debug info |
+| **MinSizeRel** | `-Oz -flto` | `-Oz -flto -g0 -sASSERTIONS=0 -sSTACK_OVERFLOW_CHECK=0 --closure=1 -sMALLOC=emmalloc` | Smallest `.wasm` + `.js` binary footprint |
+
+- **`-flto`** (compile + link) lets `wasm-ld` and Binaryen's `wasm-opt` dead-strip unused C++ instantiations across static libraries (`foundation`, `loom`, `EnTT`, `lodestone_client_library`).
+- **`-g0`** strips DWARF and name sections in `Release`/`MinSizeRel`.
+
+#### Opt-In Runtime Systems & Binary Trimming
+- **Web Threads (`DIAMOND_DOGS_WEB_THREADS`, default `OFF`):** Explicit CMake option (`OFF` = no `SharedArrayBuffer` / COOP+COEP requirement and no worker pool glue; `ON` adds `-pthread` at compile/link plus `-sPTHREAD_POOL_SIZE=...` and `-sMAXIMUM_MEMORY=...` if keeping memory growth).
+- **Virtual Filesystem (`-sFILESYSTEM=0` on browser apps):** Strip JS `FS`/`MEMFS` glue on browser executables that fetch/stream assets directly over Web APIs, keeping `FILESYSTEM=1` only on Node unit test targets that embed cooked shaders (`--embed-file`).
+- **Environment Pruning:** Pass `-sENVIRONMENT=web` (or `web,worker` when `DIAMOND_DOGS_WEB_THREADS=ON`) to browser executables and `-sENVIRONMENT=node` to Node unit tests.
+- **Exception, RTTI & Runtime Trimming:** Keep `-fno-exceptions` alongside `-sDISABLE_EXCEPTION_CATCHING=1` and `-sSUPPORT_LONGJMP=0`; evaluate `-fno-rtti` once verified compatible with `ContentCompiler` and `gtest`. On browser executables, pass `-sEXIT_RUNTIME=0`, `-sDYNAMIC_EXECUTION=0` (CSP compatibility), `-msimd128`, `-sWASM_BIGINT=1`, and explicit `-sINITIAL_MEMORY=32MB`/`64MB` with `-sALLOW_MEMORY_GROWTH=1`. (`-sMINIMAL_RUNTIME=1` remains an optional future extreme JS-glue reduction pass.)
+
+#### Making Closure Compiler (`--closure=1`) Reliable
+- **JS/C++ boundary naming:** Always use quoted bracket notation for shared global/module properties in `EM_ASM`/`EM_JS` (e.g., `window['__ddFrameCount']`, `Module['canvas']`) or declare them in a project externs file passed via `--closure-args=--externs=...` so advanced minification does not rename them.
+- **WebGPU Externs:** Linking `emdawnwebgpu_cpp` via `--use-port=.../emdawnwebgpu.port.py` automatically supplies Dawn's `webgpu-externs.js` to Closure.
+- **Scope & Debugging:** Run `--closure=1` only in `Release` / `MinSizeRel`. If Closure breaks a Release link, diagnose temporarily with `--closure=1 -sASSERTIONS=1 --closure-args=--formatting=PRETTY_PRINT`.
+
+---
+
 ## Short-Term Future Plans
 
 ### 1. Mobile Profiling & Telemetry Over ADB
@@ -112,7 +165,7 @@ Keep runtime quality/scalability knobs decoupled from pre-boot capability/varian
 - **Simulation resolution & cascade count:** Primary lever for `OceanFFT` (e.g., 512² → 256², fewer cascades).
 - **Canvas DPR / render scale clamp:** Avoid native ~3× DPR fillrate on high-DPI phones (clamp to `1.0–1.5` or scale internal targets).
 - **Precision (`f16` / `rgba16float`):** Prefer 16-bit storage/sampled formats to halve memory bandwidth on PowerVR/mobile GPUs.
-- **Decoupled simulation cadence:** Allow compute sims (e.g., FFT updates or alternating cascades) to run at 30 Hz while presentation/camera runs at 60 Hz.
+- **Decoupled simulation cadence & WebGPU frame pacing:** Allow compute sims (e.g., FFT updates or alternating cascades) to run at 30 Hz while presentation/camera runs at 60 Hz. Browser WebGPU is always compositor-synced (`PresentMode::Fifo` via `rAF`); estimate the active refresh rate using a rolling median of `rAF` timestamp deltas (~15–30 frames) and support a user-facing `Auto / 60 / 30` cap by cleanly skipping alternating `rAF` ticks on 120 Hz mobile displays.
 
 ### 3. Runtime `relaxed-simd` Module Branching
 WASM validates all opcodes at load time, so a single `.wasm` binary cannot branch around `relaxed-simd` instructions—engines without support reject the module outright.
@@ -121,8 +174,8 @@ WASM validates all opcodes at load time, so a single `.wasm` binary cannot branc
 
 ---
 
-## Open Decisions Before Starting M1–M3
+## Open Decisions Before Starting M3–M4
 
 1. **Lodestone WGSL push constants:** Confirm how Lodestone emits push constants in WGSL profiles (explicit uniform binding slot vs convention) before implementing `loom_webgpu`'s `ParamsStore` backing buffer.
-2. **Exceptions on Web:** Prefer `JSON_NOEXCEPTION` + `-fno-exceptions` (smaller/faster WASM) vs `-fwasm-exceptions`.
-3. **ImGui on Web:** Decide whether `ImGuiModule` gets an `imgui_impl_wgpu` path early (for on-device debug UI) or stays desktop-only while mobile uses the ADB telemetry/control channel.
+2. **ImGui on Web:** Decide whether `ImGuiModule` gets an `imgui_impl_wgpu` path early (for on-device debug UI) or stays desktop-only while mobile uses the ADB telemetry/control channel.
+3. **Engine RTTI on Web (`-fno-rtti`):** Audit whether `ContentCompiler`, `foundation/reflect`, or `gtest` require RTTI in WASM builds before adding `-fno-rtti` alongside `-fno-exceptions`.
