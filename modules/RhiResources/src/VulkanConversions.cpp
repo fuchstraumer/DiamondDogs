@@ -328,10 +328,10 @@ VkComponentMapping ToVkComponentMapping(const ImageComponentMapping& mapping) no
 {
     return VkComponentMapping
     {
-        ToVkSwizzle(mapping.R),
-        ToVkSwizzle(mapping.G),
-        ToVkSwizzle(mapping.B),
-        ToVkSwizzle(mapping.A),
+        ToVkSwizzle(mapping.Red()),
+        ToVkSwizzle(mapping.Green()),
+        ToVkSwizzle(mapping.Blue()),
+        ToVkSwizzle(mapping.Alpha()),
     };
 }
 
@@ -531,6 +531,10 @@ namespace
             return VK_COMPONENT_SWIZZLE_B;
         case ComponentSwizzle::Alpha:
             return VK_COMPONENT_SWIZZLE_A;
+        case ComponentSwizzle::Zero:
+            return VK_COMPONENT_SWIZZLE_ZERO;
+        case ComponentSwizzle::One:
+            return VK_COMPONENT_SWIZZLE_ONE;
         default:
             return VK_COMPONENT_SWIZZLE_IDENTITY;
         }

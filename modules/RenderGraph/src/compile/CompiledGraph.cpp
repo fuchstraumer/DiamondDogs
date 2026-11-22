@@ -1,12 +1,25 @@
 #include "CompiledGraph.hpp"
 #include "LoomKeys.hpp"
 #include "compile/CompiledData.hpp"
+#include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
+#include <string_view>
+#include <type_traits>
 #include <utility>
 
 namespace loom
 {
+
+namespace
+{
+
+    template<typename T>
+    const T* StartLifetimeAsArray(const std::byte* data, size_t count) noexcept;
+
+}
 
     CompiledGraph::CompiledGraph(std::unique_ptr<CompiledData> _data) noexcept : data{ std::move(_data) }
     {
@@ -55,6 +68,47 @@ namespace loom
         }
 
         return -1;
+    }
+
+namespace
+{
+
+    template<typename T>
+    const T* StartLifetimeAsArray(const std::byte* data, size_t count) noexcept
+    {
+        static_assert(std::is_trivially_copyable_v<T> && !std::is_pointer_v<T>,
+                      "StartLifetimeAsArray requires trivially copyable non-pointer types");
+
+#if defined(__cpp_lib_start_lifetime_as)
+        return std::start_lifetime_as_array<T>(data, count);
+#else
+        static_cast<void>(count);
+        return reinterpret_cast<const T*>(data);
+#endif
+    }
+
+}
+
+    std::span<const uint32_t> SpirvWords(const CompiledStage& stage) noexcept
+    {
+        if (stage.ShaderCode.empty())
+        {
+            return {};
+        }
+
+        assert(stage.ShaderCode.size() % sizeof(uint32_t) == 0);
+        const size_t wordCount = stage.ShaderCode.size() / sizeof(uint32_t);
+        return std::span<const uint32_t>{ StartLifetimeAsArray<uint32_t>(stage.ShaderCode.data(), wordCount), wordCount };
+    }
+
+    std::string_view WgslSource(const CompiledStage& stage) noexcept
+    {
+        if (stage.ShaderCode.empty())
+        {
+            return {};
+        }
+
+        return std::string_view{ StartLifetimeAsArray<char>(stage.ShaderCode.data(), stage.ShaderCode.size()), stage.ShaderCode.size() };
     }
 
 }

@@ -148,4 +148,23 @@ if(NOT EMSCRIPTEN)
     target_include_directories(loom_vulkan PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/include")
     target_include_directories(loom_vulkan PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src")
     target_link_libraries(loom_vulkan PUBLIC loom rhi_system rhi_resources)
+else()
+    # The WebGPU backend: Realize, recording and submit. It reads the core's compiled tables (src/compile), so it sees the
+    # core's src folder; the core never sees this one.
+    add_module(loom_webgpu
+        "${CMAKE_CURRENT_SOURCE_DIR}/webgpu/include/LoomGraph.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/webgpu/src/LoomGraph.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/webgpu/src/GraphImpl.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/webgpu/src/GraphImpl.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/webgpu/src/Realize.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/webgpu/src/Realize.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/webgpu/src/Tick.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/webgpu/src/Tick.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/webgpu/src/WebGpuMapping.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/webgpu/src/WebGpuMapping.cpp"
+    )
+
+    target_include_directories(loom_webgpu PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/webgpu/include")
+    target_include_directories(loom_webgpu PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/webgpu/src")
+    target_link_libraries(loom_webgpu PUBLIC loom rhi_context rhi_resources emdawnwebgpu_cpp)
 endif()

@@ -355,7 +355,7 @@ namespace
             {
                 const BindingSlot& slot = data.Slots[slotIndex];
 
-                if (static_cast<int32_t>(slot.Group) != group)
+                if (std::cmp_not_equal(slot.Group, group))
                 {
                     continue;
                 }
@@ -428,7 +428,8 @@ namespace
 
         for (const CompiledStage& stage : compiled.Stages)
         {
-            options.emplace_back(std::span<const uint32_t>{ stage.Code }, ToRhiShaderStages(stage.Stage), stage.EntryPoint,
+            const std::span<const uint32_t> spirvWords = SpirvWords(stage);
+            options.emplace_back(spirvWords, ToRhiShaderStages(stage.Stage), stage.EntryPoint,
                                  std::span<rhi::PushConstantRange>{ pushRanges },
                                  std::span<rhi::DescriptorSetLayoutHandle>{ layoutHandles });
         }

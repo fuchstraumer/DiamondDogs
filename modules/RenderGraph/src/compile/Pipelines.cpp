@@ -5,11 +5,13 @@
 #include "compile/CompiledData.hpp"
 #include "ShaderLibraryTypes.hpp"
 #include "ShaderManifestLayout.hpp"
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Copies each pipeline's code out of the bundle (G4), with the facts a backend needs to build its layouts: the
@@ -44,6 +46,7 @@ namespace
     void CopyPipelines(const ResolvedGraph& resolved, CompiledData& data)
     {
         const bool spirv = data.CodeFormat == lodestone::ShaderCodeFormat::Spirv;
+        const bool wgsl = data.CodeFormat == lodestone::ShaderCodeFormat::Wgsl;
         data.Pipelines.resize(data.LaidOut.Pipelines.size());
 
         for (int32_t pipelineIndex = 0; pipelineIndex < static_cast<int32_t>(data.Pipelines.size()); ++pipelineIndex)
@@ -66,12 +69,18 @@ namespace
                 CompiledStage& stage = pipeline.Stages.emplace_back();
                 stage.Stage = instance.Stage();
                 stage.EntryPoint = EntryPointNameOf(pass, instanceIndex);
+                assert((spirv && !wgsl) || (!spirv && wgsl));
 
-                // another code format is copied when its backend exists; Realize refuses a graph it cannot run
                 if (spirv)
                 {
-                    const std::span<const uint32_t> words = instance.SpirvWords();
-                    stage.Code.assign(words.begin(), words.end());
+                    const std::span<const std::byte> bytes = std::as_bytes(instance.SpirvWords());
+                    stage.ShaderCode.assign(bytes.begin(), bytes.end());
+                }
+                else if (wgsl)
+                {
+                    const std::string_view text = instance.Source();
+                    const std::span<const std::byte> bytes = std::as_bytes(std::span{ text.data(), text.size() });
+                    stage.ShaderCode.assign(bytes.begin(), bytes.end());
                 }
             }
 
@@ -97,6 +106,22 @@ namespace
             {
                 pipeline.PushConstantStages = pushConstants->Stages;
                 pipeline.PushConstantBytes = pushConstants->Constants.ByteSize();
+                pipeline.ConstantsDelivery = lodestone::EntryPointConstantsDelivery::PushConstant;
+                pipeline.ConstantsBytes = pushConstants->Constants.ByteSize();
+            }
+            else
+            {
+                const lodestone::manifest::EntryPointConstantsView constants = instances.front().Constants();
+
+                if (constants.Delivery() == lodestone::EntryPointConstantsDelivery::UniformBuffer)
+                {
+                    const lodestone::manifest::ResolvedResource constantResource =
+                        instances.front().Layout()[constants.BindingPosition()];
+                    pipeline.ConstantsDelivery = lodestone::EntryPointConstantsDelivery::UniformBuffer;
+                    pipeline.ConstantsBytes = constants.ByteSize();
+                    pipeline.ConstantsGroup = constantResource.PlacementValue().Word0;
+                    pipeline.ConstantsBinding = constantResource.PlacementValue().Word1;
+                }
             }
         }
     }

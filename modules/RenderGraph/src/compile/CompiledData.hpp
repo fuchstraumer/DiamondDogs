@@ -10,8 +10,11 @@
 #include "layout/LaidOutGraph.hpp"
 #include "order/OrderedGraph.hpp"
 #include "size/SizedGraph.hpp"
+#include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // What Compile hands to a backend. Every table owns its data: no view into the bundle and no Lodestone view type, so
@@ -25,8 +28,29 @@ namespace loom
     {
         lodestone::ShaderStageKind Stage{ lodestone::ShaderStageKind::Invalid };
         std::string EntryPoint;
-        std::vector<uint32_t> Code;     // SPIR-V words when the profile's code format is Spirv
+        std::vector<std::byte> ShaderCode;
+
+        struct CodeCompat
+        {
+            [[nodiscard]] bool empty() const noexcept
+            {
+                const auto* parent = reinterpret_cast<const CompiledStage*>(
+                    reinterpret_cast<const std::byte*>(this) - offsetof(CompiledStage, Code));
+                return parent->ShaderCode.empty();
+            }
+
+            [[nodiscard]] size_t size() const noexcept
+            {
+                const auto* parent = reinterpret_cast<const CompiledStage*>(
+                    reinterpret_cast<const std::byte*>(this) - offsetof(CompiledStage, Code));
+                return parent->ShaderCode.size();
+            }
+        };
+        CodeCompat Code{};
     };
+
+    [[nodiscard]] std::span<const uint32_t> SpirvWords(const CompiledStage& stage) noexcept;
+    [[nodiscard]] std::string_view WgslSource(const CompiledStage& stage) noexcept;
 
     // One pipeline: its stages, its workgroup, its push constant range, and the pass whose slots give its descriptor
     // layout. Passes that share a pipeline (Layout's == on PipelineDescription) share the variant, so their layouts
@@ -37,6 +61,10 @@ namespace loom
         lodestone::WorkgroupSize Workgroup;
         lodestone::ShaderStageKind PushConstantStages{ lodestone::ShaderStageKind::Invalid };
         uint32_t PushConstantBytes{ 0u };
+        lodestone::EntryPointConstantsDelivery ConstantsDelivery{ lodestone::EntryPointConstantsDelivery::None };
+        uint32_t ConstantsGroup{ 0u };      // UniformBuffer delivery: where the constants block binds
+        uint32_t ConstantsBinding{ 0u };
+        uint32_t ConstantsBytes{ 0u };
         int32_t LayoutPass{ -1 };
     };
 

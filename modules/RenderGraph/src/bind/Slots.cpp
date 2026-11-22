@@ -1,4 +1,5 @@
 #include "PassStatements.hpp"
+#include "ShaderManifestIndex.hpp"
 #include "bind/BindContext.hpp"
 #include "bind/Slots.hpp"
 #include "bind/Helpers.hpp"
@@ -8,7 +9,6 @@
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
 #include "ShaderManifest.hpp"
-#include "ShaderManifestIndex.hpp"
 #include "ShaderManifestLayout.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "resolve/ResolvedGraph.hpp"
@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <source_location>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // LM301: a Bind name is in no variant of the entry points. LM302: a binding of the selected variant has no Bind.
@@ -235,10 +236,19 @@ void CheckUnboundResources(BindContext& context,
                            const PassLayout& layout,
                            const std::vector<int32_t>& matches)
 {
+    // The constants uniform buffer is the graph's own: the backend writes it, so no Bind names it. A dispatch merges its
+    // one instance, so the binding position in the instance's layout is the position in the merged resources.
+    int32_t constantsPosition = k_NotInVariant;
+
+    if (layout.Constants.has_value() && layout.Constants->Delivery() == lodestone::EntryPointConstantsDelivery::UniformBuffer)
+    {
+        constantsPosition = static_cast<int32_t>(layout.Constants->BindingPosition());
+    }
+
     for (size_t position = 0u; position < layout.Resources.size(); ++position)
     {
         const bool bound = std::ranges::contains(matches, static_cast<int32_t>(position));
-        if (bound)
+        if (bound || std::cmp_equal(position, constantsPosition))
         {
             continue;
         }
