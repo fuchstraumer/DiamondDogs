@@ -9,6 +9,10 @@
 #include "ShaderLibraryTypes.hpp"
 #include "ShaderManifestDevice.hpp"
 #include "bind/BoundGraph.hpp"
+#include <array>
+#include <cstddef>
+#include <memory>
+#include <tuple>
 #include <webgpu/webgpu_cpp.h>
 #include <algorithm>
 #include <cstdint>
@@ -27,10 +31,36 @@ namespace
         ImageDataType Data;
         wgpu::TextureFormat Format;
         uint32_t BlockBytes;
+        [[nodiscard]] constexpr auto Key() const noexcept
+        {
+            return std::tie(Component, Data);
+        }
     };
 
-    constexpr FormatRow k_FormatRows[]
+    template<std::size_t N>
+    consteval auto BuildSortedFormatRows(std::array<FormatRow, N> rows) noexcept
     {
+        std::ranges::sort(rows, {}, &FormatRow::Key);
+        return rows;
+    }
+
+    template <typename T, std::size_t N>
+    consteval bool RowsUnique(const std::array<T, N>& arr)
+    {
+        for (std::size_t i = 0; i < N; ++i)
+        {
+            for (std::size_t j = i + 1; j < N; ++j)
+            {
+                if (arr[i].Key() == arr[j].Key())
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    inline constexpr auto k_FormatRows = BuildSortedFormatRows(std::to_array<FormatRow>({
         { ImageComponentFormats::R8, ImageDataType::UNorm, wgpu::TextureFormat::R8Unorm, 1u },
         { ImageComponentFormats::R8, ImageDataType::SNorm, wgpu::TextureFormat::R8Snorm, 1u },
         { ImageComponentFormats::R8, ImageDataType::UInt, wgpu::TextureFormat::R8Uint, 1u },
@@ -77,7 +107,9 @@ namespace
         { ImageComponentFormats::D32, ImageDataType::Float, wgpu::TextureFormat::Depth32Float, 4u },
         { ImageComponentFormats::D24S8, ImageDataType::UNorm, wgpu::TextureFormat::Depth24PlusStencil8, 4u },
         { ImageComponentFormats::D32S8, ImageDataType::Float, wgpu::TextureFormat::Depth32FloatStencil8, 8u },
-    };
+    }));
+    static_assert(RowsUnique(k_FormatRows), "Duplicate format row key detected");
+    static_assert(std::ranges::is_sorted(k_FormatRows, {}, &FormatRow::Key), "Format rows must be sorted by key");
 
     const FormatRow* FindFormatRow(const ImageFormat& format) noexcept;
     bool IsDepthComponent(ImageComponentFormats component) noexcept;
@@ -298,14 +330,9 @@ namespace
 
     const FormatRow* FindFormatRow(const ImageFormat& format) noexcept
     {
-        const auto matches = [&format](const FormatRow& row)
-        {
-            return row.Component == format.ComponentFormat && row.Data == format.DataType;
-        };
-
-        const FormatRow* const end = std::end(k_FormatRows);
-        const FormatRow* const found = std::find_if(std::begin(k_FormatRows), end, matches);
-        return found == end ? nullptr : found;
+        const auto target = std::tie(format.ComponentFormat, format.DataType);
+        const auto iter = std::ranges::lower_bound(k_FormatRows, target, {}, &FormatRow::Key);
+        return iter == std::end(k_FormatRows) || iter->Key() != target ? nullptr : std::addressof(*iter);
     }
 
     bool IsDepthComponent(ImageComponentFormats component) noexcept
