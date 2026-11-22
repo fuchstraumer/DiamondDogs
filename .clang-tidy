@@ -29,7 +29,10 @@ Checks: >
   -cppcoreguidelines-pro-type-reinterpret-cast,
   -modernize-use-using,
   -readability-else-after-return,
-  -cppcoreguidelines-special-member-functions
+  -cppcoreguidelines-special-member-functions,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-rvalue-reference-param-not-moved,
+  -performance-no-int-to-ptr
 
 WarningsAsErrors: ''
 HeaderFilterRegex: '.*(foundation|modules|tests|applications)/.*'
