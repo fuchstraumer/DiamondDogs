@@ -44,6 +44,8 @@ namespace
         // the bind that set Dimension, for the OtherWhere of a dimension LM403
         std::source_location DimensionWhere;
         lodestone::TextureUsageFlags Usage{ lodestone::TextureUsageFlags::Invalid };
+        bool Arrayed{ false };
+        bool Cube{ false };
     };
 
     // One binding of an image, with what LM403 reports about it
@@ -278,6 +280,9 @@ namespace
         {
             return;
         }
+
+        image.Arrayed = image.Arrayed || lodestone::ResourceShapeIsArray(binding.Reflection.Shape());
+        image.Cube = image.Cube || lodestone::GetBaseShape(binding.Reflection.Shape()) == lodestone::ResourceShape::TextureCube;
 
         if (image.Dimension == lodestone::TextureDimension::Invalid)
         {
@@ -563,6 +568,8 @@ void SizeImages(const FrozenGraph& frozen, const BoundGraph& bound, DiagnosticSi
         // an image that only targets and copies see is a 2D image
         const bool noShaderBinding = image.Dimension == lodestone::TextureDimension::Invalid;
         result.Dimension = noShaderBinding ? lodestone::TextureDimension::Texture2D : image.Dimension;
+        result.Arrayed = image.Arrayed;
+        result.Cube = image.Cube;
     }
 }
 

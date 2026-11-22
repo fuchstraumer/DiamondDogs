@@ -106,6 +106,7 @@ namespace loom
 
         // the pipelines read the resolved passes, which view into the bundle and into nothing that moved
         compile::CopyPipelines(*resolved, *data);
+        compile::GatherCopies(*data);
         compile::GatherUses(*data);
         compile::GatherParams(*data);
         compile::ComputeSpans(*data);

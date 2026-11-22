@@ -40,6 +40,10 @@ namespace loom
     // from what the device supports. No value when Lodestone has no such format; that is a request to Lodestone.
     [[nodiscard]] std::optional<lodestone::TextureFormat> ToTextureFormat(const ImageFormat& format) noexcept;
 
+    // The other way, for Realize, which creates images through RhiResources. No value for a format that
+    // ToTextureFormat never gives.
+    [[nodiscard]] std::optional<ImageFormat> ToImageFormat(lodestone::TextureFormat format) noexcept;
+
     // The enumerator name, for diagnostics. Stages never format a string, so a sink prints this name.
     [[nodiscard]] std::string_view TextureFormatName(lodestone::TextureFormat format) noexcept;
 

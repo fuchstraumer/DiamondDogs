@@ -32,6 +32,7 @@ namespace loom
         lodestone::ShaderStageKind Stages{ lodestone::ShaderStageKind::Invalid };
         uint32_t ArrayCount{ 0u };                              // 0: unbounded
         ResourceIndex Resource;                                 // the bound key's row in FrozenGraph::Resources
+        bool Previous{ false };                                 // BindPrevious: the history ring's last-frame copy
     };
 
     // The entry point constants of one pass. ParamsIndex points into FrozenPass::Params, and is -1 when the pass has no

@@ -17,14 +17,17 @@ namespace loom
     class DiagnosticSink;
     struct FramePlan;
 
+    inline constexpr int32_t k_ParamsUnchanged = -1;
+
     class ParamsStore
     {
     public:
         void Prepare(const CompiledGraph& compiled);
 
-        // LM704 when the size or the alignment differs from the type that the key's Params statement used
-        void Set(KeyRef key, std::span<const std::byte> bytes, uint32_t alignment, std::source_location where,
-                 DiagnosticSink& sink);
+        // LM704 when the size or the alignment differs from the type that the key's Params statement used. Returns
+        // the params index when the stored bytes changed (the first Set always does), else k_ParamsUnchanged.
+        [[nodiscard]] int32_t Set(KeyRef key, std::span<const std::byte> bytes, uint32_t alignment,
+                                  std::source_location where, DiagnosticSink& sink);
 
         // `params` is an index into CompiledData::Params
         [[nodiscard]] bool IsSet(int32_t params) const noexcept;

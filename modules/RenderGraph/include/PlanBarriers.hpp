@@ -2,6 +2,7 @@
 #ifndef DIAMOND_DOGS_LOOM_PLAN_BARRIERS_HPP
 #define DIAMOND_DOGS_LOOM_PLAN_BARRIERS_HPP
 #include "FramePlan.hpp"
+#include <cstdint>
 #include <span>
 
 // PlanBarriers.cpp: the barriers of one Tick, batched by level (spec 5.1 step 6).
@@ -9,11 +10,13 @@ namespace loom
 {
     class CompiledGraph;
 
-    // Fills Barriers and Batches for plan.Runs, and moves `sync` to the state after them. A row whose epoch changed
-    // starts with no pending work. Call it once per submitted frame: it assumes the plan's passes are recorded.
+    // Fills Barriers and Batches for plan.Clears and plan.Runs, and moves `sync` (one entry per copy) to the state
+    // after them. A copy whose row's epoch changed starts with no pending work. `frame_index` picks each history
+    // ring's copies. Call it once per submitted frame: it assumes the plan's clears and passes are recorded.
     void PlanBarriers(const CompiledGraph& compiled,
                       std::span<const ResourceState> resources,
                       std::span<ResourceSync> sync,
+                      int64_t frame_index,
                       FramePlan& plan);
 
 }

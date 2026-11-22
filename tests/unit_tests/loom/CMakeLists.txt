@@ -36,7 +36,8 @@ lodestone_add_shader_cook(loom_test_shaders
     MODULES shaders/LoomResolveTest.slang shaders/LoomResolveOther.slang shaders/LoomBindTest.slang shaders/LoomSizeTest.slang
     shaders/LoomLayoutTest.slang
     # the runtime tests share LoomComputeTest's shaders, so the GPU test and the GPU-free one read one source
-    "${CMAKE_SOURCE_DIR}/tests/integration_tests/LoomComputeTest/LoomHashFill.slang")
+    "${CMAKE_SOURCE_DIR}/tests/integration_tests/LoomComputeTest/LoomHashFill.slang"
+    "${CMAKE_SOURCE_DIR}/tests/integration_tests/LoomImageTest/LoomImages.slang")
 set_target_properties(loom_test_shaders PROPERTIES FOLDER "Tests/Unit Tests")
 add_dependencies(loom_tests loom_test_shaders)
 target_compile_definitions(loom_tests PRIVATE

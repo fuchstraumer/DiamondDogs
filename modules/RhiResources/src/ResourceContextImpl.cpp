@@ -3114,6 +3114,7 @@ namespace
         return false;
     }
 
+    [[maybe_unused]] // compiled out in any build that's not Debug
     bool TransferSetHasRangeHazard(std::span<const TransferSetOp> ops, std::span<const int32_t> range_ends) noexcept
     {
         std::array<RangeAccess, 2u * static_cast<size_t>(k_MaxTransferSetOps)> accesses;

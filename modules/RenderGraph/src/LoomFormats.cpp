@@ -147,6 +147,46 @@ std::optional<lodestone::TextureFormat> ToTextureFormat(const ImageFormat& forma
     return std::nullopt;
 }
 
+std::optional<ImageFormat> ToImageFormat(lodestone::TextureFormat format) noexcept
+{
+    // every format that ToTextureFormat gives, with the data type that gives it; a depth format takes the type that
+    // RhiResources maps to it
+    constexpr ImageFormat k_Candidates[]
+    {
+        ImageFormat{ ImageComponentFormats::D16, ImageDataType::UNorm },
+        ImageFormat{ ImageComponentFormats::D24, ImageDataType::UNorm },
+        ImageFormat{ ImageComponentFormats::D24S8, ImageDataType::UNorm },
+        ImageFormat{ ImageComponentFormats::D32, ImageDataType::Float },
+        ImageFormat{ ImageComponentFormats::R8, ImageDataType::UNorm },
+        ImageFormat{ ImageComponentFormats::RG8, ImageDataType::UNorm },
+        ImageFormat{ ImageComponentFormats::RGBA8, ImageDataType::UNorm },
+        ImageFormat{ ImageComponentFormats::BGRA8, ImageDataType::UNorm },
+        ImageFormat{ ImageComponentFormats::A2B10G10R10, ImageDataType::UNorm },
+        ImageFormat{ ImageComponentFormats::RGBA8, ImageDataType::sRGB },
+        ImageFormat{ ImageComponentFormats::BGRA8, ImageDataType::sRGB },
+        ImageFormat{ ImageComponentFormats::RGBA8, ImageDataType::SNorm },
+        ImageFormat{ ImageComponentFormats::R16, ImageDataType::Float },
+        ImageFormat{ ImageComponentFormats::RG16, ImageDataType::Float },
+        ImageFormat{ ImageComponentFormats::RGBA16, ImageDataType::Float },
+        ImageFormat{ ImageComponentFormats::R32, ImageDataType::Float },
+        ImageFormat{ ImageComponentFormats::RG32, ImageDataType::Float },
+        ImageFormat{ ImageComponentFormats::RGBA32, ImageDataType::Float },
+        ImageFormat{ ImageComponentFormats::R32, ImageDataType::UInt },
+        ImageFormat{ ImageComponentFormats::RG32, ImageDataType::UInt },
+        ImageFormat{ ImageComponentFormats::RGBA32, ImageDataType::UInt },
+    };
+
+    for (const ImageFormat& candidate : k_Candidates)
+    {
+        if (ToTextureFormat(candidate) == format)
+        {
+            return candidate;
+        }
+    }
+
+    return std::nullopt;
+}
+
 std::string_view TextureFormatName(lodestone::TextureFormat format) noexcept
 {
     switch (format)

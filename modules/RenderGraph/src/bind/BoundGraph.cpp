@@ -68,6 +68,7 @@ namespace
                 const FrozenBind& frozenBind = pass.Binds[bindIndex];
                 slot.Access = bind::NarrowedAccess(slot.Access, frozenBind.Narrowing);
                 slot.Resource = frozenBind.Resource;
+                slot.Previous = frozenBind.Previous;
                 accesses[bindIndex] = slot.Access;
             }
 

@@ -7,6 +7,7 @@
 #include "LoomKeys.hpp"
 #include "ResourceFuture.hpp"
 #include "RhiHandle.hpp"
+#include "RhiResourceFlags.hpp"
 #include "GpuTimers.hpp"
 #include <chrono>
 #include <cstddef>
@@ -16,6 +17,7 @@
 #include <optional>
 #include <source_location>
 #include <span>
+#include <string>
 #include <string_view>
 
 class ResourceContext;
@@ -60,16 +62,15 @@ namespace loom
         TimestampsUnset = 2,
         CodeNotSpirv = 3,               // the bundle's profile does not hold SPIR-V
         PassKindNotYet = 4,             // a Draw or Record pass (step 7)
-        ResourceKindNotYet = 5,         // an image or an imported image (step 6)
-        HistoryNotYet = 6,              // HistoryDepth > 0 or a BindPrevious (step 6)
-        RunPolicyNotYet = 7,            // WhenInputsChange or OnTrigger (step 6)
-        PlacementNotBound = 8,          // a Handle or Pointer form: the bindless and BDA binding model (T2)
-        BindingNotYet = 9,              // a texel buffer, an array, or another binding kind that step 5 does not write
-        DescriptorLayoutFailed = 10,
-        PipelineLayoutFailed = 11,
-        ShaderCreateFailed = 12,
-        DescriptorPoolFailed = 13,
-        CommandPoolFailed = 14
+        ResourceKindNotYet = 5,         // a frame target or an image sized from one (step 7), a cube image, or a format
+                                        // that RhiResources cannot create
+        PlacementNotBound = 6,          // a Handle or Pointer form: the bindless and BDA binding model (T2)
+        BindingNotYet = 7,              // a texel buffer, an array, a combined texture-sampler or an input target
+        DescriptorLayoutFailed = 8,
+        PipelineLayoutFailed = 9,
+        ShaderCreateFailed = 10,
+        DescriptorPoolFailed = 11,
+        CommandPoolFailed = 12
     };
 
     [[nodiscard]] std::string_view ToString(RealizeError error) noexcept;
@@ -107,7 +108,15 @@ namespace loom
         // keeps owning the buffer, and frees an old one only after LastSubmit() passes (CC-R4). A key that is not an
         // imported buffer of this graph is ignored.
         void Supply(ResourceKey<Buffer> resource, rhi::ResourceFuture<GraphicsResource>&& future);
+        // An imported image's object, and the usage it is in when the graph gets it (its first barrier starts from
+        // that usage's layout). The rules of the buffer form apply: a new epoch, and the supplier keeps owning it.
+        void Supply(ResourceKey<Image> resource, rhi::ResourceFuture<GraphicsResource>&& future,
+                    ImageUsageBits usage_at_handoff);
         void Enable(PassKey pass, bool enabled);
+        // An OnTrigger pass runs on the next Tick whose readiness allows it. Triggers before that run count as one.
+        void Trigger(PassKey pass);
+        // The last Tick's decisions as text: each pass, "ran" or why it skipped.
+        [[nodiscard]] std::string ExplainLastTick() const;
 
         // For the app's ResourceContext::Tick: the graph's timeline, and the value its next submit signals.
         [[nodiscard]] rhi::TimelineSemaphoreHandle Timeline() const noexcept;
@@ -117,6 +126,8 @@ namespace loom
 
         // The object of a buffer row, or a null resource while it does not exist.
         [[nodiscard]] GraphicsResource BufferOf(ResourceKey<Buffer> resource) const noexcept;
+        // The object of an image row, or a null resource while it does not exist.
+        [[nodiscard]] GraphicsResource ImageOf(ResourceKey<Image> resource) const noexcept;
         [[nodiscard]] const FramePlan& LastPlan() const noexcept;
         [[nodiscard]] const CompiledGraph& Compiled() const noexcept;
         // The per-pass times of the latest collected frame, when Realize had PassTimestamps::On.

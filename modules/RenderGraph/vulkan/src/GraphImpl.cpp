@@ -84,23 +84,43 @@ namespace
         }
 
         // an object that is still being created must exist before it can be destroyed
-        for (RowRuntime& row : Rows)
+        const auto destroyOwned = [this](const rhi::ResourceFuture<GraphicsResource>& future)
         {
-            if (!row.Owned)
-            {
-                continue;
-            }
-
-            const rhi::FutureState created = Resources.Wait(row.Future, k_TeardownTimeoutNs);
+            const rhi::FutureState created = Resources.Wait(future, k_TeardownTimeoutNs);
 
             if (created != rhi::FutureState::Complete)
             {
-                continue;
+                return;
             }
 
-            rhi::OperationFuture destroyed = Resources.DestroyResource(row.Future.Get());
+            rhi::OperationFuture destroyed = Resources.DestroyResource(future.Get());
             [[maybe_unused]] const rhi::FutureState state = Resources.Wait(destroyed, k_TeardownTimeoutNs);
+        };
+
+        for (const RowRuntime& row : Rows)
+        {
+            if (row.Owned)
+            {
+                destroyOwned(row.Future);
+            }
         }
+
+        // the graph makes every history copy
+        for (const rhi::ResourceFuture<GraphicsResource>& copy : ExtraCopies)
+        {
+            destroyOwned(copy);
+        }
+    }
+
+    const rhi::ResourceFuture<GraphicsResource>& FutureOfCopy(const GraphImpl& graph, int32_t copy) noexcept
+    {
+        const int32_t rowCount = static_cast<int32_t>(graph.Rows.size());
+        return copy < rowCount ? graph.Rows[copy].Future : graph.ExtraCopies[copy - rowCount];
+    }
+
+    int32_t SetInstanceOf(const PassRuntime& pass, int32_t frame_slot, int64_t frame_index) noexcept
+    {
+        return frame_slot * pass.Phases + static_cast<int32_t>(frame_index % pass.Phases);
     }
 
 }

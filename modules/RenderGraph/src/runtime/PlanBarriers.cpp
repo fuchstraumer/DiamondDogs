@@ -3,6 +3,8 @@
 #include "FramePlan.hpp"
 #include "PassStatements.hpp"
 #include "compile/CompiledData.hpp"
+#include "freeze/FrozenGraph.hpp"
+#include "Records.hpp"
 #include "RhiFlags.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -17,7 +19,9 @@
 //  - a read after a write needs a barrier from the write to the read, unless an earlier barrier already made the
 //    write visible to that read scope;
 //  - a write after a write needs a barrier from the old write to the new one;
-//  - a write after reads needs a barrier from the reads to the write (an execution dependency).
+//  - a write after reads needs a barrier from the reads to the write (an execution dependency);
+//  - an image use whose layout differs from the image's needs a layout change, which waits for the last write and
+//    every read since, and makes the write visible to the use. It replaces the three rules above for that use.
 namespace loom
 {
 
@@ -85,7 +89,8 @@ namespace
         if (index < 0)
         {
             index = static_cast<int32_t>(plan.Barriers.size());
-            plan.Barriers.push_back(PlannedBarrier{ .Resource = row, .Before = before, .After = after });
+            const rhi::ImageLayout layout = plan.RowLayouts[row];
+            plan.Barriers.push_back(PlannedBarrier{ .Resource = row, .Before = before, .After = after, .OldLayout = layout, .NewLayout = layout });
             return;
         }
 
@@ -93,9 +98,43 @@ namespace
         Merge(plan.Barriers[index].After, after);
     }
 
-    // The barriers that one use needs against the state before its level.
-    void NeedsOf(FramePlan& plan, const PassUse& use, const ResourceSync& sync)
+    void AddLayoutChange(FramePlan& plan, int32_t copy, const PassUse& use, const ResourceSync& sync)
     {
+        int32_t& index = plan.BatchBarrier[copy];
+        const SyncScope before{ .Stages = sync.Write.Stages | sync.ReadsSinceWrite.Stages, .Accesses = sync.Write.Accesses };
+
+        if (index < 0)
+        {
+            index = static_cast<int32_t>(plan.Barriers.size());
+
+            plan.Barriers.push_back(PlannedBarrier
+            {
+                .Resource = copy,
+                .Before = before,
+                .After = use.Scope,
+                .OldLayout = sync.Layout,
+                .NewLayout = use.Layout,
+            });
+
+            return;
+        }
+
+        // Compile gave every use of the image in this level one layout, so a second use only widens the scopes
+        Merge(plan.Barriers[index].Before, before);
+        Merge(plan.Barriers[index].After, use.Scope);
+    }
+
+    // The barriers that one use needs against the state before its level.
+    void NeedsOf(FramePlan& plan, int32_t copy, const PassUse& use, const ResourceSync& sync)
+    {
+        const bool image = use.Layout != rhi::ImageLayout::Undefined;
+
+        if (image && use.Layout != sync.Layout)
+        {
+            AddLayoutChange(plan, copy, use, sync);
+            return;
+        }
+
         const bool written = !IsEmpty(sync.Write);
 
         if (Reads(use) && written)
@@ -104,7 +143,7 @@ namespace
 
             if (!Contains(sync.VisibleTo, read))
             {
-                AddBarrier(plan, use.Resource, sync.Write, read);
+                AddBarrier(plan, copy, sync.Write, read);
             }
         }
 
@@ -117,14 +156,14 @@ namespace
 
         if (written)
         {
-            AddBarrier(plan, use.Resource, sync.Write, write);
+            AddBarrier(plan, copy, sync.Write, write);
         }
 
         if (!IsEmpty(sync.ReadsSinceWrite))
         {
             // an execution dependency: the reads made nothing that the write must see
             const SyncScope reads{ .Stages = sync.ReadsSinceWrite.Stages, .Accesses = rhi::Access::None };
-            AddBarrier(plan, use.Resource, reads, write);
+            AddBarrier(plan, copy, reads, write);
         }
     }
 
@@ -136,10 +175,51 @@ namespace
             sync.Write = WritePart(use);
             sync.VisibleTo = SyncScope{};
             sync.ReadsSinceWrite = SyncScope{};
+            sync.HasContents = true;
             return;
         }
 
         Merge(sync.ReadsSinceWrite, ReadPart(use));
+    }
+
+    // OnNoHistory::Clear: a clear is a transfer write of the whole copy. Its batch waits for every earlier access and
+    // puts an image in General, which vkCmdClearColorImage allows.
+    void PlanClears(const CompiledData& data, std::span<ResourceSync> sync, FramePlan& plan)
+    {
+        if (plan.Clears.empty())
+        {
+            return;
+        }
+
+        const int32_t firstBarrier = static_cast<int32_t>(plan.Barriers.size());
+        const SyncScope clear{ .Stages = rhi::PipelineStage::AllTransfer, .Accesses = rhi::Access::TransferWrite };
+
+        for (const int32_t copy : plan.Clears)
+        {
+            ResourceSync& state = sync[copy];
+            const bool image = data.Frozen.Resources[data.CopyRows[copy]].Kind == ResourceKind::Image;
+            const rhi::ImageLayout newLayout = image ? rhi::ImageLayout::General : rhi::ImageLayout::Undefined;
+            const SyncScope before{ .Stages = state.Write.Stages | state.ReadsSinceWrite.Stages, .Accesses = state.Write.Accesses };
+
+            plan.Barriers.push_back(PlannedBarrier
+            {
+                .Resource = copy,
+                .Before = before,
+                .After = clear,
+                .OldLayout = image ? state.Layout : rhi::ImageLayout::Undefined,
+                .NewLayout = newLayout,
+            });
+
+            state.Write = clear;
+            state.VisibleTo = SyncScope{};
+            state.ReadsSinceWrite = SyncScope{};
+            state.Layout = newLayout;
+            state.HasContents = true;
+            plan.RowLayouts[copy] = newLayout;
+        }
+
+        const int32_t count = static_cast<int32_t>(plan.Barriers.size()) - firstBarrier;
+        plan.Batches.push_back(BarrierBatch{ .BeforeRun = k_BeforeClears, .FirstBarrier = firstBarrier, .Count = count });
     }
 
     void CloseBatch(FramePlan& plan, int32_t before_run, int32_t first_barrier, std::span<ResourceSync> sync)
@@ -151,6 +231,18 @@ namespace
             const PlannedBarrier& barrier = plan.Barriers[barrierIndex];
             ResourceSync& row = sync[barrier.Resource];
             plan.BatchBarrier[barrier.Resource] = -1;
+
+            // A layout change is a write in the stages after it, ordered after every earlier access. Keeping the old
+            // write's stages and accesses lets a later barrier from Write chain through the change.
+            if (barrier.ChangesLayout())
+            {
+                row.Write = SyncScope{ .Stages = row.Write.Stages | barrier.After.Stages, .Accesses = row.Write.Accesses };
+                row.VisibleTo = barrier.After;
+                row.ReadsSinceWrite = SyncScope{};
+                row.Layout = barrier.NewLayout;
+                plan.RowLayouts[barrier.Resource] = barrier.NewLayout;
+                continue;
+            }
 
             // a barrier from the last write makes it visible to the scope after it
             if (!IsEmpty(row.Write) && Contains(barrier.Before, row.Write))
@@ -170,6 +262,7 @@ namespace
     void PlanBarriers(const CompiledGraph& compiled,
                       std::span<const ResourceState> resources,
                       std::span<ResourceSync> sync,
+                      int64_t frame_index,
                       FramePlan& plan)
     {
         const CompiledData& data = compiled.Data();
@@ -177,13 +270,19 @@ namespace
         plan.Batches.clear();
 
         // a new object owes nothing to the work on the old one
-        for (size_t row = 0u; row < sync.size(); ++row)
+        for (size_t copy = 0u; copy < sync.size(); ++copy)
         {
-            if (sync[row].Epoch != resources[row].Epoch)
+            const ResourceState& state = resources[data.CopyRows[copy]];
+
+            if (sync[copy].Epoch != state.Epoch)
             {
-                sync[row] = ResourceSync{ .Epoch = resources[row].Epoch };
+                sync[copy] = ResourceSync{ .Layout = state.InitialLayout, .Epoch = state.Epoch };
             }
+
+            plan.RowLayouts[copy] = sync[copy].Layout;
         }
+
+        PlanClears(data, sync, plan);
 
         const int32_t runCount = static_cast<int32_t>(plan.Runs.size());
         int32_t levelStart = 0;
@@ -207,7 +306,8 @@ namespace
                 for (int32_t useIndex = pass.FirstUse; useIndex < pass.FirstUse + pass.UseCount; ++useIndex)
                 {
                     const PassUse& use = data.Uses[useIndex];
-                    NeedsOf(plan, use, sync[use.Resource]);
+                    const int32_t copy = CopyOf(data, use.Resource, frame_index, use.Previous);
+                    NeedsOf(plan, copy, use, sync[copy]);
                 }
             }
 
@@ -220,7 +320,7 @@ namespace
                 for (int32_t useIndex = pass.FirstUse; useIndex < pass.FirstUse + pass.UseCount; ++useIndex)
                 {
                     const PassUse& use = data.Uses[useIndex];
-                    Apply(sync[use.Resource], use);
+                    Apply(sync[CopyOf(data, use.Resource, frame_index, use.Previous)], use);
                 }
             }
 

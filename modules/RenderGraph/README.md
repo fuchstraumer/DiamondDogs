@@ -251,8 +251,14 @@ still holds Compile's diagnostics, because their binding names are views into it
 - `Pipelines` (`compile/Pipelines.cpp`): per distinct pipeline, a copy of each stage's code and entry point, the
   workgroup, the push constant range, and the pass whose slots give its descriptor layout.
 - `Uses` (`compile/Uses.cpp`): per pass, one entry per resource row it touches, merged over its slots and statements:
-  the access, the `SyncScope` (stages and accesses, in Loom's own terms), and `Initializes` (a write with no read,
-  for Q3g).
+  the access, the `SyncScope` (stages and accesses), the image layout the use needs, `Initializes` (a write with no
+  read, for Q3g), and `Previous` (a `BindPrevious` read, which reads last frame's copy: a separate use from a write of
+  the same row in that pass). Storage images use `General` and sampled reads `ShaderReadOnly`. Every use of one
+  image in one level must see one layout, because one barrier batch goes before the level, so uses that disagree all
+  take `General`. `SlotLayouts` gives each descriptor its use's layout.
+- History copies: a row with `HistoryDepth` D has D + 1 copies (spec R3). Copy `row` is each row's first copy, so a
+  row with no history is its own copy; a ring's other copies follow the rows (`ExtraCopyBase`, `CopyRows`).
+  `CopyOf(data, row, frame, previous)` gives the copy that frame `frame` writes, or reads through `BindPrevious`.
 - `Params`: per `Params` statement, the key and the size and alignment of its type.
 - The first and last level that uses each row, for the aliasing stage that comes after step 6.
 
@@ -273,25 +279,46 @@ once, at Realize, so a Tick allocates nothing.
 Each pass, in run order:
 
 1. **Enabled:** `Graph::Enable(pass, false)` skips it (`Disabled`).
-2. **Run policy:** a `Once` pass that already ran and was submitted skips (`Policy`). `CommitRuns` marks it after the
-   submit. `WhenInputsChange` and `OnTrigger` wait for step 6, and Realize refuses them.
+2. **Run policy** (`Policy` when it says no):
+   - `Once` runs until it has run and been submitted.
+   - `WhenInputsChange` runs on its first Tick, then only after a change: (a) a row it reads got a new object
+     (`Supply`, through `MarkRowChanged`), (b) a params key it reads got new bytes (`Set` compares the bytes, so an app
+     that sets the same values every frame does not rerun it; `MarkParamsChanged`), or (c) a pass earlier in this
+     Tick wrote a row it reads. A change that it could not run for (a pending row, say) is kept for the next Tick.
+   - `OnTrigger` runs after `Graph::Trigger(pass)`. The trigger waits until the pass can run, and several triggers
+     before one run count as one.
+   `CommitRuns` updates these flags after the submit. A `BindPrevious` read is not an input change of this Tick: the
+   row written this Tick is next Tick's change.
 3. **Readiness:** a `Failed` row stops the pass for good (`Failed`). A `Pending` row stops it this Tick
    (`NotCreated`). `Created` is enough to run: the submit waits for the transfer.
-4. **Propagation (Q3g):** if an initializing writer of a row skipped earlier in this Tick, a pass that reads the row
-   skips too (`Propagated`, with the writer as `Cause`). A `Policy` skip does not propagate: a `Once` pass left valid
-   contents behind.
+4. **History:** a `BindPrevious` read of a copy with no contents yet (`ResourceSync::HasContents`): `OnNoHistory::Skip`
+   skips the pass (`NoHistory`, with the row as `Cause`); `OnNoHistory::Clear` runs it, and puts the copy in
+   `FramePlan::Clears`.
+5. **Propagation (Q3g):** if an initializing writer of a row skipped earlier in this Tick, a pass that reads the row
+   skips too (`Propagated`, with the writer as `Cause`). A `Policy` skip does not propagate: the pass left valid
+   contents behind. A `BindPrevious` read does not propagate either: it reads last frame.
 
 `FramePlan::Decisions[pass]` holds each reason and its cause, and `Runs` holds the passes that run.
+`ExplainLastTick(compiled, plan)` (and `Graph::ExplainLastTick()`) prints them, one line per pass.
 
 ### Barriers (`PlanBarriers`)
 
-`ResourceSync` carries, per row, from Tick to Tick: the last write's scope, the read scopes that a barrier already
-made it visible to, and the reads since the last write. Against that state, per row:
+`ResourceSync` carries, per copy (a history ring has several), from Tick to Tick: the last write's scope, the read
+scopes that a barrier already made it visible to, the reads since the last write, an image's layout, and whether the
+copy has contents. A new epoch starts a copy again, in the `InitialLayout` that the backend gives: `Undefined` for a
+graph image, the layout of the usage stated at `Supply` for an import. Against that state, per copy:
 
 - a read after a write needs a barrier from the write to the read, unless an earlier barrier already made the write
   visible to that read scope;
 - a write after a write needs a barrier from the old write to the new one;
-- a write after reads needs a barrier from the reads to the write (an execution dependency only).
+- a write after reads needs a barrier from the reads to the write (an execution dependency only);
+- an image use whose layout differs from the image's needs a layout change. It waits for the last write and every
+  read since, makes the write visible to the use, and replaces the three rules above for that use. After it, the copy
+  counts as written in the stages after the change, so a later barrier chains through it.
+
+`OnNoHistory::Clear` adds a batch before every run (`BeforeRun == k_BeforeClears`): each cleared copy waits for its
+earlier accesses and goes to a transfer write (an image to `General`). The backend then clears it, and the first
+level's reads wait for the clear by the rules above.
 
 Scopes are in the RHI's barrier vocabulary, `rhi::PipelineStage` and `rhi::Access` (`rhi_types`, which links no
 RHI), so the core and every backend share one set of values and no mapping step exists. Storage and sampled reads use
@@ -318,17 +345,22 @@ fill `CompileInputs` from a device). `loom_vulkan` links `loom`, `rhi_system` an
 
 ### Realize
 
-`Graph::Realize(compiled, inputs)` first checks that step 5 can run the graph, and refuses with a `RealizeError` if
-not. The "NotYet" values name the step that adds the feature: Draw and Record passes (step 7), images, history, and
-`WhenInputsChange` or `OnTrigger` (step 6), the `Handle` and `Pointer` placements (T2), and binding kinds other than
-uniform and storage buffers. It then:
+`Graph::Realize(compiled, inputs)` first checks that it can run the graph, and refuses with a `RealizeError` if not.
+The "NotYet" values name what is missing: Draw and Record passes, frame targets and images sized from them (step 7),
+cube images and formats with no `ImageFormat` (`ResourceKindNotYet`), the `Handle` and `Pointer` placements (T2), and
+binding kinds other than uniform and storage buffers, sampled and storage textures, and samplers (arrays, texel
+buffers, combined texture-samplers and input targets). It then:
 
-- creates each graph-declared buffer through `ResourceContext` and keeps the future, so a graph resource and an
-  import have one readiness path;
+- creates each graph-declared buffer, image (with one view, arrayed when a binding reads it as an array or it has
+  layers) and sampler through `ResourceContext`, and keeps the future, so a graph resource and an import have one
+  readiness path. A history ring's other copies are created the same way, named `<key>#<n>`. Usage comes from the
+  uses (SRV or UAV per stage), the CPU access, and transfer-destination for `OnNoHistory::Clear`;
 - builds its own set layouts, pipeline layouts and shader objects from the slot table and the copied SPIR-V
   (`rhi::ShaderProgram`), with no `VkPipeline`;
-- makes one descriptor set per (pass, frame slot), one command pool per frame slot, and a timeline semaphore that it
-  registers with `ResourceContext` as a consumer timeline;
+- makes the descriptor sets of each pass: one set of groups per (frame slot, ring phase). A pass that binds history
+  rings has as many phases as the least common multiple of their copy counts, so each set always meets the same
+  copies and is written again only when a row's epoch changes (spec R3). It also makes one command pool per frame
+  slot, and a timeline semaphore that it registers with `ResourceContext` as a consumer timeline;
 - with `PassTimestamps::On`, makes `rhi::GpuTimers` for per-pass times (`LatestTimings()`).
 
 Realize does not block. `FrameSlots` and `Timestamps` have no defaults. The `Graph` destructor blocks: it waits for
@@ -341,8 +373,10 @@ the last submit, unregisters the timeline, then frees what the graph made.
 1. **Frame slot.** If the timeline has not reached the value that this slot last signaled, return `NoFrameSlot`.
    `WaitForFrameSlot(timeout)` blocks for it, outside Tick, on desktop only.
 2. **Poll** (`PollRows`). Map each future to a readiness. A `Created` future whose transfer is not submitted yet is
-   `Pending` (Q4): there is nothing a submit could wait on. LM701 (a supplied object is not a buffer, or is smaller
-   than its declaration's `ByteSize`) and LM702 (a future failed) are reported once per epoch. A row with LM701 is
+   `Pending` (Q4): there is nothing a submit could wait on. A history ring is as ready as its least ready copy.
+   LM701 (a supplied object breaks its import's promise: a buffer smaller than `ByteSize`; an image whose format or
+   layer count differs, or, for `Exact`, whose extent or mip count differs) and LM702 (a future failed) are reported
+   once per epoch. A row with LM701 is
    `Failed` until the next `Supply`.
 3. **Decide** (`DecideRuns`). No pass runs: return `NothingToRun`.
 4. **Params** (`ParamsStore::CheckRuns`). LM703: return `Failed`.
@@ -350,16 +384,20 @@ the last submit, unregisters the timeline, then frees what the graph made.
    where a row changed epoch since the last write.
 6. **Record and submit** (`SubmitFrame`). One `vkCmdPipelineBarrier2` per batch, with one global memory barrier
    that merges the scopes of the batch's rows (every buffer uses concurrent sharing, so this orders the same work as
-   one buffer barrier per row; `ExplainLastTick` still lists the rows). Images, in step 6, add image barriers for their
-   layout changes. Then the passes of that level. The
+   one buffer barrier per row; `ExplainLastTick` still lists the rows), plus one image barrier for each layout change
+   (every mip and layer, color aspect). The clear batch and the clears (`vkCmdFillBuffer`, `vkCmdClearColorImage`)
+   come first. Then the passes of that level. A `DispatchThreadsOver` an image whose extent Compile did not know (an
+   `AnyExtent` import) takes its group count from the image's `Description()`: width, height, and depth or layers. The
    submit waits for each row that a running pass uses and that is `Created`, not `Complete` (CC-R2), with one wait
    per semaphore at the highest value. It signals the graph's timeline.
 7. **Commit** (`CommitRuns`) and return `Submitted`.
 
 For the app: `Timeline()` and `PendingValue()` feed `ResourceContext::Tick`, and `LastSubmit()` is the `GpuWait` that
 a transfer must wait on before it reads what the graph wrote. `Supply` on an imported buffer starts a new epoch. The
-supplier still owns the buffer, and frees an old one only after `LastSubmit()` passes (CC-R4). `BufferOf(key)` gives
-a buffer row's object.
+supplier still owns the buffer, and frees an old one only after `LastSubmit()` passes (CC-R4);
+`ResourceContext::DestroyResource(resource, graph.LastSubmit())` does that. `Supply(image, future, usage)` takes the
+usage the image is in at handoff, and its first barrier starts from that usage's layout. `BufferOf(key)` and
+`ImageOf(key)` give a row's object; for a history ring, the copy the last submitted frame wrote.
 
 **Frames in flight.** Each resource has one copy, and the frame-start batch orders frame N+1 after frame N. Copies per
 frame slot come with async compute (step 8), chosen per resource from measurements.
@@ -370,7 +408,13 @@ The layer's synchronization validation does not check the descriptor accesses of
 1.4.357). It skips a dispatch that has no bound `VkPipeline`, and it ignores shader accesses unless
 `syncval_shader_accesses_heuristic` is on. A spike with `VkPipeline` compute and the heuristic on still caught none
 of the planted barrier faults, so Loom has no pipeline mode for it (removed 2026-11-21). The barrier rules are proven
-in `loom_tests` instead. Syncval still checks copies, fills, layout transitions and present, which steps 6 and 7 use.
+in `loom_tests` instead.
+
+Image layouts have the same gap on this machine. With the image barriers removed, or with every descriptor naming
+`General`, LoomImageTest still matches the CPU and the layer prints nothing (2026-11-21): the NVIDIA driver ignores
+layouts, and the layer does not check a descriptor's layout against the image's for these dispatches. So the layout
+plan is proven in `loom_tests`, and the backend's image barriers and descriptor layouts are not proven by any test.
+A clear that is not recorded is not caught either, because new memory is zero.
 
 ## Formats
 
@@ -425,11 +469,18 @@ When Loom needs something from Lodestone, it stubs it here and adds a row to Lod
 | `test_order.cpp`, `test_explain.cpp` | Order and `Explain`, from hand-made access tables. |
 | `test_diagnostics.cpp` | The catalog and the sinks. |
 | `test_levels.cpp` | Kahn levels, the level-major run order, the persistence rule for LM503, and buffer imports. |
-| `test_runtime.cpp` (`LoomHashFill.slang`) | `Compile`, `DecideRuns` (pending and failed rows, `Once`, and Q3g), `PlanBarriers` (level and frame-start batches, write after reads, epochs), and `ParamsStore` (LM703, LM704), from readiness values written by hand. |
+| `test_runtime.cpp` (`LoomHashFill.slang`, `LoomImages.slang`) | `Compile`, `DecideRuns` (pending and failed rows, `Once`, `WhenInputsChange`, `OnTrigger`, `NoHistory`, Q3g), `PlanBarriers` (level and frame-start batches, write after reads, epochs, image layout changes, history copies, the clear batch), `ParamsStore` (LM703, LM704, the byte compare), and `ExplainLastTick`, from readiness values written by hand. |
 
 `tests/integration_tests/LoomComputeTest` runs on a real device, headless. `HashFillCS` writes `Output` (an imported
 buffer that the test supplies with a sentinel), and `HashAgainCS` reads it and writes `Output2`, so the graph has two
 levels. It runs three Ticks on two frame slots, for both `HASH_TWICE` variants (a graph pin). Every word must match
-the CPU, with zero validation messages.
+the CPU, with zero validation messages. A third case supplies `Output` 4 bytes short and expects one LM701.
+
+`tests/integration_tests/LoomImageTest` runs step 6 on a real device, headless, for eight Ticks: a storage image
+written, then sampled in the next level; an imported image, uploaded by the test and sampled with a point sampler, whose
+extent sizes the dispatch; a history buffer and a history image that count frames through `BindPrevious`
+(`OnNoHistory::Clear`); a `WhenInputsChange` pass that must run twice; and an `OnTrigger` pass that must run twice.
+Every value must match the CPU, with zero validation messages. See "What synchronization validation sees" for what it
+cannot prove.
 
 Every test must be able to fail: plant the fault, see the test fail, and restore the source.

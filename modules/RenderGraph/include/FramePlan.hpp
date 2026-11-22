@@ -25,10 +25,13 @@ namespace loom
 
     // Epoch counts the objects a row has had: Supply of a new future, or the graph's own create, adds one. A new
     // object starts with no pending GPU work, so the barrier state of its row starts again.
+    // InitialLayout is the layout an image is in when its epoch starts: Undefined for a graph image, and the layout of
+    // the usage that Supply stated for an import. Buffers ignore it.
     struct ResourceState
     {
         ResourceReadiness Readiness{ ResourceReadiness::Invalid };
         uint32_t Epoch{ 0u };
+        rhi::ImageLayout InitialLayout{ rhi::ImageLayout::Undefined };
     };
 
     // The stages and the accesses of one use, in the RHI's barrier vocabulary (rhi_types links no RHI). The values
@@ -48,27 +51,32 @@ namespace loom
         SyncScope Write;            // the last write; None when nothing wrote since the object was made
         SyncScope VisibleTo;        // the read scopes that a barrier already made the last write visible to
         SyncScope ReadsSinceWrite;  // the reads after the last write: a new write must wait for them
+        rhi::ImageLayout Layout{ rhi::ImageLayout::Undefined };    // images: the layout after the last barrier
         uint32_t Epoch{ 0u };
+        bool HasContents{ false };  // a pass wrote it, or a clear did, since the object was made (OnNoHistory)
     };
 
-    // A pass's control state, set by the graph's Enable and by the core after each submit.
+    // A pass's control state, set by the graph (Enable, Trigger, Set, Supply) and by the core after each submit.
     struct PassControl
     {
         bool Enabled{ true };
-        bool RanOnce{ false };      // a Once pass that ran and was submitted
+        bool RanOnce{ false };          // the pass ran and was submitted at least once
+        bool InputsChanged{ true };     // WhenInputsChange: a read row or params key changed since the pass last ran
+        bool Triggered{ false };        // OnTrigger: Trigger was called since the pass last ran
     };
 
-    // Why a pass did not run this Tick (ExplainLastTick). Cause is the resource row for NotCreated and Failed, and the
-    // pass for Propagated; -1 for the others.
+    // Why a pass did not run this Tick (ExplainLastTick). Cause is the resource row for NotCreated, Failed and
+    // NoHistory, and the pass for Propagated; -1 for the others.
     enum class SkipReason : uint8_t
     {
         Invalid = 0,
         Ran = 1,
-        Policy = 2,         // Once and already ran. WhenInputsChange and OnTrigger come in step 6.
+        Policy = 2,         // Once and already ran, WhenInputsChange with nothing changed, OnTrigger not triggered
         Disabled = 3,
         NotCreated = 4,
         Failed = 5,
-        Propagated = 6      // a skipped initializing writer of something this pass reads
+        Propagated = 6,     // a skipped initializing writer of something this pass reads
+        NoHistory = 7       // a BindPrevious read with no previous frame yet, and OnNoHistory::Skip
     };
 
     struct PassDecision
@@ -77,15 +85,27 @@ namespace loom
         int32_t Cause{ -1 };
     };
 
+    // A barrier whose layouts differ changes an image's layout; the backend records it as an image barrier. Every
+    // other barrier merges into the batch's one memory barrier.
     struct PlannedBarrier
     {
         int32_t Resource{ -1 };
         SyncScope Before;
         SyncScope After;
+        rhi::ImageLayout OldLayout{ rhi::ImageLayout::Undefined };
+        rhi::ImageLayout NewLayout{ rhi::ImageLayout::Undefined };
+
+        [[nodiscard]] bool ChangesLayout() const noexcept
+        {
+            return OldLayout != NewLayout;
+        }
     };
 
     // The barriers that go before Runs[BeforeRun]: one batch at each level boundary, and one at frame start (before
     // the first run), which covers the work of earlier frames. Barriers[FirstBarrier, FirstBarrier + Count).
+    // BeforeRun k_BeforeClears: the batch before the clears of OnNoHistory::Clear, which come before every run.
+    inline constexpr int32_t k_BeforeClears = -1;
+
     struct BarrierBatch
     {
         int32_t BeforeRun{ -1 };
@@ -100,10 +120,17 @@ namespace loom
         std::vector<int32_t> Runs;              // the passes that run, in run order
         std::vector<PlannedBarrier> Barriers;
         std::vector<BarrierBatch> Batches;
+        std::vector<int32_t> Clears;            // the copies that OnNoHistory::Clear zeroes before the first run
 
-        // scratch, [resource]: the skipped initializing writer (Q3g), and a row's barrier in the open batch
+        // PlannedBarrier::Resource, Clears, BatchBarrier and RowLayouts count copies (CompiledData::CopyRows): a row
+        // with no history is its own copy.
+
+        // scratch, [resource]: the skipped initializing writer (Q3g), a row's barrier in the open batch, and whether
+        // a pass that runs this Tick writes the row (WhenInputsChange rule c)
         std::vector<int32_t> SkippedWriter;
         std::vector<int32_t> BatchBarrier;
+        std::vector<uint8_t> WrittenThisTick;
+        std::vector<rhi::ImageLayout> RowLayouts;   // [copy]: an image's layout as the batches are planned
     };
 
     // FramePlan.cpp: sizes every array of `plan` for the graph.

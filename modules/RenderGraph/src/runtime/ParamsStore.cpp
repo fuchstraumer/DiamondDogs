@@ -50,8 +50,8 @@ namespace
         storage.assign(offset, std::byte{ 0 });
     }
 
-    void ParamsStore::Set(KeyRef key, std::span<const std::byte> bytes, uint32_t alignment, std::source_location where,
-                          DiagnosticSink& sink)
+    int32_t ParamsStore::Set(KeyRef key, std::span<const std::byte> bytes, uint32_t alignment, std::source_location where,
+                             DiagnosticSink& sink)
     {
         const auto sameKey = [&key](const Slot& slot)
         {
@@ -62,7 +62,7 @@ namespace
 
         if (slot == slots.end())
         {
-            return;
+            return k_ParamsUnchanged;
         }
 
         const bool fits = bytes.size() == slot->ByteSize && alignment == slot->Alignment;
@@ -80,11 +80,21 @@ namespace
             };
 
             sink.Report(diag);
-            return;
+            return k_ParamsUnchanged;
         }
 
-        std::memcpy(storage.data() + slot->Offset, bytes.data(), bytes.size());
+        // an app that sets the same values every frame must not rerun its WhenInputsChange passes
+        std::byte* const stored = storage.data() + slot->Offset;
+        const bool same = slot->Set && std::memcmp(stored, bytes.data(), bytes.size()) == 0;
+
+        if (same)
+        {
+            return k_ParamsUnchanged;
+        }
+
+        std::memcpy(stored, bytes.data(), bytes.size());
         slot->Set = true;
+        return static_cast<int32_t>(slot - slots.begin());
     }
 
     bool ParamsStore::IsSet(int32_t params) const noexcept

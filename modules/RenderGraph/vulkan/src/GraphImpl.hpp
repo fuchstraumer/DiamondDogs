@@ -48,11 +48,14 @@ namespace loom
         uint32_t PushBytes{ 0u };
     };
 
-    // One pass's descriptor sets: Sets[frame_slot * GroupCount + group]. WrittenEpochs[frame_slot * SlotCount + slot]
-    // is the epoch of the slot's row when the set was last written; 0 means never.
+    // One pass's descriptor sets, one set of groups per (frame slot, ring phase) (spec R3): a pass that binds history
+    // rings has Phases = the least common multiple of their copy counts, else 1. With
+    // instance = frame_slot * Phases + phase: Sets[instance * GroupCount + group], and WrittenEpochs[instance * SlotCount
+    // + slot] is the epoch of the slot's row when that set was last written; 0 means never.
     struct PassRuntime
     {
         int32_t GroupCount{ 0 };
+        int32_t Phases{ 1 };
         std::vector<VkDescriptorSet> Sets;
         std::vector<uint32_t> WrittenEpochs;
     };
@@ -62,6 +65,14 @@ namespace loom
         rhi::CommandPool Pool;
         uint64_t SignaledValue{ 0u };   // the timeline value of the last submit that used this slot
     };
+
+    struct GraphImpl;
+
+    // The object of one copy (CompiledData::CopyRows): a row's first copy is the row's own future.
+    [[nodiscard]] const rhi::ResourceFuture<GraphicsResource>& FutureOfCopy(const GraphImpl& graph, int32_t copy) noexcept;
+
+    // The instance of a pass's sets that frame `frame_index` uses.
+    [[nodiscard]] int32_t SetInstanceOf(const PassRuntime& pass, int32_t frame_slot, int64_t frame_index) noexcept;
 
     struct GraphImpl
     {
@@ -80,13 +91,15 @@ namespace loom
         rhi::OperationFuture TimelineRegistration;
 
         std::vector<RowRuntime> Rows;
+        // the history copies after each row's first: ExtraCopies[copy - Rows.size()] (CompiledData::ExtraCopyBase)
+        std::vector<rhi::ResourceFuture<GraphicsResource>> ExtraCopies;
         std::vector<PipelineRuntime> Pipelines;
         std::vector<PassRuntime> Passes;
         std::vector<FrameSlotRuntime> FrameSlots;
         VkDescriptorPool DescriptorPool{ VK_NULL_HANDLE };
         int64_t FrameIndex{ 0 };
 
-        // the core's state. States[row] is what the last poll saw.
+        // the core's state. States[row] is what the last poll saw; Sync has one entry per copy.
         std::vector<ResourceState> States;
         std::vector<ResourceSync> Sync;
         std::vector<PassControl> Controls;
@@ -97,6 +110,8 @@ namespace loom
         std::vector<rhi::SemaphoreSubmitInfo> WaitScratch;
         std::vector<VkWriteDescriptorSet> WriteScratch;
         std::vector<VkDescriptorBufferInfo> BufferInfoScratch;
+        std::vector<VkDescriptorImageInfo> ImageInfoScratch;
+        std::vector<rhi::ImageBarrier> ImageBarrierScratch;
         std::vector<rhi::DescriptorSetHandle> SetScratch;
 
         std::optional<rhi::GpuTimers> Timers;

@@ -47,7 +47,9 @@ namespace loom
         int32_t Resource{ -1 };
         ResourceAccess Access{ ResourceAccess::Invalid };
         SyncScope Scope;
+        rhi::ImageLayout Layout{ rhi::ImageLayout::Undefined };   // images: the layout this use needs; buffers: Undefined
         bool Initializes{ false };
+        bool Previous{ false };     // BindPrevious: reads last frame's copy, never this frame's
     };
 
     // A Params statement's key, with the size and alignment of its type (LM704), and the bytes the shader takes.
@@ -94,7 +96,24 @@ namespace loom
         std::vector<PassUse> Uses;
         std::vector<CompiledParams> Params;
         std::vector<ResourceSpan> Spans;            // [resource]
+        std::vector<rhi::ImageLayout> SlotLayouts;  // [slot]: the layout a descriptor names, the use's layout
+
+        // History rings (spec R3): a row with HistoryDepth D has D + 1 copies, each its own object with its own barrier
+        // state. Copy `row` is each row's first copy, so a row with no history is its own copy; the other copies of a
+        // ring follow the rows, from ExtraCopyBase[row]. CopyRows[copy] is the copy's row.
+        std::vector<int32_t> CopyCounts;            // [resource]: 1, or HistoryDepth + 1
+        std::vector<int32_t> ExtraCopyBase;         // [resource]: -1 for a row with one copy
+        std::vector<int32_t> CopyRows;              // [copy]
     };
+
+    // The copy that frame `frame_index` writes (previous false) or reads through BindPrevious (previous true).
+    [[nodiscard]] inline int32_t CopyOf(const CompiledData& data, int32_t row, int64_t frame_index, bool previous) noexcept
+    {
+        const int64_t count = data.CopyCounts[row];
+        const int64_t frame = previous ? frame_index - 1 : frame_index;
+        const int64_t ring = ((frame % count) + count) % count;
+        return ring == 0 ? row : data.ExtraCopyBase[row] + static_cast<int32_t>(ring) - 1;
+    }
 
 }
 

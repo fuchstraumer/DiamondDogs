@@ -13,6 +13,8 @@ namespace loom
         void GatherUses(CompiledData& data);
         void GatherParams(CompiledData& data);
         void ComputeSpans(CompiledData& data);
+        // History rings: the copies of each row (CompiledData::CopyCounts, ExtraCopyBase, CopyRows)
+        void GatherCopies(CompiledData& data);
     }
 }
 

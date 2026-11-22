@@ -37,6 +37,9 @@ namespace loom
         lodestone::TextureDimension Dimension{ lodestone::TextureDimension::Invalid };
         // every GPU use of an image. A copy for an upload belongs to Realize.
         lodestone::TextureUsageFlags TextureUsage{ lodestone::TextureUsageFlags::Invalid };
+        // a binding reads the image as an array, or as a cube: the view that Realize makes must match
+        bool Arrayed{ false };
+        bool Cube{ false };
     };
 
     // One row for each FrozenGraph::Resources row, at the same index. The stage that fills it, Size(), is in Size.hpp.
