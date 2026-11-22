@@ -11,6 +11,7 @@
 #include "RhiResourceFlags.hpp"
 #include "entt/entity/fwd.hpp"
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -54,6 +55,7 @@ using ImagePieceVector = InternalResourceDataContainer::ImageDataVector;
 [[nodiscard]] wgpu::BufferUsage ToWgpuBufferUsage(BufferUsageBits usage, ResourceDomain domain, bool has_initial_data) noexcept;
 [[nodiscard]] bool BufferRangeIsValid(uint64_t offset, uint64_t size, uint64_t buffer_size) noexcept;
 [[nodiscard]] bool BufferPiecesAreValid(const BufferPieceVector& pieces, uint64_t buffer_size);
+[[nodiscard]] uint64_t TotalBufferUploadBytes(const BufferPieceVector& pieces) noexcept;
 [[nodiscard]] bool BufferCopyRegionsAreValid(std::span<const BufferCopyRegion> regions,
                                              uint64_t source_size,
                                              uint64_t destination_size,
@@ -112,6 +114,9 @@ ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateI
 
     futures.Initialize(create_info.MaxFutures, rhi::TimelineSemaphoreHandle{}, nullptr);
 
+    pendingUploads.clear();
+    remainingUploadBudget = k_UploadBytesPerTick;
+    aliveToken = std::make_shared<bool>(true);
     queue = rhiView.Queue;
     validationEnabled = rhiView.ValidationEnabled;
     deviceAddressesEnabled = create_info.DeviceAddressesEnabled;
@@ -124,6 +129,17 @@ void ResourceContextImpl::Destroy()
     if (!device)
     {
         return;
+    }
+
+    if (aliveToken)
+    {
+        *aliveToken = false;
+    }
+
+    while (!pendingUploads.empty())
+    {
+        futures.Fail(pendingUploads.front().FutureSlot, rhi::ResourceError::ResourceRetiring);
+        pendingUploads.pop_front();
     }
 
     resourceRegistry.clear();
@@ -168,7 +184,7 @@ void ResourceContextImpl::processMessage(CreateBufferMessage&& message)
         message.BufferInfo.Usage |= BufferUsageBits::TransferDestination;
     }
 
-    const BufferPieceVector* pieces = nullptr;
+    BufferPieceVector* pieces = nullptr;
 
     if (message.InitialData.has_value())
     {
@@ -189,14 +205,38 @@ void ResourceContextImpl::processMessage(CreateBufferMessage&& message)
         return;
     }
 
+    const ResourceDescription description = DescribeBuffer(message.BufferInfo);
+
     if (pieces != nullptr)
     {
         const entt::entity entity = entt::entity(created->EntityHandle);
         const wgpu::Buffer& buffer = resourceRegistry.get<wgpu::Buffer>(entity);
-        writeBufferPieces(buffer, *pieces);
+        const uint64_t totalBytes = TotalBufferUploadBytes(*pieces);
+
+        if (pendingUploads.empty() && totalBytes <= remainingUploadBudget)
+        {
+            writeBufferPieces(buffer, *pieces);
+            remainingUploadBudget -= totalBytes;
+            futures.CompleteWithResource(message.Future, *created, description);
+        }
+        else
+        {
+            PendingUpload upload{};
+            upload.Buffer = buffer;
+            upload.Pieces = std::move(*pieces);
+            upload.PieceIndex = 0;
+            upload.ByteOffset = 0u;
+            upload.FutureSlot = message.Future;
+            upload.IsCreate = true;
+            upload.Resource = *created;
+            upload.Description = description;
+            pendingUploads.push_back(std::move(upload));
+        }
+
+        return;
     }
 
-    futures.CompleteWithResource(message.Future, *created, DescribeBuffer(message.BufferInfo));
+    futures.CompleteWithResource(message.Future, *created, description);
 }
 
 void ResourceContextImpl::processMessage(CreateImageMessage&& message)
@@ -319,7 +359,7 @@ void ResourceContextImpl::processMessage(SetBufferDataMessage&& message)
         return;
     }
 
-    const BufferPieceVector* pieces = std::get_if<BufferPieceVector>(&message.Data.DataVector);
+    BufferPieceVector* pieces = std::get_if<BufferPieceVector>(&message.Data.DataVector);
 
     if (pieces == nullptr || !BufferPiecesAreValid(*pieces, info.Size))
     {
@@ -327,8 +367,24 @@ void ResourceContextImpl::processMessage(SetBufferDataMessage&& message)
         return;
     }
 
-    writeBufferPieces(buffer, *pieces);
-    futures.Complete(message.Future);
+    const uint64_t totalBytes = TotalBufferUploadBytes(*pieces);
+
+    if (pendingUploads.empty() && totalBytes <= remainingUploadBudget)
+    {
+        writeBufferPieces(buffer, *pieces);
+        remainingUploadBudget -= totalBytes;
+        futures.Complete(message.Future);
+        return;
+    }
+
+    PendingUpload upload{};
+    upload.Buffer = buffer;
+    upload.Pieces = std::move(*pieces);
+    upload.PieceIndex = 0;
+    upload.ByteOffset = 0u;
+    upload.FutureSlot = message.Future;
+    upload.IsCreate = false;
+    pendingUploads.push_back(std::move(upload));
 }
 
 void ResourceContextImpl::processMessage(SetImageDataMessage&& message)
@@ -440,7 +496,8 @@ void ResourceContextImpl::processMessage([[maybe_unused]] ExitWorkerMessage&& me
 
 void ResourceContextImpl::processMessage([[maybe_unused]] TickMessage&& message)
 {
-    // no timelines exist on WebGPU: the browser frees a destroyed object once the GPU is done with it
+    remainingUploadBudget = k_UploadBytesPerTick;
+    drainPendingUploads();
 }
 
 void ResourceContextImpl::processMessage(RegisterConsumerTimelineMessage&& message)
@@ -787,6 +844,80 @@ void ResourceContextImpl::writeBufferPieces(const wgpu::Buffer& buffer, const Bu
     for (const InternalResourceDataContainer::BufferData& piece : pieces)
     {
         queue.WriteBuffer(buffer, piece.DestinationOffset, piece.Data.get(), piece.Size);
+    }
+}
+
+void ResourceContextImpl::drainPendingUploads()
+{
+    while (!pendingUploads.empty())
+    {
+        PendingUpload& upload = pendingUploads.front();
+
+        while (upload.PieceIndex < static_cast<int32_t>(std::ssize(upload.Pieces)))
+        {
+            const InternalResourceDataContainer::BufferData& piece = upload.Pieces[upload.PieceIndex];
+            const uint64_t pieceSize = static_cast<uint64_t>(piece.Size);
+
+            if (upload.ByteOffset >= pieceSize)
+            {
+                ++upload.PieceIndex;
+                upload.ByteOffset = 0u;
+                continue;
+            }
+
+            const uint64_t remainingInPiece = pieceSize - upload.ByteOffset;
+
+            if (remainingInPiece >= 4u)
+            {
+                const uint64_t rawChunk = std::min(remainingInPiece, remainingUploadBudget);
+                const uint64_t alignedChunk = (rawChunk / 4u) * 4u;
+
+                if (alignedChunk == 0u)
+                {
+                    return;
+                }
+
+                queue.WriteBuffer(upload.Buffer,
+                                  piece.DestinationOffset + upload.ByteOffset,
+                                  piece.Data.get() + upload.ByteOffset,
+                                  static_cast<size_t>(alignedChunk));
+                upload.ByteOffset += alignedChunk;
+                remainingUploadBudget -= alignedChunk;
+            }
+            else
+            {
+                if (remainingUploadBudget < 4u)
+                {
+                    return;
+                }
+
+                std::array<std::byte, 4> tail{};
+                std::copy_n(piece.Data.get() + upload.ByteOffset, static_cast<size_t>(remainingInPiece), tail.data());
+                queue.WriteBuffer(upload.Buffer,
+                                  piece.DestinationOffset + upload.ByteOffset,
+                                  tail.data(),
+                                  4u);
+                upload.ByteOffset = pieceSize;
+                remainingUploadBudget -= 4u;
+            }
+
+            if (upload.ByteOffset >= pieceSize)
+            {
+                ++upload.PieceIndex;
+                upload.ByteOffset = 0u;
+            }
+        }
+
+        if (upload.IsCreate)
+        {
+            futures.CompleteWithResource(upload.FutureSlot, upload.Resource, upload.Description);
+        }
+        else
+        {
+            futures.Complete(upload.FutureSlot);
+        }
+
+        pendingUploads.pop_front();
     }
 }
 
@@ -1498,6 +1629,18 @@ ResourceDescription DescribeImage(const ImageCreateInfo& info, ResourceType type
     description.SampleCount = static_cast<int32_t>(info.SampleCount);
     description.InitialUsage = initial_usage;
     return description;
+}
+
+uint64_t TotalBufferUploadBytes(const BufferPieceVector& pieces) noexcept
+{
+    uint64_t totalBytes = 0u;
+
+    for (const InternalResourceDataContainer::BufferData& piece : pieces)
+    {
+        totalBytes += static_cast<uint64_t>(piece.Size);
+    }
+
+    return totalBytes;
 }
 
 } // namespace

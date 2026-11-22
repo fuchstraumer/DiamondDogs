@@ -10,7 +10,9 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <expected>
+#include <memory>
 
 #include <entt/entity/registry.hpp>
 #include <webgpu/webgpu_cpp.h>
@@ -35,6 +37,20 @@ public:
     [[nodiscard]] MemoryBudgetSnapshot MemoryBudgets() const noexcept;
 
 private:
+    static constexpr uint64_t k_UploadBytesPerTick = 4u * 1024u * 1024u;
+
+    struct PendingUpload
+    {
+        wgpu::Buffer Buffer;
+        InternalResourceDataContainer::BufferDataVector Pieces;
+        int32_t PieceIndex{ 0 };
+        uint64_t ByteOffset{ 0u };
+        int32_t FutureSlot{ -1 };
+        bool IsCreate{ false };
+        GraphicsResource Resource{};
+        ResourceDescription Description{};
+    };
+
     struct ResourceFlags
     {
         ResourceType Type;
@@ -81,6 +97,7 @@ private:
                                                                                         const DebugName& name) const;
 
     void writeBufferPieces(const wgpu::Buffer& buffer, const InternalResourceDataContainer::BufferDataVector& pieces) const;
+    void drainPendingUploads();
     void writeImagePieces(const wgpu::Texture& texture,
                           const ImageCreateInfo& info,
                           const InternalResourceDataContainer::ImageDataVector& pieces) const;
@@ -92,6 +109,9 @@ private:
     wgpu::Queue queue;
     entt::registry resourceRegistry;
     rhi::FutureTable futures;
+    std::deque<PendingUpload> pendingUploads;
+    std::shared_ptr<bool> aliveToken;
+    uint64_t remainingUploadBudget{ k_UploadBytesPerTick };
 
     std::atomic<int64_t> messagesProcessed{ 0 };
     std::atomic<int64_t> resourcesRetired{ 0 };
