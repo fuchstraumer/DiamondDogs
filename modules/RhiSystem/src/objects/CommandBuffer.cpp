@@ -11,7 +11,6 @@
 #include <cstdint>
 #include <iostream>
 #include <optional>
-#include <ranges>
 #include <span>
 #include <utility>
 
@@ -27,7 +26,6 @@ namespace rhi
     namespace
     {
         // Inline stack capacities so typical command buffer recordings allocate nothing on the heap
-        constexpr std::size_t k_HandleInlineCapacity{ 32 };          // 32 * 8B = 256B (descriptor sets, vertex buffers)
         constexpr std::size_t k_ColorAttachmentInlineCapacity{ 8 };  // 8 * 72B = 576B
         constexpr std::size_t k_BarrierInlineCapacity{ 16 };
         constexpr std::size_t k_CopyRegionInlineCapacity{ 16 };
@@ -117,16 +115,6 @@ namespace rhi
 #ifdef RHI_SYSTEM_USE_VULKAN
     namespace
     {
-        // the RHI handles are 64-bit values, and so are the Vulkan non-dispatchable handles they carry
-        template<typename VkType, std::size_t InlineCapacity = k_HandleInlineCapacity, typename HandleType>
-        [[nodiscard]] foundation::SmallVector<VkType, InlineCapacity> ToVulkanHandles(std::span<const HandleType> handles) noexcept
-        {
-            return foundation::SmallVector<VkType, InlineCapacity>(
-                std::from_range,
-                handles | std::views::transform([](const HandleType& handle) noexcept { return handle.template As<VkType>(); })
-            );
-        }
-
         struct ToVulkanFn
         {
             [[nodiscard]] VkRenderingAttachmentInfo operator()(const ColorAttachment& attachment) const noexcept
@@ -238,10 +226,12 @@ namespace rhi
     void CommandBuffer::BeginRendering(const RenderingInfo& rendering_info) noexcept
     {
         assert(isRecording && "CommandBuffer::BeginRendering() called while not in recording mode.");
-        const foundation::SmallVector<VkRenderingAttachmentInfo, k_ColorAttachmentInlineCapacity> colorAttachments(
-            std::from_range,
-            rendering_info.ColorAttachments | std::views::transform(k_ToVulkan)
-        );
+        foundation::SmallVector<VkRenderingAttachmentInfo, k_ColorAttachmentInlineCapacity> colorAttachments;
+        colorAttachments.reserve(rendering_info.ColorAttachments.size());
+        for (const ColorAttachment& attachment : rendering_info.ColorAttachments)
+        {
+            colorAttachments.push_back(k_ToVulkan(attachment));
+        }
 
         VkRenderingAttachmentInfo depthAttachment{};
         VkRenderingAttachmentInfo stencilAttachment{};
@@ -309,13 +299,13 @@ namespace rhi
                                            std::span<const uint32_t> dynamic_offsets) noexcept
     {
         assert(isRecording && "CommandBuffer::BindDescriptorSets() called while not in recording mode.");
-        const foundation::SmallVector<VkDescriptorSet, k_HandleInlineCapacity> sets = ToVulkanHandles<VkDescriptorSet>(descriptor_sets);
+        static_assert(sizeof(DescriptorSetHandle) == sizeof(VkDescriptorSet) && alignof(DescriptorSetHandle) == alignof(VkDescriptorSet));
         vkCmdBindDescriptorSets(handle.As<VkCommandBuffer>(),
                                 vk::ToVulkan(bind_point),
                                 layout.As<VkPipelineLayout>(),
                                 first_set,
-                                static_cast<uint32_t>(sets.size()),
-                                sets.data(),
+                                static_cast<uint32_t>(descriptor_sets.size()),
+                                reinterpret_cast<const VkDescriptorSet*>(descriptor_sets.data()),
                                 static_cast<uint32_t>(dynamic_offsets.size()),
                                 dynamic_offsets.data());
     }
@@ -341,8 +331,9 @@ namespace rhi
     {
         assert(isRecording && "CommandBuffer::BindVertexBuffers() called while not in recording mode.");
         assert(buffers.size() == offsets.size() && "CommandBuffer::BindVertexBuffers() needs one offset per buffer.");
-        const foundation::SmallVector<VkBuffer, k_HandleInlineCapacity> vkBuffers = ToVulkanHandles<VkBuffer>(buffers);
-        vkCmdBindVertexBuffers(handle.As<VkCommandBuffer>(), first_binding, static_cast<uint32_t>(vkBuffers.size()), vkBuffers.data(), offsets.data());
+        static_assert(sizeof(BufferHandle) == sizeof(VkBuffer) && alignof(BufferHandle) == alignof(VkBuffer));
+        vkCmdBindVertexBuffers(handle.As<VkCommandBuffer>(), first_binding, static_cast<uint32_t>(buffers.size()),
+                               reinterpret_cast<const VkBuffer*>(buffers.data()), offsets.data());
     }
 
     void CommandBuffer::Draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance) noexcept
@@ -372,18 +363,26 @@ namespace rhi
     void CommandBuffer::Barrier(const DependencyInfo& dependencies) noexcept
     {
         assert(isRecording && "CommandBuffer::Barrier() called while not in recording mode.");
-        const foundation::SmallVector<VkMemoryBarrier2, k_BarrierInlineCapacity> memoryBarriers(
-            std::from_range,
-            dependencies.GlobalBarriers | std::views::transform(k_ToVulkan)
-        );
-        const foundation::SmallVector<VkBufferMemoryBarrier2, k_BarrierInlineCapacity> bufferBarriers(
-            std::from_range,
-            dependencies.BufferBarriers | std::views::transform(k_ToVulkan)
-        );
-        const foundation::SmallVector<VkImageMemoryBarrier2, k_BarrierInlineCapacity> imageBarriers(
-            std::from_range,
-            dependencies.ImageBarriers | std::views::transform(k_ToVulkan)
-        );
+        foundation::SmallVector<VkMemoryBarrier2, k_BarrierInlineCapacity> memoryBarriers;
+        memoryBarriers.reserve(dependencies.GlobalBarriers.size());
+        for (const GlobalBarrier& barrier : dependencies.GlobalBarriers)
+        {
+            memoryBarriers.push_back(k_ToVulkan(barrier));
+        }
+
+        foundation::SmallVector<VkBufferMemoryBarrier2, k_BarrierInlineCapacity> bufferBarriers;
+        bufferBarriers.reserve(dependencies.BufferBarriers.size());
+        for (const BufferBarrier& barrier : dependencies.BufferBarriers)
+        {
+            bufferBarriers.push_back(k_ToVulkan(barrier));
+        }
+
+        foundation::SmallVector<VkImageMemoryBarrier2, k_BarrierInlineCapacity> imageBarriers;
+        imageBarriers.reserve(dependencies.ImageBarriers.size());
+        for (const ImageBarrier& barrier : dependencies.ImageBarriers)
+        {
+            imageBarriers.push_back(k_ToVulkan(barrier));
+        }
 
         const VkDependencyInfo dependencyInfo
         {
@@ -417,10 +416,12 @@ namespace rhi
     void CommandBuffer::CopyImageToBuffer(const ImageHandle& src, ImageLayout src_layout, const BufferHandle& dst, std::span<const BufferImageCopy> regions) noexcept
     {
         assert(isRecording && "CommandBuffer::CopyImageToBuffer() called while not in recording mode.");
-        const foundation::SmallVector<VkBufferImageCopy, k_CopyRegionInlineCapacity> vkRegions(
-            std::from_range,
-            regions | std::views::transform(k_ToVulkan)
-        );
+        foundation::SmallVector<VkBufferImageCopy, k_CopyRegionInlineCapacity> vkRegions;
+        vkRegions.reserve(regions.size());
+        for (const BufferImageCopy& region : regions)
+        {
+            vkRegions.push_back(k_ToVulkan(region));
+        }
         vkCmdCopyImageToBuffer(handle.As<VkCommandBuffer>(), src.As<VkImage>(), vk::ToVulkan(src_layout), dst.As<VkBuffer>(),
                                static_cast<uint32_t>(vkRegions.size()), vkRegions.data());
     }
@@ -428,10 +429,12 @@ namespace rhi
     void CommandBuffer::CopyBufferToImage(const BufferHandle& src, const ImageHandle& dst, ImageLayout dst_layout, std::span<const BufferImageCopy> regions) noexcept
     {
         assert(isRecording && "CommandBuffer::CopyBufferToImage() called while not in recording mode.");
-        const foundation::SmallVector<VkBufferImageCopy, k_CopyRegionInlineCapacity> vkRegions(
-            std::from_range,
-            regions | std::views::transform(k_ToVulkan)
-        );
+        foundation::SmallVector<VkBufferImageCopy, k_CopyRegionInlineCapacity> vkRegions;
+        vkRegions.reserve(regions.size());
+        for (const BufferImageCopy& region : regions)
+        {
+            vkRegions.push_back(k_ToVulkan(region));
+        }
         vkCmdCopyBufferToImage(handle.As<VkCommandBuffer>(), src.As<VkBuffer>(), dst.As<VkImage>(), vk::ToVulkan(dst_layout),
                                static_cast<uint32_t>(vkRegions.size()), vkRegions.data());
     }
@@ -440,10 +443,12 @@ namespace rhi
                                   std::span<const ImageBlit> regions, BlitFilter filter) noexcept
     {
         assert(isRecording && "CommandBuffer::BlitImage() called while not in recording mode.");
-        const foundation::SmallVector<VkImageBlit, k_CopyRegionInlineCapacity> vkRegions(
-            std::from_range,
-            regions | std::views::transform(k_ToVulkan)
-        );
+        foundation::SmallVector<VkImageBlit, k_CopyRegionInlineCapacity> vkRegions;
+        vkRegions.reserve(regions.size());
+        for (const ImageBlit& region : regions)
+        {
+            vkRegions.push_back(k_ToVulkan(region));
+        }
 
         const VkFilter vkFilter = filter == BlitFilter::Linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
         vkCmdBlitImage(handle.As<VkCommandBuffer>(), src.As<VkImage>(), vk::ToVulkan(src_layout), dst.As<VkImage>(), vk::ToVulkan(dst_layout),
