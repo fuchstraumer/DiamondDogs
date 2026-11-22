@@ -80,6 +80,10 @@ enum class ImageDataType : uint8_t
     sRGB,       // sRGB color space
 };
 
+// todo-ship: this can be made one byte if we just unite the two fields
+// this is worth doing because it's able to give us 12-ish bytes back 
+// on our biggest struct for the transfer system message variant, which is
+// sized on the worst case... which has a struct with two of these in it.
 struct ImageFormat
 {
     ImageComponentFormats ComponentFormat{ ImageComponentFormats::Invalid };
@@ -102,7 +106,7 @@ struct ImageFormat
     }
     
     // Check if format is valid
-    constexpr bool IsValid() const noexcept
+    [[nodiscard]] constexpr bool IsValid() const noexcept
     {
         return ComponentFormat != ImageComponentFormats::Invalid;
     }

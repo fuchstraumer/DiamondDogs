@@ -3,7 +3,7 @@
 #define RESOURCE_MESSAGE_TYPES_INTERNAL_HPP
 #include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
-
+#include "containers/SmallVector.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -17,7 +17,11 @@
 /** @brief A debug name, copied on the calling thread when the message is built. The create infos carry a
  *  `std::string_view`, and the caller's string may be gone by the time the worker reads the message, so we copy it
  *  into this fixed buffer instead of keeping the view. Longer names are truncated. The text is always
- *  null-terminated, because Vulkan's object naming reads a C string. */
+ *  null-terminated, because Vulkan's object naming reads a C string. 
+ *  @note We don't use SmallVector here, as while that would let us spill to heap for longer names,
+ *  it also shortens the length of the string we can store on the stack bc it has an internal wide size
+ *  member. 64 bytes is tidy, it fits neatly in a cache line and is sufficient for most debug names
+ */
 struct DebugName
 {
     static constexpr int32_t k_Capacity = 63;
@@ -36,7 +40,7 @@ struct DebugName
     int8_t Length{ 0 };
 };
 
-static_assert(sizeof(DebugName) == 64, "DebugName is sized to one cache line");
+static_assert(sizeof(DebugName) == 64, "DebugName is sized to ~1 cache line");
 
 /** @brief The waits of one transfer call, in a fixed array so that the message needs no allocation. */
 struct TransferWaitSet
@@ -63,6 +67,13 @@ struct RegionBlock
 using CopyRegionBlock = RegionBlock<BufferCopyRegion>;
 using BufferImageRegionBlock = RegionBlock<BufferImageRegion>;
 using ImageCopyRegionBlock = RegionBlock<ImageCopyRegion>;
+
+// declare extern instantiations of the RegionBlock template for the commonly used region types
+// silences warnings about missing template instantiations for the commonly used region types, ensuring that the compiler
+// does not generate multiple definitions across translation units.
+extern template struct RegionBlock<BufferCopyRegion>;
+extern template struct RegionBlock<BufferImageRegion>;
+extern template struct RegionBlock<ImageCopyRegion>;
 
 /** @brief The ops and the range ends of one transfer set, in one heap block: the ops first, then the range ends. One
  *  allocation for each set, and none for each op. */

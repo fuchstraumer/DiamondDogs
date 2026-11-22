@@ -1,13 +1,12 @@
 #pragma once
 #ifndef DIAMOND_DOGS_TRANSFER_SYSTEM_MESSAGES_INTERNAL_HPP
 #define DIAMOND_DOGS_TRANSFER_SYSTEM_MESSAGES_INTERNAL_HPP
+#include "ResourceTypes.hpp"
 #include "ResourceMessageTypesInternal.hpp"
-
 #include <cstdint>
 #include <cstddef>
 #include <memory>
 #include <variant>
-
 #include <vulkan/vulkan_core.h>
 
 // following message types are broadly the same, but feature extra info to reduce need for thread sync or
@@ -128,7 +127,7 @@ struct ResolvedTransferOp
 /** @brief A transfer set for the transfer thread. The worker checked every op. `Set` is kept for its range ends, and
  *  `Data` is the bytes of the uploads: the transfer thread stages them once, and the ops read them by offset.
  *  `StagingAlignment` is a multiple of the buffer offset alignment of every image upload in the set. */
-struct TransferSystemTransferSetMessage
+struct TransferSystemTransferSetMessage // 144 -> 152
 {
     std::unique_ptr<ResolvedTransferOp[]> Ops;
     int32_t OpCount{ 0 };
@@ -137,7 +136,7 @@ struct TransferSystemTransferSetMessage
     uint64_t StagingAlignment{ 1u };
     int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
-    TransferWaitSet Waits;
+    TransferWaitSet Waits{};
 };
 
 /** @brief Tells the transfer thread to return, so that it can block on an empty queue instead of polling a flag. */

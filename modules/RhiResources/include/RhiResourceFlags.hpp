@@ -16,7 +16,7 @@
 
 
 /** @brief Describes where the resource is used or where it is stored within hardware domains */
-enum class ResourceDomain : uint16_t
+enum class ResourceDomain : uint8_t
 {
     Invalid = 0,
     GPUOnly,
@@ -26,7 +26,7 @@ enum class ResourceDomain : uint16_t
 };
 
 /** @brief Describes the fundamental resource type, i.e. is it a buffer or image or sampler etc */
-enum class ResourceType : uint16_t
+enum class ResourceType : uint8_t
 {
     Invalid = 0,
     Buffer,
@@ -40,7 +40,7 @@ enum class ResourceType : uint16_t
 };
 
 /** @brief Combinations of flag bits that control resource creation behavior and specific usage hints */
-enum class ResourceCreationFlags : uint16_t
+enum class ResourceCreationFlags : uint8_t
 {
     None = 0,
     // bit 0 was UserDataAsNameString. Names are now the create infos' Name field
@@ -340,7 +340,9 @@ enum class ComponentSwizzle : uint8_t
     Red,
     Green,
     Blue,
-    Alpha
+    Alpha,
+    Zero,
+    One
 };
 
 enum class ImageFilteringMode : uint8_t

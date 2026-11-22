@@ -97,10 +97,10 @@ struct BufferCreateInfo
 {
     ResourceDomain Domain{ ResourceDomain::Invalid };
     ResourceCreationFlags Flags{ ResourceCreationFlags::None };
-    BufferUsageBits Usage{ BufferUsageBits::Invalid };
-    size_t Size{ 0u };
     /** @brief If this member is given, the buffer will be created with a correponding BufferView object. Otherwise, we won't create a view. */
     std::optional<ImageFormat> ViewFormat{ std::nullopt };
+    BufferUsageBits Usage{ BufferUsageBits::Invalid };
+    size_t Size{ 0u };
     /** @brief Optional debug name. ResourceContext copies it when the create call is made, so the string only has to
      *  live until the call returns. Names longer than 62 characters are truncated. */
     std::string_view Name;
@@ -121,11 +121,28 @@ struct ImageRange
  */
 struct ImageComponentMapping
 {
-    ComponentSwizzle R{ ComponentSwizzle::Red };
-    ComponentSwizzle G{ ComponentSwizzle::Green };
-    ComponentSwizzle B{ ComponentSwizzle::Blue };
-    ComponentSwizzle A{ ComponentSwizzle::Alpha };
+    uint16_t R : 4 = 0;
+    uint16_t G : 4 = 1;
+    uint16_t B : 4 = 2;
+    uint16_t A : 4 = 3;
+    [[nodiscard]] constexpr ComponentSwizzle Red() const noexcept
+    {
+        return static_cast<ComponentSwizzle>(R);
+    }
+    [[nodiscard]] constexpr ComponentSwizzle Green() const noexcept
+    {
+        return static_cast<ComponentSwizzle>(G);
+    }
+    [[nodiscard]] constexpr ComponentSwizzle Blue() const noexcept
+    {
+        return static_cast<ComponentSwizzle>(B);
+    }
+    [[nodiscard]] constexpr ComponentSwizzle Alpha() const noexcept
+    {
+        return static_cast<ComponentSwizzle>(A);
+    }
 };
+static_assert(sizeof(ImageComponentMapping) == 2, "ImageComponentMapping should be packed into two bytes");
 
 /** @brief Default component mapping where each channel maps to itself (RGBA -> RGBA) */
 constexpr static inline ImageComponentMapping IdentityImageSwizzle{};
@@ -173,32 +190,27 @@ struct SamplerCreateInfo
         IntCustom
     };
 
-
+    // some of these members will seem in a weird order, but this order
+    // cuts out a ton of excess padding that is added since we have so 
+    // many members that are just 1 byte in size
     ImageFilteringMode MagFilter{ ImageFilteringMode::Linear };
     ImageFilteringMode MinFilter{ ImageFilteringMode::Linear };
     ImageFilteringMode MipFilter{ ImageFilteringMode::Linear };
-
     AddressMode AddressU{ AddressMode::Repeat };
     AddressMode AddressV{ AddressMode::Repeat };
     AddressMode AddressW{ AddressMode::Repeat };
-
-    float MipLoadBias{ 0.0f };
-
     bool AnisotropyEnabled{ false };
-    float MaxAnisotropy{ 1.0f };
-
     bool CompareEnabled{ false };
     ImageCompareOp CompareOp{ ImageCompareOp::None };
-
+    ImageBorderColor BorderColor{ ImageBorderColor::None };
+    bool UnnormalizedCoordinates{ false };
+    float MipLoadBias{ 0.0f };
+    float MaxAnisotropy{ 1.0f };
     float MinLod{ 0.0f };
     float MaxLod{ 1e10f };
-
-    ImageBorderColor BorderColor{ ImageBorderColor::None };
     // all values set to -1.0, so that validation checks in the rendergraph
     // can catch when this is not properly set (-1.0f, invalid color, because 0.0f is fine)
     std::optional<math::Float4> CustomBorderColor{ std::nullopt };
-
-    bool UnnormalizedCoordinates{ false };
     std::string_view Name{};
 };
 
@@ -206,9 +218,9 @@ struct ImageCreateInfo
 {
     ResourceDomain Domain{ ResourceDomain::Invalid };
     ResourceCreationFlags Flags{ ResourceCreationFlags::None };
-    ImageUsageBits Usage{ ImageUsageBits::Invalid };
     ImageType Type{ ImageType::Invalid };
     ImageFormat Format;
+    ImageUsageBits Usage{ ImageUsageBits::Invalid };
     uint32_t Width{ 0u };
     uint32_t Height{ 0u };
     uint32_t Depth{ 0u };
@@ -253,6 +265,7 @@ struct GraphicsResource
     uint32_t EntityHandle{ 0u };
     uint64_t VkHandle{ 0u };
     uint64_t VkViewHandle{ 0u };
+    // todo-ship: these two fields could be overlapped: DeviceAddress is only for buffers!
     uint64_t VkSamplerHandle{ 0u };
     uint64_t DeviceAddress{ 0u };
 };
