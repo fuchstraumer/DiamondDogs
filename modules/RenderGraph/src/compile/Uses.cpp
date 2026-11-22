@@ -7,7 +7,9 @@
 #include "ShaderLibraryTypes.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include <algorithm>
+#include "RhiFlags.hpp"
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 // Each pass's use of each resource row, for readiness, Q3g and the barriers. Bound slots give the shader uses; an
@@ -18,24 +20,26 @@ namespace loom::compile
 namespace
 {
 
-    SyncStage ToSyncStages(lodestone::ShaderStageKind stages)
+    rhi::PipelineStage ToPipelineStages(lodestone::ShaderStageKind stages)
     {
+        constexpr std::pair<lodestone::ShaderStageKind, rhi::PipelineStage> k_Table[]
+        {
+            { lodestone::ShaderStageKind::Vertex, rhi::PipelineStage::VertexShader },
+            { lodestone::ShaderStageKind::Fragment, rhi::PipelineStage::FragmentShader },
+            { lodestone::ShaderStageKind::Compute, rhi::PipelineStage::ComputeShader },
+            { lodestone::ShaderStageKind::Task, rhi::PipelineStage::TaskShader },
+            { lodestone::ShaderStageKind::Mesh, rhi::PipelineStage::MeshShader },
+        };
+
         const uint32_t bits = static_cast<uint32_t>(stages);
-        SyncStage result = SyncStage::None;
+        rhi::PipelineStage result = rhi::PipelineStage::None;
 
-        if ((bits & static_cast<uint32_t>(lodestone::ShaderStageKind::Vertex)) != 0u)
+        for (const auto& [stage, pipelineStage] : k_Table)
         {
-            result |= SyncStage::Vertex;
-        }
-
-        if ((bits & static_cast<uint32_t>(lodestone::ShaderStageKind::Fragment)) != 0u)
-        {
-            result |= SyncStage::Fragment;
-        }
-
-        if ((bits & static_cast<uint32_t>(lodestone::ShaderStageKind::Compute)) != 0u)
-        {
-            result |= SyncStage::Compute;
+            if ((bits & static_cast<uint32_t>(stage)) != 0u)
+            {
+                result |= pipelineStage;
+            }
         }
 
         return result;
@@ -69,8 +73,9 @@ namespace
         return writes ? ResourceAccess::Write : ResourceAccess::Read;
     }
 
-    // The accesses of a bound slot, by binding kind. A sampler has none: it is a use for readiness only.
-    SyncAccess AccessesOf(const BindingSlot& slot)
+    // The accesses of a bound slot, by binding kind. Storage and sampled reads use the narrow synchronization2 bits,
+    // so a barrier to one does not count as visibility to the other. A sampler has none: it is a use for readiness only.
+    rhi::Access AccessesOf(const BindingSlot& slot)
     {
         switch (slot.Kind)
         {
@@ -79,23 +84,31 @@ namespace
         case lodestone::BindingKind::ParameterBlock:
             [[fallthrough]];
         case lodestone::BindingKind::InlineUniform:
-            return SyncAccess::UniformRead;
-        case lodestone::BindingKind::StorageBuffer:
-            [[fallthrough]];
+            return rhi::Access::UniformRead;
         case lodestone::BindingKind::TexelBuffer:
+        {
+            // a texel buffer that is only read binds as a uniform texel buffer, which is a sampled read
+            if (!Writes(slot.Access))
+            {
+                return rhi::Access::ShaderSampledRead;
+            }
+
+            [[fallthrough]];
+        }
+        case lodestone::BindingKind::StorageBuffer:
             [[fallthrough]];
         case lodestone::BindingKind::StorageTexture:
         {
-            SyncAccess accesses = SyncAccess::None;
+            rhi::Access accesses = rhi::Access::None;
 
             if (Reads(slot.Access))
             {
-                accesses |= SyncAccess::ShaderRead;
+                accesses |= rhi::Access::ShaderStorageRead;
             }
 
             if (Writes(slot.Access))
             {
-                accesses |= SyncAccess::ShaderWrite;
+                accesses |= rhi::Access::ShaderStorageWrite;
             }
 
             return accesses;
@@ -103,16 +116,16 @@ namespace
         case lodestone::BindingKind::Texture:
             [[fallthrough]];
         case lodestone::BindingKind::CombinedTextureSampler:
-            [[fallthrough]];
+            return rhi::Access::ShaderSampledRead;
         case lodestone::BindingKind::InputRenderTarget:
-            return SyncAccess::ShaderRead;
+            return rhi::Access::InputAttachmentRead;
         case lodestone::BindingKind::Sampler:
             [[fallthrough]];
         default:
             break;
         }
 
-        return SyncAccess::None;
+        return rhi::Access::None;
     }
 
     void AddUse(std::vector<PassUse>& uses, int32_t first_use, const PassUse& use)
@@ -146,7 +159,7 @@ namespace
         {
             .Resource = arguments.Value,
             .Access = ResourceAccess::Read,
-            .Scope = SyncScope{ .Stages = SyncStage::Indirect, .Accesses = SyncAccess::IndirectRead },
+            .Scope = SyncScope{ .Stages = rhi::PipelineStage::DrawIndirect, .Accesses = rhi::Access::IndirectCommandRead },
         };
 
         AddUse(uses, first_use, use);
@@ -179,7 +192,7 @@ namespace
                 {
                     .Resource = slot.Resource.Value,
                     .Access = slot.Access,
-                    .Scope = SyncScope{ .Stages = ToSyncStages(slot.Stages), .Accesses = AccessesOf(slot) },
+                    .Scope = SyncScope{ .Stages = ToPipelineStages(slot.Stages), .Accesses = AccessesOf(slot) },
                 };
 
                 AddUse(data.Uses, pass.FirstUse, use);

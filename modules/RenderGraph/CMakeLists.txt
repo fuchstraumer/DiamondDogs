@@ -118,18 +118,14 @@ add_module(loom
     ${LOOM_SOURCES}
 )
 
-# The core links no RHI: each backend (loom_vulkan below, loom_webgpu later) does. The core reads two plain headers
-# of RhiResources by path only, for SamplerCreateInfo: ResourceTypes.hpp and RhiResourceFlags.hpp include nothing but
-# foundation. It does not link rhi_resources, which links the Vulkan RHI.
-target_include_directories(loom PUBLIC
-    "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../RhiResources/include"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../foundation/include")
+# The core links no RHI: each backend (loom_vulkan below, loom_webgpu later) does. It links the plain-type targets of
+# RhiSystem and RhiResources (the barrier vocabulary, SamplerCreateInfo, ResourceDescription), which link no RHI.
+target_include_directories(loom PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
 # The freeze/ headers include the stage headers in src/ by name.
 target_include_directories(loom PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-target_link_libraries(loom PUBLIC foundation shader_bundle)
+target_link_libraries(loom PUBLIC foundation shader_bundle rhi_types rhi_resource_types)
 
 bootstrap_assert_no_rhi(loom)
 

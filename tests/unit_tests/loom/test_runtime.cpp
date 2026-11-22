@@ -173,8 +173,8 @@ namespace
         return nullptr;
     }
 
-    constexpr loom::SyncScope k_ComputeWrite{ .Stages = loom::SyncStage::Compute, .Accesses = loom::SyncAccess::ShaderWrite };
-    constexpr loom::SyncScope k_ComputeRead{ .Stages = loom::SyncStage::Compute, .Accesses = loom::SyncAccess::ShaderRead };
+    constexpr loom::SyncScope k_ComputeWrite{ .Stages = rhi::PipelineStage::ComputeShader, .Accesses = rhi::Access::ShaderStorageWrite };
+    constexpr loom::SyncScope k_ComputeRead{ .Stages = rhi::PipelineStage::ComputeShader, .Accesses = rhi::Access::ShaderStorageRead };
 
     // One Tick's core work: decide, then plan the barriers.
     void PlanTick(const loom::CompiledGraph& compiled,
@@ -369,8 +369,8 @@ TEST(Runtime, BarriersGoAtLevelBoundariesAndAtFrameStart)
     ASSERT_EQ(plan.Batches[0].Count, 1);
     const loom::PlannedBarrier& frameStart = plan.Barriers[plan.Batches[0].FirstBarrier];
     EXPECT_EQ(frameStart.Resource, output);
-    EXPECT_EQ(frameStart.Before.Stages, loom::SyncStage::Compute);
-    EXPECT_EQ(frameStart.Before.Accesses, loom::SyncAccess::ShaderWrite);
+    EXPECT_EQ(frameStart.Before.Stages, rhi::PipelineStage::ComputeShader);
+    EXPECT_EQ(frameStart.Before.Accesses, rhi::Access::ShaderStorageWrite);
     EXPECT_EQ(frameStart.After, k_ComputeWrite);
 
     EXPECT_EQ(plan.Batches[1].BeforeRun, 1);
@@ -432,7 +432,7 @@ TEST(Runtime, AWriteAfterReadsWaitsForTheReads)
     ASSERT_EQ(plan.Batches[0].Count, 1);
     const loom::PlannedBarrier& war = plan.Barriers[plan.Batches[0].FirstBarrier];
     EXPECT_EQ(war.Resource, output);
-    EXPECT_EQ(war.Before, (loom::SyncScope{ .Stages = loom::SyncStage::Compute, .Accesses = loom::SyncAccess::None }));
+    EXPECT_EQ(war.Before, (loom::SyncScope{ .Stages = rhi::PipelineStage::ComputeShader, .Accesses = rhi::Access::None }));
     EXPECT_EQ(war.After, k_ComputeWrite);
 }
 

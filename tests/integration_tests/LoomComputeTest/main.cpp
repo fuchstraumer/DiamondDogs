@@ -144,16 +144,17 @@ namespace
         }
     }
 
-    // The imported Output: device-local, filled with the sentinel through the transfer system.
-    rhi::ResourceFuture<GraphicsResource> CreateOutput(ResourceContext& resources)
+    // The imported Output: device-local, filled with the sentinel through the transfer system. The LM701 check asks
+    // for fewer bytes than the import promises.
+    rhi::ResourceFuture<GraphicsResource> CreateOutput(ResourceContext& resources, uint64_t byte_count)
     {
-        const std::vector<uint32_t> sentinel(k_ElementCount, k_Sentinel);
+        const std::vector<uint32_t> sentinel(byte_count / sizeof(uint32_t), k_Sentinel);
         const RhiBufferResourceData initial{ std::as_bytes(std::span{ sentinel }), 0u };
 
         BufferCreateInfo info{};
         info.Domain = ResourceDomain::GPUOnly;
         info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::TransferSource;
-        info.Size = k_Bytes;
+        info.Size = byte_count;
         info.Name = "LoomCompute.Output";
         return resources.CreateBuffer(info, std::span{ &initial, 1u });
     }
@@ -279,13 +280,13 @@ namespace
         }
     }
 
-    int32_t RunVariant(HeadlessBoot& boot, bool hash_twice)
+    // Compiles and realizes the test graph. Returns null, and prints why, when either step fails.
+    std::unique_ptr<loom::Graph> BuildAndRealize(HeadlessBoot& boot, loom::CollectingSink& sink, bool hash_twice,
+                                                 std::string_view variant_name)
     {
-        const std::string variantName = std::format("HASH_TWICE={}", hash_twice);
         ResourceContext& resources = boot.Gpu.Resources();
         const rhi::Device& device = *boot.Device.Rhi().GetDevice();
         const bootstrap::DeviceFilter filter = boot.Device.Filter();
-        loom::CollectingSink sink;
 
         loom::GraphBuilder builder{ "LoomCompute.Graph", "LoomCompute.Shaders" };
         BuildGraph(builder, hash_twice);
@@ -303,9 +304,9 @@ namespace
 
         if (!compiled.has_value())
         {
-            std::cerr << std::format("[{}] Compile failed\n", variantName);
-            PrintDiagnostics(sink, variantName);
-            return 1;
+            std::cerr << std::format("[{}] Compile failed\n", variant_name);
+            PrintDiagnostics(sink, variant_name);
+            return nullptr;
         }
 
         const loom::RealizeInputs realizeInputs
@@ -321,12 +322,26 @@ namespace
 
         if (!realized.has_value())
         {
-            std::cerr << std::format("[{}] Realize refused the graph: {}\n", variantName, loom::ToString(realized.error()));
+            std::cerr << std::format("[{}] Realize refused the graph: {}\n", variant_name, loom::ToString(realized.error()));
+            return nullptr;
+        }
+
+        return std::move(*realized);
+    }
+
+    int32_t RunVariant(HeadlessBoot& boot, bool hash_twice)
+    {
+        const std::string variantName = std::format("HASH_TWICE={}", hash_twice);
+        ResourceContext& resources = boot.Gpu.Resources();
+        loom::CollectingSink sink;
+        std::unique_ptr<loom::Graph> graph = BuildAndRealize(boot, sink, hash_twice, variantName);
+
+        if (!graph)
+        {
             return 1;
         }
 
-        std::unique_ptr<loom::Graph> graph = std::move(*realized);
-        graph->Supply(k_Output, CreateOutput(resources));
+        graph->Supply(k_Output, CreateOutput(resources, k_Bytes));
         graph->Set(k_FillParams, FillParams{ .seed = k_Seed, .count = k_ElementCount });
         graph->Set(k_AgainParams, AgainParams{ .count = k_ElementCount });
 
@@ -359,6 +374,88 @@ namespace
         return failures;
     }
 
+    // LM701: a supplied Output four bytes short of the import's promise. Tick must report LM701 once, with the
+    // promised and the actual size, and never submit: Fill writes Output, and the pass after it reads Output.
+    int32_t RunShortImport(HeadlessBoot& boot)
+    {
+        constexpr std::string_view k_Name = "SHORT_IMPORT";
+        constexpr uint64_t k_ShortBytes = k_Bytes - sizeof(uint32_t);
+        ResourceContext& resources = boot.Gpu.Resources();
+        loom::CollectingSink sink;
+        std::unique_ptr<loom::Graph> graph = BuildAndRealize(boot, sink, true, k_Name);
+
+        if (!graph)
+        {
+            return 1;
+        }
+
+        graph->Supply(k_Output, CreateOutput(resources, k_ShortBytes));
+        graph->Set(k_FillParams, FillParams{ .seed = k_Seed, .count = k_ElementCount });
+        graph->Set(k_AgainParams, AgainParams{ .count = k_ElementCount });
+
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(k_TimeoutNs);
+        int32_t failures = 0;
+
+        // Tick until the import is checked, then k_Ticks more, to prove the report comes once
+        int32_t ticksAfterReport = 0;
+
+        while (ticksAfterReport < k_Ticks && std::chrono::steady_clock::now() < deadline)
+        {
+            const ConsumerTimelineValue pending{ graph->Timeline(), graph->PendingValue() };
+            resources.Tick(std::span{ &pending, 1u });
+
+            const loom::TickResult result = graph->Tick(std::chrono::duration<double>{ 1.0 / 60.0 });
+
+            if (result.Status == loom::TickStatus::Submitted)
+            {
+                std::cerr << std::format("[{}] a Tick submitted work against the short import\n", k_Name);
+                ++failures;
+                break;
+            }
+
+            if (sink.ErrorCount() != 0)
+            {
+                ++ticksAfterReport;
+            }
+
+            std::this_thread::yield();
+        }
+
+        const GraphicsResource output = graph->BufferOf(k_Output);
+        graph.reset();
+
+        if (output)
+        {
+            rhi::OperationFuture destroyReply = resources.DestroyResource(output);
+            [[maybe_unused]] const rhi::FutureState destroyed = resources.Wait(destroyReply, k_TimeoutNs);
+        }
+
+        const auto& diagnostics = sink.Diagnostics();
+        const bool one = diagnostics.size() == 1u && diagnostics.front().Code == loom::DiagnosticCode::LM701;
+
+        if (!one)
+        {
+            std::cerr << std::format("[{}] expected exactly one LM701, got {} diagnostic(s)\n", k_Name, diagnostics.size());
+            PrintDiagnostics(sink, k_Name);
+            return failures + 1;
+        }
+
+        const loom::Diagnostic& lm701 = diagnostics.front();
+        const bool sizes = lm701.Expected.Integer == static_cast<int64_t>(k_Bytes) &&
+                           lm701.Actual.Integer == static_cast<int64_t>(k_ShortBytes);
+
+        if (!sizes)
+        {
+            std::cerr << std::format("[{}] LM701 sizes: expected {} and {}, got {} and {}\n", k_Name, k_Bytes, k_ShortBytes,
+                                     lm701.Expected.Integer, lm701.Actual.Integer);
+            return failures + 1;
+        }
+
+        std::cout << std::format("[{}] LM701 reported once: promised {} bytes, supplied {}\n", k_Name, k_Bytes, k_ShortBytes);
+        return failures;
+    }
+
+
 }
 
 int main(int argc, char* argv[])
@@ -384,12 +481,14 @@ int main(int argc, char* argv[])
         failures += RunVariant(boot, hashTwice);
     }
 
+    failures += RunShortImport(boot);
+
     if (failures != 0)
     {
         std::cerr << std::format("LoomComputeTest: {} failure(s)\n", failures);
         return 1;
     }
 
-    std::cout << "LoomComputeTest: both variants match the CPU reference\n";
+    std::cout << "LoomComputeTest: both variants match the CPU reference, and LM701 caught the short import\n";
     return 0;
 }

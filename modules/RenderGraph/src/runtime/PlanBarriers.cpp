@@ -3,6 +3,7 @@
 #include "FramePlan.hpp"
 #include "PassStatements.hpp"
 #include "compile/CompiledData.hpp"
+#include "RhiFlags.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -25,14 +26,14 @@ namespace
 
     bool Contains(const SyncScope& outer, const SyncScope& inner)
     {
-        const bool stages = (inner.Stages & ~outer.Stages) == SyncStage::None;
-        const bool accesses = (inner.Accesses & ~outer.Accesses) == SyncAccess::None;
+        const bool stages = (inner.Stages & ~outer.Stages) == rhi::PipelineStage::None;
+        const bool accesses = (inner.Accesses & ~outer.Accesses) == rhi::Access::None;
         return stages && accesses;
     }
 
     bool IsEmpty(const SyncScope& scope)
     {
-        return scope.Stages == SyncStage::None;
+        return scope.Stages == rhi::PipelineStage::None;
     }
 
     void Merge(SyncScope& into, const SyncScope& scope)
@@ -41,15 +42,24 @@ namespace
         into.Accesses |= scope.Accesses;
     }
 
-    constexpr SyncAccess k_ReadAccesses = SyncAccess::IndirectRead |
-                                          SyncAccess::UniformRead |
-                                          SyncAccess::ShaderRead |
-                                          SyncAccess::TransferRead;
-    constexpr SyncAccess k_WriteAccesses = SyncAccess::ShaderWrite | SyncAccess::TransferWrite;
+    // Every write access a use can name. The read part of a use is everything else.
+    constexpr rhi::Access k_WriteAccesses = rhi::Access::ShaderWrite |
+                                            rhi::Access::ShaderStorageWrite |
+                                            rhi::Access::ColorAttachmentWrite |
+                                            rhi::Access::DepthStencilAttachmentWrite |
+                                            rhi::Access::TransferWrite |
+                                            rhi::Access::HostWrite |
+                                            rhi::Access::MemoryWrite |
+                                            rhi::Access::CommandPreprocessWrite |
+                                            rhi::Access::TransformFeedbackWrite |
+                                            rhi::Access::TransformFeedbackCounterWrite |
+                                            rhi::Access::AccelerationStructureWrite |
+                                            rhi::Access::MicromapWrite |
+                                            rhi::Access::MemoryDecompressionWrite;
 
     SyncScope ReadPart(const PassUse& use)
     {
-        return SyncScope{ .Stages = use.Scope.Stages, .Accesses = use.Scope.Accesses & k_ReadAccesses };
+        return SyncScope{ .Stages = use.Scope.Stages, .Accesses = use.Scope.Accesses & ~k_WriteAccesses };
     }
 
     SyncScope WritePart(const PassUse& use)
@@ -113,7 +123,7 @@ namespace
         if (!IsEmpty(sync.ReadsSinceWrite))
         {
             // an execution dependency: the reads made nothing that the write must see
-            const SyncScope reads{ .Stages = sync.ReadsSinceWrite.Stages, .Accesses = SyncAccess::None };
+            const SyncScope reads{ .Stages = sync.ReadsSinceWrite.Stages, .Accesses = rhi::Access::None };
             AddBarrier(plan, use.Resource, reads, write);
         }
     }

@@ -159,8 +159,8 @@ Sizes compare in **bytes**, never in elements, so two typed views of one buffer 
 every requirement. A `Derived` buffer takes its size from the first exact requirement, or from the largest one when
 none is exact; a requirement that does not fit is LM401, and no requirement at all is LM402. `DescribeCreation`
 decides whether the shader gives a size. An imported buffer gets no size here: its declaration states `ByteSize`,
-and its future brings the object. Tick checks the supplied object's kind (LM701); a check of its size against
-`ByteSize` is not written yet.
+and its future brings the object. Tick checks the supplied object against it (LM701): it must be a buffer, and
+`Description().ByteSize` (which RhiResources reports) must be at least `ByteSize`.
 
 Usage is the union of `RequiredBufferUsage()` over the shader bindings, plus the pass statements: indirect arguments,
 vertex and index buffers, and a Record pass's uses. CPU access (maps, upload copies) belongs to Realize.
@@ -293,8 +293,13 @@ made it visible to, and the reads since the last write. Against that state, per 
 - a write after a write needs a barrier from the old write to the new one;
 - a write after reads needs a barrier from the reads to the write (an execution dependency only).
 
-All barriers before one level go into one `BarrierBatch`, with one barrier per row (a second need on the row widens
-the first). Because the state carries over from the last Tick, the first batch is the frame-start batch: it orders
+Scopes are in the RHI's barrier vocabulary, `rhi::PipelineStage` and `rhi::Access` (`rhi_types`, which links no
+RHI), so the core and every backend share one set of values and no mapping step exists. Storage and sampled reads use
+the narrow synchronization2 bits (`ShaderStorageRead`, `ShaderStorageWrite`, `ShaderSampledRead`), so a barrier to one
+kind of read does not count as visibility to another. Task and mesh stages come from the slot's shader stages.
+
+All barriers before one level go into one `BarrierBatch`, with one planned barrier per row (a second need on the row
+widens the first). Because the state carries over from the last Tick, the first batch is the frame-start batch: it orders
 this frame's first accesses after earlier frames' work on the same queue. A row whose epoch changed starts with no
 pending work, because a new object owes nothing to the old one. Split barriers come later, from measured timestamps.
 
@@ -308,7 +313,8 @@ is LM703, and that Tick fails before it records anything.
 ## The Vulkan backend (`loom_vulkan`)
 
 `vulkan/include/LoomGraph.hpp` is the face: `RealizeInputs`, `Graph`, `ShaderLimitsOf` and `LayoutLimitsOf` (they
-fill `CompileInputs` from a device). `loom_vulkan` links `loom`, `rhi_system` and `rhi_resources`.
+fill `CompileInputs` from a device). `loom_vulkan` links `loom`, `rhi_system` and `rhi_resources`. The core links
+`rhi_types` and `rhi_resource_types` only, the plain-type targets, and `bootstrap_assert_no_rhi(loom)` proves it.
 
 ### Realize
 
@@ -335,13 +341,17 @@ the last submit, unregisters the timeline, then frees what the graph made.
 1. **Frame slot.** If the timeline has not reached the value that this slot last signaled, return `NoFrameSlot`.
    `WaitForFrameSlot(timeout)` blocks for it, outside Tick, on desktop only.
 2. **Poll** (`PollRows`). Map each future to a readiness. A `Created` future whose transfer is not submitted yet is
-   `Pending` (Q4): there is nothing a submit could wait on. LM701 (a supplied object is not a buffer; its size is not
-   checked yet) and LM702 (a future failed) are reported once per epoch.
+   `Pending` (Q4): there is nothing a submit could wait on. LM701 (a supplied object is not a buffer, or is smaller
+   than its declaration's `ByteSize`) and LM702 (a future failed) are reported once per epoch. A row with LM701 is
+   `Failed` until the next `Supply`.
 3. **Decide** (`DecideRuns`). No pass runs: return `NothingToRun`.
 4. **Params** (`ParamsStore::CheckRuns`). LM703: return `Failed`.
 5. **Barriers** (`PlanBarriers`), then **descriptors** (`WriteDescriptors`). A slot's sets are written again only
    where a row changed epoch since the last write.
-6. **Record and submit** (`SubmitFrame`). One `vkCmdPipelineBarrier2` per batch, then the passes of that level. The
+6. **Record and submit** (`SubmitFrame`). One `vkCmdPipelineBarrier2` per batch, with one global memory barrier
+   that merges the scopes of the batch's rows (every buffer uses concurrent sharing, so this orders the same work as
+   one buffer barrier per row; `ExplainLastTick` still lists the rows). Images, in step 6, add image barriers for their
+   layout changes. Then the passes of that level. The
    submit waits for each row that a running pass uses and that is `Created`, not `Complete` (CC-R2), with one wait
    per semaphore at the highest value. It signals the graph's timeline.
 7. **Commit** (`CommitRuns`) and return `Submitted`.

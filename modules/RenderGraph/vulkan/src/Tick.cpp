@@ -19,6 +19,7 @@
 #include "compile/CompiledData.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "layout/LaidOutGraph.hpp"
+#include "size/SizedGraph.hpp"
 #include <cstddef>
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
@@ -71,11 +72,51 @@ namespace
             .Resource = frozen.Key,
         };
 
-        if (code == DiagnosticCode::LM701)
+        graph.Sink.Report(diag);
+    }
+
+    // LM701: the import promised a buffer of at least ByteSize bytes. An unknown size promises nothing.
+    bool MatchesImport(const GraphImpl& graph, int32_t row, const ResourceDescription& description)
+    {
+        if (description.Type != ResourceType::Buffer)
         {
-            diag.Expected = DiagnosticValue{ .FieldName = "Type", .Kind = DiagnosticValueKind::Text, .Text = "Buffer" };
+            return false;
         }
 
+        const int64_t promised = graph.Compiled.Data().Sized.Resources[row].ByteSize;
+
+        if (promised == k_UnknownByteSize)
+        {
+            return true;
+        }
+
+        return description.ByteSize >= static_cast<uint64_t>(promised);
+    }
+
+    void ReportMismatch(GraphImpl& graph, int32_t row, const ResourceDescription& description)
+    {
+        const FrozenResource& frozen = graph.Compiled.Data().Frozen.Resources[row];
+
+        Diagnostic diag
+        {
+            .Code = DiagnosticCode::LM701,
+            .Severity = DefaultSeverityOf(DiagnosticCode::LM701),
+            .Where = frozen.Where,
+            .Resource = frozen.Key,
+        };
+
+        if (description.Type != ResourceType::Buffer)
+        {
+            diag.Expected = DiagnosticValue{ .FieldName = "Type", .Kind = DiagnosticValueKind::Text, .Text = "Buffer" };
+            diag.Actual = DiagnosticValue{ .FieldName = "Type", .Kind = DiagnosticValueKind::Text, .Text = "not a buffer" };
+            graph.Sink.Report(diag);
+            return;
+        }
+
+        const int64_t promised = graph.Compiled.Data().Sized.Resources[row].ByteSize;
+        diag.Expected = DiagnosticValue{ .FieldName = "ByteSize", .Kind = DiagnosticValueKind::Integer, .Integer = promised };
+        diag.Actual = DiagnosticValue{ .FieldName = "ByteSize", .Kind = DiagnosticValueKind::Integer,
+                                       .Integer = static_cast<int64_t>(description.ByteSize) };
         graph.Sink.Report(diag);
     }
 
@@ -84,26 +125,24 @@ namespace
         return rhi::BufferHandle{ graph.Rows[row].Future.Get().VkHandle };
     }
 
-    // One batch, one vkCmdPipelineBarrier2.
-    void RecordBatch(GraphImpl& graph, rhi::CommandBuffer& command_buffer, const BarrierBatch& batch)
+    // One batch, one vkCmdPipelineBarrier2 with one global barrier (plan decision B5). Every buffer uses concurrent
+    // sharing, so a memory barrier over the union of the rows' scopes orders the same work as one barrier per row.
+    // Images (step 6) need their own barriers for layout changes. ExplainLastTick still lists each row.
+    void RecordBatch(const GraphImpl& graph, rhi::CommandBuffer& command_buffer, const BarrierBatch& batch)
     {
-        graph.BarrierScratch.clear();
+        rhi::GlobalBarrier merged{};
 
         for (int32_t index = batch.FirstBarrier; index < batch.FirstBarrier + batch.Count; ++index)
         {
             const PlannedBarrier& planned = graph.Plan.Barriers[index];
-
-            graph.BarrierScratch.push_back(rhi::BufferBarrier
-            {
-                .Buffer = BufferOfRow(graph, planned.Resource),
-                .SrcStages = ToPipelineStages(planned.Before.Stages),
-                .SrcAccess = ToAccess(planned.Before.Accesses),
-                .DstStages = ToPipelineStages(planned.After.Stages),
-                .DstAccess = ToAccess(planned.After.Accesses),
-            });
+            merged.SrcStages |= planned.Before.Stages;
+            merged.SrcAccess |= planned.Before.Accesses;
+            merged.DstStages |= planned.After.Stages;
+            merged.DstAccess |= planned.After.Accesses;
         }
 
-        command_buffer.Barrier(rhi::DependencyInfo{ {}, std::span<const rhi::BufferBarrier>{ graph.BarrierScratch }, {} });
+        const std::span<const rhi::GlobalBarrier> globals{ &merged, 1u };
+        command_buffer.Barrier(rhi::DependencyInfo{ globals, {}, {} });
     }
 
     bool RecordDispatch(GraphImpl& graph, rhi::CommandBuffer& command_buffer, int32_t pass_index, int32_t frame_slot)
@@ -254,15 +293,14 @@ namespace
             const bool exists = state.Readiness == ResourceReadiness::Created ||
                                 state.Readiness == ResourceReadiness::Complete;
 
-            // a supplied object must be a buffer: the graph only imports buffers
+            // a supplied object must be a buffer at least as large as its declaration promised
             if (exists && !runtime.Owned && !runtime.KindMismatch)
             {
-                const ResourceType type = runtime.Future.Get().Type;
-                runtime.KindMismatch = type != ResourceType::Buffer;
+                runtime.KindMismatch = !MatchesImport(graph, row, runtime.Future.Description());
 
                 if (runtime.KindMismatch)
                 {
-                    ReportRow(graph, DiagnosticCode::LM701, row);
+                    ReportMismatch(graph, row, runtime.Future.Description());
                     runtime.Reported = state.Epoch;
                 }
             }

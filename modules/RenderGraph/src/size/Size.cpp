@@ -303,7 +303,7 @@ std::optional<SizedGraph> Size(const FrozenGraph& frozen, const BoundGraph& boun
             continue;
         }
 
-        // an imported buffer promises its size; Realize checks the supplied buffer (LM701)
+        // an imported buffer promises its size; Tick checks the supplied buffer (LM701)
         if (row.Origin == ResourceOrigin::Imported)
         {
             const int64_t promised = frozen.BufferImports[row.DeclarationIndex].ByteSize;

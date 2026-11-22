@@ -58,10 +58,11 @@ namespace
                 continue;
             }
 
-            const bool compute = (use.Scope.Stages & SyncStage::Compute) != SyncStage::None;
-            const bool uniform = (use.Scope.Accesses & SyncAccess::UniformRead) != SyncAccess::None;
-            const bool storage = (use.Scope.Accesses & (SyncAccess::ShaderRead | SyncAccess::ShaderWrite)) != SyncAccess::None;
-            const bool indirect = (use.Scope.Accesses & SyncAccess::IndirectRead) != SyncAccess::None;
+            constexpr rhi::Access k_Storage = rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite;
+            const bool compute = (use.Scope.Stages & rhi::PipelineStage::ComputeShader) != rhi::PipelineStage::None;
+            const bool uniform = (use.Scope.Accesses & rhi::Access::UniformRead) != rhi::Access::None;
+            const bool storage = (use.Scope.Accesses & k_Storage) != rhi::Access::None;
+            const bool indirect = (use.Scope.Accesses & rhi::Access::IndirectCommandRead) != rhi::Access::None;
 
             if (compute && uniform)
             {
@@ -450,7 +451,6 @@ namespace
         graph.Controls.assign(data.Passes.size(), PassControl{});
 
         // the most a Tick writes: every barrier of a plan, one wait per row, every slot of every pass
-        graph.BarrierScratch.reserve(data.Uses.size());
         graph.WaitScratch.reserve(data.Frozen.Resources.size());
         graph.WriteScratch.reserve(data.Slots.size());
         graph.BufferInfoScratch.reserve(data.Slots.size());

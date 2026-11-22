@@ -94,7 +94,6 @@ namespace loom
         FramePlan Plan;
 
         // Tick's scratch, sized at Realize
-        std::vector<rhi::BufferBarrier> BarrierScratch;
         std::vector<rhi::SemaphoreSubmitInfo> WaitScratch;
         std::vector<VkWriteDescriptorSet> WriteScratch;
         std::vector<VkDescriptorBufferInfo> BufferInfoScratch;

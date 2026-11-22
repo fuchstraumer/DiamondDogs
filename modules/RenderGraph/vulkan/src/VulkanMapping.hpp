@@ -1,18 +1,16 @@
 #pragma once
 #ifndef DIAMOND_DOGS_LOOM_VULKAN_MAPPING_HPP
 #define DIAMOND_DOGS_LOOM_VULKAN_MAPPING_HPP
-#include "FramePlan.hpp"
 #include "RhiFlags.hpp"
 #include "ShaderLibraryTypes.hpp"
 #include <vulkan/vulkan_core.h>
 #include <optional>
 
-// VulkanMapping.cpp: Loom's and Lodestone's neutral values in Vulkan and RHI terms.
+// VulkanMapping.cpp: Lodestone's neutral values in Vulkan and RHI terms. The barrier vocabulary needs no mapping: the
+// core plans in rhi::PipelineStage and rhi::Access.
 namespace loom
 {
 
-    [[nodiscard]] rhi::PipelineStage ToPipelineStages(SyncStage stages) noexcept;
-    [[nodiscard]] rhi::Access ToAccess(SyncAccess accesses) noexcept;
     [[nodiscard]] VkShaderStageFlags ToVkShaderStages(lodestone::ShaderStageKind stages) noexcept;
     [[nodiscard]] rhi::ShaderStageFlags ToRhiShaderStages(lodestone::ShaderStageKind stages) noexcept;
     // The descriptor type of a bound slot. Writable is the reflected access (CompiledData::SlotWritable).

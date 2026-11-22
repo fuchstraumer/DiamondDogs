@@ -1,7 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_LOOM_FRAME_PLAN_HPP
 #define DIAMOND_DOGS_LOOM_FRAME_PLAN_HPP
-#include "utility/EnumFlagUtils.hpp"
+#include "RhiFlags.hpp"
 #include <cstdint>
 #include <vector>
 
@@ -31,36 +31,12 @@ namespace loom
         uint32_t Epoch{ 0u };
     };
 
-    // The stages and the accesses of one use, in Loom's own terms. Each backend maps them to its API.
-    enum class SyncStage : uint8_t
-    {
-        None = 0,
-        Indirect = 1 << 0,      // the read of indirect arguments
-        Vertex = 1 << 1,
-        Fragment = 1 << 2,
-        Compute = 1 << 3,
-        Transfer = 1 << 4
-    };
-
-    MAKE_ENUM_CLASS_FLAGS(SyncStage);
-
-    enum class SyncAccess : uint8_t
-    {
-        None = 0,
-        IndirectRead = 1 << 0,
-        UniformRead = 1 << 1,
-        ShaderRead = 1 << 2,
-        ShaderWrite = 1 << 3,
-        TransferRead = 1 << 4,
-        TransferWrite = 1 << 5
-    };
-
-    MAKE_ENUM_CLASS_FLAGS(SyncAccess);
-
+    // The stages and the accesses of one use, in the RHI's barrier vocabulary (rhi_types links no RHI). The values
+    // match Vulkan's synchronization2 bits; a DX12 or WebGPU backend maps them.
     struct SyncScope
     {
-        SyncStage Stages{ SyncStage::None };
-        SyncAccess Accesses{ SyncAccess::None };
+        rhi::PipelineStage Stages{ rhi::PipelineStage::None };
+        rhi::Access Accesses{ rhi::Access::None };
 
         bool operator==(const SyncScope&) const noexcept = default;
     };
