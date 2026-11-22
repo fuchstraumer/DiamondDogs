@@ -1,16 +1,19 @@
 #include "CommandBuffer.hpp"
+#include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
 #include "RhiResult.hpp"
+#include "RhiTypes.hpp"
 #include "ShaderProgram.hpp"
 #include "containers/SmallVector.hpp"
 #include "core/VulkanConversions.hpp"
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <utility>
-#include <vector>
 
 #ifdef RHI_SYSTEM_USE_VULKAN
     #include <vulkan/vulkan_core.h>
@@ -23,8 +26,11 @@ namespace rhi
 {
     namespace
     {
-        // Barrier keeps this many barriers of each kind on the stack, so a small batch allocates nothing
+        // Inline stack capacities so typical command buffer recordings allocate nothing on the heap
+        constexpr std::size_t k_HandleInlineCapacity{ 32 };          // 32 * 8B = 256B (descriptor sets, vertex buffers)
+        constexpr std::size_t k_ColorAttachmentInlineCapacity{ 8 };  // 8 * 72B = 576B
         constexpr std::size_t k_BarrierInlineCapacity{ 16 };
+        constexpr std::size_t k_CopyRegionInlineCapacity{ 16 };
     }
 
     CommandBuffer::CommandBuffer(const CommandBufferHandle& handle) noexcept : handle{ handle }
@@ -112,43 +118,130 @@ namespace rhi
     namespace
     {
         // the RHI handles are 64-bit values, and so are the Vulkan non-dispatchable handles they carry
-        template<typename VkType, typename HandleType>
-        std::vector<VkType> ToVulkanHandles(std::span<const HandleType> handles)
+        template<typename VkType, std::size_t InlineCapacity = k_HandleInlineCapacity, typename HandleType>
+        [[nodiscard]] foundation::SmallVector<VkType, InlineCapacity> ToVulkanHandles(std::span<const HandleType> handles) noexcept
         {
-            std::vector<VkType> result;
-            result.reserve(handles.size());
-            for (const HandleType& handle : handles)
-            {
-                result.push_back(handle.template As<VkType>());
-            }
-            return result;
+            return foundation::SmallVector<VkType, InlineCapacity>(
+                std::from_range,
+                handles | std::views::transform([](const HandleType& handle) noexcept { return handle.template As<VkType>(); })
+            );
         }
+
+        struct ToVulkanFn
+        {
+            [[nodiscard]] VkRenderingAttachmentInfo operator()(const ColorAttachment& attachment) const noexcept
+            {
+                VkRenderingAttachmentInfo vkAttachment{};
+                vkAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                vkAttachment.imageView = attachment.ImageView.As<VkImageView>();
+                vkAttachment.imageLayout = vk::ToVulkan(attachment.Layout);
+                vkAttachment.loadOp = vk::ToVulkan(attachment.LoadOp);
+                vkAttachment.storeOp = vk::ToVulkan(attachment.StoreOp);
+                vkAttachment.clearValue.color.float32[0] = attachment.ClearValue[0];
+                vkAttachment.clearValue.color.float32[1] = attachment.ClearValue[1];
+                vkAttachment.clearValue.color.float32[2] = attachment.ClearValue[2];
+                vkAttachment.clearValue.color.float32[3] = attachment.ClearValue[3];
+                if (attachment.ResolveImageView)
+                {
+                    vkAttachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                    vkAttachment.resolveImageView = attachment.ResolveImageView.As<VkImageView>();
+                    vkAttachment.resolveImageLayout = vk::ToVulkan(attachment.ResolveLayout);
+                }
+                return vkAttachment;
+            }
+
+            [[nodiscard]] VkMemoryBarrier2 operator()(const GlobalBarrier& barrier) const noexcept
+            {
+                return VkMemoryBarrier2
+                {
+                    VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+                    nullptr,
+                    vk::ToVulkan(barrier.SrcStages),
+                    vk::ToVulkan(barrier.SrcAccess),
+                    vk::ToVulkan(barrier.DstStages),
+                    vk::ToVulkan(barrier.DstAccess)
+                };
+            }
+
+            [[nodiscard]] VkBufferMemoryBarrier2 operator()(const BufferBarrier& barrier) const noexcept
+            {
+                return VkBufferMemoryBarrier2
+                {
+                    VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                    nullptr,
+                    vk::ToVulkan(barrier.SrcStages),
+                    vk::ToVulkan(barrier.SrcAccess),
+                    vk::ToVulkan(barrier.DstStages),
+                    vk::ToVulkan(barrier.DstAccess),
+                    barrier.SrcQueueFamily,
+                    barrier.DstQueueFamily,
+                    barrier.Buffer.As<VkBuffer>(),
+                    barrier.Offset,
+                    barrier.Size
+                };
+            }
+
+            [[nodiscard]] VkImageMemoryBarrier2 operator()(const ImageBarrier& barrier) const noexcept
+            {
+                return VkImageMemoryBarrier2
+                {
+                    VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                    nullptr,
+                    vk::ToVulkan(barrier.SrcStages),
+                    vk::ToVulkan(barrier.SrcAccess),
+                    vk::ToVulkan(barrier.DstStages),
+                    vk::ToVulkan(barrier.DstAccess),
+                    vk::ToVulkan(barrier.OldLayout),
+                    vk::ToVulkan(barrier.NewLayout),
+                    barrier.SrcQueueFamily,
+                    barrier.DstQueueFamily,
+                    barrier.Image.As<VkImage>(),
+                    vk::ToVulkan(barrier.Range)
+                };
+            }
+
+            [[nodiscard]] VkBufferImageCopy operator()(const BufferImageCopy& region) const noexcept
+            {
+                return VkBufferImageCopy
+                {
+                    region.BufferOffset,
+                    region.BufferRowLength,
+                    region.BufferImageHeight,
+                    VkImageSubresourceLayers{ vk::ToVulkan(region.Aspect), region.MipLevel, region.BaseArrayLayer, region.LayerCount },
+                    VkOffset3D{ region.OffsetX, region.OffsetY, region.OffsetZ },
+                    VkExtent3D{ region.Width, region.Height, region.Depth }
+                };
+            }
+
+            [[nodiscard]] VkImageBlit operator()(const ImageBlit& region) const noexcept
+            {
+                const VkImageAspectFlags aspect = vk::ToVulkan(region.Aspect);
+                return VkImageBlit
+                {
+                    VkImageSubresourceLayers{ aspect, region.SrcMipLevel, region.BaseArrayLayer, region.LayerCount },
+                    {
+                        VkOffset3D{ 0, 0, 0 },
+                        VkOffset3D{ static_cast<int32_t>(region.SrcWidth), static_cast<int32_t>(region.SrcHeight), static_cast<int32_t>(region.SrcDepth) }
+                    },
+                    VkImageSubresourceLayers{ aspect, region.DstMipLevel, region.BaseArrayLayer, region.LayerCount },
+                    {
+                        VkOffset3D{ 0, 0, 0 },
+                        VkOffset3D{ static_cast<int32_t>(region.DstWidth), static_cast<int32_t>(region.DstHeight), static_cast<int32_t>(region.DstDepth) }
+                    }
+                };
+            }
+        };
+
+        inline constexpr ToVulkanFn k_ToVulkan{};
     }
 
     void CommandBuffer::BeginRendering(const RenderingInfo& rendering_info) noexcept
     {
         assert(isRecording && "CommandBuffer::BeginRendering() called while not in recording mode.");
-        std::vector<VkRenderingAttachmentInfo> colorAttachments;
-        colorAttachments.reserve(rendering_info.ColorAttachments.size());
-        for (const ColorAttachment& attachment : rendering_info.ColorAttachments)
-        {
-            VkRenderingAttachmentInfo& vkAttachment = colorAttachments.emplace_back();
-            vkAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-            vkAttachment.imageView = attachment.ImageView.As<VkImageView>();
-            vkAttachment.imageLayout = vk::ToVulkan(attachment.Layout);
-            vkAttachment.loadOp = vk::ToVulkan(attachment.LoadOp);
-            vkAttachment.storeOp = vk::ToVulkan(attachment.StoreOp);
-            vkAttachment.clearValue.color.float32[0] = attachment.ClearValue[0];
-            vkAttachment.clearValue.color.float32[1] = attachment.ClearValue[1];
-            vkAttachment.clearValue.color.float32[2] = attachment.ClearValue[2];
-            vkAttachment.clearValue.color.float32[3] = attachment.ClearValue[3];
-            if (attachment.ResolveImageView)
-            {
-                vkAttachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-                vkAttachment.resolveImageView = attachment.ResolveImageView.As<VkImageView>();
-                vkAttachment.resolveImageLayout = vk::ToVulkan(attachment.ResolveLayout);
-            }
-        }
+        const foundation::SmallVector<VkRenderingAttachmentInfo, k_ColorAttachmentInlineCapacity> colorAttachments(
+            std::from_range,
+            rendering_info.ColorAttachments | std::views::transform(k_ToVulkan)
+        );
 
         VkRenderingAttachmentInfo depthAttachment{};
         VkRenderingAttachmentInfo stencilAttachment{};
@@ -216,7 +309,7 @@ namespace rhi
                                            std::span<const uint32_t> dynamic_offsets) noexcept
     {
         assert(isRecording && "CommandBuffer::BindDescriptorSets() called while not in recording mode.");
-        const std::vector<VkDescriptorSet> sets = ToVulkanHandles<VkDescriptorSet>(descriptor_sets);
+        const foundation::SmallVector<VkDescriptorSet, k_HandleInlineCapacity> sets = ToVulkanHandles<VkDescriptorSet>(descriptor_sets);
         vkCmdBindDescriptorSets(handle.As<VkCommandBuffer>(),
                                 vk::ToVulkan(bind_point),
                                 layout.As<VkPipelineLayout>(),
@@ -248,7 +341,7 @@ namespace rhi
     {
         assert(isRecording && "CommandBuffer::BindVertexBuffers() called while not in recording mode.");
         assert(buffers.size() == offsets.size() && "CommandBuffer::BindVertexBuffers() needs one offset per buffer.");
-        const std::vector<VkBuffer> vkBuffers = ToVulkanHandles<VkBuffer>(buffers);
+        const foundation::SmallVector<VkBuffer, k_HandleInlineCapacity> vkBuffers = ToVulkanHandles<VkBuffer>(buffers);
         vkCmdBindVertexBuffers(handle.As<VkCommandBuffer>(), first_binding, static_cast<uint32_t>(vkBuffers.size()), vkBuffers.data(), offsets.data());
     }
 
@@ -279,61 +372,18 @@ namespace rhi
     void CommandBuffer::Barrier(const DependencyInfo& dependencies) noexcept
     {
         assert(isRecording && "CommandBuffer::Barrier() called while not in recording mode.");
-        foundation::SmallVector<VkMemoryBarrier2, k_BarrierInlineCapacity> memoryBarriers;
-        memoryBarriers.reserve(dependencies.GlobalBarriers.size());
-        for (const GlobalBarrier& barrier : dependencies.GlobalBarriers)
-        {
-            memoryBarriers.push_back(VkMemoryBarrier2
-            {
-                VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
-                nullptr,
-                vk::ToVulkan(barrier.SrcStages),
-                vk::ToVulkan(barrier.SrcAccess),
-                vk::ToVulkan(barrier.DstStages),
-                vk::ToVulkan(barrier.DstAccess)
-            });
-        }
-
-        foundation::SmallVector<VkBufferMemoryBarrier2, k_BarrierInlineCapacity> bufferBarriers;
-        bufferBarriers.reserve(dependencies.BufferBarriers.size());
-        for (const BufferBarrier& barrier : dependencies.BufferBarriers)
-        {
-            bufferBarriers.push_back(VkBufferMemoryBarrier2
-            {
-                VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-                nullptr,
-                vk::ToVulkan(barrier.SrcStages),
-                vk::ToVulkan(barrier.SrcAccess),
-                vk::ToVulkan(barrier.DstStages),
-                vk::ToVulkan(barrier.DstAccess),
-                barrier.SrcQueueFamily,
-                barrier.DstQueueFamily,
-                barrier.Buffer.As<VkBuffer>(),
-                barrier.Offset,
-                barrier.Size
-            });
-        }
-
-        foundation::SmallVector<VkImageMemoryBarrier2, k_BarrierInlineCapacity> imageBarriers;
-        imageBarriers.reserve(dependencies.ImageBarriers.size());
-        for (const ImageBarrier& barrier : dependencies.ImageBarriers)
-        {
-            imageBarriers.push_back(VkImageMemoryBarrier2
-            {
-                VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                nullptr,
-                vk::ToVulkan(barrier.SrcStages),
-                vk::ToVulkan(barrier.SrcAccess),
-                vk::ToVulkan(barrier.DstStages),
-                vk::ToVulkan(barrier.DstAccess),
-                vk::ToVulkan(barrier.OldLayout),
-                vk::ToVulkan(barrier.NewLayout),
-                barrier.SrcQueueFamily,
-                barrier.DstQueueFamily,
-                barrier.Image.As<VkImage>(),
-                vk::ToVulkan(barrier.Range)
-            });
-        }
+        const foundation::SmallVector<VkMemoryBarrier2, k_BarrierInlineCapacity> memoryBarriers(
+            std::from_range,
+            dependencies.GlobalBarriers | std::views::transform(k_ToVulkan)
+        );
+        const foundation::SmallVector<VkBufferMemoryBarrier2, k_BarrierInlineCapacity> bufferBarriers(
+            std::from_range,
+            dependencies.BufferBarriers | std::views::transform(k_ToVulkan)
+        );
+        const foundation::SmallVector<VkImageMemoryBarrier2, k_BarrierInlineCapacity> imageBarriers(
+            std::from_range,
+            dependencies.ImageBarriers | std::views::transform(k_ToVulkan)
+        );
 
         const VkDependencyInfo dependencyInfo
         {
@@ -367,20 +417,10 @@ namespace rhi
     void CommandBuffer::CopyImageToBuffer(const ImageHandle& src, ImageLayout src_layout, const BufferHandle& dst, std::span<const BufferImageCopy> regions) noexcept
     {
         assert(isRecording && "CommandBuffer::CopyImageToBuffer() called while not in recording mode.");
-        std::vector<VkBufferImageCopy> vkRegions;
-        vkRegions.reserve(regions.size());
-        for (const BufferImageCopy& region : regions)
-        {
-            vkRegions.push_back(VkBufferImageCopy
-            {
-                region.BufferOffset,
-                region.BufferRowLength,
-                region.BufferImageHeight,
-                VkImageSubresourceLayers{ vk::ToVulkan(region.Aspect), region.MipLevel, region.BaseArrayLayer, region.LayerCount },
-                VkOffset3D{ region.OffsetX, region.OffsetY, region.OffsetZ },
-                VkExtent3D{ region.Width, region.Height, region.Depth }
-            });
-        }
+        const foundation::SmallVector<VkBufferImageCopy, k_CopyRegionInlineCapacity> vkRegions(
+            std::from_range,
+            regions | std::views::transform(k_ToVulkan)
+        );
         vkCmdCopyImageToBuffer(handle.As<VkCommandBuffer>(), src.As<VkImage>(), vk::ToVulkan(src_layout), dst.As<VkBuffer>(),
                                static_cast<uint32_t>(vkRegions.size()), vkRegions.data());
     }
@@ -388,22 +428,10 @@ namespace rhi
     void CommandBuffer::CopyBufferToImage(const BufferHandle& src, const ImageHandle& dst, ImageLayout dst_layout, std::span<const BufferImageCopy> regions) noexcept
     {
         assert(isRecording && "CommandBuffer::CopyBufferToImage() called while not in recording mode.");
-        std::vector<VkBufferImageCopy> vkRegions;
-        vkRegions.reserve(regions.size());
-
-        for (const BufferImageCopy& region : regions)
-        {
-            vkRegions.push_back(VkBufferImageCopy
-            {
-                region.BufferOffset,
-                region.BufferRowLength,
-                region.BufferImageHeight,
-                VkImageSubresourceLayers{ vk::ToVulkan(region.Aspect), region.MipLevel, region.BaseArrayLayer, region.LayerCount },
-                VkOffset3D{ region.OffsetX, region.OffsetY, region.OffsetZ },
-                VkExtent3D{ region.Width, region.Height, region.Depth }
-            });
-        }
-
+        const foundation::SmallVector<VkBufferImageCopy, k_CopyRegionInlineCapacity> vkRegions(
+            std::from_range,
+            regions | std::views::transform(k_ToVulkan)
+        );
         vkCmdCopyBufferToImage(handle.As<VkCommandBuffer>(), src.As<VkBuffer>(), dst.As<VkImage>(), vk::ToVulkan(dst_layout),
                                static_cast<uint32_t>(vkRegions.size()), vkRegions.data());
     }
@@ -412,26 +440,10 @@ namespace rhi
                                   std::span<const ImageBlit> regions, BlitFilter filter) noexcept
     {
         assert(isRecording && "CommandBuffer::BlitImage() called while not in recording mode.");
-        std::vector<VkImageBlit> vkRegions;
-        vkRegions.reserve(regions.size());
-
-        for (const ImageBlit& region : regions)
-        {
-            const VkImageAspectFlags aspect = vk::ToVulkan(region.Aspect);
-            vkRegions.push_back(VkImageBlit
-            {
-                VkImageSubresourceLayers{ aspect, region.SrcMipLevel, region.BaseArrayLayer, region.LayerCount },
-                {
-                    VkOffset3D{ 0, 0, 0 },
-                    VkOffset3D{ static_cast<int32_t>(region.SrcWidth), static_cast<int32_t>(region.SrcHeight), static_cast<int32_t>(region.SrcDepth) }
-                },
-                VkImageSubresourceLayers{ aspect, region.DstMipLevel, region.BaseArrayLayer, region.LayerCount },
-                {
-                    VkOffset3D{ 0, 0, 0 },
-                    VkOffset3D{ static_cast<int32_t>(region.DstWidth), static_cast<int32_t>(region.DstHeight), static_cast<int32_t>(region.DstDepth) }
-                }
-            });
-        }
+        const foundation::SmallVector<VkImageBlit, k_CopyRegionInlineCapacity> vkRegions(
+            std::from_range,
+            regions | std::views::transform(k_ToVulkan)
+        );
 
         const VkFilter vkFilter = filter == BlitFilter::Linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
         vkCmdBlitImage(handle.As<VkCommandBuffer>(), src.As<VkImage>(), vk::ToVulkan(src_layout), dst.As<VkImage>(), vk::ToVulkan(dst_layout),
