@@ -40,6 +40,13 @@
                 "CMAKE_C_COMPILER": "clang-cl.exe",
                 "CMAKE_CXX_COMPILER": "clang-cl.exe"
             }
+        },
+        {
+            "name": "emscripten",
+            "displayName": "Emscripten",
+            "inherits": "ninja-x64",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake"
         }
     ],
     "buildPresets": [
@@ -84,6 +91,30 @@
             "description": "Builds the project using the Windows x64 Clang configure preset",
             "configurePreset": "ninja-clang-cl",
             "configuration": "Release"
+        },
+        {
+            "name": "emscripten-build-debug",
+            "displayName": "Emscripten Debug",
+            "configurePreset": "emscripten",
+            "configuration": "Debug"
+        },
+        {
+            "name": "emscripten-build-relwithdebinfo",
+            "displayName": "Emscripten RelWithDebInfo",
+            "configurePreset": "emscripten",
+            "configuration": "RelWithDebInfo"
+        },
+        {
+            "name": "emscripten-build-release",
+            "displayName": "Emscripten Release",
+            "configurePreset": "emscripten",
+            "configuration": "Release"
+        },
+        {
+            "name": "emscripten-build-minsize",
+            "displayName": "Emscripten MinSizeRel",
+            "configurePreset": "emscripten",
+            "configuration": "MinSizeRel"
         }
     ]
 }

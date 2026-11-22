@@ -9,7 +9,12 @@
 # Configure with -DDIAMOND_DOGS_USE_PCH=OFF to build without any PCH. A PCH hides missing includes, so that build is how
 # we check that each file includes what it uses.
 
-option(DIAMOND_DOGS_USE_PCH "Use precompiled headers for the targets that DiamondDogs owns" ON)
+if(EMSCRIPTEN)
+    set(DIAMOND_DOGS_USE_PCH_DEFAULT OFF)
+else()
+    set(DIAMOND_DOGS_USE_PCH_DEFAULT ON)
+endif()
+option(DIAMOND_DOGS_USE_PCH "Use precompiled headers for the targets that DiamondDogs owns" ${DIAMOND_DOGS_USE_PCH_DEFAULT})
 
 set(DIAMOND_DOGS_PCH_LIBRARY_HEADER "${CMAKE_CURRENT_LIST_DIR}/pch/DiamondDogsPch.hpp")
 set(DIAMOND_DOGS_PCH_TEST_HEADER "${CMAKE_CURRENT_LIST_DIR}/pch/DiamondDogsTestPch.hpp")
@@ -123,7 +128,9 @@ function(diamond_dogs_resolve_pch)
         endif()
 
         # the PCH includes vulkan_core.h, and a target that links only foundation does not see the Vulkan folder
-        target_include_directories(${target} PRIVATE ${Vulkan_INCLUDE_DIR})
+        if(Vulkan_INCLUDE_DIR)
+            target_include_directories(${target} PRIVATE ${Vulkan_INCLUDE_DIR})
+        endif()
         target_precompile_headers(${target} PRIVATE "${header}")
         set_property(GLOBAL PROPERTY DIAMOND_DOGS_PCH_OWNER_${group} ${target})
         message(VERBOSE "PCH: ${target} makes a PCH (${kind})")

@@ -1,12 +1,17 @@
 
 set(foundation_source_files
     "include/ImageDataFormats.hpp"
-    "include/ImageDataFormatsVulkan.hpp"
     "include/Unit.hpp"
     "include/Handle.hpp"
-    "src/ImageDataFormats.cpp"
-    # Replaces global new/delete with mimalloc in every executable that links foundation
-    "src/miMallocOverride.cpp")
+    "src/ImageDataFormats.cpp")
+
+if(NOT EMSCRIPTEN)
+    list(APPEND foundation_source_files
+        "include/ImageDataFormatsVulkan.hpp"
+        "src/ImageDataFormatsVulkan.cpp"
+        # Replaces global new/delete with mimalloc in every executable that links foundation
+        "src/miMallocOverride.cpp")
+endif()
 
 set(foundation_async_source_files
     "include/async/FrameHeap.hpp"
@@ -18,12 +23,17 @@ set(foundation_async_source_files
     "include/async/Timeline.hpp"
     "include/async/TimelineSource.hpp"
     "include/async/Yield.hpp"
-    "src/async/FrameHeap.cpp"
     "src/async/FrameNames.cpp"
     "src/async/Promise.cpp"
     "src/async/Scheduler.cpp"
     "src/async/Timeline.cpp"
     "src/async/Yield.cpp")
+
+if(EMSCRIPTEN)
+    list(APPEND foundation_async_source_files "src/async/FrameHeapWeb.cpp")
+else()
+    list(APPEND foundation_async_source_files "src/async/FrameHeap.cpp")
+endif()
 
 set(foundation_content_source_files
     "include/content/ByteStreamSink.hpp"
@@ -47,10 +57,14 @@ set(foundation_content_source_files
     "src/content/RecipeKey.cpp"
     "src/content/TextSink.cpp")
 
-set(foundation_net_source_files
-    "include/net/Socket.hpp"
-    "src/net/SocketWaker.cpp"
-    "src/net/SocketWin32.cpp")
+if(NOT EMSCRIPTEN)
+    set(foundation_net_source_files
+        "include/net/Socket.hpp"
+        "src/net/SocketWaker.cpp"
+        "src/net/SocketWin32.cpp")
+else()
+    set(foundation_net_source_files)
+endif()
 
 set(foundation_reflect_source_files
     "include/reflect/Describe.hpp"
@@ -68,14 +82,18 @@ set(foundation_containers_source_files
     "include/containers/mwsrQueue.hpp"
     "include/containers/SmallVector.hpp")
 
-set(threading_source_files
-    "include/threading/atomic128.hpp"
-    "include/threading/concurrent_vector.hpp"
-    "include/threading/CriticalSection.hpp"
-    "include/threading/ExponentialBackoffSleeper.hpp"
-    "include/threading/SrwLock.hpp"
-    "src/threading/atomic128.cpp"
-    "src/threading/ExponentialBackoffSleeper.cpp")
+if(NOT EMSCRIPTEN)
+    set(threading_source_files
+        "include/threading/atomic128.hpp"
+        "include/threading/concurrent_vector.hpp"
+        "include/threading/CriticalSection.hpp"
+        "include/threading/ExponentialBackoffSleeper.hpp"
+        "include/threading/SrwLock.hpp"
+        "src/threading/atomic128.cpp"
+        "src/threading/ExponentialBackoffSleeper.cpp")
+else()
+    set(threading_source_files)
+endif()
 
 set(timing_source_files
     "include/timing/FrameLimiter.hpp"
@@ -94,6 +112,10 @@ if(WIN32)
         "src/threading/win32/SrwLockWin32.cpp")
     set(timing_platform_source_files
         "src/timing/win32/HighResolutionWaitWin32.cpp")
+elseif(EMSCRIPTEN)
+    set(threading_platform_source_files)
+    set(timing_platform_source_files
+        "src/timing/emscripten/HighResolutionWaitEmscripten.cpp")
 elseif(UNIX)
     set(threading_platform_source_files
         "src/threading/unix/CriticalSectionUnix.cpp"
@@ -170,10 +192,12 @@ add_library(foundation STATIC
 
 target_include_directories(foundation PRIVATE
     "../third_party"
-    ${Vulkan_INCLUDE_DIR}
     "${CMAKE_CURRENT_SOURCE_DIR}/include/")
 
-target_link_libraries(foundation PUBLIC mimalloc-static)
+if(NOT EMSCRIPTEN)
+    target_include_directories(foundation PRIVATE ${Vulkan_INCLUDE_DIR})
+    target_link_libraries(foundation PUBLIC mimalloc-static)
+endif()
 
 # xxHash comes from Lodestone's checkout (see cmake/ConfigureLodestone.cmake). PRIVATE, so no header of ours shows it.
 target_link_libraries(foundation PRIVATE xxHash::xxhash)
@@ -189,8 +213,12 @@ endif()
 # this: RelWithDebInfo defines it and keeps the counters
 target_compile_definitions(foundation PUBLIC "FOUNDATION_ASYNC_FRAME_STATISTICS=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>")
 
-if(UNIX)
+if(UNIX AND NOT EMSCRIPTEN)
     target_link_libraries(foundation PUBLIC "c++fs" "dl" "pthread")
+endif()
+
+if(EMSCRIPTEN)
+    target_compile_options(foundation PUBLIC "-msimd128")
 endif()
 
 if(MSVC)

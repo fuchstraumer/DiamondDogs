@@ -20,7 +20,8 @@ target_include_directories(rhi_types INTERFACE
 target_link_libraries(rhi_types INTERFACE foundation)
 bootstrap_assert_no_rhi(rhi_types)
 
-set(RHI_CORE_HEADERS
+if(NOT EMSCRIPTEN)
+    set(RHI_CORE_HEADERS
     "include/core/DebugUtilFns.hpp"
     "include/core/ExtensionPack.hpp"
     "include/core/ExtensionWrangler.hpp"
@@ -181,4 +182,5 @@ if (RHI_SYSTEM_GRAPHICS_API STREQUAL "Vulkan")
     set_target_properties(rhi_system_generate_extension_headers PROPERTIES FOLDER "Generators")
 
     target_include_directories(rhi_system PUBLIC "${CMAKE_CURRENT_BINARY_DIR}")
+endif()
 endif()

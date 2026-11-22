@@ -1,5 +1,6 @@
 #include "utility/MurmurHash.hpp"
-#include <type_traits>
+#include <cstddef>
+#include <utility>
 /*
     Implemented based on https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
 */
@@ -22,12 +23,12 @@ FORCE_INLINE uint64_t Rotl64(uint64_t x, int r)
 
 #define FORCE_INLINE __attribute__((always_inline))
 
-FORCE_INLINE uint32_t rotl32(uint32_t x, int r)
+FORCE_INLINE uint32_t Rotl32(uint32_t x, int r)
 {
     return (x << r) | (x >> (32 - r));
 }
 
-FORCE_INLINE uint64_t rotl64(uint64_t x, int r)
+FORCE_INLINE uint64_t Rotl64(uint64_t x, int r)
 {
     return (x << r) | (x >> (64 - r));
 }
@@ -48,10 +49,8 @@ FORCE_INLINE constexpr uint64_t Fmix64(uint64_t k) noexcept
 // MurmurHash2 was written by Austin Appleby, and is placed in the public
 // domain. The author hereby disclaims copyright to this source code.
 // constexpr and noexcept hash is a fun thing
-uint64_t MurmurHash2(const void* key, const size_t len, const uint64_t seed) noexcept
+uint64_t MurmurHash2(const void* key, const std::size_t len, const uint64_t seed) noexcept
 {
-    static_assert(std::is_same_v<size_t, uint64_t>, "uint64_t and size_t need to be the same for this code to work!");
-    static_assert(sizeof(void*) == 8u, "This hash only works on 64-bit platforms!");
     constexpr uint64_t k_HashConstantM = 0xc6a4a7935bd1e995LLU;
     constexpr uint64_t k_HashConstantR = 47LLU;
 
@@ -94,11 +93,7 @@ uint64_t MurmurHash2(const void* key, const size_t len, const uint64_t seed) noe
     case 0:
         break;
     default:
-#ifdef _MSC_VER
-        __assume(0);
-        // since we can never reach any of the other cases above, this is safe
-        // and can increase perf by generating less code
-#endif
+        std::unreachable();
     }
 
     hashResult ^= hashResult >> k_HashConstantR;
@@ -111,11 +106,10 @@ uint64_t MurmurHash2(const void* key, const size_t len, const uint64_t seed) noe
 //-----------------------------------------------------------------------------
 // MurmurHash3 was written by Austin Appleby, and is placed in the public
 // domain. The author hereby disclaims copyright to this source code.
-murmur_hash_result_t MurmurHash3(const void* key, size_t len, const uint32_t seed)
+murmur_hash_result_t MurmurHash3(const void* key, std::size_t len, const uint32_t seed)
 {
-    static_assert(std::is_same_v<size_t, uint64_t>, "uint64_t and size_t need to be the same for this code to work!");
     const uint8_t* data = reinterpret_cast<const uint8_t*>(key);
-    const size_t numBlocks = len / 16u;
+    const std::size_t numBlocks = len / 16u;
 
     uint64_t hash0{ static_cast<uint64_t>(seed) };
     uint64_t hash1{ static_cast<uint64_t>(seed) };
@@ -125,7 +119,7 @@ murmur_hash_result_t MurmurHash3(const void* key, size_t len, const uint32_t see
 
     const uint64_t* blocks = reinterpret_cast<const uint64_t*>(data);
 
-    for (size_t i = 0; i < numBlocks; ++i)
+    for (std::size_t i = 0; i < numBlocks; ++i)
     {
         uint64_t k0 = blocks[i * 2u + 0u];
 
@@ -201,9 +195,7 @@ murmur_hash_result_t MurmurHash3(const void* key, size_t len, const uint32_t see
     case 0:
         break;
     default:
-#ifdef _MSC_VER
-        __assume(0); // as above, len & 15u will ONLY ever create the above cases, so this is safe
-#endif
+        std::unreachable();
     }
 
     hash0 ^= static_cast<uint64_t>(len);

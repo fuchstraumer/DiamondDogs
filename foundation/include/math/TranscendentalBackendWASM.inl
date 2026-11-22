@@ -296,13 +296,13 @@ DD_MATH_FORCEINLINE Vector Vector::Log10(Vector value) noexcept
 DD_MATH_FORCEINLINE Vector Vector::Tan() const noexcept
 {
     const SinCosResult pair = SinCos();
-    return Vector{ wasm_f32x4_div(pair.sin.Data(), pair.cos.Data()) };
+    return Vector{ wasm_f32x4_div(pair.Sin.Data(), pair.Cos.Data()) };
 }
 
 DD_MATH_FORCEINLINE Vector Vector::TanEst() const noexcept
 {
     const SinCosResult pair = SinCosEst();
-    return Vector{ wasm_f32x4_div(pair.sin.Data(), pair.cos.Data()) };
+    return Vector{ wasm_f32x4_div(pair.Sin.Data(), pair.Cos.Data()) };
 }
 
 namespace detail

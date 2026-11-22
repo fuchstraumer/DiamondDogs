@@ -129,21 +129,23 @@ target_link_libraries(loom PUBLIC foundation shader_bundle rhi_types rhi_resourc
 
 bootstrap_assert_no_rhi(loom)
 
-# The Vulkan backend: Realize, recording and submit. It reads the core's compiled tables (src/compile), so it sees the
-# core's src folder; the core never sees this one.
-add_module(loom_vulkan
-    "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/include/LoomGraph.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/LoomGraph.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/GraphImpl.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/GraphImpl.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/Realize.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/Realize.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/Tick.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/Tick.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/VulkanMapping.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/VulkanMapping.cpp"
-)
+if(NOT EMSCRIPTEN)
+    # The Vulkan backend: Realize, recording and submit. It reads the core's compiled tables (src/compile), so it sees the
+    # core's src folder; the core never sees this one.
+    add_module(loom_vulkan
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/include/LoomGraph.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/LoomGraph.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/GraphImpl.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/GraphImpl.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/Realize.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/Realize.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/Tick.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/Tick.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/VulkanMapping.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/VulkanMapping.cpp"
+    )
 
-target_include_directories(loom_vulkan PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/include")
-target_include_directories(loom_vulkan PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src")
-target_link_libraries(loom_vulkan PUBLIC loom rhi_system rhi_resources)
+    target_include_directories(loom_vulkan PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/include")
+    target_include_directories(loom_vulkan PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src")
+    target_link_libraries(loom_vulkan PUBLIC loom rhi_system rhi_resources)
+endif()

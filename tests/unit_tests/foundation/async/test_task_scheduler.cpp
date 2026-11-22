@@ -40,8 +40,10 @@ namespace
     Task<void> ParentAwaitsChild(const Timeline& timeline, uint64_t target_value, int32_t& result);
     Task<void> WaitThenCount(const Timeline& timeline, uint64_t target_value, int32_t& counter);
     Task<void> WaitThenSignal(const Timeline& wait_on, uint64_t target_value, Timeline& signal, uint64_t signal_value);
+#ifndef __EMSCRIPTEN__
     Task<void> WaitThenRecordThread(const Timeline& timeline, const int32_t& payload, std::thread::id& resumed_on,
                                     int32_t& observed_payload);
+#endif
     Task<void> LeafAwaitsTimeline(const Timeline& timeline, uint64_t target_value, int32_t& live_count);
     Task<void> MiddleAwaitsLeaf(const Timeline& timeline, uint64_t target_value, int32_t& live_count);
     Task<void> RootAwaitsMiddle(const Timeline& timeline, uint64_t target_value, int32_t& live_count);
@@ -131,6 +133,9 @@ TEST(TaskSchedulerTest, ReachedTargetDoesNotPark)
     EXPECT_TRUE(scheduler.Idle());
 }
 
+#ifndef __EMSCRIPTEN__
+
+// Emscripten builds run single-threaded without -pthread; std::thread aborts under -fno-exceptions.
 TEST(TaskSchedulerTest, SignalFromAWorkerResumesTheFrameOnTheOwnerThread)
 {
     Timeline timeline;
@@ -211,6 +216,8 @@ TEST(TaskSchedulerTest, WaitReturnsFailedInsteadOfBlockingForeverWhenTheTimeline
     EXPECT_EQ(result, TimelineWait::Failed);
     EXPECT_TRUE(timeline.Failed());
 }
+
+#endif // !__EMSCRIPTEN__
 
 TEST(TaskSchedulerTest, WaitReturnsReachedWhenTheTargetIsReached)
 {
@@ -543,6 +550,7 @@ namespace
         signal.Signal(signal_value);
     }
 
+#ifndef __EMSCRIPTEN__
     Task<void> WaitThenRecordThread(const Timeline& timeline, const int32_t& payload, std::thread::id& resumed_on,
                                     int32_t& observed_payload)
     {
@@ -551,6 +559,7 @@ namespace
         resumed_on = std::this_thread::get_id();
         observed_payload = payload;
     }
+#endif
 
     Task<void> LeafAwaitsTimeline(const Timeline& timeline, uint64_t target_value, int32_t& live_count)
     {

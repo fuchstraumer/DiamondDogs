@@ -1,7 +1,9 @@
 #include "timing/FrameLimiter.hpp"
 #include <chrono>
 #include <ratio>
+#if defined(__x86_64__) || defined(_M_X64)
 #include <immintrin.h>
+#endif
 
 namespace
 {
@@ -88,7 +90,9 @@ void FrameLimiter::WaitNextFrame() noexcept
 
     while (Clock::now() < nextDeadline)
     {
+#if defined(__x86_64__) || defined(_M_X64)
         _mm_pause();
+#endif
     }
 
     nextDeadline += targetInterval;

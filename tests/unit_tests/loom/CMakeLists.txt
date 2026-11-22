@@ -40,7 +40,17 @@ lodestone_add_shader_cook(loom_test_shaders
     "${CMAKE_SOURCE_DIR}/tests/integration_tests/LoomImageTest/LoomImages.slang")
 set_target_properties(loom_test_shaders PROPERTIES FOLDER "Tests/Unit Tests")
 add_dependencies(loom_tests loom_test_shaders)
-target_compile_definitions(loom_tests PRIVATE
-    "LOOM_TEST_BUNDLE=\"$<TARGET_PROPERTY:loom_test_shaders,LODESTONE_MANIFEST>\"")
+if(EMSCRIPTEN)
+    target_compile_definitions(loom_tests PRIVATE
+        "LOOM_TEST_BUNDLE=\"/cooked/ShaderLibrary.ldmanifest\"")
+    target_link_options(loom_tests PRIVATE
+        "--embed-file"
+        "${CMAKE_CURRENT_BINARY_DIR}/cooked@/cooked")
+    set_property(TARGET loom_tests APPEND PROPERTY LINK_DEPENDS
+        "$<TARGET_PROPERTY:loom_test_shaders,LODESTONE_MANIFEST>")
+else()
+    target_compile_definitions(loom_tests PRIVATE
+        "LOOM_TEST_BUNDLE=\"$<TARGET_PROPERTY:loom_test_shaders,LODESTONE_MANIFEST>\"")
+endif()
 # The generated host header sits beside the manifest
 target_include_directories(loom_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/cooked")

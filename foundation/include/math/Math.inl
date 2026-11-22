@@ -1,4 +1,5 @@
 #pragma once
+#include <cstring>
 #include <numbers>
 
 #include "math/Math.hpp"

@@ -2,8 +2,8 @@
 // backend. Do not include Math.hpp here.
 #include "math/MathStorage.hpp"
 
-#if defined(DIRECTX_MATH_VERSION) || defined(__wasm_simd128__) || defined(DD_MATH_BACKEND_WASM) || \
-    defined(VX_MATH_BACKEND_WASM)
+#if defined(DIRECTX_MATH_VERSION) || defined(__WASM_SIMD128_H) || defined(DIAMONDDOGS_FOUNDATION_MATH_HPP) || \
+    defined(DD_MATH_BACKEND_WASM) || defined(VX_MATH_BACKEND_WASM)
 #error "MathStorage.hpp pulled in a SIMD backend"
 #endif
 
