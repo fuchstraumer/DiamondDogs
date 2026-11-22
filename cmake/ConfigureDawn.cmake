@@ -19,3 +19,10 @@ if (NOT EXISTS "${DIAMOND_DOGS_DAWN_DIR}/CMakeLists.txt")
 endif()
 
 add_subdirectory("${DIAMOND_DOGS_DAWN_DIR}" "${CMAKE_BINARY_DIR}/third_party/dawn" EXCLUDE_FROM_ALL)
+
+if(TARGET emdawnwebgpu_c)
+    # emsdk 7.x libc++ stopped pulling <string> transitively in Dawn's webgpu.cpp
+    set(diamondDogsDawnStringFix "${CMAKE_BINARY_DIR}/generated/dawn_string_fix.hpp")
+    file(WRITE "${diamondDogsDawnStringFix}" "#pragma once\n#include <string>\n")
+    target_compile_options(emdawnwebgpu_c PRIVATE -include "${diamondDogsDawnStringFix}")
+endif()
