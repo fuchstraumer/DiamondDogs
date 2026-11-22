@@ -7,6 +7,8 @@
 #include "DeviceRequirements.hpp"
 #include "LaunchStage.hpp"
 #include "PlatformSystem.hpp"
+#include "RhiContext.hpp"
+#include "RhiContextVulkan.hpp"
 #include "RhiFlags.hpp"
 #include "RhiSystem.hpp"
 #include "RhiSystemStart.hpp"
@@ -76,6 +78,7 @@ namespace bootstrap
             window->Platform().DestroySurface();
         }
 
+        context = rhi::RhiContext{};
         rhi.reset();
         window = nullptr;
         content = nullptr;
@@ -90,6 +93,11 @@ namespace bootstrap
     const ContentStage& DeviceStage::Content() const noexcept
     {
         return *content;
+    }
+
+    const rhi::RhiContext& DeviceStage::Context() const noexcept
+    {
+        return context;
     }
 
     rhi::RhiSystem& DeviceStage::Rhi() const noexcept
@@ -197,6 +205,8 @@ namespace bootstrap
                                  std::move(source),
                                  std::move(deviceStarted.Detail));
         }
+
+        context = rhi::MakeVulkanRhiContext(*rhi, validation != rhi::ValidationLayers::None);
 
         return SuccessIn(Stage::Device);
     }

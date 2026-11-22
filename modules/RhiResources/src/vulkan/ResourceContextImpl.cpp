@@ -1,9 +1,11 @@
 #include "ResourceContextImpl.hpp"
+#include "ImageDataFormats.hpp"
 #include "ImageDataFormatsVulkan.hpp"
-
 #include "ResourceContext.hpp"
+#include "RhiContextVulkan.hpp"
 #include "Device.hpp"
 #include "Instance.hpp"
+#include "RhiHandle.hpp"
 #include "RhiResourceFlags.hpp"
 #include "FutureTable.hpp"
 #include "ResourceFuture.hpp"
@@ -11,13 +13,14 @@
 #include "ResourceTypes.hpp"
 #include "RhiFlags.hpp"
 #include "RhiSystem.hpp"
+#include "TransferSystem.hpp"
+#include "TransferSystemMessagesInternal.hpp"
 #include "UploadBuffer.hpp"
 #include "VulkanConversions.hpp"
-#include "entt/entity/fwd.hpp"
 #include "vulkan/vulkan_core.h"
-
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -40,14 +43,23 @@
 #pragma clang diagnostic ignored "-Wunused-variable"
 #pragma clang diagnostic ignored "-Wnullability-completeness"
 #pragma clang diagnostic ignored "-Wunused-private-field"
+#pragma clang diagnostic ignored "-Wnrvo"
 #endif
+#include "entt/entity/fwd.hpp"
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunsafe-buffer-usage"
+#pragma clang diagnostic ignored "-Wnrvo"
+#endif
+
 static_assert(static_cast<uint32_t>(k_MaxMemoryHeaps) == VK_MAX_MEMORY_HEAPS, "k_MaxMemoryHeaps must match the Vulkan limit");
+
 
 namespace
 {
@@ -165,7 +177,7 @@ namespace
     [[nodiscard]] bool TransferOpReadsSource(TransferOpKind kind) noexcept;
     /** @brief Returns true when the alternative that `Region` holds is the one that the kind of the op reads. Returns
      *  false for the invalid kind. Every read of `Region` comes after this check. */
-    [[nodiscard]] bool TransferOpRegionMatchesKind(const TransferSetOp& op) noexcept;
+    [[nodiscard]] bool TransferOpRegionMatchesKind(const TransferSetOp& transfer_op) noexcept;
     /** @brief Returns true when two ops of one range write one resource, or when one resource is both read and written
      *  in one range. Sorts at most 2 entries for each op, in a fixed array. Allocates nothing. */
     [[nodiscard]] bool TransferSetHasRangeHazard(std::span<const TransferSetOp> ops, std::span<const int32_t> range_ends) noexcept;
@@ -186,15 +198,22 @@ ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateI
         return ResourceContextError::AlreadyInitialized;
     }
 
+    if (create_info.Context == nullptr)
+    {
+        return ResourceContextError::InvalidCreateInfo;
+    }
+
+    const rhi::VulkanRhiContextView rhiView = rhi::UnwrapVulkanRhiContext(*create_info.Context);
+
     // one slot is shared by the futures of a full table, so a table of one slot could hold no future
-    if (create_info.Instance == nullptr || create_info.Device == nullptr || create_info.MaxFutures < 2 ||
+    if (rhiView.InstancePtr == nullptr || rhiView.DevicePtr == nullptr || create_info.MaxFutures < 2 ||
         create_info.StagingRingSize < k_MinStagingRingSize)
     {
         return ResourceContextError::InvalidCreateInfo;
     }
 
     queueFamilyIndices.clear();
-    const rhi::QueueFamilyIndices& families = create_info.Device->GetQueueFamilyIndices();
+    const rhi::QueueFamilyIndices& families = rhiView.DevicePtr->GetQueueFamilyIndices();
     for (const uint32_t family : { families.Graphics, families.Compute, families.Transfer })
     {
         if (family != ~0u && std::ranges::find(queueFamilyIndices, family) == queueFamilyIndices.end())
@@ -203,7 +222,7 @@ ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateI
         }
     }
 
-    const VkInstance instance = create_info.Instance->Handle().As<VkInstance>();
+    const VkInstance instance = rhiView.InstancePtr->Handle().As<VkInstance>();
     VmaAllocatorCreateInfo createInfo{};
     // only the worker thread allocates, so the library does not need to sync for us
     createInfo.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
@@ -212,16 +231,16 @@ ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateI
         createInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
     }
 
-    memoryBudgetExtensionEnabled = create_info.Device->HasExtension("VK_EXT_memory_budget");
+    memoryBudgetExtensionEnabled = rhiView.DevicePtr->HasExtension("VK_EXT_memory_budget");
     if (memoryBudgetExtensionEnabled)
     {
         createInfo.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
     }
 
-    createInfo.physicalDevice = create_info.Device->GetPhysicalDevice().As<VkPhysicalDevice>();
-    createInfo.device = create_info.Device->Handle().As<VkDevice>();
+    createInfo.physicalDevice = rhiView.DevicePtr->GetPhysicalDevice().As<VkPhysicalDevice>();
+    createInfo.device = rhiView.DevicePtr->Handle().As<VkDevice>();
     createInfo.instance = instance;
-    createInfo.vulkanApiVersion = create_info.VulkanApiVersion;
+    createInfo.vulkanApiVersion = rhiView.VulkanApiVersion;
 
     VkResult result = vmaCreateAllocator(&createInfo, &allocatorHandle);
     if (result != VK_SUCCESS)
@@ -230,7 +249,7 @@ ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateI
         return ResourceContextError::AllocatorCreationFailed;
     }
 
-    const ResourceContextError transferResult = transferSystem.Initialize(create_info.Device, instance, create_info.VulkanApiVersion, &messageQueue, &futures, create_info.StagingRingSize);
+    const ResourceContextError transferResult = transferSystem.Initialize(rhiView.DevicePtr, instance, rhiView.VulkanApiVersion, &messageQueue, &futures, create_info.StagingRingSize);
     if (transferResult != ResourceContextError::Success)
     {
         vmaDestroyAllocator(allocatorHandle);
@@ -239,12 +258,12 @@ ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateI
     }
 
     // no message exists yet, so neither thread writes the table before this
-    const VkSemaphore transferTimeline = reinterpret_cast<VkSemaphore>(transferSystem.TimelineHandle());
-    futures.Initialize(create_info.MaxFutures, create_info.Device->Handle().As<VkDevice>(), transferTimeline);
+    const rhi::TimelineSemaphoreHandle transferTimeline{ transferSystem.TimelineHandle() };
+    futures.Initialize(create_info.MaxFutures, transferTimeline, reinterpret_cast<void*>(rhiView.DevicePtr->Handle().As<VkDevice>()));
 
     // set last: Destroy() treats a null device as "never initialized"
-    device = create_info.Device;
-    validationEnabled = create_info.ValidationEnabled;
+    device = rhiView.DevicePtr;
+    validationEnabled = rhiView.ValidationEnabled;
     deviceAddressesEnabled = create_info.DeviceAddressesEnabled;
     StartWorker();
     return ResourceContextError::Success;
@@ -551,18 +570,18 @@ std::expected<entt::entity, rhi::ResourceError> ResourceContextImpl::beginBuffer
     return newEntity;
 }
 
-std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::finishBufferEntity(entt::entity newEntity)
+std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::finishBufferEntity(entt::entity new_entity)
 {
-    const BufferCreateInfo& storedInfo = resourceRegistry.get<BufferCreateInfo>(newEntity);
-    const VkBuffer bufferHandle = resourceRegistry.get<VkBuffer>(newEntity);
+    const BufferCreateInfo& storedInfo = resourceRegistry.get<BufferCreateInfo>(new_entity);
+    const VkBuffer bufferHandle = resourceRegistry.get<VkBuffer>(new_entity);
 
     VkBufferView bufferView = VK_NULL_HANDLE;
     if (storedInfo.ViewFormat.has_value())
     {
-        bufferView = createBufferView(newEntity, storedInfo);
+        bufferView = createBufferView(new_entity, storedInfo);
         if (bufferView == VK_NULL_HANDLE)
         {
-            destroyEntityResources(newEntity);
+            destroyEntityResources(new_entity);
             return std::unexpected(rhi::ResourceError::ViewCreationFailed);
         }
     }
@@ -583,7 +602,7 @@ std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::finishB
     {
         storedInfo.Domain,
         ResourceType::Buffer,
-        static_cast<uint32_t>(newEntity),
+        static_cast<uint32_t>(new_entity),
         reinterpret_cast<uint64_t>(bufferHandle),
         reinterpret_cast<uint64_t>(bufferView),
         0u,
@@ -634,19 +653,19 @@ std::expected<entt::entity, rhi::ResourceError> ResourceContextImpl::beginImageE
     return newEntity;
 }
 
-std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::finishImageEntity(entt::entity newEntity)
+std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::finishImageEntity(entt::entity new_entity)
 {
-    const ImageCreateInfo& storedInfo = resourceRegistry.get<ImageCreateInfo>(newEntity);
-    const ResourceType resourceType = resourceRegistry.get<ResourceFlags>(newEntity).Type;
-    const VkImage imageHandle = resourceRegistry.get<VkImage>(newEntity);
+    const ImageCreateInfo& storedInfo = resourceRegistry.get<ImageCreateInfo>(new_entity);
+    const ResourceType resourceType = resourceRegistry.get<ResourceFlags>(new_entity).Type;
+    const VkImage imageHandle = resourceRegistry.get<VkImage>(new_entity);
 
     VkImageView imageView = VK_NULL_HANDLE;
     if (storedInfo.ViewInfo.has_value())
     {
-        imageView = createImageView(newEntity, storedInfo);
+        imageView = createImageView(new_entity, storedInfo);
         if (imageView == VK_NULL_HANDLE)
         {
-            destroyEntityResources(newEntity);
+            destroyEntityResources(new_entity);
             return std::unexpected(rhi::ResourceError::ViewCreationFailed);
         }
     }
@@ -654,10 +673,10 @@ std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::finishI
     VkSampler sampler = VK_NULL_HANDLE;
     if (storedInfo.SamplerInfo.has_value())
     {
-        sampler = createSampler(newEntity, *storedInfo.SamplerInfo, "_sampler");
+        sampler = createSampler(new_entity, *storedInfo.SamplerInfo, "_sampler");
         if (sampler == VK_NULL_HANDLE)
         {
-            destroyEntityResources(newEntity);
+            destroyEntityResources(new_entity);
             return std::unexpected(rhi::ResourceError::SamplerCreationFailed);
         }
     }
@@ -666,7 +685,7 @@ std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::finishI
     {
         storedInfo.Domain,
         resourceType,
-        static_cast<uint32_t>(newEntity),
+        static_cast<uint32_t>(new_entity),
         reinterpret_cast<uint64_t>(imageHandle),
         reinterpret_cast<uint64_t>(imageView),
         reinterpret_cast<uint64_t>(sampler)
@@ -718,14 +737,14 @@ void ResourceContextImpl::processMessage(CreateMemoryHeapMessage&& message)
     const VkMemoryRequirements requirements{ message.Size, 1u, message.MemoryTypeBits };
     const VmaAllocationCreateInfo allocCreateInfo
     {
-        VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
-        VMA_MEMORY_USAGE_UNKNOWN,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        0u,
-        0u,
-        VK_NULL_HANDLE,
-        nullptr,
-        0.0f
+        .flags=VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
+        .usage=VMA_MEMORY_USAGE_UNKNOWN,
+        .requiredFlags=VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .preferredFlags=0u,
+        .memoryTypeBits=0u,
+        .pool=VK_NULL_HANDLE,
+        .pUserData=nullptr,
+        .priority=0.0f,
     };
 
     VmaAllocation allocation = VK_NULL_HANDLE;
@@ -974,7 +993,7 @@ void ResourceContextImpl::processMessage(FillResourceMessage&& message)
         message.Value,
         message.Offset,
         message.Size,
-        message.Future
+        message.Future,
     };
 
     enqueueTransfer(std::move(fillBufferMessage), std::span(&*entity, 1), message.Waits);
@@ -1273,7 +1292,11 @@ void ResourceContextImpl::enqueueBufferCopy(CopyResourceContentsMessage& message
         return;
     }
 
-    TransferSystemCopyBufferToBufferMessage transferMessage{ bufferTransferInfo(src_entity), bufferTransferInfo(dst_entity) };
+    TransferSystemCopyBufferToBufferMessage transferMessage
+    {
+        .SrcBufferInfo = bufferTransferInfo(src_entity),
+        .DstBufferInfo = bufferTransferInfo(dst_entity)
+    };
     transferMessage.Regions = std::move(message.Regions);
     transferMessage.Future = message.Future;
 
@@ -1351,7 +1374,11 @@ void ResourceContextImpl::enqueueBufferToImageCopy(CopyResourceContentsMessage& 
         return;
     }
 
-    TransferSystemCopyBufferToImageMessage transferMessage{ bufferTransferInfo(src_entity), imageTransferInfo(dst_entity, message.DestinationUsage) };
+    TransferSystemCopyBufferToImageMessage transferMessage
+    {
+        .BufferInfo = bufferTransferInfo(src_entity),
+        .ImageInfo = imageTransferInfo(dst_entity, message.DestinationUsage)
+    };
     transferMessage.Regions = std::move(message.BufferImageRegions);
     transferMessage.Future = message.Future;
 
@@ -1435,31 +1462,31 @@ void ResourceContextImpl::processMessage(TransferSetMessage&& message)
     enqueueTransfer(std::move(transferMessage), std::span<const entt::entity>(touched.data(), touchedCount), message.Waits);
 }
 
-rhi::ResourceError ResourceContextImpl::resolveTransferSetOp(const TransferSetOp& op, uint64_t data_size, ResolvedTransferOp& resolved) const
+rhi::ResourceError ResourceContextImpl::resolveTransferSetOp(const TransferSetOp& transfer_op, uint64_t data_size, ResolvedTransferOp& resolved) const
 {
-    resolved.Kind = op.Kind;
+    resolved.Kind = transfer_op.Kind;
 
-    if (!TransferOpRegionMatchesKind(op))
+    if (!TransferOpRegionMatchesKind(transfer_op))
     {
         return rhi::ResourceError::InvalidTransferSet;
     }
 
-    switch (op.Kind)
+    switch (transfer_op.Kind)
     {
     case TransferOpKind::UploadBuffer:
-        return resolveUploadBufferOp(op, data_size, resolved);
+        return resolveUploadBufferOp(transfer_op, data_size, resolved);
     case TransferOpKind::UploadImage:
-        return resolveUploadImageOp(op, data_size, resolved);
+        return resolveUploadImageOp(transfer_op, data_size, resolved);
     case TransferOpKind::FillBuffer:
-        return resolveFillBufferOp(op, resolved);
+        return resolveFillBufferOp(transfer_op, resolved);
     case TransferOpKind::CopyBuffer:
-        return resolveCopyBufferOp(op, resolved);
+        return resolveCopyBufferOp(transfer_op, resolved);
     case TransferOpKind::CopyBufferToImage:
-        return resolveCopyBufferToImageOp(op, resolved);
+        return resolveCopyBufferToImageOp(transfer_op, resolved);
     case TransferOpKind::CopyImageToBuffer:
-        return resolveCopyImageToBufferOp(op, resolved);
+        return resolveCopyImageToBufferOp(transfer_op, resolved);
     case TransferOpKind::CopyImage:
-        return resolveCopyImageOp(op, resolved);
+        return resolveCopyImageOp(transfer_op, resolved);
     case TransferOpKind::Invalid:
         break;
     }
@@ -1525,15 +1552,16 @@ std::expected<ResourceContextImpl::SetImageSide, rhi::ResourceError> ResourceCon
     };
 }
 
-rhi::ResourceError ResourceContextImpl::resolveUploadBufferOp(const TransferSetOp& op, uint64_t data_size, ResolvedTransferOp& resolved) const
+rhi::ResourceError ResourceContextImpl::resolveUploadBufferOp(const TransferSetOp& transfer_op, uint64_t data_size, ResolvedTransferOp& resolved) const
 {
-    const std::expected<SetBufferSide, rhi::ResourceError> destination = resolveSetBuffer(op.Destination, true);
+    const std::expected<SetBufferSide, rhi::ResourceError> destination =
+        resolveSetBuffer(transfer_op.Destination, true);
     if (!destination.has_value())
     {
         return destination.error();
     }
 
-    const BufferCopyRegion& region = std::get<BufferCopyRegion>(op.Region);
+    const BufferCopyRegion& region = std::get<BufferCopyRegion>(transfer_op.Region);
 
     // the bytes must be in the data of the set. the other rules are the rules of SetBufferData
     if (!RangeIsInside(region.SourceOffset, region.Size, data_size))
@@ -1551,18 +1579,18 @@ rhi::ResourceError ResourceContextImpl::resolveUploadBufferOp(const TransferSetO
     return rhi::ResourceError::Success;
 }
 
-rhi::ResourceError ResourceContextImpl::resolveUploadImageOp(const TransferSetOp& op, uint64_t data_size, ResolvedTransferOp& resolved) const
+rhi::ResourceError ResourceContextImpl::resolveUploadImageOp(const TransferSetOp& transfer_op, uint64_t data_size, ResolvedTransferOp& resolved) const
 {
-    const std::expected<SetImageSide, rhi::ResourceError> destination = resolveSetImage(op.Destination, op.DestinationUsage, true);
+    const std::expected<SetImageSide, rhi::ResourceError> destination = resolveSetImage(transfer_op.Destination, transfer_op.DestinationUsage, true);
     if (!destination.has_value())
     {
         return destination.error();
     }
 
-    const BufferImageRegion& region = std::get<BufferImageRegion>(op.Region);
+    const BufferImageRegion& region = std::get<BufferImageRegion>(transfer_op.Region);
 
     // the rules of SetImageData first, with no buffer size: the bytes come from the data of the set
-    const bool imageIsDiscarded = op.DestinationUsage.Before == ImageUsageBits::Discard;
+    const bool imageIsDiscarded = transfer_op.DestinationUsage.Before == ImageUsageBits::Discard;
     if (!BufferToImageRegionsAreValid(std::span<const BufferImageRegion>(&region, 1u), *destination->Info, std::nullopt, imageIsDiscarded))
     {
         return rhi::ResourceError::InvalidRegion;
@@ -1582,15 +1610,15 @@ rhi::ResourceError ResourceContextImpl::resolveUploadImageOp(const TransferSetOp
     return rhi::ResourceError::Success;
 }
 
-rhi::ResourceError ResourceContextImpl::resolveFillBufferOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const
+rhi::ResourceError ResourceContextImpl::resolveFillBufferOp(const TransferSetOp& transfer_op, ResolvedTransferOp& resolved) const
 {
-    const std::expected<SetBufferSide, rhi::ResourceError> destination = resolveSetBuffer(op.Destination, true);
+    const std::expected<SetBufferSide, rhi::ResourceError> destination = resolveSetBuffer(transfer_op.Destination, true);
     if (!destination.has_value())
     {
         return destination.error();
     }
 
-    const BufferCopyRegion& region = std::get<BufferCopyRegion>(op.Region);
+    const BufferCopyRegion& region = std::get<BufferCopyRegion>(transfer_op.Region);
 
     // vkCmdFillBuffer needs both multiples of 4, as in FillBuffer. a set has no whole-size fill
     const bool isUnaligned = region.DestinationOffset % 4u != 0u || region.Size % 4u != 0u;
@@ -1606,31 +1634,31 @@ rhi::ResourceError ResourceContextImpl::resolveFillBufferOp(const TransferSetOp&
 
     resolved.DestinationBuffer = destination->Handle;
     resolved.Buffer = region;
-    resolved.FillValue = op.FillValue;
+    resolved.FillValue = transfer_op.FillValue;
     return rhi::ResourceError::Success;
 }
 
-rhi::ResourceError ResourceContextImpl::resolveCopyBufferOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const
+rhi::ResourceError ResourceContextImpl::resolveCopyBufferOp(const TransferSetOp& transfer_op, ResolvedTransferOp& resolved) const
 {
-    const std::expected<SetBufferSide, rhi::ResourceError> source = resolveSetBuffer(op.Source, false);
+    const std::expected<SetBufferSide, rhi::ResourceError> source = resolveSetBuffer(transfer_op.Source, false);
     if (!source.has_value())
     {
         return source.error();
     }
 
-    const std::expected<SetBufferSide, rhi::ResourceError> destination = resolveSetBuffer(op.Destination, true);
+    const std::expected<SetBufferSide, rhi::ResourceError> destination = resolveSetBuffer(transfer_op.Destination, true);
     if (!destination.has_value())
     {
         return destination.error();
     }
 
-    // an op never reads and writes one resource. CopyBufferRegions copies inside one buffer
-    if (op.Source.EntityHandle == op.Destination.EntityHandle)
+    // an transfer_op never reads and writes one resource. CopyBufferRegions copies inside one buffer
+    if (transfer_op.Source.EntityHandle == transfer_op.Destination.EntityHandle)
     {
         return rhi::ResourceError::InvalidTransferSet;
     }
 
-    const BufferCopyRegion& region = std::get<BufferCopyRegion>(op.Region);
+    const BufferCopyRegion& region = std::get<BufferCopyRegion>(transfer_op.Region);
     if (!BufferCopyRegionsAreValid(std::span<const BufferCopyRegion>(&region, 1u), source->Size, destination->Size, false))
     {
         return rhi::ResourceError::InvalidRegion;
@@ -1642,22 +1670,22 @@ rhi::ResourceError ResourceContextImpl::resolveCopyBufferOp(const TransferSetOp&
     return rhi::ResourceError::Success;
 }
 
-rhi::ResourceError ResourceContextImpl::resolveCopyBufferToImageOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const
+rhi::ResourceError ResourceContextImpl::resolveCopyBufferToImageOp(const TransferSetOp& transfer_op, ResolvedTransferOp& resolved) const
 {
-    const std::expected<SetBufferSide, rhi::ResourceError> source = resolveSetBuffer(op.Source, false);
+    const std::expected<SetBufferSide, rhi::ResourceError> source = resolveSetBuffer(transfer_op.Source, false);
     if (!source.has_value())
     {
         return source.error();
     }
 
-    const std::expected<SetImageSide, rhi::ResourceError> destination = resolveSetImage(op.Destination, op.DestinationUsage, true);
+    const std::expected<SetImageSide, rhi::ResourceError> destination = resolveSetImage(transfer_op.Destination, transfer_op.DestinationUsage, true);
     if (!destination.has_value())
     {
         return destination.error();
     }
 
-    const BufferImageRegion& region = std::get<BufferImageRegion>(op.Region);
-    const bool imageIsDiscarded = op.DestinationUsage.Before == ImageUsageBits::Discard;
+    const BufferImageRegion& region = std::get<BufferImageRegion>(transfer_op.Region);
+    const bool imageIsDiscarded = transfer_op.DestinationUsage.Before == ImageUsageBits::Discard;
     if (!BufferToImageRegionsAreValid(std::span<const BufferImageRegion>(&region, 1u), *destination->Info, source->Size, imageIsDiscarded))
     {
         return rhi::ResourceError::InvalidRegion;
@@ -1672,21 +1700,21 @@ rhi::ResourceError ResourceContextImpl::resolveCopyBufferToImageOp(const Transfe
     return rhi::ResourceError::Success;
 }
 
-rhi::ResourceError ResourceContextImpl::resolveCopyImageToBufferOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const
+rhi::ResourceError ResourceContextImpl::resolveCopyImageToBufferOp(const TransferSetOp& transfer_op, ResolvedTransferOp& resolved) const
 {
-    const std::expected<SetImageSide, rhi::ResourceError> source = resolveSetImage(op.Source, op.SourceUsage, false);
+    const std::expected<SetImageSide, rhi::ResourceError> source = resolveSetImage(transfer_op.Source, transfer_op.SourceUsage, false);
     if (!source.has_value())
     {
         return source.error();
     }
 
-    const std::expected<SetBufferSide, rhi::ResourceError> destination = resolveSetBuffer(op.Destination, true);
+    const std::expected<SetBufferSide, rhi::ResourceError> destination = resolveSetBuffer(transfer_op.Destination, true);
     if (!destination.has_value())
     {
         return destination.error();
     }
 
-    const BufferImageRegion& region = std::get<BufferImageRegion>(op.Region);
+    const BufferImageRegion& region = std::get<BufferImageRegion>(transfer_op.Region);
     if (!ImageToBufferRegionsAreValid(std::span<const BufferImageRegion>(&region, 1u), *source->Info, destination->Size))
     {
         return rhi::ResourceError::InvalidRegion;
@@ -1701,22 +1729,22 @@ rhi::ResourceError ResourceContextImpl::resolveCopyImageToBufferOp(const Transfe
     return rhi::ResourceError::Success;
 }
 
-rhi::ResourceError ResourceContextImpl::resolveCopyImageOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const
+rhi::ResourceError ResourceContextImpl::resolveCopyImageOp(const TransferSetOp& transfer_op, ResolvedTransferOp& resolved) const
 {
-    const std::expected<SetImageSide, rhi::ResourceError> source = resolveSetImage(op.Source, op.SourceUsage, false);
+    const std::expected<SetImageSide, rhi::ResourceError> source = resolveSetImage(transfer_op.Source, transfer_op.SourceUsage, false);
     if (!source.has_value())
     {
         return source.error();
     }
 
-    const std::expected<SetImageSide, rhi::ResourceError> destination = resolveSetImage(op.Destination, op.DestinationUsage, true);
+    const std::expected<SetImageSide, rhi::ResourceError> destination = resolveSetImage(transfer_op.Destination, transfer_op.DestinationUsage, true);
     if (!destination.has_value())
     {
         return destination.error();
     }
 
-    // an op never reads and writes one resource. CopyImageRegions copies inside one image
-    if (op.Source.EntityHandle == op.Destination.EntityHandle)
+    // an transfer_op never reads and writes one resource. CopyImageRegions copies inside one image
+    if (transfer_op.Source.EntityHandle == transfer_op.Destination.EntityHandle)
     {
         return rhi::ResourceError::InvalidTransferSet;
     }
@@ -1726,8 +1754,8 @@ rhi::ResourceError ResourceContextImpl::resolveCopyImageOp(const TransferSetOp& 
         return rhi::ResourceError::CopyShapeMismatch;
     }
 
-    const ImageCopyRegion& region = std::get<ImageCopyRegion>(op.Region);
-    const bool destinationIsDiscarded = op.DestinationUsage.Before == ImageUsageBits::Discard;
+    const ImageCopyRegion& region = std::get<ImageCopyRegion>(transfer_op.Region);
+    const bool destinationIsDiscarded = transfer_op.DestinationUsage.Before == ImageUsageBits::Discard;
     if (!ImageCopyRegionsAreValid(std::span<const ImageCopyRegion>(&region, 1u), *source->Info, *destination->Info, false, destinationIsDiscarded))
     {
         return rhi::ResourceError::InvalidRegion;
@@ -1802,7 +1830,7 @@ void ResourceContextImpl::processMessage(DestroyResourceMessage&& message)
     }
 
     resourceRegistry.emplace<Retiring>(*entity);
-    retiring.push_back(std::move(entry));
+    retiring.push_back(entry);
     retirementsPending.store(static_cast<int64_t>(retiring.size()), std::memory_order_relaxed);
 }
 
@@ -2658,11 +2686,18 @@ namespace
     {
         switch (kind)
         {
-        case CopyKind::BufferToBuffer: return src_is_buffer && dst_is_buffer;
-        case CopyKind::ImageToBuffer: return !src_is_buffer && dst_is_buffer;
-        case CopyKind::BufferToImage: return src_is_buffer && !dst_is_buffer;
-        case CopyKind::ImageToImage: return !src_is_buffer && !dst_is_buffer;
-        default: return false;
+        case CopyKind::BufferToBuffer:
+            return src_is_buffer && dst_is_buffer;
+        case CopyKind::ImageToBuffer:
+            return !src_is_buffer && dst_is_buffer;
+        case CopyKind::BufferToImage:
+            return src_is_buffer && !dst_is_buffer;
+        case CopyKind::ImageToImage:
+            return !src_is_buffer && !dst_is_buffer;
+        case CopyKind::Invalid:
+            [[fallthrough]];
+        default:
+            return false;
         }
     }
 
@@ -3093,20 +3128,20 @@ namespace
         return false;
     }
 
-    bool TransferOpRegionMatchesKind(const TransferSetOp& op) noexcept
+    bool TransferOpRegionMatchesKind(const TransferSetOp& transfer_op) noexcept
     {
-        switch (op.Kind)
+        switch (transfer_op.Kind)
         {
         case TransferOpKind::UploadBuffer:
         case TransferOpKind::FillBuffer:
         case TransferOpKind::CopyBuffer:
-            return std::holds_alternative<BufferCopyRegion>(op.Region);
+            return std::holds_alternative<BufferCopyRegion>(transfer_op.Region);
         case TransferOpKind::UploadImage:
         case TransferOpKind::CopyBufferToImage:
         case TransferOpKind::CopyImageToBuffer:
-            return std::holds_alternative<BufferImageRegion>(op.Region);
+            return std::holds_alternative<BufferImageRegion>(transfer_op.Region);
         case TransferOpKind::CopyImage:
-            return std::holds_alternative<ImageCopyRegion>(op.Region);
+            return std::holds_alternative<ImageCopyRegion>(transfer_op.Region);
         case TransferOpKind::Invalid:
             break;
         }
@@ -3125,14 +3160,14 @@ namespace
             size_t accessCount = 0u;
             for (int32_t opIndex = rangeStart; opIndex < rangeEnd; ++opIndex)
             {
-                const TransferSetOp& op = ops[static_cast<size_t>(opIndex)];
-                if (TransferOpReadsSource(op.Kind))
+                const TransferSetOp& transferOp = ops[static_cast<size_t>(opIndex)];
+                if (TransferOpReadsSource(transferOp.Kind))
                 {
-                    accesses[accessCount] = RangeAccess{ op.Source.EntityHandle, false };
+                    accesses[accessCount] = RangeAccess{ transferOp.Source.EntityHandle, false };
                     ++accessCount;
                 }
 
-                accesses[accessCount] = RangeAccess{ op.Destination.EntityHandle, true };
+                accesses[accessCount] = RangeAccess{ transferOp.Destination.EntityHandle, true };
                 ++accessCount;
             }
 
@@ -3159,15 +3194,15 @@ namespace
     size_t CollectTouchedEntities(std::span<const TransferSetOp> ops, std::span<entt::entity> out) noexcept
     {
         size_t count = 0u;
-        for (const TransferSetOp& op : ops)
+        for (const TransferSetOp& transferOp : ops)
         {
-            if (TransferOpReadsSource(op.Kind))
+            if (TransferOpReadsSource(transferOp.Kind))
             {
-                out[count] = entt::entity(op.Source.EntityHandle);
+                out[count] = entt::entity(transferOp.Source.EntityHandle);
                 ++count;
             }
 
-            out[count] = entt::entity(op.Destination.EntityHandle);
+            out[count] = entt::entity(transferOp.Destination.EntityHandle);
             ++count;
         }
 
@@ -3176,29 +3211,26 @@ namespace
 
     bool TransferSetUploads(std::span<const TransferSetOp> ops) noexcept
     {
-        for (const TransferSetOp& op : ops)
+        auto checkTransferOp = [](const TransferSetOp& transfer_op) noexcept -> bool
         {
-            if (op.Kind == TransferOpKind::UploadBuffer || op.Kind == TransferOpKind::UploadImage)
-            {
-                return true;
-            }
-        }
-
-        return false;
+            return transfer_op.Kind == TransferOpKind::UploadBuffer ||
+                   transfer_op.Kind == TransferOpKind::UploadImage;
+        };
+        return std::ranges::any_of(ops, checkTransferOp);
     }
 
     uint64_t StagingAlignmentOfSet(const entt::registry& registry, std::span<const TransferSetOp> ops) noexcept
     {
         // the staged data starts on the alignment of a buffer upload, and on the alignment of each image upload format
         uint64_t alignment = k_SetMinimumStagingAlignment;
-        for (const TransferSetOp& op : ops)
+        for (const TransferSetOp& transferOp : ops)
         {
-            if (op.Kind != TransferOpKind::UploadImage)
+            if (transferOp.Kind != TransferOpKind::UploadImage)
             {
                 continue;
             }
 
-            const ImageCreateInfo& info = registry.get<ImageCreateInfo>(entt::entity(op.Destination.EntityHandle));
+            const ImageCreateInfo& info = registry.get<ImageCreateInfo>(entt::entity(transferOp.Destination.EntityHandle));
             alignment = std::lcm(alignment, ImageStagingAlignment(info.Format));
         }
 

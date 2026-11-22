@@ -151,10 +151,7 @@ protected:
 
         const ResourceContextCreateInfo createInfo
         {
-            rhiSystem->GetInstance(),
-            rhiSystem->GetDevice(),
-            rhiSystem->GetVulkanApiVersion(),
-            true,
+            &rhiContext,
             true,
             k_DefaultMaxFutures,
             k_DefaultStagingRingSize

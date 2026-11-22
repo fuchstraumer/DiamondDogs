@@ -1,7 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
 #define DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
-#include "ResourceMessageTypesInternal.hpp"
+#include "TransferSystemMessagesInternal.hpp"
 #include "ResourceFuture.hpp"
 #include "UploadBuffer.hpp"
 #include "containers/RingAllocator.hpp"

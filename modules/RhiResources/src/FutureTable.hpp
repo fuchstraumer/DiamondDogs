@@ -7,10 +7,14 @@
 #include <cstdint>
 #include <memory>
 
-#include <vulkan/vulkan_core.h>
-
 namespace rhi
 {
+
+    /** @brief Backend wait hook for GPU transfer timeline completion. Implemented by backend-specific TUs. */
+    [[nodiscard]] bool WaitForTransferTimeline(void* wait_device,
+                                               TimelineSemaphoreHandle transfer_timeline,
+                                               uint64_t wait_value,
+                                               uint64_t timeout_ns) noexcept;
 
     /** @brief The fixed table of slots behind every future of one ResourceContext. ResourceContext allocates a slot on
      *  the calling thread, the worker and the transfer thread write it, and the future reads it and releases it. */
@@ -24,7 +28,7 @@ namespace rhi
 
         /** @brief Allocates the slots. `capacity` counts the slot that full-table futures share, so the table holds
          *  `_capacity - 1` live futures. */
-        void Initialize(int32_t _capacity, VkDevice _device, VkSemaphore transfer_timeline);
+        void Initialize(int32_t _capacity, TimelineSemaphoreHandle transfer_timeline, void* wait_device);
 
         // any thread. a full table returns a future that is already Failed with FutureTableFull
         [[nodiscard]] OperationFuture AllocateOperation() noexcept;
@@ -100,8 +104,8 @@ namespace rhi
         std::atomic<int64_t> liveCount{ 0 };
         std::atomic<int64_t> fullCount{ 0 };
 
-        VkDevice device{ VK_NULL_HANDLE };
-        VkSemaphore transferTimeline{ VK_NULL_HANDLE };
+        void* waitDevice{ nullptr };
+        TimelineSemaphoreHandle transferTimeline{};
     };
 
 }

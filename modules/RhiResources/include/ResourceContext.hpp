@@ -13,8 +13,7 @@
 
 namespace rhi
 {
-    class Device;
-    class Instance;
+    class RhiContext;
 }
 
 
@@ -35,10 +34,7 @@ constexpr inline uint64_t k_MinStagingRingSize = 1024ull * 1024ull;
  */
 struct ResourceContextCreateInfo
 {
-    const rhi::Instance* Instance{ nullptr };   ///< The instance that created Device, used to create the allocator
-    const rhi::Device* Device{ nullptr };       ///< The logical device to use for resource operations
-    uint32_t VulkanApiVersion{ 0u };            ///< The packed API version the instance was created with (RhiSystem::GetVulkanApiVersion)
-    bool ValidationEnabled{ false };            ///< Whether Vulkan validation layers are enabled
+    const rhi::RhiContext* Context{ nullptr };  ///< The initialized RHI context (Vulkan or WebGPU)
     bool DeviceAddressesEnabled{ false };       ///< Whether this session needs device addresses enabled for buffers
     int32_t MaxFutures{ k_DefaultMaxFutures };  ///< The size of the future table. At least 2
     uint64_t StagingRingSize{ k_DefaultStagingRingSize };  ///< The bytes of the staging ring. At least k_MinStagingRingSize

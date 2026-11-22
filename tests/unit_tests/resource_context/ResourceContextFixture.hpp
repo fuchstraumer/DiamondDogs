@@ -2,6 +2,7 @@
 #ifndef RESOURCE_CONTEXT_TESTS_FIXTURE_HPP
 #define RESOURCE_CONTEXT_TESTS_FIXTURE_HPP
 #include "ResourceContext.hpp"
+#include "RhiContext.hpp"
 #include "RhiSystem.hpp"
 #include <gtest/gtest.h>
 #include <cstdint>
@@ -44,6 +45,7 @@ protected:
     static constexpr uint64_t k_TimeoutNs = 5'000'000'000ull;
 
     static std::unique_ptr<rhi::RhiSystem> rhiSystem;
+    static rhi::RhiContext rhiContext;
     std::unique_ptr<ResourceContext> context;
 };
 

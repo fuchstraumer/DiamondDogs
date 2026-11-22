@@ -10,8 +10,6 @@
 #include <thread>
 #include <utility>
 
-#include <vulkan/vulkan_core.h>
-
 namespace
 {
     // the futures of a full table all share this slot. it stays Failed, and it is never freed
@@ -219,10 +217,10 @@ namespace rhi
 
     FutureTable::~FutureTable() = default;
 
-    void FutureTable::Initialize(int32_t _capacity, VkDevice _device, VkSemaphore transfer_timeline)
+    void FutureTable::Initialize(int32_t _capacity, TimelineSemaphoreHandle transfer_timeline, void* wait_device)
     {
         capacity = _capacity;
-        device = _device;
+        waitDevice = wait_device;
         transferTimeline = transfer_timeline;
         slots = std::make_unique<FutureSlot[]>(static_cast<size_t>(capacity));
         descriptions = std::make_unique<ResourceDescription[]>(static_cast<size_t>(capacity));
@@ -335,7 +333,7 @@ namespace rhi
 
         return GpuWait
         {
-            TimelineSemaphoreHandle(reinterpret_cast<uint64_t>(transferTimeline)),
+            transferTimeline,
             ticket,
             (word & k_SubmittedBit) != 0u
         };
@@ -391,18 +389,7 @@ namespace rhi
 
         // sleep on the GPU instead of spinning. a host wait may name a value that no submit has signaled yet
         const uint64_t waitValue = slots[slot_index].TicketOrNextFree.load(std::memory_order_relaxed);
-        const VkSemaphoreWaitInfo waitInfo
-        {
-            VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-            nullptr,
-            0u,
-            1u,
-            &transferTimeline,
-            &waitValue
-        };
-
-        const VkResult result = vkWaitSemaphores(device, &waitInfo, remainingNs());
-        if (result != VK_SUCCESS)
+        if (!WaitForTransferTimeline(waitDevice, transferTimeline, waitValue, remainingNs()))
         {
             return State(slot_index);
         }

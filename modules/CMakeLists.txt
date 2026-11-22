@@ -36,6 +36,7 @@ add_subdirectory(Bootstrap)
 # exposes plain RHI/resource vocabulary targets (`rhi_types`, `rhi_resource_types`, `rhi_resource_barriers`) everywhere;
 # full backend targets gate inside their own CMakeLists
 add_subdirectory(RhiSystem)
+add_subdirectory(RhiContext)
 add_subdirectory(RhiResources)
 add_subdirectory(RenderGraph)
 # input control space, frame assembly, and record and replay; no platform source yet

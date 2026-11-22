@@ -1,30 +1,35 @@
 #pragma once
-#include "RhiResourceFlags.hpp"
-#include "entt/entity/fwd.hpp"
-#include <cstdint>
 #ifndef RESOURCE_CONTEXT_IMPL_HPP
 #define RESOURCE_CONTEXT_IMPL_HPP
+#include "RhiResourceFlags.hpp"
 #include "ResourceTypes.hpp"
 #include "FutureTable.hpp"
 #include "ResourceFuture.hpp"
 #include "ResourceMessageTypesInternal.hpp"
+#include "TransferSystemMessagesInternal.hpp"
 #include "TransferSystem.hpp"
 #include "containers/mwsrQueue.hpp"
-
 #include <array>
 #include <atomic>
 #include <expected>
-#include <memory>
-#include <optional>
 #include <span>
-#include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
 
+#include <cstdint>
 #include <vulkan/vulkan_core.h>
 #include <vk_mem_alloc.h>
 #include <entt/entity/registry.hpp>
+
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnrvo"
+#endif
+#include "entt/entity/fwd.hpp"
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 struct ResourceContextCreateInfo;
 struct ResourceContextCounters;
@@ -186,20 +191,20 @@ private:
 
     /** @brief Resolves one op of a transfer set and checks it with the rules of its single call. Returns Success, or the
      *  error of the first check that fails. `data_size` is the size of the set's data, for the upload kinds. */
-    [[nodiscard]] rhi::ResourceError resolveTransferSetOp(const TransferSetOp& op, uint64_t data_size, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveTransferSetOp(const TransferSetOp& transfer_op, uint64_t data_size, ResolvedTransferOp& resolved) const;
     /** @brief Resolves a buffer that a set op reads or writes: it must be alive, have the transfer usage for its side, and
      *  a writer must be in device-local memory. Sets are device side only, and host data goes through SetBufferData. */
     [[nodiscard]] std::expected<SetBufferSide, rhi::ResourceError> resolveSetBuffer(const GraphicsResource& resource, bool is_destination) const;
     /** @brief As resolveSetBuffer, for an image. The usages must be valid for the side: `Discard` as `Before` only on a
      *  destination. */
     [[nodiscard]] std::expected<SetImageSide, rhi::ResourceError> resolveSetImage(const GraphicsResource& resource, rhi::ImageUsageTransition usage, bool is_destination) const;
-    [[nodiscard]] rhi::ResourceError resolveUploadBufferOp(const TransferSetOp& op, uint64_t data_size, ResolvedTransferOp& resolved) const;
-    [[nodiscard]] rhi::ResourceError resolveUploadImageOp(const TransferSetOp& op, uint64_t data_size, ResolvedTransferOp& resolved) const;
-    [[nodiscard]] rhi::ResourceError resolveFillBufferOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const;
-    [[nodiscard]] rhi::ResourceError resolveCopyBufferOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const;
-    [[nodiscard]] rhi::ResourceError resolveCopyBufferToImageOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const;
-    [[nodiscard]] rhi::ResourceError resolveCopyImageToBufferOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const;
-    [[nodiscard]] rhi::ResourceError resolveCopyImageOp(const TransferSetOp& op, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveUploadBufferOp(const TransferSetOp& transfer_op, uint64_t data_size, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveUploadImageOp(const TransferSetOp& transfer_op, uint64_t data_size, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveFillBufferOp(const TransferSetOp& transfer_op, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveCopyBufferOp(const TransferSetOp& transfer_op, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveCopyBufferToImageOp(const TransferSetOp& transfer_op, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveCopyImageToBufferOp(const TransferSetOp& transfer_op, ResolvedTransferOp& resolved) const;
+    [[nodiscard]] rhi::ResourceError resolveCopyImageOp(const TransferSetOp& transfer_op, ResolvedTransferOp& resolved) const;
 
     /** @brief Issues the next ticket, publishes it in the future with the Created state, records it on every entity
      *  the transfer touches, and enqueues the transfer with its waits. The only path into the transfer system. */

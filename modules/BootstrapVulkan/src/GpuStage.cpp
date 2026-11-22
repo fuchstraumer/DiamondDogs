@@ -121,10 +121,7 @@ namespace bootstrap
 
         const ResourceContextCreateInfo resourceInfo
         {
-            .Instance = rhiSystem.GetInstance(),
-            .Device = rhiSystem.GetDevice(),
-            .VulkanApiVersion = rhiSystem.GetVulkanApiVersion(),
-            .ValidationEnabled = _device.Validation() != rhi::ValidationLayers::None,
+            .Context = &_device.Context(),
         };
         ResourceContextError initialized = ResourceContextError::Invalid;
 

@@ -293,10 +293,7 @@ TEST_F(StagingRingTest, ARingBelowTheMinimumIsRefused)
     ResourceContext tooSmall;
     const ResourceContextCreateInfo createInfo
     {
-        rhiSystem->GetInstance(),
-        rhiSystem->GetDevice(),
-        rhiSystem->GetVulkanApiVersion(),
-        true,
+        &rhiContext,
         false,
         k_DefaultMaxFutures,
         k_MinStagingRingSize - 1u

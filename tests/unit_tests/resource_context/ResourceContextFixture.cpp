@@ -1,5 +1,6 @@
 #include "ResourceContextFixture.hpp"
 #include "Device.hpp"
+#include "RhiContextVulkan.hpp"
 #include "RhiSystemStart.hpp"
 #include "StartTestRhi.hpp"
 #include <cstring>
@@ -7,6 +8,7 @@
 #include <iostream>
 
 std::unique_ptr<rhi::RhiSystem> ResourceContextTest::rhiSystem = nullptr;
+rhi::RhiContext ResourceContextTest::rhiContext{};
 
 namespace
 {
@@ -34,11 +36,15 @@ void ResourceContextTest::SetUpTestSuite()
     {
         std::cerr << std::format("ResourceContextTests: RhiSystem did not start: {}: {}\n", started.Subject, started.Detail);
         rhiSystem.reset();
+        return;
     }
+
+    rhiContext = rhi::MakeVulkanRhiContext(*rhiSystem, true);
 }
 
 void ResourceContextTest::TearDownTestSuite()
 {
+    rhiContext = rhi::RhiContext{};
     rhiSystem.reset();
 }
 
@@ -65,10 +71,7 @@ void ResourceContextTest::RecreateContextWithRing(int32_t max_futures, uint64_t 
     context = std::make_unique<ResourceContext>();
     const ResourceContextCreateInfo createInfo
     {
-        rhiSystem->GetInstance(),
-        rhiSystem->GetDevice(),
-        rhiSystem->GetVulkanApiVersion(),
-        true,
+        &rhiContext,
         false,
         max_futures,
         staging_ring_size

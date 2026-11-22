@@ -1,6 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_BOOTSTRAP_DEVICE_STAGE_HPP
 #define DIAMOND_DOGS_BOOTSTRAP_DEVICE_STAGE_HPP
+#include "RhiContext.hpp"
 #include "RhiFlags.hpp"
 #include "ShaderManifestDevice.hpp"
 #include <memory>
@@ -60,6 +61,7 @@ namespace bootstrap
 
         [[nodiscard]] bool Started() const noexcept;
         [[nodiscard]] const ContentStage& Content() const noexcept;
+        [[nodiscard]] const rhi::RhiContext& Context() const noexcept;
         [[nodiscard]] rhi::RhiSystem& Rhi() const noexcept;
         [[nodiscard]] rhi::ValidationLayers Validation() const noexcept;
         [[nodiscard]] DeviceFilter Filter() const noexcept;
@@ -74,6 +76,7 @@ namespace bootstrap
         const ContentStage* content{ nullptr };
         WindowStage* window{ nullptr };
         std::unique_ptr<rhi::RhiSystem> rhi;
+        rhi::RhiContext context;
         rhi::ValidationLayers validation{ rhi::ValidationLayers::None };
     };
 }
