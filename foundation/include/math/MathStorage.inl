@@ -342,6 +342,620 @@ inline float Float4::Dot(const Float4& other) const noexcept
 }
 
 // ================================
+// Int3 implementations
+// ================================
+constexpr inline Int3 Int3::operator+(const Int3& rhs) const noexcept
+{
+    return Int3(x + rhs.x, y + rhs.y, z + rhs.z);
+}
+
+constexpr inline Int3 Int3::operator-(const Int3& rhs) const noexcept
+{
+    return Int3(x - rhs.x, y - rhs.y, z - rhs.z);
+}
+
+constexpr inline Int3 Int3::operator*(const Int3& rhs) const noexcept
+{
+    return Int3(x * rhs.x, y * rhs.y, z * rhs.z);
+}
+
+constexpr inline Int3 Int3::operator/(const Int3& rhs) const noexcept
+{
+    return Int3(x / rhs.x, y / rhs.y, z / rhs.z);
+}
+
+constexpr inline Int3 Int3::operator%(const Int3& rhs) const noexcept
+{
+    return Int3(x % rhs.x, y % rhs.y, z % rhs.z);
+}
+
+constexpr inline Int3 Int3::operator*(int32_t scalar) const noexcept
+{
+    return Int3(x * scalar, y * scalar, z * scalar);
+}
+
+constexpr inline Int3 Int3::operator/(int32_t scalar) const noexcept
+{
+    return Int3(x / scalar, y / scalar, z / scalar);
+}
+
+constexpr inline Int3 Int3::operator%(int32_t scalar) const noexcept
+{
+    return Int3(x % scalar, y % scalar, z % scalar);
+}
+
+constexpr inline Int3 Int3::operator-() const noexcept
+{
+    return Int3(-x, -y, -z);
+}
+
+constexpr Int3& Int3::operator+=(const Int3& rhs) noexcept
+{
+    x += rhs.x;
+    y += rhs.y;
+    z += rhs.z;
+    return *this;
+}
+
+constexpr Int3& Int3::operator-=(const Int3& rhs) noexcept
+{
+    x -= rhs.x;
+    y -= rhs.y;
+    z -= rhs.z;
+    return *this;
+}
+
+constexpr Int3& Int3::operator*=(const Int3& rhs) noexcept
+{
+    x *= rhs.x;
+    y *= rhs.y;
+    z *= rhs.z;
+    return *this;
+}
+
+constexpr Int3& Int3::operator/=(const Int3& rhs) noexcept
+{
+    x /= rhs.x;
+    y /= rhs.y;
+    z /= rhs.z;
+    return *this;
+}
+
+constexpr Int3& Int3::operator%=(const Int3& rhs) noexcept
+{
+    x %= rhs.x;
+    y %= rhs.y;
+    z %= rhs.z;
+    return *this;
+}
+
+constexpr Int3& Int3::operator*=(int32_t scalar) noexcept
+{
+    x *= scalar;
+    y *= scalar;
+    z *= scalar;
+    return *this;
+}
+
+constexpr Int3& Int3::operator/=(int32_t scalar) noexcept
+{
+    x /= scalar;
+    y /= scalar;
+    z /= scalar;
+    return *this;
+}
+
+constexpr Int3& Int3::operator%=(int32_t scalar) noexcept
+{
+    x %= scalar;
+    y %= scalar;
+    z %= scalar;
+    return *this;
+}
+
+constexpr bool Int3::operator==(const Int3& rhs) const noexcept
+{
+    return x == rhs.x && y == rhs.y && z == rhs.z;
+}
+
+constexpr std::strong_ordering Int3::operator<=>(const Int3& rhs) const noexcept
+{
+    return std::tie(x, y, z) <=> std::tie(rhs.x, rhs.y, rhs.z);
+}
+
+inline float Int3::Length() const noexcept
+{
+    return std::sqrtf(static_cast<float>(LengthSquared()));
+}
+
+constexpr int32_t Int3::LengthSquared() const noexcept
+{
+    return (x * x) + (y * y) + (z * z);
+}
+
+constexpr int32_t Int3::Dot(const Int3& other) const noexcept
+{
+    return (x * other.x) + (y * other.y) + (z * other.z);
+}
+
+constexpr bool Int3::NoneOf(int32_t value) const noexcept
+{
+    return x != value && y != value && z != value;
+}
+
+constexpr bool Int3::AnyOf(int32_t value) const noexcept
+{
+    return x == value || y == value || z == value;
+}
+
+constexpr bool Int3::AllOf(int32_t value) const noexcept
+{
+    return x == value && y == value && z == value;
+}
+
+// ================================
+// Int4 implementations
+// ================================
+constexpr inline Int4 Int4::operator+(const Int4& rhs) const noexcept
+{
+    return Int4(x + rhs.x, y + rhs.y, z + rhs.z, w + rhs.w);
+}
+
+constexpr inline Int4 Int4::operator-(const Int4& rhs) const noexcept
+{
+    return Int4(x - rhs.x, y - rhs.y, z - rhs.z, w - rhs.w);
+}
+
+constexpr inline Int4 Int4::operator*(const Int4& rhs) const noexcept
+{
+    return Int4(x * rhs.x, y * rhs.y, z * rhs.z, w * rhs.w);
+}
+
+constexpr inline Int4 Int4::operator/(const Int4& rhs) const noexcept
+{
+    return Int4(x / rhs.x, y / rhs.y, z / rhs.z, w / rhs.w);
+}
+
+constexpr inline Int4 Int4::operator%(const Int4& rhs) const noexcept
+{
+    return Int4(x % rhs.x, y % rhs.y, z % rhs.z, w % rhs.w);
+}
+
+constexpr inline Int4 Int4::operator*(int32_t scalar) const noexcept
+{
+    return Int4(x * scalar, y * scalar, z * scalar, w * scalar);
+}
+
+constexpr inline Int4 Int4::operator/(int32_t scalar) const noexcept
+{
+    return Int4(x / scalar, y / scalar, z / scalar, w / scalar);
+}
+
+constexpr inline Int4 Int4::operator%(int32_t scalar) const noexcept
+{
+    return Int4(x % scalar, y % scalar, z % scalar, w % scalar);
+}
+
+constexpr inline Int4 Int4::operator-() const noexcept
+{
+    return Int4(-x, -y, -z, -w);
+}
+
+constexpr Int4& Int4::operator+=(const Int4& rhs) noexcept
+{
+    x += rhs.x;
+    y += rhs.y;
+    z += rhs.z;
+    w += rhs.w;
+    return *this;
+}
+
+constexpr Int4& Int4::operator-=(const Int4& rhs) noexcept
+{
+    x -= rhs.x;
+    y -= rhs.y;
+    z -= rhs.z;
+    w -= rhs.w;
+    return *this;
+}
+
+constexpr Int4& Int4::operator*=(const Int4& rhs) noexcept
+{
+    x *= rhs.x;
+    y *= rhs.y;
+    z *= rhs.z;
+    w *= rhs.w;
+    return *this;
+}
+
+constexpr Int4& Int4::operator/=(const Int4& rhs) noexcept
+{
+    x /= rhs.x;
+    y /= rhs.y;
+    z /= rhs.z;
+    w /= rhs.w;
+    return *this;
+}
+
+constexpr Int4& Int4::operator%=(const Int4& rhs) noexcept
+{
+    x %= rhs.x;
+    y %= rhs.y;
+    z %= rhs.z;
+    w %= rhs.w;
+    return *this;
+}
+
+constexpr Int4& Int4::operator*=(int32_t scalar) noexcept
+{
+    x *= scalar;
+    y *= scalar;
+    z *= scalar;
+    w *= scalar;
+    return *this;
+}
+
+constexpr Int4& Int4::operator/=(int32_t scalar) noexcept
+{
+    x /= scalar;
+    y /= scalar;
+    z /= scalar;
+    w /= scalar;
+    return *this;
+}
+
+constexpr Int4& Int4::operator%=(int32_t scalar) noexcept
+{
+    x %= scalar;
+    y %= scalar;
+    z %= scalar;
+    w %= scalar;
+    return *this;
+}
+
+constexpr bool Int4::operator==(const Int4& rhs) const noexcept
+{
+    return x == rhs.x && y == rhs.y && z == rhs.z && w == rhs.w;
+}
+
+constexpr std::strong_ordering Int4::operator<=>(const Int4& rhs) const noexcept
+{
+    return std::tie(x, y, z, w) <=> std::tie(rhs.x, rhs.y, rhs.z, rhs.w);
+}
+
+inline float Int4::Length() const noexcept
+{
+    return std::sqrtf(static_cast<float>(LengthSquared()));
+}
+
+constexpr int32_t Int4::LengthSquared() const noexcept
+{
+    return (x * x) + (y * y) + (z * z) + (w * w);
+}
+
+constexpr int32_t Int4::Dot(const Int4& other) const noexcept
+{
+    return (x * other.x) + (y * other.y) + (z * other.z) + (w * other.w);
+}
+
+constexpr bool Int4::NoneOf(int32_t value) const noexcept
+{
+    return x != value && y != value && z != value && w != value;
+}
+
+constexpr bool Int4::AnyOf(int32_t value) const noexcept
+{
+    return x == value || y == value || z == value || w == value;
+}
+
+constexpr bool Int4::AllOf(int32_t value) const noexcept
+{
+    return x == value && y == value && z == value && w == value;
+}
+
+// ================================
+// UInt3 implementations
+// ================================
+constexpr inline UInt3 UInt3::operator+(const UInt3& rhs) const noexcept
+{
+    return UInt3(x + rhs.x, y + rhs.y, z + rhs.z);
+}
+
+constexpr inline UInt3 UInt3::operator-(const UInt3& rhs) const noexcept
+{
+    return UInt3(x - rhs.x, y - rhs.y, z - rhs.z);
+}
+
+constexpr inline UInt3 UInt3::operator*(const UInt3& rhs) const noexcept
+{
+    return UInt3(x * rhs.x, y * rhs.y, z * rhs.z);
+}
+
+constexpr inline UInt3 UInt3::operator/(const UInt3& rhs) const noexcept
+{
+    return UInt3(x / rhs.x, y / rhs.y, z / rhs.z);
+}
+
+constexpr inline UInt3 UInt3::operator%(const UInt3& rhs) const noexcept
+{
+    return UInt3(x % rhs.x, y % rhs.y, z % rhs.z);
+}
+
+constexpr inline UInt3 UInt3::operator*(uint32_t scalar) const noexcept
+{
+    return UInt3(x * scalar, y * scalar, z * scalar);
+}
+
+constexpr inline UInt3 UInt3::operator/(uint32_t scalar) const noexcept
+{
+    return UInt3(x / scalar, y / scalar, z / scalar);
+}
+
+constexpr inline UInt3 UInt3::operator%(uint32_t scalar) const noexcept
+{
+    return UInt3(x % scalar, y % scalar, z % scalar);
+}
+
+constexpr UInt3& UInt3::operator+=(const UInt3& rhs) noexcept
+{
+    x += rhs.x;
+    y += rhs.y;
+    z += rhs.z;
+    return *this;
+}
+
+constexpr UInt3& UInt3::operator-=(const UInt3& rhs) noexcept
+{
+    x -= rhs.x;
+    y -= rhs.y;
+    z -= rhs.z;
+    return *this;
+}
+
+constexpr UInt3& UInt3::operator*=(const UInt3& rhs) noexcept
+{
+    x *= rhs.x;
+    y *= rhs.y;
+    z *= rhs.z;
+    return *this;
+}
+
+constexpr UInt3& UInt3::operator/=(const UInt3& rhs) noexcept
+{
+    x /= rhs.x;
+    y /= rhs.y;
+    z /= rhs.z;
+    return *this;
+}
+
+constexpr UInt3& UInt3::operator%=(const UInt3& rhs) noexcept
+{
+    x %= rhs.x;
+    y %= rhs.y;
+    z %= rhs.z;
+    return *this;
+}
+
+constexpr UInt3& UInt3::operator*=(uint32_t scalar) noexcept
+{
+    x *= scalar;
+    y *= scalar;
+    z *= scalar;
+    return *this;
+}
+
+constexpr UInt3& UInt3::operator/=(uint32_t scalar) noexcept
+{
+    x /= scalar;
+    y /= scalar;
+    z /= scalar;
+    return *this;
+}
+
+constexpr UInt3& UInt3::operator%=(uint32_t scalar) noexcept
+{
+    x %= scalar;
+    y %= scalar;
+    z %= scalar;
+    return *this;
+}
+
+constexpr bool UInt3::operator==(const UInt3& rhs) const noexcept
+{
+    return x == rhs.x && y == rhs.y && z == rhs.z;
+}
+
+constexpr std::strong_ordering UInt3::operator<=>(const UInt3& rhs) const noexcept
+{
+    return std::tie(x, y, z) <=> std::tie(rhs.x, rhs.y, rhs.z);
+}
+
+inline float UInt3::Length() const noexcept
+{
+    return std::sqrtf(static_cast<float>(LengthSquared()));
+}
+
+constexpr uint32_t UInt3::LengthSquared() const noexcept
+{
+    return (x * x) + (y * y) + (z * z);
+}
+
+constexpr uint32_t UInt3::Dot(const UInt3& other) const noexcept
+{
+    return (x * other.x) + (y * other.y) + (z * other.z);
+}
+
+constexpr bool UInt3::NoneOf(uint32_t value) const noexcept
+{
+    return x != value && y != value && z != value;
+}
+
+constexpr bool UInt3::AnyOf(uint32_t value) const noexcept
+{
+    return x == value || y == value || z == value;
+}
+
+constexpr bool UInt3::AllOf(uint32_t value) const noexcept
+{
+    return x == value && y == value && z == value;
+}
+
+// ================================
+// UInt4 implementations
+// ================================
+constexpr inline UInt4 UInt4::operator+(const UInt4& rhs) const noexcept
+{
+    return UInt4(x + rhs.x, y + rhs.y, z + rhs.z, w + rhs.w);
+}
+
+constexpr inline UInt4 UInt4::operator-(const UInt4& rhs) const noexcept
+{
+    return UInt4(x - rhs.x, y - rhs.y, z - rhs.z, w - rhs.w);
+}
+
+constexpr inline UInt4 UInt4::operator*(const UInt4& rhs) const noexcept
+{
+    return UInt4(x * rhs.x, y * rhs.y, z * rhs.z, w * rhs.w);
+}
+
+constexpr inline UInt4 UInt4::operator/(const UInt4& rhs) const noexcept
+{
+    return UInt4(x / rhs.x, y / rhs.y, z / rhs.z, w / rhs.w);
+}
+
+constexpr inline UInt4 UInt4::operator%(const UInt4& rhs) const noexcept
+{
+    return UInt4(x % rhs.x, y % rhs.y, z % rhs.z, w % rhs.w);
+}
+
+constexpr inline UInt4 UInt4::operator*(uint32_t scalar) const noexcept
+{
+    return UInt4(x * scalar, y * scalar, z * scalar, w * scalar);
+}
+
+constexpr inline UInt4 UInt4::operator/(uint32_t scalar) const noexcept
+{
+    return UInt4(x / scalar, y / scalar, z / scalar, w / scalar);
+}
+
+constexpr inline UInt4 UInt4::operator%(uint32_t scalar) const noexcept
+{
+    return UInt4(x % scalar, y % scalar, z % scalar, w % scalar);
+}
+
+constexpr UInt4& UInt4::operator+=(const UInt4& rhs) noexcept
+{
+    x += rhs.x;
+    y += rhs.y;
+    z += rhs.z;
+    w += rhs.w;
+    return *this;
+}
+
+constexpr UInt4& UInt4::operator-=(const UInt4& rhs) noexcept
+{
+    x -= rhs.x;
+    y -= rhs.y;
+    z -= rhs.z;
+    w -= rhs.w;
+    return *this;
+}
+
+constexpr UInt4& UInt4::operator*=(const UInt4& rhs) noexcept
+{
+    x *= rhs.x;
+    y *= rhs.y;
+    z *= rhs.z;
+    w *= rhs.w;
+    return *this;
+}
+
+constexpr UInt4& UInt4::operator/=(const UInt4& rhs) noexcept
+{
+    x /= rhs.x;
+    y /= rhs.y;
+    z /= rhs.z;
+    w /= rhs.w;
+    return *this;
+}
+
+constexpr UInt4& UInt4::operator%=(const UInt4& rhs) noexcept
+{
+    x %= rhs.x;
+    y %= rhs.y;
+    z %= rhs.z;
+    w %= rhs.w;
+    return *this;
+}
+
+constexpr UInt4& UInt4::operator*=(uint32_t scalar) noexcept
+{
+    x *= scalar;
+    y *= scalar;
+    z *= scalar;
+    w *= scalar;
+    return *this;
+}
+
+constexpr UInt4& UInt4::operator/=(uint32_t scalar) noexcept
+{
+    x /= scalar;
+    y /= scalar;
+    z /= scalar;
+    w /= scalar;
+    return *this;
+}
+
+constexpr UInt4& UInt4::operator%=(uint32_t scalar) noexcept
+{
+    x %= scalar;
+    y %= scalar;
+    z %= scalar;
+    w %= scalar;
+    return *this;
+}
+
+constexpr bool UInt4::operator==(const UInt4& rhs) const noexcept
+{
+    return x == rhs.x && y == rhs.y && z == rhs.z && w == rhs.w;
+}
+
+constexpr std::strong_ordering UInt4::operator<=>(const UInt4& rhs) const noexcept
+{
+    return std::tie(x, y, z, w) <=> std::tie(rhs.x, rhs.y, rhs.z, rhs.w);
+}
+
+inline float UInt4::Length() const noexcept
+{
+    return std::sqrtf(static_cast<float>(LengthSquared()));
+}
+
+constexpr uint32_t UInt4::LengthSquared() const noexcept
+{
+    return (x * x) + (y * y) + (z * z) + (w * w);
+}
+
+constexpr uint32_t UInt4::Dot(const UInt4& other) const noexcept
+{
+    return (x * other.x) + (y * other.y) + (z * other.z) + (w * other.w);
+}
+
+constexpr bool UInt4::NoneOf(uint32_t value) const noexcept
+{
+    return x != value && y != value && z != value && w != value;
+}
+
+constexpr bool UInt4::AnyOf(uint32_t value) const noexcept
+{
+    return x == value || y == value || z == value || w == value;
+}
+
+constexpr bool UInt4::AllOf(uint32_t value) const noexcept
+{
+    return x == value && y == value && z == value && w == value;
+}
+
+// ================================
 // Free Function Implementations (storage types - portable)
 // ================================
 
@@ -356,6 +970,26 @@ constexpr Float3 operator*(float scalar, const Float3& vec) noexcept
 }
 
 constexpr Float4 operator*(float scalar, const Float4& vec) noexcept
+{
+    return vec * scalar;
+}
+
+constexpr Int3 operator*(int32_t scalar, const Int3& vec) noexcept
+{
+    return vec * scalar;
+}
+
+constexpr Int4 operator*(int32_t scalar, const Int4& vec) noexcept
+{
+    return vec * scalar;
+}
+
+constexpr UInt3 operator*(uint32_t scalar, const UInt3& vec) noexcept
+{
+    return vec * scalar;
+}
+
+constexpr UInt4 operator*(uint32_t scalar, const UInt4& vec) noexcept
 {
     return vec * scalar;
 }

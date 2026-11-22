@@ -1,12 +1,13 @@
 #pragma once
-#include <tuple>
 #ifndef DIAMONDDOGS_FOUNDATION_MATH_STORAGE_HPP
 #define DIAMONDDOGS_FOUNDATION_MATH_STORAGE_HPP
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <tuple>
 
 // Storage types only: standard headers, and no SIMD backend. Code that stores and sends data
 // (generated shader host headers, for example) includes this file and not Math.hpp.
@@ -28,17 +29,25 @@ namespace math
 {
 
 // Swizzle generation macros - these create combinations from storage members
-#define SWIZZLE_2(a, b) \
-    constexpr DD_MATH_FORCEINLINE Float2 a##b() const noexcept { return Float2(a, b); }
+#define SWIZZLE_2_T(Type, a, b) \
+    constexpr DD_MATH_FORCEINLINE Type a##b() const noexcept { return Type(a, b); }
 
-#define SWIZZLE_3(a, b, c) \
-    constexpr DD_MATH_FORCEINLINE Float3 a##b##c() const noexcept { return Float3(a, b, c); }
+#define SWIZZLE_3_T(Type, a, b, c) \
+    constexpr DD_MATH_FORCEINLINE Type a##b##c() const noexcept { return Type(a, b, c); }
 
-#define SWIZZLE_4(a, b, c, d) \
-    constexpr DD_MATH_FORCEINLINE Float4 a##b##c##d() const noexcept { return Float4(a, b, c, d); }
+#define SWIZZLE_4_T(Type, a, b, c, d) \
+    constexpr DD_MATH_FORCEINLINE Type a##b##c##d() const noexcept { return Type(a, b, c, d); }
+
+#define SWIZZLE_2(a, b) SWIZZLE_2_T(Float2, a, b)
+#define SWIZZLE_3(a, b, c) SWIZZLE_3_T(Float3, a, b, c)
+#define SWIZZLE_4(a, b, c, d) SWIZZLE_4_T(Float4, a, b, c, d)
 
 struct Float3;
 struct Float4;
+struct Int3;
+struct Int4;
+struct UInt3;
+struct UInt4;
 struct Float3x3;
 struct Float4x3;
 struct Float4x4;
@@ -277,27 +286,325 @@ public:
     };
 };
 
+struct Int3
+{
+public:
+    // Constructors
+    constexpr Int3() noexcept : x(0), y(0), z(0) {}
+    constexpr Int3(int32_t x, int32_t y, int32_t z) noexcept : x(x), y(y), z(z) {}
+    constexpr explicit Int3(int32_t scalar) noexcept : x(scalar), y(scalar), z(scalar) {}
+
+    constexpr Int3(const Int3& other) noexcept = default;
+    constexpr Int3(Int3&& other) noexcept = default;
+    constexpr Int3& operator=(const Int3& other) noexcept = default;
+    constexpr Int3& operator=(Int3&& other) noexcept = default;
+
+    // std::array interop
+    constexpr Int3(const std::array<int32_t, 3>& arr) noexcept : x(arr[0]), y(arr[1]), z(arr[2]) {}
+    constexpr operator std::array<int32_t, 3>() const noexcept { return { x, y, z }; }
+
+    template <class Self>
+    constexpr auto&& operator[](this Self&& self, size_t index) noexcept
+    {
+        return (&self.x)[index];
+    }
+
+    // Arithmetic operators
+    constexpr Int3 operator+(const Int3& rhs) const noexcept;
+    constexpr Int3 operator-(const Int3& rhs) const noexcept;
+    constexpr Int3 operator*(const Int3& rhs) const noexcept;
+    constexpr Int3 operator/(const Int3& rhs) const noexcept;
+    constexpr Int3 operator%(const Int3& rhs) const noexcept;
+
+    // Scalar operators
+    constexpr Int3 operator*(int32_t scalar) const noexcept;
+    constexpr Int3 operator/(int32_t scalar) const noexcept;
+    constexpr Int3 operator%(int32_t scalar) const noexcept;
+
+    // Unary operators
+    constexpr Int3 operator-() const noexcept;
+
+    // Compound assignment operators
+    constexpr Int3& operator+=(const Int3& rhs) noexcept;
+    constexpr Int3& operator-=(const Int3& rhs) noexcept;
+    constexpr Int3& operator*=(const Int3& rhs) noexcept;
+    constexpr Int3& operator/=(const Int3& rhs) noexcept;
+    constexpr Int3& operator%=(const Int3& rhs) noexcept;
+    constexpr Int3& operator*=(int32_t scalar) noexcept;
+    constexpr Int3& operator/=(int32_t scalar) noexcept;
+    constexpr Int3& operator%=(int32_t scalar) noexcept;
+
+    // Comparison operators
+    constexpr bool operator==(const Int3& rhs) const noexcept;
+    constexpr std::strong_ordering operator<=>(const Int3& rhs) const noexcept;
+
+    [[nodiscard]] float Length() const noexcept;
+    [[nodiscard]] constexpr int32_t LengthSquared() const noexcept;
+    [[nodiscard]] constexpr int32_t Dot(const Int3& other) const noexcept;
+
+    [[nodiscard]] constexpr bool NoneOf(int32_t value) const noexcept;
+    [[nodiscard]] constexpr bool AnyOf(int32_t value) const noexcept;
+    [[nodiscard]] constexpr bool AllOf(int32_t value) const noexcept;
+
+    SWIZZLE_3_T(Int3, x, y, z)
+    SWIZZLE_3_T(Int3, x, z, y)
+    SWIZZLE_3_T(Int3, y, x, z)
+    SWIZZLE_3_T(Int3, y, z, x)
+    SWIZZLE_3_T(Int3, z, x, y)
+    SWIZZLE_3_T(Int3, z, y, x)
+    SWIZZLE_3_T(Int3, x, x, x)
+    SWIZZLE_3_T(Int3, y, y, y)
+    SWIZZLE_3_T(Int3, z, z, z)
+
+    union
+    {
+        struct { int32_t x, y, z; };
+        struct { int32_t r, g, b; };
+        struct { int32_t u, v, w; };
+    };
+};
+
 struct Int4
 {
+public:
+    // Constructors
     constexpr Int4() noexcept : x(0), y(0), z(0), w(0) {}
     constexpr Int4(int32_t x, int32_t y, int32_t z, int32_t w) noexcept : x(x), y(y), z(z), w(w) {}
+    constexpr explicit Int4(int32_t scalar) noexcept : x(scalar), y(scalar), z(scalar), w(scalar) {}
+    constexpr Int4(const Int3& xyz, int32_t w) noexcept : x(xyz.x), y(xyz.y), z(xyz.z), w(w) {}
+    constexpr Int4(int32_t x, const Int3& yzw) noexcept : x(x), y(yzw.x), z(yzw.y), w(yzw.z) {}
+
     constexpr Int4(const Int4& other) noexcept = default;
     constexpr Int4(Int4&& other) noexcept = default;
     constexpr Int4& operator=(const Int4& other) noexcept = default;
     constexpr Int4& operator=(Int4&& other) noexcept = default;
-    // use spaceship operator since that's trivial with integral vector types
-    constexpr auto operator<=>(const Int4& other) const noexcept
+
+    // std::array interop
+    constexpr Int4(const std::array<int32_t, 4>& arr) noexcept : x(arr[0]), y(arr[1]), z(arr[2]), w(arr[3]) {}
+    constexpr operator std::array<int32_t, 4>() const noexcept { return { x, y, z, w }; }
+
+    template <class Self>
+    constexpr auto&& operator[](this Self&& self, size_t index) noexcept
     {
-        // only condition - we can't fully default, bc we want the comparison to run on specifically
-        // one member of the untagged union (oops)
-        return std::tie(x, y, z, w) <=> std::tie(other.x, other.y, other.z, other.w);
+        return (&self.x)[index];
     }
-    
+
+    // Arithmetic operators
+    constexpr Int4 operator+(const Int4& rhs) const noexcept;
+    constexpr Int4 operator-(const Int4& rhs) const noexcept;
+    constexpr Int4 operator*(const Int4& rhs) const noexcept;
+    constexpr Int4 operator/(const Int4& rhs) const noexcept;
+    constexpr Int4 operator%(const Int4& rhs) const noexcept;
+
+    // Scalar operators
+    constexpr Int4 operator*(int32_t scalar) const noexcept;
+    constexpr Int4 operator/(int32_t scalar) const noexcept;
+    constexpr Int4 operator%(int32_t scalar) const noexcept;
+
+    // Unary operators
+    constexpr Int4 operator-() const noexcept;
+
+    // Compound assignment operators
+    constexpr Int4& operator+=(const Int4& rhs) noexcept;
+    constexpr Int4& operator-=(const Int4& rhs) noexcept;
+    constexpr Int4& operator*=(const Int4& rhs) noexcept;
+    constexpr Int4& operator/=(const Int4& rhs) noexcept;
+    constexpr Int4& operator%=(const Int4& rhs) noexcept;
+    constexpr Int4& operator*=(int32_t scalar) noexcept;
+    constexpr Int4& operator/=(int32_t scalar) noexcept;
+    constexpr Int4& operator%=(int32_t scalar) noexcept;
+
+    // Comparison operators
+    constexpr bool operator==(const Int4& rhs) const noexcept;
+    constexpr std::strong_ordering operator<=>(const Int4& rhs) const noexcept;
+
+    [[nodiscard]] float Length() const noexcept;
+    [[nodiscard]] constexpr int32_t LengthSquared() const noexcept;
+    [[nodiscard]] constexpr int32_t Dot(const Int4& other) const noexcept;
+
+    [[nodiscard]] constexpr bool NoneOf(int32_t value) const noexcept;
+    [[nodiscard]] constexpr bool AnyOf(int32_t value) const noexcept;
+    [[nodiscard]] constexpr bool AllOf(int32_t value) const noexcept;
+
+    SWIZZLE_4_T(Int4, x, y, z, w)
+    SWIZZLE_4_T(Int4, x, y, w, z)
+    SWIZZLE_4_T(Int4, x, z, y, w)
+    SWIZZLE_4_T(Int4, x, z, w, y)
+    SWIZZLE_4_T(Int4, x, w, y, z)
+    SWIZZLE_4_T(Int4, x, w, z, y)
+    SWIZZLE_4_T(Int4, w, x, y, z)
+    SWIZZLE_4_T(Int4, x, x, x, x)
+    SWIZZLE_4_T(Int4, y, y, y, y)
+    SWIZZLE_4_T(Int4, z, z, z, z)
+    SWIZZLE_4_T(Int4, w, w, w, w)
+    SWIZZLE_4_T(Int4, b, g, r, a)
+    SWIZZLE_4_T(Int4, a, r, g, b)
+    SWIZZLE_3_T(Int3, x, y, z)
+    SWIZZLE_3_T(Int3, r, g, b)
+
     union
     {
         struct { int32_t x, y, z, w; };
         struct { int32_t r, g, b, a; };
         struct { int32_t u, v, s, t; };
+    };
+};
+
+struct UInt3
+{
+public:
+    // Constructors
+    constexpr UInt3() noexcept : x(0u), y(0u), z(0u) {}
+    constexpr UInt3(uint32_t x, uint32_t y, uint32_t z) noexcept : x(x), y(y), z(z) {}
+    constexpr explicit UInt3(uint32_t scalar) noexcept : x(scalar), y(scalar), z(scalar) {}
+
+    constexpr UInt3(const UInt3& other) noexcept = default;
+    constexpr UInt3(UInt3&& other) noexcept = default;
+    constexpr UInt3& operator=(const UInt3& other) noexcept = default;
+    constexpr UInt3& operator=(UInt3&& other) noexcept = default;
+
+    // std::array interop
+    constexpr UInt3(const std::array<uint32_t, 3>& arr) noexcept : x(arr[0]), y(arr[1]), z(arr[2]) {}
+    constexpr operator std::array<uint32_t, 3>() const noexcept { return { x, y, z }; }
+
+    template <class Self>
+    constexpr auto&& operator[](this Self&& self, size_t index) noexcept
+    {
+        return (&self.x)[index];
+    }
+
+    // Arithmetic operators
+    constexpr UInt3 operator+(const UInt3& rhs) const noexcept;
+    constexpr UInt3 operator-(const UInt3& rhs) const noexcept;
+    constexpr UInt3 operator*(const UInt3& rhs) const noexcept;
+    constexpr UInt3 operator/(const UInt3& rhs) const noexcept;
+    constexpr UInt3 operator%(const UInt3& rhs) const noexcept;
+
+    // Scalar operators
+    constexpr UInt3 operator*(uint32_t scalar) const noexcept;
+    constexpr UInt3 operator/(uint32_t scalar) const noexcept;
+    constexpr UInt3 operator%(uint32_t scalar) const noexcept;
+
+    // Compound assignment operators
+    constexpr UInt3& operator+=(const UInt3& rhs) noexcept;
+    constexpr UInt3& operator-=(const UInt3& rhs) noexcept;
+    constexpr UInt3& operator*=(const UInt3& rhs) noexcept;
+    constexpr UInt3& operator/=(const UInt3& rhs) noexcept;
+    constexpr UInt3& operator%=(const UInt3& rhs) noexcept;
+    constexpr UInt3& operator*=(uint32_t scalar) noexcept;
+    constexpr UInt3& operator/=(uint32_t scalar) noexcept;
+    constexpr UInt3& operator%=(uint32_t scalar) noexcept;
+
+    // Comparison operators
+    constexpr bool operator==(const UInt3& rhs) const noexcept;
+    constexpr std::strong_ordering operator<=>(const UInt3& rhs) const noexcept;
+
+    [[nodiscard]] float Length() const noexcept;
+    [[nodiscard]] constexpr uint32_t LengthSquared() const noexcept;
+    [[nodiscard]] constexpr uint32_t Dot(const UInt3& other) const noexcept;
+
+    [[nodiscard]] constexpr bool NoneOf(uint32_t value) const noexcept;
+    [[nodiscard]] constexpr bool AnyOf(uint32_t value) const noexcept;
+    [[nodiscard]] constexpr bool AllOf(uint32_t value) const noexcept;
+
+    SWIZZLE_3_T(UInt3, x, y, z)
+    SWIZZLE_3_T(UInt3, x, z, y)
+    SWIZZLE_3_T(UInt3, y, x, z)
+    SWIZZLE_3_T(UInt3, y, z, x)
+    SWIZZLE_3_T(UInt3, z, x, y)
+    SWIZZLE_3_T(UInt3, z, y, x)
+    SWIZZLE_3_T(UInt3, x, x, x)
+    SWIZZLE_3_T(UInt3, y, y, y)
+    SWIZZLE_3_T(UInt3, z, z, z)
+
+    union
+    {
+        struct { uint32_t x, y, z; };
+        struct { uint32_t r, g, b; };
+        struct { uint32_t u, v, w; };
+    };
+};
+
+struct UInt4
+{
+public:
+    // Constructors
+    constexpr UInt4() noexcept : x(0u), y(0u), z(0u), w(0u) {}
+    constexpr UInt4(uint32_t x, uint32_t y, uint32_t z, uint32_t w) noexcept : x(x), y(y), z(z), w(w) {}
+    constexpr explicit UInt4(uint32_t scalar) noexcept : x(scalar), y(scalar), z(scalar), w(scalar) {}
+    constexpr UInt4(const UInt3& xyz, uint32_t w) noexcept : x(xyz.x), y(xyz.y), z(xyz.z), w(w) {}
+    constexpr UInt4(uint32_t x, const UInt3& yzw) noexcept : x(x), y(yzw.x), z(yzw.y), w(yzw.z) {}
+
+    constexpr UInt4(const UInt4& other) noexcept = default;
+    constexpr UInt4(UInt4&& other) noexcept = default;
+    constexpr UInt4& operator=(const UInt4& other) noexcept = default;
+    constexpr UInt4& operator=(UInt4&& other) noexcept = default;
+
+    // std::array interop
+    constexpr UInt4(const std::array<uint32_t, 4>& arr) noexcept : x(arr[0]), y(arr[1]), z(arr[2]), w(arr[3]) {}
+    constexpr operator std::array<uint32_t, 4>() const noexcept { return { x, y, z, w }; }
+
+    template <class Self>
+    constexpr auto&& operator[](this Self&& self, size_t index) noexcept
+    {
+        return (&self.x)[index];
+    }
+
+    // Arithmetic operators
+    constexpr UInt4 operator+(const UInt4& rhs) const noexcept;
+    constexpr UInt4 operator-(const UInt4& rhs) const noexcept;
+    constexpr UInt4 operator*(const UInt4& rhs) const noexcept;
+    constexpr UInt4 operator/(const UInt4& rhs) const noexcept;
+    constexpr UInt4 operator%(const UInt4& rhs) const noexcept;
+
+    // Scalar operators
+    constexpr UInt4 operator*(uint32_t scalar) const noexcept;
+    constexpr UInt4 operator/(uint32_t scalar) const noexcept;
+    constexpr UInt4 operator%(uint32_t scalar) const noexcept;
+
+    // Compound assignment operators
+    constexpr UInt4& operator+=(const UInt4& rhs) noexcept;
+    constexpr UInt4& operator-=(const UInt4& rhs) noexcept;
+    constexpr UInt4& operator*=(const UInt4& rhs) noexcept;
+    constexpr UInt4& operator/=(const UInt4& rhs) noexcept;
+    constexpr UInt4& operator%=(const UInt4& rhs) noexcept;
+    constexpr UInt4& operator*=(uint32_t scalar) noexcept;
+    constexpr UInt4& operator/=(uint32_t scalar) noexcept;
+    constexpr UInt4& operator%=(uint32_t scalar) noexcept;
+
+    // Comparison operators
+    constexpr bool operator==(const UInt4& rhs) const noexcept;
+    constexpr std::strong_ordering operator<=>(const UInt4& rhs) const noexcept;
+
+    [[nodiscard]] float Length() const noexcept;
+    [[nodiscard]] constexpr uint32_t LengthSquared() const noexcept;
+    [[nodiscard]] constexpr uint32_t Dot(const UInt4& other) const noexcept;
+
+    [[nodiscard]] constexpr bool NoneOf(uint32_t value) const noexcept;
+    [[nodiscard]] constexpr bool AnyOf(uint32_t value) const noexcept;
+    [[nodiscard]] constexpr bool AllOf(uint32_t value) const noexcept;
+
+    SWIZZLE_4_T(UInt4, x, y, z, w)
+    SWIZZLE_4_T(UInt4, x, y, w, z)
+    SWIZZLE_4_T(UInt4, x, z, y, w)
+    SWIZZLE_4_T(UInt4, x, z, w, y)
+    SWIZZLE_4_T(UInt4, x, w, y, z)
+    SWIZZLE_4_T(UInt4, x, w, z, y)
+    SWIZZLE_4_T(UInt4, w, x, y, z)
+    SWIZZLE_4_T(UInt4, x, x, x, x)
+    SWIZZLE_4_T(UInt4, y, y, y, y)
+    SWIZZLE_4_T(UInt4, z, z, z, z)
+    SWIZZLE_4_T(UInt4, w, w, w, w)
+    SWIZZLE_4_T(UInt4, b, g, r, a)
+    SWIZZLE_4_T(UInt4, a, r, g, b)
+    SWIZZLE_3_T(UInt3, x, y, z)
+    SWIZZLE_3_T(UInt3, r, g, b)
+
+    union
+    {
+        struct { uint32_t x, y, z, w; };
+        struct { uint32_t r, g, b, a; };
+        struct { uint32_t u, v, s, t; };
     };
 };
 
@@ -559,6 +866,10 @@ private:
 constexpr Float2 operator*(float scalar, const Float2& vec) noexcept;
 constexpr Float3 operator*(float scalar, const Float3& vec) noexcept;
 constexpr Float4 operator*(float scalar, const Float4& vec) noexcept;
+constexpr Int3 operator*(int32_t scalar, const Int3& vec) noexcept;
+constexpr Int4 operator*(int32_t scalar, const Int4& vec) noexcept;
+constexpr UInt3 operator*(uint32_t scalar, const UInt3& vec) noexcept;
+constexpr UInt4 operator*(uint32_t scalar, const UInt4& vec) noexcept;
 
 // Matrix-Vector operations (mixing storage and SIMD types). See the
 // "worth flagging" note above the storage types regarding the Float4x3
@@ -572,6 +883,9 @@ constexpr Float3 operator*(const Float4x4& mat, const Float3& vec) noexcept;
 #undef SWIZZLE_2
 #undef SWIZZLE_3
 #undef SWIZZLE_4
+#undef SWIZZLE_2_T
+#undef SWIZZLE_3_T
+#undef SWIZZLE_4_T
 
 } // namespace math
 
