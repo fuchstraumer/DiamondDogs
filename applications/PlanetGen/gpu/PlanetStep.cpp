@@ -313,6 +313,8 @@ namespace planet
             recordDispatch(command_buffer, timers, detail, "OffsetFrontPointsCS", 1u);
             RecordComputeBarrier(command_buffer);
             recordDispatch(command_buffer, timers, detail, "ScatterFrontPointsCS", points);
+            RecordComputeBarrier(command_buffer);
+            recordDispatch(command_buffer, timers, detail, "SortFrontPointsCS", size.PlateCount * k_SortGroupSize);
             RecordIndirectBarrier(command_buffer);
             recordIndirectDispatch(command_buffer, timers, detail, "BuildFrontTileCapsCS", frontTileDispatch);
         }

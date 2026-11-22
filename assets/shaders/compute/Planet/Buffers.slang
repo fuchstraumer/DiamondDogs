@@ -112,6 +112,9 @@ PointsIn FrontDataIn;
 Counters PlateFrontPointCount;
 Counters PlateFrontPointCursor;
 Words PlateFrontPointOffset;
+[ls_resource_tags("Aliased:PlateFrontPointOffset")]
+WordsIn PlateFrontPointOffsetIn; // read by SortFrontPointsCS
+
 
 CellPoints CellFronts;
 Points FrontPoints;

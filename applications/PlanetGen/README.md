@@ -352,6 +352,13 @@ aggregation would remove 18 of the 808 atomics.
 
 ### Tail Pointer Updates
 
+#### 2026-11-20 13:00 (Gemini) — PlanetGen v2 Phase 1 Locked (Native Nested HEALPix)
+- **Architectural pivot & blueprint:** Authored [planetgenv2.md](planetgenv2.md) (unified Nested HEALPix `12 × 4^order` grid, Allegretti `2×2` BKE collision CCL, software `8×8` tile virtual paging, cross-referenced to `DocParse/results`) and ingested ±2 citation triage in [doc_search_results.md](doc_search_results.md).
+- **Native Nested HEALPix (`HEALPix.slang` + host `Healpix.hpp/.cpp`):** Implemented 32-bit WGSL-safe `HealpixPixToVec`, `HealpixVecToPix` (pole-stable $1-|z|=(x^2+y^2)/(1+|z|)$), `HealpixNeighbor` (exact 12-face seam tables, 24 seven-neighbor corners), and `HealpixVecToFaceUV` (Calabretta 2007). Verified bit-for-bit via `PlanetGenCheck --checks=healpix` (`orders 1..5` host + `order 6` GPU `HealpixProbeCS`: 0 errors, Full validation).
+- **Simulation swap & workload reductions:** Migrated passes 1–6 and `RenderMapCS` (4-tap bilinear elevation + Karlbauer 2024 24-corner bridge + coastal shallows + world-space tangent hillshading) to HEALPix; extracted `TimelapseAgentTools.hpp/.cpp` from `timelapse/main.cpp`; fused `CountFrontPointsCS` into `RemoveSubductedCS`; added lane-0 `32×32` tile cap-culling in `CountLiveCellsCS` + `LiveGroupCounts` zero-skip in `ScatterLiveCellsCS`; added 3-tier register/wave/SMEM `SortFrontPointsCS` + `BuildFrontTileCapsCS` (indirect) + fused `FrontDistanceAndUpliftCS` (500 km ocean vs 1850 km continent workgroup reach).
+- **Locked baselines (RTX 4080, `RelWithDebInfo`, bytes):** `order = 7` (`196,608` cells) = **`146.4 µs`** (`0.745 ns/cell`, 30% faster/cell than 100k Fibonacci); `order = 8` (`786,432` cells) = **`443.4 µs`** (`0.564 ns/cell`, faster/cell than 500k Fibonacci). Nsight GPU Trace Runs 6–8 stored in `build/profiler_captures/planetgen_diag.db`.
+- **Next:** Phase 2 — Pure-GPU Continental Collision (`Collide.slang` — Allegretti `2×2` BKE CCL, user typing the Slang implementation). See [HANDOFF.md](HANDOFF.md).
+
 #### 2026-11-19 14:35 (Gemini)
 - **Packed buffer layout & read-only aliasing (`[ls_resource_tags("Aliased:...")]`):**
   - Coalesced split buffers into 16-byte/8-byte vector buffers: `Owners` (`int4`, updated in-place by `FillGapsCS`, replacing `BestPlate`/`BestCell`/`SecondPlate`/`SecondCell`/`Pass3Plate`/`Pass3Cell`), `CrustFlags` (1-byte bitfield), `CrustState` (`float4`: relief, birth, orogenyTime, `asfloat(orogeny)`), `FrontData` (`float4`: strength, speed, slabAge, `asfloat(subduction)`), `CellFronts` (`int2`: frontPoint, `asint(distance)`), `PlateCounters` (`int4`: positionSum.xyz, cellCount), `PoleRatesIn` (`float4`: pole.xyz, rate), `Rotations` (`3 × float4` per plate).

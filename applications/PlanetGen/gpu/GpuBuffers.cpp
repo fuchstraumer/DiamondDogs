@@ -69,8 +69,8 @@ namespace planet
         createInfo.Domain = ResourceDomain::GPUOnly;
         // a copy destination too, so that the step runner can fill and restore it, and indirect, so that a pass can
         // write the group counts of a later dispatch
-        createInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource | BufferUsageBits::CopyDestination |
-                           BufferUsageBits::IndirectCompute;
+        createInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::TransferSource | BufferUsageBits::TransferDestination |
+                           BufferUsageBits::DispatchIndirect;
         createInfo.Size = data.size();
         createInfo.Name = name;
         PlanetGpuResult<GraphicsResource> buffer = create(createInfo, data);
@@ -90,7 +90,7 @@ namespace planet
 
         BufferCreateInfo readbackInfo{};
         readbackInfo.Domain = ResourceDomain::GPUToCPU;
-        readbackInfo.Usage = BufferUsageBits::CopyDestination;
+        readbackInfo.Usage = BufferUsageBits::TransferDestination;
         readbackInfo.Size = data.size();
         PlanetGpuResult<GraphicsResource> readback = create(readbackInfo, {});
 
@@ -197,7 +197,7 @@ namespace planet
     {
         ImageCreateInfo createInfo{};
         createInfo.Domain = ResourceDomain::GPUOnly;
-        createInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::TransferSource;
+        createInfo.Usage = ImageUsageBits::ComputeShaderUAV | ImageUsageBits::TransferSource;
         createInfo.Type = ImageType::Type2D;
         createInfo.Format = format;
         createInfo.Width = width;

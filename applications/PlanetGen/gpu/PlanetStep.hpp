@@ -22,26 +22,29 @@ namespace planet
     class GpuBuffers;
 
     /** The entry points of one step, passes 1 to 6. Create PlanetShaders with these. */
-    inline constexpr std::array<std::string_view, 13> k_StepEntryPoints
+    inline constexpr std::array<std::string_view, 14> k_StepEntryPoints
     {
         "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
         "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
-        "OffsetFrontPointsCS", "ScatterFrontPointsCS", "BuildFrontTileCapsCS",
+        "OffsetFrontPointsCS", "ScatterFrontPointsCS", "SortFrontPointsCS", "BuildFrontTileCapsCS",
         "SumPullCS", "FrontDistanceAndUpliftCS",
     };
 
     /** The entry points of one live simulation step: passes 1 to 6 plus MovePlatesAndClearCountersCS. */
-    inline constexpr std::array<std::string_view, 14> k_LiveStepEntryPoints
+    inline constexpr std::array<std::string_view, 15> k_LiveStepEntryPoints
     {
         "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
         "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
-        "OffsetFrontPointsCS", "ScatterFrontPointsCS", "BuildFrontTileCapsCS",
+        "OffsetFrontPointsCS", "ScatterFrontPointsCS", "SortFrontPointsCS", "BuildFrontTileCapsCS",
         "SumPullCS", "FrontDistanceAndUpliftCS", "MovePlatesAndClearCountersCS",
     };
 
     /** The live cell passes (LiveCells.slang): a group of 256 threads covers 1024 cells of one plate. */
     inline constexpr uint32_t k_LiveGroupSize = 256u;
     inline constexpr uint32_t k_LiveGroupCells = 1024u;
+
+    /** SortFrontPointsCS (FrontPoints.slang): one group of 256 threads sorts one plate's front points. */
+    inline constexpr uint32_t k_SortGroupSize = 256u;
 
     /** The GPU timer scope of each pass, in the order that RecordStep runs them. */
     inline constexpr std::array<std::string_view, 7> k_StepScopes

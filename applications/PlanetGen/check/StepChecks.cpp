@@ -27,12 +27,12 @@ namespace planet
 {
     namespace
     {
-        constexpr std::array<std::string_view, 17> k_AllEntryPoints
+        constexpr std::array<std::string_view, 18> k_AllEntryPoints
         {
             "MapProbeCS", "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
             "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
-            "CountFrontPointsCS", "OffsetFrontPointsCS", "ScatterFrontPointsCS", "NearestFrontPointCS",
-            "BuildFrontTileCapsCS", "FrontDistanceAndUpliftCS", "SumPullCS", "UpliftCS",
+            "CountFrontPointsCS", "OffsetFrontPointsCS", "ScatterFrontPointsCS", "SortFrontPointsCS",
+            "NearestFrontPointCS", "BuildFrontTileCapsCS", "FrontDistanceAndUpliftCS", "SumPullCS", "UpliftCS",
         };
 
         constexpr std::array<NamedCheck, 10> k_AllChecks

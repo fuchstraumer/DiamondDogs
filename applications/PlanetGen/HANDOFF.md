@@ -1,82 +1,64 @@
-# PlanetGen Handoff (2026-11-19 14:35, Gemini)
+# PlanetGen Handoff (2026-11-20 13:00, Gemini)
 
 Current state, performance baselines, buffer contracts, and prioritized next steps for `applications/PlanetGen` and `assets/shaders/compute/Planet/`.
 
 ---
 
-## 1. Current Architecture & Targets
+## 1. Current Architecture & Targets (PlanetGen v2 — Native Nested HEALPix)
+
+**Phase 1 (Native Nested HEALPix + Workload Reductions) is COMPLETE and LOCKED.** See [planetgenv2.md](planetgenv2.md) for the full v2 architectural blueprint and [doc_search_results.md](doc_search_results.md) for the ±2 citation triage (Karlbauer 2024, Bolelli/Allegretti 2024, Benyoub/Dupuy 2024 CBT, Westerteiger 2012, cuHPX 2025, Calabretta 2007, GPU Pro 5/7).
 
 `applications/PlanetGen/CMakeLists.txt` builds:
-- **`planet_gen_shaders`**: cooks `assets/shaders/compute/Planet/PlanetLab.slang` via Lodestone (**17 entrypoints × 2 variants (`CRUST_FLAG_BYTES = true|false`) = 34 entrypoint variants**).
-- **`planet_gpu`** (static lib): `PlanetSession`, `PlanetShaders` (supports 1D/2D/indirect dispatch + storage images), `GpuBuffers` (storage buffers, host-visible UBOs with `UpdateUniform`/`UpdateUniformFrom`, storage images), `PlanetStep` (`RecordStep`, `RecordLiveStep`, `RecordReset`, `RecordDispatch2D`), `Healpix`.
-- **`planet_reference`** (static lib): `ReferenceSet`, `PlanetMath`, `StepState` (`AddStepBuffers` + pack-on-upload helpers).
-- **`PlanetGenCheck`**: validates all 9 checks (`map`, `owners`, `front`, `crust`, `live`, `distance`, `uplift`, `torque`, `chain`) in both `[bytes]` and `[words]` with `Full` Vulkan validation. Currently **100% PASS** on both `reference_10000` and `reference_100000`.
-- **`PlanetGenBench`**: headless GPU-timer benchmark (`RelWithDebInfo`).
-- **`PlanetGenTimelapse`**: headless multi-step runner using `PlanetStep::RecordLiveStep` + `RenderMapCS` (6 debug modes: `elevation`, `plates`, `age`, `relief`, `fronts`, `voronoi`) + `modules/FrameCapture` + `modules/AgentTools` (`--tool-port=0` JSON-RPC server exposing `planet.sim`, `planet.step`, `planet.reset`, `planet.capture`, `planet.capture_region`, `planet.quit`).
+- **`planet_gen_shaders`**: cooks `assets/shaders/compute/Planet/PlanetLab.slang` via Lodestone (**21 entrypoints × 2 variants (`CRUST_FLAG_BYTES = true|false`) = 42 entrypoint variants**).
+- **`planet_gpu`** (static lib): `PlanetSession`, `PlanetShaders`, `GpuBuffers`, `PlanetStep` (14 step / 15 live-step entrypoints, indirect dispatch for `LiveDispatch` and `FrontTileDispatch`), `Healpix` (`HealpixNestedIndex`, `HealpixPixToVec`, `HealpixNeighbors8`).
+- **`planet_reference`** (static lib): `ReferenceSet`, `PlanetMath` (incl. `FibonacciNearest`), `StepState` (`AddStepBuffers`, `AddHealpixStepBuffers` resampling onto HEALPix `order = 4..9`).
+- **`PlanetGenCheck`**: `--checks=healpix` verifies C++ host (`orders 1..5`: 0 bijection/range/symmetry/corner errors) + GPU `HealpixProbeCS` (`order = 6`, 49,152 pixels: 0 vec/round-trip/neighbor errors) in both `[bytes]` and `[words]` with `Full` Vulkan validation.
+- **`PlanetGenBench`**: headless GPU-timer benchmark (`RelWithDebInfo`), supports `--order=<4..9>` (default `7` = 196,608 cells).
+- **`PlanetGenTimelapse`**: headless multi-step runner (`--order=<4..9>`) + `RenderMapCS` (Calabretta 2007 continuous `(faceU, faceV)` + Karlbauer 2024 24-corner bridge 4-tap bilinear elevation + coastal shallows + world-space tangent hillshading in mode 0; crisp nearest-neighbor debug modes 1–5) + `FrameCapture` + `AgentTools` extracted into `timelapse/TimelapseAgentTools.hpp/.cpp`.
 
 ---
 
-## 2. Packed GPU Buffer Layout (`Buffers.slang`)
+## 2. Step Pipeline & Packed GPU Buffer Layout (`Buffers.slang`)
 
-All read-only/aliased views use `[ls_resource_tags("Aliased:<Target>")]`, resolved by `modules/RhiResources/src/ManifestDescriptors.cpp` (which also rejects same-dispatch aliasing of two bindings to the same `VkBuffer`).
+**Locked Step Order (`PlanetStep.cpp`):**
+1. `OwnersCS` → 2. `CountVotesCS` → `SwapToMajorityCS` → 3. `FillGapsCS` → `RemoveSubductedCS` *(fused `CountFrontPointsCS`)* → 3b. `CountLiveCellsCS` *(lane-0 HEALPix `32×32` tile cap-cull)* → `OffsetLiveCellsCS` → `ScatterLiveCellsCS` *(`LiveGroupCounts == 0` early-out)* → 4. `OffsetFrontPointsCS` *(writes `FrontTileDispatch`)* → `ScatterFrontPointsCS` → `SortFrontPointsCS` *(3-tier register → wave butterfly → SMEM bitonic sort on `uint` Morton keys, ≤ 2048/plate)* → `BuildFrontTileCapsCS` *(indirect)* → 6. `SumPullCS` → 4+5. `FrontDistanceAndUpliftCS` *(fused `NearestFrontPointCS` + `UpliftCS`, indirect via `LiveDispatch`, precomputed `FrontTileCaps` cull + Ocean 500 km vs Continent 1850 km reach cull)* → *(live loop)* `MovePlatesAndClearCountersCS`.
 
-| Backing Buffer | Type / Stride | Layout | Aliased Views |
-|---|---|---|---|
-| `CrustFlags` / `CrustFlagsWords` | `uint8_t` / `uint` (`P × N`) | `bit 0` = alive, `bit 1` = continental | `CrustFlagsIn` (`FlagBytesIn`), `CrustFlagsPackedIn` (`WordsIn`, 4 cells/load in `LiveCells.slang`), `CrustFlagsWordsIn` (`WordsIn`) |
-| `CrustState` | `float4` (`P × N`) | `.x` = relief, `.y` = birth, `.z` = orogenyTime, `.w` = `asfloat(orogenyType)` | `CrustStateIn` (`PointsIn`) |
-| `Owners` | `int4` (`N`) | `.x` = BestPlate, `.y` = BestCell, `.z` = SecondPlate, `.w` = SecondCell (updated in-place by `FillGapsCS`) | `OwnersIn` (`IntPointsIn`) |
-| `FrontData` | `float4` (`N`) | `.x` = strength, `.y` = speed, `.z` = slabAge, `.w` = `asfloat(subduction)` | `FrontDataIn` (`PointsIn`) |
-| `CellFronts` | `int2` (`P × N`) | `.x` = frontPoint (`-1` if none), `.y` = `asint(distanceKm)` | — |
-| `PlateCounters` | `int` atomic (`4 × P`) | `xyz` = fixed-point positionSum (`×16384`), `w` = cellCount | `PlateCountersIn` (`IntPointsIn`) |
-| `PlatePull` | `int` atomic (`3 × P`) | fixed-point pull vector (`×4096`) | — |
-| `PlateContinentalCount` | `uint` atomic (`P`) | continental live cell count | — |
-| `Rotations` | `float4` (`3 × P`) | 3 rows of plate-to-world 3×3 matrix (`.w = 0`) | `RotationsRW` (`Points`, `MovePlatesAndClearCountersCS`) |
-| `PoleRatesIn` | `float4` (`P`) | `.xyz` = Euler pole, `.w` = rate (rad/My) | `PoleRatesRW` (`Points`, `MovePlatesAndClearCountersCS`) |
-| `PlateRiftIn` | `float4` (`P`) | `.xyz` = rift axis (zero if inactive), `.w` = rift time (My) | — |
-| `PreviousPlate` | `int` (`N`) | carried buffer updated in-place by `FillGapsCS` | `PreviousPlateIn` (`IntsIn`, `OwnersCS`) |
-| `PlateCapCenters` / `PlateCapSpread` | `float4` / `uint` atomic (`P`) | carried plate bounding caps (`w`: 0=none, 1=valid, 2=empty) | `PlateCapSpreadIn` (`WordsIn`, `OwnersCS`) |
-| `PairVotes` / `LowVotes` | `uint` atomic (`P × P`) | ocean-overlap majority votes | `PairVotesIn`, `LowVotesIn` (`WordsIn`) |
-| `PlateFrontPointCount` | `uint` atomic (`P`) | subduction front point count per plate | `PlateFrontPointCountIn` (`WordsIn`) |
-| `MapOutput` | `RWTexture2D<float4>` (`W × H`) | `RGBA8_UNORM` storage image (`UavComputeShader \| TransferSource`), `GENERAL` layout | — |
+**New v2 Buffers (added to `Buffers.slang` + `k_ZeroedBuffers`):**
+- `LiveGroupCounts` (`Words`, `LiveGroupCount(size)` uints)
+- `FrontTileCaps` (`Points`, `((PointCount + 63) / 64)` float4s: `.xyz = tileCenter`, `.w = tileAngle`)
+- `FrontTileDispatch` (`Words`, 3 uints indirect dispatch args)
 
 **Uniforms:**
-- `Params` (`OwnersParams`): `{ uint PointCount; uint PlateCount; float TimeStepMy; }`
+- `Params` (`OwnersParams`): `{ uint PointCount; uint PlateCount; float TimeStepMy; uint HealpixOrder; }`
 - `Pass3Constants`, `UpliftConstants`, `MovePlatesConstants`: `{ float Time; }`
-- `RenderMapConstants`: `{ uint Width; uint Height; float Time; }`
+- `RenderMapConstants`: `{ uint Width; uint Height; float Time; uint Mode; }`
+- `HealpixProbeConstants`: `{ uint Order; uint PixelCount; }`
 
 ---
 
 ## 3. Performance Baseline (RTX 4080, 20 plates, RelWithDebInfo, bytes)
 
-- **100k points (`PlanetGenBench`, `--steps=500 --warmup=500 --dispatches`):**
-  - **Step:** `106.5 µs` median (`96.3 µs` min), down from `339.5 µs` baseline (**3.18× speedup**).
-  - `OwnersCS`: `24.6 µs` | `CountLiveCellsCS`: `8.2 µs` | `ScatterLiveCellsCS`: `7.8 µs` | `NearestFrontPointCS`: `14.3 µs` | `UpliftCS`: `7.2 µs`.
-- **500k points (`build/reference_500000`, `--steps=200 --warmup=200 --dispatches`):**
-  - **Step:** `290.8 µs` median (`284.7 µs` min) — **2.73× time for 5× points** (~3,400 ticks/sec!).
-  - `OwnersCS`: `76.8 µs` | `CountLiveCellsCS`: `25.6 µs` | `ScatterLiveCellsCS`: `23.4 µs` | `NearestFrontPointCS`: `39.9 µs` | `UpliftCS`: `66.6 µs` (jumped 9.5× due to 240 MB `CrustState`+`CellFronts` spilling the 4080's 64 MB L2; moving `LoadCrustState` below `if (frontPoint < 0 && !isContinental) return;` will cut DRAM reads too).
-- **Locked-clock Nsight GPU Trace (`build/profiler_captures/planetgen_diag.db`, 2205 MHz base clock):**
-  - Run 1 (`161.8 µs`) → Run 2 (`137.0 µs`) → Run 3 (`130.0 µs`, post-packing) → Run 5 (`127.0 µs`, dot-product `NearestFrontPointCS` before `CrustFlagsPackedIn`).
-  - Occupancy is NOT register-limited (`RegStall = 0–1%`); 100k threads (3,125 warps) is simply smaller than one full wave of an RTX 4080 (76 SMs × 48 warps = 3,648 warps).
-  - Note: `vkCmdCopyBuffer` + `vkCmdFillBuffer` in `RecordReset` are benchmark/check-only; in a live loop, `MovePlatesAndClearCountersCS` clears the 8 small counters in ~2 µs with zero copies.
+| Configuration | Cells | Step (median) | **ns / cell** | Key Pass Medians |
+| :--- | ---: | ---: | :---: | :--- |
+| Fibonacci `100k` (v1) | 100,000 | `106.5 µs` | `1.065 ns` | `OwnersCS 24.6`, `Nearest 14.3`, `Uplift 7.2` |
+| **HEALPix `order=7`** | **196,608** | **`146.4 µs`** *(min `143.1`)* | **`0.745 ns`** *(-30%/cell!)* | `OwnersCS 19.5`, `CountLive 13.3`, `ScatterLive 9.5`, `SortFront 13.3`, `FrontDist+Uplift 38.9` |
+| Fibonacci `500k` (v1) | 500,000 | `290.8 µs` | `0.582 ns` | `OwnersCS 76.8`, `Nearest 39.9`, `Uplift 66.6` |
+| **HEALPix `order=8`** | **786,432** | **`443.4 µs`** *(min `432.1`)* | **`0.564 ns`** *(-3%/cell!)* | `OwnersCS 55.8`, `CountLive 32.8`, `ScatterLive 22.3`, `SortFront 16.4`, `FrontDist+Uplift 229.4` |
+
+- **Profiler DB (`build/profiler_captures/planetgen_diag.db`):** Runs 1–5 (Fibonacci v1), Run 6 (initial HEALPix `order=7`), Run 7 (`151.07 µs` locked), Run 8 (`SortFrontPointsCS` `11.3 µs`, `CountLiveCellsCS` `12.0 µs`, `FrontDistanceAndUpliftCS` warp samples `-16%`).
+- **LDS Bank-Conflict Audit:** Clean across all shaders (0 runtime bank conflicts; `SharedWorldCaps` and `SharedFrontPoints` are uniform-broadcast reads; `SharedSortPixels` is 4-byte `uint`).
 
 ---
 
-## 4. Visual Findings & 500k Timelapse (`build/planet_500k_timelapse.mp4`)
+## 4. Prioritized Next Steps
 
-1. **Debug layers (`build/debug_layers/{plates,age,fronts}` & `build/tool_test/region.png`)**: Zero Z-fighting or simulation bugs; seafloor spreading stripes, subduction trenches, and `NearestFrontPointCS` halos are completely clean.
-2. **500k 10-second timelapse (`build/planet_500k_timelapse.mp4`, 300 frames @ 30 fps, `dt = 0.5 My`, `1920×960`):** Ran 150 My of 100% GPU-only plate drift with zero NaNs/drift, crisp coastlines, island arc accretion, and triple-junction spreading — **and exposed the #1 missing physics feature**:
-   - **Continental collisions currently ghost through each other:** In `RemoveSubductedCS`, `collision == true` sets `subduction = 0` and leaves `underFlat` alive, because `tectonics.Collide()` / `TransferTerrane()` (`applications/PlanetLab/planetlab/tectonics.py:269-379`) is not yet on the GPU.
-3. **No coastal shallows yet:** Python's `tectonics.Elevation()` (`tectonics.py:577-607`) computes coastal shelves (`-0.15 km`) and slopes (`-1.5 km`) via `coast_distance` as a post-pass.
-
----
-
-## 5. Prioritized Next Steps
-
-1. **Immediate Next Task — Pure-GPU Continental Collision & Terrane Transfer (`Collide`):**
-   - Design and prototype a **GPU connected-component flood-fill / label-propagation** (e.g. CUDA-style Shiloach-Vishkin / pointer-jumping union-find or frontier BFS on the Fibonacci sphere neighbor graph) to detect colliding continental terranes (`TERRANE_PENETRATION = 300 km`), transfer terranes to the overriding plate, and apply Himalayan orogeny uplift (`OrogenyHimalayan = 2`, surge).
-   - Keep everything 100% on the GPU (no CPU readback).
-2. **Visualization Lookdev & Upscaling:**
-   - Domain-warped 4-corner Fibonacci IDW interpolation + 3D fBm detail in `RenderMapCS` for crisp 1440p/4K coastlines + automatic coastal shelf/slope blend + optional Slang `[Differentiable]` / `fwd_diff` normals & curvature hillshading.
-3. **WebGPU Portability & RenderGraph:**
-   - Make `OffsetLiveCellsCS`, `OffsetFrontPointsCS`, `CountLiveCellsCS`, and `ScatterLiveCellsCS` wave-size agnostic (16 / 32 / 64 lanes, `PlateCount > waveSize`, matching `OceanFft` IDFT).
-   - Migrate bindings/barriers from `WriteManifestDescriptors` into `modules/RenderGraph` for the upcoming WebGPU RHI.
+1. **Immediate Next Task — Phase 2: Pure-GPU Continental Collision (`Collide.slang`):**
+   - **Important user preference:** The user wants to **type the `Collide.slang` shader implementation themselves** (we provide the architecture, walkthroughs, code review, and C++ host/test plumbing).
+   - Design in [planetgenv2.md](planetgenv2.md) §3 + **Bolelli et al. (2024)** `IC`/`WLP` refinements from [doc_search_results.md](doc_search_results.md):
+     - Indirect-gated `DetectCollisionsCS` + `SelectCollisionPairCS` (`CollideDispatch`, ~5–10 µs on non-collision ticks).
+     - Allegretti/Bolelli **`2×2` Block Equivalence (BKE)** CCL on the 12 HEALPix Nested faces (`16×16` tile `groupshared` union-find + seam stitching via `HealpixNeighbor` — zero neighbor buffer!).
+     - `TransferTerraneDirectCS`, `ClearSourceTerraneCS`, 1-dispatch tiled `NearestSuturePointCS`, 64-bin `EscapeHistogramCS`, and `ApplyEscapeAndSurgeCS` (`OrogenyHimalayan = 2`).
+   - Add a GPU-vs-CPU BFS exactness check (`--checks=collide`) in `PlanetGenCheck` before running a 300-frame `order = 7/8` collision timelapse!
+2. **Phase 3 — Software Sparse Virtual Plate Paging (`planetgenv2.md` §4) & `Loom` (`modules/RenderGraph`) Integration:**
+   - Replace dense `P × N` arrays with `8×8` tile `PageTable` + lock-free 2-phase `FreeTileStack` (`~40.5 MB` at `order = 8`, 100% L2-resident, zero `VK_QUEUE_SPARSE_BINDING`, WebGPU-compatible).
+   - Port `PlanetStep` + `Collide` + `RenderMapCS` onto `modules/RenderGraph` (`Loom` once indirect dispatch lands) and retire `WriteManifestDescriptors`.

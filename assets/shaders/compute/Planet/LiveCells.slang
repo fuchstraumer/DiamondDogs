@@ -61,58 +61,66 @@ uint LoadPacked4Flags(uint plate, uint cellBase)
     return packed4;
 }
 
+groupshared uint GroupCulled;
+
 [shader("compute")][numthreads(256,1,1)]
 void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupThreadID)
 {
     const LiveGroup liveGroup = FindLiveGroup(groupID.x);
-    if (Params.HealpixOrder >= 5u)
-    {
-        const float4 cap = PlateCapCenters.Load(liveGroup.Plate);
-        if (cap.w == PlateCapEmpty)
-        {
-
-            if (laneInGroup.x == 0u)
-            {
-                LiveGroupCounts.Store(groupID.x, 0u);
-            }
-
-            return;
-        }
-
-        if (cap.w == PlateCapValid)
-        {
-            const uint coarseOrder = Params.HealpixOrder - 5u;
-            const uint coarseTileIdx = liveGroup.FirstCell >> 10u;
-            const float3 tileCenter = HealpixPixToVec(coarseTileIdx, coarseOrder);
-            const float capSpread = asfloat(PlateCapSpreadIn.Load(liveGroup.Plate));
-            const float capAngle = acos(clamp(1.0f - capSpread, -1.0f, 1.0f));
-            const float tileRadiusAngle = 2.0f * sqrt(4.0f * 3.14159265f / float(12u << (2u * coarseOrder)));
-            const float maxAngle = min(3.14159265f, capAngle + tileRadiusAngle);
-
-            if (dot(tileCenter, cap.xyz) < cos(maxAngle))
-            {
-
-                if (laneInGroup.x == 0u)
-                {
-                    LiveGroupCounts.Store(groupID.x, 0u);
-                }
-
-                return;
-            }
-            
-        }
-    }
-
     if (laneInGroup.x == 0u)
     {
-        GroupLive = 0u;
-        GroupContinental = 0u;
-        GroupPosition[0] = 0;
-        GroupPosition[1] = 0;
-        GroupPosition[2] = 0;
+        uint culled = 0u;
+        if (Params.HealpixOrder >= 5u)
+        {
+            const float4 cap = PlateCapCenters.Load(liveGroup.Plate);
+            if (cap.w == PlateCapEmpty)
+            {
+                LiveGroupCounts.Store(groupID.x, 0u);
+                culled = 1u;
+            }
+            else if (cap.w == PlateCapValid)
+            {
+                const uint coarseOrder = Params.HealpixOrder - 5u;
+                const uint coarseTileIdx = liveGroup.FirstCell >> 10u;
+                const float3 tileCenter = HealpixPixToVec(coarseTileIdx, coarseOrder);
+                const float capSpread = asfloat(PlateCapSpreadIn.Load(liveGroup.Plate));
+                const float capCos = clamp(1.0f - capSpread, -1.0f, 1.0f);
+                const float capSin = sqrt(max(0.0f, 1.0f - capCos * capCos));
+                const float tileRadiusAngle = 2.0f * sqrt(4.0f * 3.14159265f / float(12u << (2u * coarseOrder)));
+                
+                float tileSin = 0.0f;
+                float tileCos = 0.0f;
+                sincos(tileRadiusAngle, tileSin, tileCos);
+                const bool wrapsPi = (capCos < 0.0f) && (capSin < tileSin);
+                const float minCos = wrapsPi ? -1.0f : (capCos * tileCos - capSin * tileSin);
+                if (dot(tileCenter, cap.xyz) < minCos)
+                {
+                    culled = 1u;
+                }
+            }
+        }
+
+        GroupCulled = culled;
+        if (culled != 0u)
+        {
+            LiveGroupCounts.Store(groupID.x, 0u);
+        }
+        else
+        {
+            GroupLive = 0u;
+            GroupContinental = 0u;
+            GroupPosition[0] = 0;
+            GroupPosition[1] = 0;
+            GroupPosition[2] = 0;
+        }
     }
 
     GroupMemoryBarrierWithGroupSync();
+
+    if (GroupCulled != 0u)
+    {
+        return;
+    }
 
     uint live = 0u;
     uint continental = 0u;
