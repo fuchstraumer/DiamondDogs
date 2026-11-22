@@ -27,8 +27,22 @@ endif()
 if(EMSCRIPTEN)
     # Dawn first: the flags below apply only to directories added after them
     include(cmake/ConfigureDawn.cmake)
-    add_compile_options(-fno-exceptions -msimd128)
+    option(DIAMOND_DOGS_WEB_THREADS "Enable pthreads and SharedArrayBuffer in Emscripten builds" OFF)
+    add_compile_options(-fno-exceptions -fno-rtti -msimd128
+        "$<$<CONFIG:Debug>:-O0;-g>"
+        "$<$<CONFIG:RelWithDebInfo>:-O2;-g2>"
+        "$<$<CONFIG:Release>:-O3;-flto>"
+        "$<$<CONFIG:MinSizeRel>:-Oz;-flto>")
     add_compile_definitions(JSON_NOEXCEPTION)
+    add_link_options(-sDISABLE_EXCEPTION_CATCHING=1 -sSUPPORT_LONGJMP=0 -sALLOW_MEMORY_GROWTH=1
+        "$<$<CONFIG:Debug>:-g;-sASSERTIONS=2;-sSTACK_OVERFLOW_CHECK=2>"
+        "$<$<CONFIG:RelWithDebInfo>:-O2;-g2;-sASSERTIONS=0>"
+        "$<$<CONFIG:Release>:-O3;-flto;-g0;-sASSERTIONS=0;-sSTACK_OVERFLOW_CHECK=0;--closure=1>"
+        "$<$<CONFIG:MinSizeRel>:-Oz;-flto;-g0;-sASSERTIONS=0;-sSTACK_OVERFLOW_CHECK=0;--closure=1;-sMALLOC=emmalloc>")
+    if(DIAMOND_DOGS_WEB_THREADS)
+        add_compile_options(-pthread)
+        add_link_options(-pthread -sPTHREAD_POOL_SIZE=4 -sMAXIMUM_MEMORY=512MB)
+    endif()
 endif()
 
 # Generate header with source tree paths for tests

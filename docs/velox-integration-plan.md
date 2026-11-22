@@ -109,7 +109,9 @@ Next up are the planned M2 refinements (Dawn `emdawnwebgpu_pkg` pinning + lean E
 
 ---
 
-## Dawn Dependency Management & Emscripten Build Optimization (Planned M2 Refinements)
+## Dawn Dependency Management & Emscripten Build Optimization (M2 Refinements - Complete)
+
+> **Status: complete.** Dawn is pinned to `emdawnwebgpu_pkg` release `v20261120.121236` (`cmake/dawn-lock.json`, SHA-256 `15e946ab48abb1777aa8f0300fd00ca452292d7948d692e0a405926b646944a2`). The lean per-config flags and `-fno-rtti` are enabled. `WebGpuTriangleTest` sizes in bytes (.wasm / .js): Debug 12038087 / 158485, Release 404290 / 21564, MinSizeRel 339742 / 21110.
 
 ### 1. Syncing, Pinning, and Upgrading Dawn (Option A — `emdawnwebgpu_pkg` Releases)
 Because DiamondDogs uses native Vulkan on desktop and Lodestone for offline Slang compilation, Web builds only need **`emdawnwebgpu`** (`<webgpu/webgpu.h>`, `<webgpu/webgpu_cpp.h>`, `webgpu.cpp`, and `library_webgpu.js` glue) rather than a full multi-GB Dawn checkout with native backends, Tint, Abseil, or Python/Jinja generators. Google publishes text-only `emdawnwebgpu_pkg-<date>.zip` packages under `https://github.com/google/dawn/releases`.
@@ -174,8 +176,4 @@ WASM validates all opcodes at load time, so a single `.wasm` binary cannot branc
 
 ---
 
-## Open Decisions Before Starting M3–M4
-
-1. **Lodestone WGSL push constants:** Confirm how Lodestone emits push constants in WGSL profiles (explicit uniform binding slot vs convention) before implementing `loom_webgpu`'s `ParamsStore` backing buffer.
-2. **ImGui on Web:** Decide whether `ImGuiModule` gets an `imgui_impl_wgpu` path early (for on-device debug UI) or stays desktop-only while mobile uses the ADB telemetry/control channel.
-3. **Engine RTTI on Web (`-fno-rtti`):** Audit whether `ContentCompiler`, `foundation/reflect`, or `gtest` require RTTI in WASM builds before adding `-fno-rtti` alongside `-fno-exceptions`.
+## Open Decisions Before Starting M3–M4 (All Resolved)  1. **Lodestone WGSL push constants - resolved:** Lodestone format v11 exposes them through `EntryPointInstanceView::Constants()` in an explicit `UniformBuffer` slot. `loom_webgpu`'s `ParamsStore` backs that slot. 2. **ImGui on Web - resolved:** ImGui is deferred on Web. M3–M4 use the ADB telemetry/control channel instead. 3. **Engine RTTI on Web (`-fno-rtti`) - resolved:** `-fno-rtti` is enabled on Emscripten and verified against all four Node unit test suites. 

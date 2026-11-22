@@ -10,15 +10,39 @@ foreach(dawnOption IN ITEMS
     set(${dawnOption} OFF)
 endforeach()
 
-set(DIAMOND_DOGS_DAWN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../VeloxRhi/third_party/dawn" CACHE PATH
-    "Path to the Dawn checkout")
-cmake_path(ABSOLUTE_PATH DIAMOND_DOGS_DAWN_DIR NORMALIZE)
+set(DIAMOND_DOGS_DAWN_DIR "" CACHE PATH
+    "Path to a local Dawn checkout. Empty uses the emdawnwebgpu package pinned in cmake/dawn-lock.json")
 
-if (NOT EXISTS "${DIAMOND_DOGS_DAWN_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR "Dawn was not found at ${DIAMOND_DOGS_DAWN_DIR}. Set DIAMOND_DOGS_DAWN_DIR.")
+if(DIAMOND_DOGS_DAWN_DIR STREQUAL "")
+    # Pinned release package: update it with scripts/sync_dawn.py
+    include(FetchContent)
+    file(READ "${CMAKE_CURRENT_LIST_DIR}/dawn-lock.json" diamondDogsDawnLock)
+    string(JSON diamondDogsDawnUrl GET "${diamondDogsDawnLock}" url)
+    string(JSON diamondDogsDawnSha256 GET "${diamondDogsDawnLock}" sha256)
+    FetchContent_Declare(emdawnwebgpu_pkg
+        URL "${diamondDogsDawnUrl}"
+        URL_HASH "SHA256=${diamondDogsDawnSha256}"
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(emdawnwebgpu_pkg)
+    file(GLOB_RECURSE diamondDogsDawnPort "${emdawnwebgpu_pkg_SOURCE_DIR}/emdawnwebgpu.port.py")
+    list(GET diamondDogsDawnPort 0 diamondDogsDawnPortPath)
+    if(NOT diamondDogsDawnPortPath)
+        message(FATAL_ERROR "emdawnwebgpu.port.py was not found in ${emdawnwebgpu_pkg_SOURCE_DIR}")
+    endif()
+    add_library(emdawnwebgpu_cpp INTERFACE)
+    target_compile_options(emdawnwebgpu_cpp INTERFACE "--use-port=${diamondDogsDawnPortPath}")
+    target_link_options(emdawnwebgpu_cpp INTERFACE "--use-port=${diamondDogsDawnPortPath}")
+    # The port adds these itself at compile time. Listing them lets clangd find the headers
+    cmake_path(GET diamondDogsDawnPortPath PARENT_PATH diamondDogsDawnPkgDir)
+    target_include_directories(emdawnwebgpu_cpp SYSTEM INTERFACE
+        "${diamondDogsDawnPkgDir}/webgpu/include" "${diamondDogsDawnPkgDir}/webgpu_cpp/include")
+else()
+    cmake_path(ABSOLUTE_PATH DIAMOND_DOGS_DAWN_DIR NORMALIZE)
+    if (NOT EXISTS "${DIAMOND_DOGS_DAWN_DIR}/CMakeLists.txt")
+        message(FATAL_ERROR "Dawn was not found at ${DIAMOND_DOGS_DAWN_DIR}. Set DIAMOND_DOGS_DAWN_DIR.")
+    endif()
+    add_subdirectory("${DIAMOND_DOGS_DAWN_DIR}" "${CMAKE_BINARY_DIR}/third_party/dawn" EXCLUDE_FROM_ALL)
 endif()
-
-add_subdirectory("${DIAMOND_DOGS_DAWN_DIR}" "${CMAKE_BINARY_DIR}/third_party/dawn" EXCLUDE_FROM_ALL)
 
 if(TARGET emdawnwebgpu_c)
     # emsdk 7.x libc++ stopped pulling <string> transitively in Dawn's webgpu.cpp

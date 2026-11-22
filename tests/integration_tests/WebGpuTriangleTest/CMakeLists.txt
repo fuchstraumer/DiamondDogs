@@ -20,6 +20,11 @@ target_link_libraries(WebGpuTriangleTest PRIVATE
 target_link_options(WebGpuTriangleTest PRIVATE
     "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/shell.html"
     "-sALLOW_MEMORY_GROWTH=1"
+    "-sFILESYSTEM=0"
+    "-sEXIT_RUNTIME=0"
+    "-sDYNAMIC_EXECUTION=0"
+    "-sINITIAL_MEMORY=32MB"
+    "$<IF:$<BOOL:${DIAMOND_DOGS_WEB_THREADS}>,-sENVIRONMENT=web$<COMMA>worker,-sENVIRONMENT=web>"
 )
 
 set_property(TARGET WebGpuTriangleTest APPEND PROPERTY

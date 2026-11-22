@@ -46,7 +46,10 @@
             "displayName": "Emscripten",
             "inherits": "ninja-x64",
             "binaryDir": "${sourceDir}/build/${presetName}",
-            "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake"
+            "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+            "cacheVariables": {
+                "CMAKE_CONFIGURATION_TYPES": "Debug;Release;RelWithDebInfo;MinSizeRel"
+            }
         }
     ],
     "buildPresets": [

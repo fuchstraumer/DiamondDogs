@@ -81,4 +81,5 @@ If:
   PathMatch: .*(BootstrapWebGpu|WebGpuTriangleTest|/webgpu/|WebGpu\.(hpp|cpp)).*
 CompileFlags:
   CompilationDatabase: build/emscripten
+  Remove: [ "--use-port=*" ]
 

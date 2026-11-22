@@ -81,8 +81,8 @@ void MainLoopTick(void* user_data);
 int main()
 {
     EM_ASM(
-        window.__ddFrameCount = 0;
-        window.__ddWebGpuError = false;
+        window['__ddFrameCount'] = 0;
+        window['__ddWebGpuError'] = false;
     );
 
     AppState state{};
@@ -281,7 +281,7 @@ void RenderTriangleFrame(AppState& state)
     ++state.FrameCount;
     EM_ASM(
         {
-            window.__ddFrameCount = $0;
+            window['__ddFrameCount'] = $0;
         },
         state.FrameCount);
 
@@ -312,7 +312,7 @@ void MainLoopTick(void* user_data)
                          state.DeviceStage.FailureMessage());
             state.Failed = true;
             EM_ASM(
-                window.__ddWebGpuError = true;
+                window['__ddWebGpuError'] = true;
             );
             emscripten_cancel_main_loop();
             return;
@@ -330,7 +330,7 @@ void MainLoopTick(void* user_data)
         {
             state.Failed = true;
             EM_ASM(
-                window.__ddWebGpuError = true;
+                window['__ddWebGpuError'] = true;
             );
             emscripten_cancel_main_loop();
             return;
