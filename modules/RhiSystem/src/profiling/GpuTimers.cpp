@@ -1,6 +1,9 @@
 #include "GpuTimers.hpp"
+#include <functional>
+#include <iterator>
 #if RHI_GPU_TIMERS_ENABLED
 #include "CommandBuffer.hpp"
+#include "containers/SmallVector.hpp"
 #include "DebugUtilFns.hpp"
 #include "Device.hpp"
 #include "QueryPool.hpp"
@@ -46,6 +49,7 @@ namespace rhi
         {
             uint64_t Hash{ 0u };
             uint32_t Depth{ 0u };
+            uint16_t NameLength{ 0u };
         };
 
         // State hands a block between threads. A recording thread takes it Free -> Recording with an acquire CAS, and
@@ -89,7 +93,7 @@ namespace rhi
 
         [[nodiscard]] uint32_t FirstQuery(uint32_t block, uint32_t scope) const noexcept
         {
-            return (block * MaxScopes + scope) * 2u;
+            return ((block * MaxScopes) + scope) * 2u;
         }
 
         // the first name seen for a hash is kept, so a Name() view stays valid
@@ -115,7 +119,7 @@ namespace rhi
                 return result;
             }
 
-            std::vector<uint64_t> ticks(size_t{ used } * 2u);
+            foundation::SmallVector<uint64_t, 64> ticks(size_t{ used } * 2u);
 
             if (!Pool->TryGetResults(FirstQuery(index, 0u), used * 2u, ticks))
             {
@@ -127,7 +131,7 @@ namespace rhi
             for (uint32_t scope = 0; scope < used; ++scope)
             {
                 // the counter wraps at its valid bits, so the difference is taken in that width
-                const uint64_t elapsed = (ticks[size_t{ scope } * 2u + 1u] - ticks[size_t{ scope } * 2u]) & ValidMask;
+                const uint64_t elapsed = (ticks[(size_t{ scope } * 2u) + 1u] - ticks[size_t{ scope } * 2u]) & ValidMask;
                 const double nanoseconds = static_cast<double>(elapsed) * TimestampPeriod;
                 result.Timings.push_back(GpuTiming{ block.Scopes[scope].Hash, block.Scopes[scope].Depth, nanoseconds });
 
@@ -226,19 +230,24 @@ namespace rhi
         }
 
         // handed-back blocks whose submissions finished, in the order they were taken, so Completed stays oldest first
-        std::vector<uint32_t> finished;
+        foundation::SmallVector<uint32_t, 16> finished;
 
         for (uint32_t index = 0; index < impl->BlockCount; ++index)
         {
             const GpuTimersImpl::Block& block = impl->Blocks[index];
 
-            if (block.State.load(std::memory_order_acquire) == GpuTimersImpl::BlockState::Pending && block.Submission < completed_before)
+            if (block.State.load(std::memory_order_acquire) == GpuTimersImpl::BlockState::Pending &&
+                block.Submission < completed_before)
             {
                 finished.push_back(index);
             }
         }
-
-        std::ranges::sort(finished, std::less{}, [this](uint32_t index) { return impl->Blocks[index].Sequence; });
+        
+        auto getSequenceIdx = [this](uint32_t index)
+        {
+            return impl->Blocks[index].Sequence;
+        };
+        std::ranges::sort(finished, {}, getSequenceIdx);
 
         for (const uint32_t index : finished)
         {
@@ -264,8 +273,8 @@ namespace rhi
 
             for (uint32_t scope = 0; scope < used; ++scope)
             {
-                const char* name = block.Names.data() + size_t{ scope } * k_NameStride;
-                impl->InternName(block.Scopes[scope].Hash, std::string_view{ name, std::strlen(name) });
+                const char* name = block.Names.data() + (size_t{ scope } * k_NameStride);
+                impl->InternName(block.Scopes[scope].Hash, std::string_view{ name, block.Scopes[scope].NameLength });
             }
 
             impl->BusyNanoseconds.fetch_add(static_cast<uint64_t>(std::llround(result->TopLevelNanoseconds)), std::memory_order_relaxed);
@@ -296,7 +305,11 @@ namespace rhi
 
     std::vector<GpuTimingBlock> GpuTimers::TakeCompleted()
     {
-        std::vector<GpuTimingBlock> completed{ std::make_move_iterator(impl->Completed.begin()), std::make_move_iterator(impl->Completed.end()) };
+        std::vector<GpuTimingBlock> completed
+        {
+            std::make_move_iterator(impl->Completed.begin()),
+            std::make_move_iterator(impl->Completed.end())
+        };
         impl->Completed.clear();
         return completed;
     }
@@ -416,11 +429,16 @@ namespace rhi
         }
 
         scope = static_cast<uint32_t>(record.Scopes.size());
-        record.Scopes.push_back(GpuTimersImpl::ScopeRecord{ HashGpuTimerName(name), block->depth });
+        const size_t length = std::min(name.size(), k_NameStride - 1u);
+        record.Scopes.push_back(GpuTimersImpl::ScopeRecord
+            {
+                .Hash=HashGpuTimerName(name),
+                .Depth=block->depth,
+                .NameLength=static_cast<uint16_t>(length)
+            });
         ++block->depth;
 
         char* nameCopy = record.Names.data() + size_t{ scope } * k_NameStride;
-        const size_t length = std::min(name.size(), k_NameStride - 1u);
         std::memcpy(nameCopy, name.data(), length);
         nameCopy[length] = '\0';
 
