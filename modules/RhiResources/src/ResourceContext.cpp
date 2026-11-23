@@ -6,6 +6,7 @@
 #include "ResourceMessageTypesInternal.hpp"
 #include "ResourceTypes.hpp"
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -649,14 +650,22 @@ rhi::OperationFuture ResourceContext::UnregisterConsumerTimeline(rhi::TimelineSe
 
 void ResourceContext::Tick(std::span<const ConsumerTimelineValue> pending_values)
 {
+    Tick(pending_values, k_NoUploadTimeSlice);
+}
+
+void ResourceContext::Tick(std::span<const ConsumerTimelineValue> pending_values,
+                           std::chrono::nanoseconds upload_time_slice)
+{
     TickMessage message;
     const size_t count = std::min(pending_values.size(), message.Points.size());
+
     for (size_t i = 0; i < count; ++i)
     {
         message.Points[i] = ConsumerTimelinePoint{ pending_values[i].Timeline.Get(), pending_values[i].PendingValue };
     }
 
     message.Count = static_cast<int32_t>(count);
+    message.UploadTimeSlice = upload_time_slice;
     impl->PushMessage(std::move(message));
 }
 

@@ -207,7 +207,8 @@ ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateI
 
     // one slot is shared by the futures of a full table, so a table of one slot could hold no future
     if (rhiView.InstancePtr == nullptr || rhiView.DevicePtr == nullptr || create_info.MaxFutures < 2 ||
-        create_info.StagingRingSize < k_MinStagingRingSize)
+        create_info.StagingRingSize < k_MinStagingRingSize || create_info.UploadBytesPerTick == 0u ||
+        create_info.UploadBytesPerTick > create_info.StagingRingSize)
     {
         return ResourceContextError::InvalidCreateInfo;
     }

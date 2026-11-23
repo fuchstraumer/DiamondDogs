@@ -5,6 +5,7 @@
 #include "ResourceFuture.hpp"
 #include "RhiHandle.hpp"
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstddef>
 #include <memory>
@@ -27,6 +28,12 @@ constexpr inline uint64_t k_DefaultStagingRingSize = 64ull * 1024ull * 1024ull;
 /** @brief The smallest staging ring that Initialize accepts: 1 MiB. */
 constexpr inline uint64_t k_MinStagingRingSize = 1024ull * 1024ull;
 
+/** @brief The default WebGPU upload budget per Tick in bytes: one quarter of the default staging ring size. */
+constexpr inline uint64_t k_DefaultUploadBytesPerTick = k_DefaultStagingRingSize / 4u;
+
+/** @brief The upload time slice used by Tick(pending_values) when the caller sets no time limit. */
+constexpr inline std::chrono::nanoseconds k_NoUploadTimeSlice = std::chrono::nanoseconds::max();
+
 /**
  * @brief Configuration structure for initializing a ResourceContext
  * 
@@ -38,6 +45,7 @@ struct ResourceContextCreateInfo
     bool DeviceAddressesEnabled{ false };       ///< Whether this session needs device addresses enabled for buffers
     int32_t MaxFutures{ k_DefaultMaxFutures };  ///< The size of the future table. At least 2
     uint64_t StagingRingSize{ k_DefaultStagingRingSize };  ///< The bytes of the staging ring. At least k_MinStagingRingSize
+    uint64_t UploadBytesPerTick{ k_DefaultUploadBytesPerTick };  ///< WebGPU: the most bytes written to the queue per Tick. At most StagingRingSize. Vulkan ignores it
 };
 
 enum class ResourceContextError : uint8_t
@@ -100,6 +108,13 @@ struct ResourceContextCounters
     /** @brief Barrier calls (`vkCmdPipelineBarrier2`) that the transfer thread recorded inside transfer sets, between
      *  ranges and around them. The ordering barrier before each transfer is not counted. */
     int64_t TransferBarriersRecorded{ 0 };
+    /** @brief Upload and copy operations that did not fit in the current tick's budget or arrived while the deferred
+     *  queue was not empty. */
+    int64_t UploadOpsDeferred{ 0 };
+    /** @brief Ticks that stopped draining deferred upload work because the byte budget was spent. */
+    int64_t UploadTicksAtBudget{ 0 };
+    /** @brief Ticks that stopped draining deferred upload work because the caller's time slice passed. */
+    int64_t UploadTicksAtTimeSlice{ 0 };
 };
 
 /** @brief The largest number of memory heaps that a Vulkan device reports (VK_MAX_MEMORY_HEAPS). */
@@ -644,6 +659,11 @@ public:
      * after the first k_MaxConsumerTimelines.
      */
     void Tick(std::span<const ConsumerTimelineValue> pending_values);
+
+    /** @brief As Tick(pending_values), and the upload work of this Tick stops when `upload_time_slice` has passed, or when
+     *  the byte budget is spent, at the first of the two. WebGPU only: the Vulkan backend records transfers on its own
+     *  thread, so it ignores the slice. */
+    void Tick(std::span<const ConsumerTimelineValue> pending_values, std::chrono::nanoseconds upload_time_slice);
 
     /**
      * @brief Blocks until the future is Complete or Failed, or until `timeout_ns` passes. Returns the state at that

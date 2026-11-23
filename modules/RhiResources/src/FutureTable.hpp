@@ -16,6 +16,9 @@ namespace rhi
                                                uint64_t wait_value,
                                                uint64_t timeout_ns) noexcept;
 
+    /** @brief Returns true when the backend supports blocking CPU waits on futures. WebGPU returns false. */
+    [[nodiscard]] bool WaitCanBlock() noexcept;
+
     /** @brief The fixed table of slots behind every future of one ResourceContext. ResourceContext allocates a slot on
      *  the calling thread, the worker and the transfer thread write it, and the future reads it and releases it. */
     class FutureTable
@@ -106,6 +109,9 @@ namespace rhi
 
         void* waitDevice{ nullptr };
         TimelineSemaphoreHandle transferTimeline{};
+#ifndef NDEBUG
+        mutable std::atomic<bool> loggedNonBlockingWait{ false };
+#endif
     };
 
 }

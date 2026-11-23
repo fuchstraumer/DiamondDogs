@@ -5,6 +5,7 @@
 #include "ResourceTypes.hpp"
 #include "containers/SmallVector.hpp"
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -376,6 +377,7 @@ struct TickMessage
 {
     std::array<ConsumerTimelinePoint, k_MaxConsumerTimelines> Points{};
     int32_t Count{ 0 };
+    std::chrono::nanoseconds UploadTimeSlice{ std::chrono::nanoseconds::max() };
 };
 
 struct RegisterConsumerTimelineMessage

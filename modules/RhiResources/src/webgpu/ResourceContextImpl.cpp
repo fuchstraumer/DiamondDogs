@@ -10,13 +10,22 @@
 #include "RhiHandle.hpp"
 #include "RhiResourceFlags.hpp"
 #include "entt/entity/fwd.hpp"
+#include "timing/MonotonicClock.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cassert>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <expected>
+#include <memory>
 #include <optional>
+#include <webgpu/webgpu.h>
+#ifndef NDEBUG
+#include <print>
+#endif
 #include <span>
 #include <utility>
 #include <variant>
@@ -54,12 +63,14 @@ using ImagePieceVector = InternalResourceDataContainer::ImageDataVector;
 [[nodiscard]] bool BufferUsageIsSupported(BufferUsageBits usage) noexcept;
 [[nodiscard]] wgpu::BufferUsage ToWgpuBufferUsage(BufferUsageBits usage, ResourceDomain domain, bool has_initial_data) noexcept;
 [[nodiscard]] bool BufferRangeIsValid(uint64_t offset, uint64_t size, uint64_t buffer_size) noexcept;
-[[nodiscard]] bool BufferPiecesAreValid(const BufferPieceVector& pieces, uint64_t buffer_size);
+[[nodiscard]] bool BufferPiecesAreValid(const BufferPieceVector& pieces, uint64_t buffer_size) noexcept;
 [[nodiscard]] uint64_t TotalBufferUploadBytes(const BufferPieceVector& pieces) noexcept;
+[[nodiscard]] uint64_t TotalImageUploadBytes(const ImagePieceVector& pieces, const ImageCreateInfo& info) noexcept;
+[[nodiscard]] uint64_t TotalCopyBytes(std::span<const BufferCopyRegion> regions) noexcept;
 [[nodiscard]] bool BufferCopyRegionsAreValid(std::span<const BufferCopyRegion> regions,
                                              uint64_t source_size,
                                              uint64_t destination_size,
-                                             bool same_buffer);
+                                             bool same_buffer) noexcept;
 [[nodiscard]] bool ImageUsageIsSupported(ImageUsageBits usage) noexcept;
 [[nodiscard]] wgpu::TextureUsage ToWgpuTextureUsage(ImageUsageBits usage) noexcept;
 [[nodiscard]] bool UsageIsSubset(ImageUsageBits usage, ImageUsageBits created_usage) noexcept;
@@ -80,7 +91,7 @@ using ImagePieceVector = InternalResourceDataContainer::ImageDataVector;
                                      const ImageCreateInfo& info,
                                      const FormatRow& row,
                                      bool require_full_mip) noexcept;
-[[nodiscard]] bool ImagePiecesAreValid(const ImagePieceVector& pieces, const ImageCreateInfo& info, bool require_full_mip);
+[[nodiscard]] bool ImagePiecesAreValid(const ImagePieceVector& pieces, const ImageCreateInfo& info, bool require_full_mip) noexcept;
 [[nodiscard]] ResourceDescription DescribeBuffer(const BufferCreateInfo& info) noexcept;
 [[nodiscard]] ResourceDescription DescribeImage(const ImageCreateInfo& info,
                                                 ResourceType type,
@@ -107,16 +118,25 @@ ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateI
         return ResourceContextError::InvalidCreateInfo;
     }
 
-    if (create_info.MaxFutures < 2 || create_info.StagingRingSize < k_MinStagingRingSize)
+    if (create_info.MaxFutures < 2 || create_info.StagingRingSize < k_MinStagingRingSize ||
+        create_info.UploadBytesPerTick == 0u || create_info.UploadBytesPerTick > create_info.StagingRingSize)
     {
         return ResourceContextError::InvalidCreateInfo;
     }
 
     futures.Initialize(create_info.MaxFutures, rhi::TimelineSemaphoreHandle{}, nullptr);
 
-    pendingUploads.clear();
-    remainingUploadBudget = k_UploadBytesPerTick;
-    aliveToken = std::make_shared<bool>(true);
+    deferredOps.clear();
+    inFlightFutures.clear();
+    uploadBytesPerTick = create_info.UploadBytesPerTick;
+    remainingUploadBudget = uploadBytesPerTick;
+    currentSerial = 1u;
+    wroteThisTick = false;
+#ifndef NDEBUG
+    loggedZeroTimeSlice = false;
+#endif
+    completionRecord = std::make_shared<CompletionRecord>();
+    instance = rhiView.Instance;
     queue = rhiView.Queue;
     validationEnabled = rhiView.ValidationEnabled;
     deviceAddressesEnabled = create_info.DeviceAddressesEnabled;
@@ -131,20 +151,26 @@ void ResourceContextImpl::Destroy()
         return;
     }
 
-    if (aliveToken)
-    {
-        *aliveToken = false;
-    }
+    failAllPendingWork(rhi::ResourceError::ResourceRetiring);
+    completionRecord.reset();
 
-    while (!pendingUploads.empty())
+    for (const entt::entity entity : resourceRegistry.view<ResourceFlags>())
     {
-        futures.Fail(pendingUploads.front().FutureSlot, rhi::ResourceError::ResourceRetiring);
-        pendingUploads.pop_front();
+        if (wgpu::Buffer* buffer = resourceRegistry.try_get<wgpu::Buffer>(entity))
+        {
+            buffer->Destroy();
+        }
+
+        if (wgpu::Texture* texture = resourceRegistry.try_get<wgpu::Texture>(entity))
+        {
+            texture->Destroy();
+        }
     }
 
     resourceRegistry.clear();
     queue = wgpu::Queue{};
     device = wgpu::Device{};
+    instance = wgpu::Instance{};
 }
 
 void ResourceContextImpl::PushMessage(ResourceMessagePayloadType message)
@@ -163,9 +189,13 @@ ResourceContextCounters ResourceContextImpl::Counters() const noexcept
 {
     ResourceContextCounters counters{};
     counters.MessagesProcessed = messagesProcessed.load(std::memory_order_relaxed);
+    counters.BytesStaged = bytesStaged.load(std::memory_order_relaxed);
     counters.ResourcesRetired = resourcesRetired.load(std::memory_order_relaxed);
     counters.FuturesLive = futures.LiveCount();
     counters.FutureTableFull = futures.FullCount();
+    counters.UploadOpsDeferred = uploadOpsDeferred.load(std::memory_order_relaxed);
+    counters.UploadTicksAtBudget = uploadTicksAtBudget.load(std::memory_order_relaxed);
+    counters.UploadTicksAtTimeSlice = uploadTicksAtTimeSlice.load(std::memory_order_relaxed);
     return counters;
 }
 
@@ -213,24 +243,30 @@ void ResourceContextImpl::processMessage(CreateBufferMessage&& message)
         const wgpu::Buffer& buffer = resourceRegistry.get<wgpu::Buffer>(entity);
         const uint64_t totalBytes = TotalBufferUploadBytes(*pieces);
 
-        if (pendingUploads.empty() && totalBytes <= remainingUploadBudget)
+        if (deferredOps.empty() && totalBytes <= remainingUploadBudget)
         {
             writeBufferPieces(buffer, *pieces);
             remainingUploadBudget -= totalBytes;
-            futures.CompleteWithResource(message.Future, *created, description);
+            bytesStaged.fetch_add(static_cast<int64_t>(totalBytes), std::memory_order_relaxed);
+            futures.StoreResource(message.Future, *created, description);
+            recordInFlightFuture(message.Future);
         }
         else
         {
-            PendingUpload upload{};
-            upload.Buffer = buffer;
-            upload.Pieces = std::move(*pieces);
-            upload.PieceIndex = 0;
-            upload.ByteOffset = 0u;
-            upload.FutureSlot = message.Future;
-            upload.IsCreate = true;
-            upload.Resource = *created;
-            upload.Description = description;
-            pendingUploads.push_back(std::move(upload));
+            BufferUploadOp bufferOp
+            {
+                .Buffer = buffer,
+                .Pieces = std::move(*pieces),
+                .PieceIndex = 0,
+                .ByteOffset = 0u,
+                .FutureSlot = message.Future,
+                .IsCreate = true,
+                .PublishedResource = false,
+                .Resource = *created,
+                .Description = description
+            };
+            deferredOps.emplace_back(std::move(bufferOp));
+            uploadOpsDeferred.fetch_add(1, std::memory_order_relaxed);
         }
 
         return;
@@ -256,7 +292,7 @@ void ResourceContextImpl::processMessage(CreateImageMessage&& message)
         return;
     }
 
-    const ImagePieceVector* pieces = nullptr;
+    ImagePieceVector* pieces = nullptr;
 
     if (message.InitialData.has_value())
     {
@@ -286,17 +322,46 @@ void ResourceContextImpl::processMessage(CreateImageMessage&& message)
         return;
     }
 
-    ImageUsageBits initialUsage = ImageUsageBits::Invalid;
-
     if (pieces != nullptr)
     {
         const entt::entity entity = entt::entity(created->EntityHandle);
         const wgpu::Texture& texture = resourceRegistry.get<wgpu::Texture>(entity);
-        writeImagePieces(texture, message.ImageInfo, *pieces);
-        initialUsage = message.UsageAfterUpload;
+        const ResourceDescription description = DescribeImage(message.ImageInfo, created->Type, message.UsageAfterUpload);
+        const uint64_t totalBytes = TotalImageUploadBytes(*pieces, message.ImageInfo);
+
+        if (deferredOps.empty() && totalBytes <= remainingUploadBudget)
+        {
+            writeImagePieces(texture, message.ImageInfo, *pieces);
+            remainingUploadBudget -= totalBytes;
+            bytesStaged.fetch_add(static_cast<int64_t>(totalBytes), std::memory_order_relaxed);
+            futures.StoreResource(message.Future, *created, description);
+            recordInFlightFuture(message.Future);
+        }
+        else
+        {
+            ImageUploadOp imageOp
+            {
+                .Texture = texture,
+                .Info = message.ImageInfo,
+                .Pieces = std::move(*pieces),
+                .PieceIndex = 0,
+                .SliceIndex = 0,
+                .BlockRowOffset = 0,
+                .FutureSlot = message.Future,
+                .IsCreate = true,
+                .PublishedResource = false,
+                .Resource = *created,
+                .Description = description
+            };
+            deferredOps.emplace_back(std::move(imageOp));
+            uploadOpsDeferred.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        return;
     }
 
-    futures.CompleteWithResource(message.Future, *created, DescribeImage(message.ImageInfo, created->Type, initialUsage));
+    const ResourceDescription description = DescribeImage(message.ImageInfo, created->Type, ImageUsageBits::Invalid);
+    futures.CompleteWithResource(message.Future, *created, description);
 }
 
 void ResourceContextImpl::processMessage(CreateSamplerMessage&& message)
@@ -369,22 +434,25 @@ void ResourceContextImpl::processMessage(SetBufferDataMessage&& message)
 
     const uint64_t totalBytes = TotalBufferUploadBytes(*pieces);
 
-    if (pendingUploads.empty() && totalBytes <= remainingUploadBudget)
+    if (deferredOps.empty() && totalBytes <= remainingUploadBudget)
     {
         writeBufferPieces(buffer, *pieces);
         remainingUploadBudget -= totalBytes;
-        futures.Complete(message.Future);
+        bytesStaged.fetch_add(static_cast<int64_t>(totalBytes), std::memory_order_relaxed);
+        recordInFlightFuture(message.Future);
         return;
     }
 
-    PendingUpload upload{};
-    upload.Buffer = buffer;
-    upload.Pieces = std::move(*pieces);
-    upload.PieceIndex = 0;
-    upload.ByteOffset = 0u;
-    upload.FutureSlot = message.Future;
-    upload.IsCreate = false;
-    pendingUploads.push_back(std::move(upload));
+    BufferUploadOp op{};
+    op.Buffer = buffer;
+    op.Pieces = std::move(*pieces);
+    op.PieceIndex = 0;
+    op.ByteOffset = 0u;
+    op.FutureSlot = message.Future;
+    op.IsCreate = false;
+    op.PublishedResource = false;
+    deferredOps.emplace_back(std::move(op));
+    uploadOpsDeferred.fetch_add(1, std::memory_order_relaxed);
 }
 
 void ResourceContextImpl::processMessage(SetImageDataMessage&& message)
@@ -413,7 +481,7 @@ void ResourceContextImpl::processMessage(SetImageDataMessage&& message)
     }
 
     const bool discarded = message.Usage.Before == ImageUsageBits::Discard;
-    const ImagePieceVector* pieces = std::get_if<ImagePieceVector>(&message.Data.DataVector);
+    ImagePieceVector* pieces = std::get_if<ImagePieceVector>(&message.Data.DataVector);
 
     if (pieces == nullptr || !ImagePiecesAreValid(*pieces, info, discarded))
     {
@@ -421,8 +489,29 @@ void ResourceContextImpl::processMessage(SetImageDataMessage&& message)
         return;
     }
 
-    writeImagePieces(texture, info, *pieces);
-    futures.Complete(message.Future);
+    const uint64_t totalBytes = TotalImageUploadBytes(*pieces, info);
+
+    if (deferredOps.empty() && totalBytes <= remainingUploadBudget)
+    {
+        writeImagePieces(texture, info, *pieces);
+        remainingUploadBudget -= totalBytes;
+        bytesStaged.fetch_add(static_cast<int64_t>(totalBytes), std::memory_order_relaxed);
+        recordInFlightFuture(message.Future);
+        return;
+    }
+
+    ImageUploadOp op{};
+    op.Texture = texture;
+    op.Info = info;
+    op.Pieces = std::move(*pieces);
+    op.PieceIndex = 0;
+    op.SliceIndex = 0;
+    op.BlockRowOffset = 0;
+    op.FutureSlot = message.Future;
+    op.IsCreate = false;
+    op.PublishedResource = false;
+    deferredOps.emplace_back(std::move(op));
+    uploadOpsDeferred.fetch_add(1, std::memory_order_relaxed);
 }
 
 void ResourceContextImpl::processMessage(FillResourceMessage&& message)
@@ -453,15 +542,81 @@ void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
         return;
     }
 
-    const rhi::ResourceError error = copyBufferToBuffer(message);
+    const std::expected<entt::entity, rhi::ResourceError> source = resolveBuffer(message.SourceResource);
 
-    if (error != rhi::ResourceError::Success)
+    if (!source.has_value())
     {
-        futures.Fail(message.Future, error);
+        futures.Fail(message.Future, source.error());
         return;
     }
 
-    futures.Complete(message.Future);
+    const std::expected<entt::entity, rhi::ResourceError> destination = resolveBuffer(message.DestinationResource);
+
+    if (!destination.has_value())
+    {
+        futures.Fail(message.Future, destination.error());
+        return;
+    }
+
+    const wgpu::Buffer sourceBuffer = resourceRegistry.get<wgpu::Buffer>(*source);
+    const wgpu::Buffer destinationBuffer = resourceRegistry.get<wgpu::Buffer>(*destination);
+    const bool sourceCanRead = (sourceBuffer.GetUsage() & wgpu::BufferUsage::CopySrc) != wgpu::BufferUsage::None;
+    const bool destinationCanWrite = (destinationBuffer.GetUsage() & wgpu::BufferUsage::CopyDst) != wgpu::BufferUsage::None;
+
+    if (!sourceCanRead || !destinationCanWrite)
+    {
+        futures.Fail(message.Future, rhi::ResourceError::MissingTransferUsage);
+        return;
+    }
+
+    const uint64_t sourceSize = sourceBuffer.GetSize();
+    const uint64_t destinationSize = destinationBuffer.GetSize();
+    const std::span<const BufferCopyRegion> regions = message.Regions.View();
+
+    if (regions.empty())
+    {
+        if (sourceSize > destinationSize)
+        {
+            futures.Fail(message.Future, rhi::ResourceError::CopySizeMismatch);
+            return;
+        }
+
+        const BufferCopyRegion wholeSource{ 0u, 0u, sourceSize };
+        message.Regions = CopyRegionBlock(std::span<const BufferCopyRegion>(&wholeSource, 1u));
+    }
+    else
+    {
+        const bool sameBuffer = *source == *destination;
+
+        if (!BufferCopyRegionsAreValid(regions, sourceSize, destinationSize, sameBuffer))
+        {
+            futures.Fail(message.Future, rhi::ResourceError::InvalidRegion);
+            return;
+        }
+    }
+
+    const std::span<const BufferCopyRegion> copyRegions = message.Regions.View();
+    const uint64_t totalBytes = TotalCopyBytes(copyRegions);
+
+    if (deferredOps.empty() && totalBytes <= remainingUploadBudget)
+    {
+        submitBufferCopy(sourceBuffer, destinationBuffer, copyRegions);
+        remainingUploadBudget -= totalBytes;
+        bytesStaged.fetch_add(static_cast<int64_t>(totalBytes), std::memory_order_relaxed);
+        recordInFlightFuture(message.Future);
+        return;
+    }
+
+    BufferCopyOp copyOp
+    {
+        .SourceBuffer = sourceBuffer,
+        .DestinationBuffer = destinationBuffer,
+        .Regions = std::move(message.Regions),
+        .TotalBytes = totalBytes,
+        .FutureSlot = message.Future
+    };
+    deferredOps.emplace_back(std::move(copyOp));
+    uploadOpsDeferred.fetch_add(1, std::memory_order_relaxed);
 }
 
 void ResourceContextImpl::processMessage(TransferSetMessage&& message)
@@ -485,19 +640,50 @@ void ResourceContextImpl::processMessage(DestroyResourceMessage&& message)
         return;
     }
 
-    destroyEntityResources(*entity);
-    resourcesRetired.fetch_add(1, std::memory_order_relaxed);
-    futures.Complete(message.Future);
+    if (deferredOps.empty())
+    {
+        destroyEntityResources(*entity);
+        resourcesRetired.fetch_add(1, std::memory_order_relaxed);
+        futures.Complete(message.Future);
+        return;
+    }
+
+    deferredOps.emplace_back(DestroyOp{ .Entity = *entity, .FutureSlot = message.Future });
 }
 
 void ResourceContextImpl::processMessage([[maybe_unused]] ExitWorkerMessage&& message) noexcept
 {
 }
 
-void ResourceContextImpl::processMessage([[maybe_unused]] TickMessage&& message)
+void ResourceContextImpl::processMessage(TickMessage&& message)
 {
-    remainingUploadBudget = k_UploadBytesPerTick;
-    drainPendingUploads();
+    processCompletedWork();
+
+    if (completionRecord && completionRecord->DeviceLost.load(std::memory_order_acquire))
+    {
+        registerWorkDoneCallback();
+        return;
+    }
+
+    remainingUploadBudget = uploadBytesPerTick;
+
+    if (message.UploadTimeSlice.count() <= 0)
+    {
+#ifndef NDEBUG
+        if (!loggedZeroTimeSlice)
+        {
+            loggedZeroTimeSlice = true;
+            std::println(stderr,
+                         "[ResourceContext] Tick called with non-positive upload_time_slice ({} ns): upload progress is stopped for this tick",
+                         message.UploadTimeSlice.count());
+        }
+#endif
+        registerWorkDoneCallback();
+        return;
+    }
+
+    drainDeferredOps(message.UploadTimeSlice);
+    registerWorkDoneCallback();
 }
 
 void ResourceContextImpl::processMessage(RegisterConsumerTimelineMessage&& message)
@@ -843,81 +1029,8 @@ void ResourceContextImpl::writeBufferPieces(const wgpu::Buffer& buffer, const Bu
 {
     for (const InternalResourceDataContainer::BufferData& piece : pieces)
     {
+        assert((piece.Size % 4u) == 0u && (piece.DestinationOffset % 4u) == 0u);
         queue.WriteBuffer(buffer, piece.DestinationOffset, piece.Data.get(), piece.Size);
-    }
-}
-
-void ResourceContextImpl::drainPendingUploads()
-{
-    while (!pendingUploads.empty())
-    {
-        PendingUpload& upload = pendingUploads.front();
-
-        while (upload.PieceIndex < static_cast<int32_t>(std::ssize(upload.Pieces)))
-        {
-            const InternalResourceDataContainer::BufferData& piece = upload.Pieces[upload.PieceIndex];
-            const uint64_t pieceSize = static_cast<uint64_t>(piece.Size);
-
-            if (upload.ByteOffset >= pieceSize)
-            {
-                ++upload.PieceIndex;
-                upload.ByteOffset = 0u;
-                continue;
-            }
-
-            const uint64_t remainingInPiece = pieceSize - upload.ByteOffset;
-
-            if (remainingInPiece >= 4u)
-            {
-                const uint64_t rawChunk = std::min(remainingInPiece, remainingUploadBudget);
-                const uint64_t alignedChunk = (rawChunk / 4u) * 4u;
-
-                if (alignedChunk == 0u)
-                {
-                    return;
-                }
-
-                queue.WriteBuffer(upload.Buffer,
-                                  piece.DestinationOffset + upload.ByteOffset,
-                                  piece.Data.get() + upload.ByteOffset,
-                                  static_cast<size_t>(alignedChunk));
-                upload.ByteOffset += alignedChunk;
-                remainingUploadBudget -= alignedChunk;
-            }
-            else
-            {
-                if (remainingUploadBudget < 4u)
-                {
-                    return;
-                }
-
-                std::array<std::byte, 4> tail{};
-                std::copy_n(piece.Data.get() + upload.ByteOffset, static_cast<size_t>(remainingInPiece), tail.data());
-                queue.WriteBuffer(upload.Buffer,
-                                  piece.DestinationOffset + upload.ByteOffset,
-                                  tail.data(),
-                                  4u);
-                upload.ByteOffset = pieceSize;
-                remainingUploadBudget -= 4u;
-            }
-
-            if (upload.ByteOffset >= pieceSize)
-            {
-                ++upload.PieceIndex;
-                upload.ByteOffset = 0u;
-            }
-        }
-
-        if (upload.IsCreate)
-        {
-            futures.CompleteWithResource(upload.FutureSlot, upload.Resource, upload.Description);
-        }
-        else
-        {
-            futures.Complete(upload.FutureSlot);
-        }
-
-        pendingUploads.pop_front();
     }
 }
 
@@ -960,64 +1073,392 @@ void ResourceContextImpl::writeImagePieces(const wgpu::Texture& texture,
     }
 }
 
-rhi::ResourceError ResourceContextImpl::copyBufferToBuffer(const CopyResourceContentsMessage& message)
+void ResourceContextImpl::submitBufferCopy(const wgpu::Buffer& source_buffer,
+                                           const wgpu::Buffer& destination_buffer,
+                                           std::span<const BufferCopyRegion> regions) const
 {
-    const std::expected<entt::entity, rhi::ResourceError> source = resolveBuffer(message.SourceResource);
-
-    if (!source.has_value())
-    {
-        return source.error();
-    }
-
-    const std::expected<entt::entity, rhi::ResourceError> destination = resolveBuffer(message.DestinationResource);
-
-    if (!destination.has_value())
-    {
-        return destination.error();
-    }
-
-    const wgpu::Buffer sourceBuffer = resourceRegistry.get<wgpu::Buffer>(*source);
-    const wgpu::Buffer destinationBuffer = resourceRegistry.get<wgpu::Buffer>(*destination);
-    const bool sourceCanRead = (sourceBuffer.GetUsage() & wgpu::BufferUsage::CopySrc) != wgpu::BufferUsage::None;
-    const bool destinationCanWrite = (destinationBuffer.GetUsage() & wgpu::BufferUsage::CopyDst) != wgpu::BufferUsage::None;
-
-    if (!sourceCanRead || !destinationCanWrite)
-    {
-        return rhi::ResourceError::MissingTransferUsage;
-    }
-
-    const uint64_t sourceSize = sourceBuffer.GetSize();
-    const uint64_t destinationSize = destinationBuffer.GetSize();
-    const std::span<const BufferCopyRegion> regions = message.Regions.View();
     wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
 
-    if (regions.empty())
+    for (const BufferCopyRegion& region : regions)
     {
-        if (sourceSize > destinationSize)
-        {
-            return rhi::ResourceError::CopySizeMismatch;
-        }
-
-        encoder.CopyBufferToBuffer(sourceBuffer, 0u, destinationBuffer, 0u, sourceSize);
-    }
-    else
-    {
-        const bool sameBuffer = *source == *destination;
-
-        if (!BufferCopyRegionsAreValid(regions, sourceSize, destinationSize, sameBuffer))
-        {
-            return rhi::ResourceError::InvalidRegion;
-        }
-
-        for (const BufferCopyRegion& region : regions)
-        {
-            encoder.CopyBufferToBuffer(sourceBuffer, region.SourceOffset, destinationBuffer, region.DestinationOffset, region.Size);
-        }
+        encoder.CopyBufferToBuffer(source_buffer, region.SourceOffset, destination_buffer, region.DestinationOffset, region.Size);
     }
 
     const wgpu::CommandBuffer commands = encoder.Finish();
-    queue.Submit(1, &commands);
-    return rhi::ResourceError::Success;
+    queue.Submit(1u, &commands);
+}
+
+void ResourceContextImpl::recordInFlightFuture(int32_t future_slot)
+{
+    wroteThisTick = true;
+    futures.SetTransferring(future_slot, currentSerial);
+    futures.SetSubmitted(future_slot);
+    inFlightFutures.push_back(InFlightFuture{ future_slot, currentSerial });
+}
+
+void ResourceContextImpl::processCompletedWork()
+{
+    if (instance)
+    {
+        instance.ProcessEvents();
+    }
+
+    if (!completionRecord)
+    {
+        return;
+    }
+
+    if (completionRecord->DeviceLost.load(std::memory_order_acquire))
+    {
+        failAllPendingWork(rhi::ResourceError::SubmitFailed);
+        return;
+    }
+
+    const uint64_t completedSerial = completionRecord->CompletedSerial.load(std::memory_order_acquire);
+
+    while (!inFlightFutures.empty() && inFlightFutures.front().Serial <= completedSerial)
+    {
+        futures.Complete(inFlightFutures.front().FutureSlot);
+        inFlightFutures.pop_front();
+    }
+}
+
+void ResourceContextImpl::registerWorkDoneCallback()
+{
+    if (!wroteThisTick)
+    {
+        return;
+    }
+
+    const std::shared_ptr<CompletionRecord> record = completionRecord;
+    const uint64_t serial = currentSerial;
+
+    const auto onWorkDone = [record, serial](wgpu::QueueWorkDoneStatus status, wgpu::StringView)
+    {
+        if (status != wgpu::QueueWorkDoneStatus::Success)
+        {
+            record->DeviceLost.store(true, std::memory_order_release);
+            return;
+        }
+
+        uint64_t observed = record->CompletedSerial.load(std::memory_order_relaxed);
+
+        while (observed < serial &&
+               !record->CompletedSerial.compare_exchange_weak(observed,
+                                                              serial,
+                                                              std::memory_order_release,
+                                                              std::memory_order_relaxed))
+        {
+        }
+    };
+
+    queue.OnSubmittedWorkDone(wgpu::CallbackMode::AllowProcessEvents, onWorkDone);
+    wroteThisTick = false;
+    ++currentSerial;
+}
+
+void ResourceContextImpl::drainDeferredOps(std::chrono::nanoseconds upload_time_slice)
+{
+    if (deferredOps.empty())
+    {
+        return;
+    }
+
+    const bool hasTimeSlice = upload_time_slice != k_NoUploadTimeSlice;
+    const int64_t sliceNs = upload_time_slice.count();
+    const int64_t startTime = foundation::MonotonicNanoseconds();
+    bool wroteChunk = false;
+
+    while (!deferredOps.empty())
+    {
+        DeferredOp& frontOp = deferredOps.front();
+
+        if (DestroyOp* destroyOp = std::get_if<DestroyOp>(&frontOp))
+        {
+            if (resourceRegistry.valid(destroyOp->Entity))
+            {
+                destroyEntityResources(destroyOp->Entity);
+            }
+
+            resourcesRetired.fetch_add(1, std::memory_order_relaxed);
+            futures.Complete(destroyOp->FutureSlot);
+            deferredOps.pop_front();
+            continue;
+        }
+
+        if (wroteChunk)
+        {
+            if (hasTimeSlice && (foundation::MonotonicNanoseconds() - startTime) >= sliceNs)
+            {
+                uploadTicksAtTimeSlice.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+
+            if (remainingUploadBudget == 0u)
+            {
+                uploadTicksAtBudget.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+        }
+
+        const uint64_t chunkBudget = remainingUploadBudget > 0u ? std::min(remainingUploadBudget, k_UploadChunkBytes) : k_UploadChunkBytes;
+
+        if (BufferUploadOp* bufferOp = std::get_if<BufferUploadOp>(&frontOp))
+        {
+            if (bufferOp->IsCreate && !bufferOp->PublishedResource)
+            {
+                futures.StoreResource(bufferOp->FutureSlot, bufferOp->Resource, bufferOp->Description);
+                futures.SetTransferring(bufferOp->FutureSlot, currentSerial);
+                bufferOp->PublishedResource = true;
+            }
+
+            bool finished = false;
+            const uint64_t bytesWritten = executeBufferUploadChunk(*bufferOp, chunkBudget, finished);
+            wroteChunk = true;
+            wroteThisTick = true;
+            bytesStaged.fetch_add(static_cast<int64_t>(bytesWritten), std::memory_order_relaxed);
+            remainingUploadBudget = bytesWritten >= remainingUploadBudget ? 0u : (remainingUploadBudget - bytesWritten);
+
+            if (finished)
+            {
+                const int32_t futureSlot = bufferOp->FutureSlot;
+                deferredOps.pop_front();
+                recordInFlightFuture(futureSlot);
+            }
+
+            continue;
+        }
+
+        if (ImageUploadOp* imageOp = std::get_if<ImageUploadOp>(&frontOp))
+        {
+            if (imageOp->IsCreate && !imageOp->PublishedResource)
+            {
+                futures.StoreResource(imageOp->FutureSlot, imageOp->Resource, imageOp->Description);
+                futures.SetTransferring(imageOp->FutureSlot, currentSerial);
+                imageOp->PublishedResource = true;
+            }
+
+            bool finished = false;
+            const uint64_t bytesWritten = executeImageUploadChunk(*imageOp, chunkBudget, finished);
+            wroteChunk = true;
+            wroteThisTick = true;
+            bytesStaged.fetch_add(static_cast<int64_t>(bytesWritten), std::memory_order_relaxed);
+            remainingUploadBudget = bytesWritten >= remainingUploadBudget ? 0u : (remainingUploadBudget - bytesWritten);
+
+            if (finished)
+            {
+                const int32_t futureSlot = imageOp->FutureSlot;
+                deferredOps.pop_front();
+                recordInFlightFuture(futureSlot);
+            }
+
+            continue;
+        }
+
+        if (BufferCopyOp* copyOp = std::get_if<BufferCopyOp>(&frontOp))
+        {
+            if (wroteChunk && copyOp->TotalBytes > remainingUploadBudget)
+            {
+                uploadTicksAtBudget.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+
+            submitBufferCopy(copyOp->SourceBuffer, copyOp->DestinationBuffer, copyOp->Regions.View());
+            wroteChunk = true;
+            wroteThisTick = true;
+            const uint64_t bytesCopied = copyOp->TotalBytes;
+            bytesStaged.fetch_add(static_cast<int64_t>(bytesCopied), std::memory_order_relaxed);
+            remainingUploadBudget = bytesCopied >= remainingUploadBudget ? 0u : (remainingUploadBudget - bytesCopied);
+
+            const int32_t futureSlot = copyOp->FutureSlot;
+            deferredOps.pop_front();
+            recordInFlightFuture(futureSlot);
+            continue;
+        }
+    }
+
+    if (wroteChunk && hasTimeSlice && (foundation::MonotonicNanoseconds() - startTime) >= sliceNs)
+    {
+        uploadTicksAtTimeSlice.fetch_add(1, std::memory_order_relaxed);
+    }
+    else if (wroteChunk && remainingUploadBudget == 0u)
+    {
+        uploadTicksAtBudget.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+uint64_t ResourceContextImpl::executeBufferUploadChunk(BufferUploadOp& op, uint64_t max_bytes, bool& finished)
+{
+    const int32_t pieceCount = static_cast<int32_t>(std::ssize(op.Pieces));
+
+    while (op.PieceIndex < pieceCount)
+    {
+        const InternalResourceDataContainer::BufferData& piece = op.Pieces[static_cast<size_t>(op.PieceIndex)];
+        assert((piece.Size % 4u) == 0u && (piece.DestinationOffset % 4u) == 0u);
+        const uint64_t pieceSize = static_cast<uint64_t>(piece.Size);
+
+        if (op.ByteOffset >= pieceSize)
+        {
+            ++op.PieceIndex;
+            op.ByteOffset = 0u;
+            continue;
+        }
+
+        const uint64_t remainingInPiece = pieceSize - op.ByteOffset;
+        assert((remainingInPiece % 4u) == 0u);
+        const uint64_t rawChunk = std::min(remainingInPiece, max_bytes);
+        const uint64_t alignedChunk = std::max<uint64_t>(4u, (rawChunk / 4u) * 4u);
+        const uint64_t chunkToWrite = std::min(remainingInPiece, alignedChunk);
+
+        queue.WriteBuffer(op.Buffer,
+                          piece.DestinationOffset + op.ByteOffset,
+                          piece.Data.get() + op.ByteOffset,
+                          static_cast<size_t>(chunkToWrite));
+        op.ByteOffset += chunkToWrite;
+
+        while (op.PieceIndex < pieceCount)
+        {
+            const uint64_t currentPieceSize = static_cast<uint64_t>(op.Pieces[static_cast<size_t>(op.PieceIndex)].Size);
+
+            if (op.ByteOffset < currentPieceSize)
+            {
+                break;
+            }
+
+            ++op.PieceIndex;
+            op.ByteOffset = 0u;
+        }
+
+        finished = (op.PieceIndex >= pieceCount);
+        return chunkToWrite;
+    }
+
+    finished = true;
+    return 0u;
+}
+
+uint64_t ResourceContextImpl::executeImageUploadChunk(ImageUploadOp& op, uint64_t max_bytes, bool& finished)
+{
+    const FormatRow* row = FindFormatRow(op.Info.Format);
+    const bool is3D = op.Info.Type == ImageType::Type3D;
+    const uint32_t blockEdge = IsCompressedFormat(op.Info.Format) ? 4u : 1u;
+    const int32_t pieceCount = static_cast<int32_t>(std::ssize(op.Pieces));
+
+    while (op.PieceIndex < pieceCount)
+    {
+        const InternalResourceDataContainer::ImageData& piece = op.Pieces[static_cast<size_t>(op.PieceIndex)];
+        const PieceLayout layout = ComputePieceLayout(piece, op.Info, *row);
+        const int32_t sliceCount = is3D ? static_cast<int32_t>(layout.CopyDepth) : std::max(1, piece.NumLayers);
+        const int32_t totalBlockRows = static_cast<int32_t>(layout.Rows);
+
+        if (op.SliceIndex >= sliceCount)
+        {
+            ++op.PieceIndex;
+            op.SliceIndex = 0;
+            op.BlockRowOffset = 0;
+            continue;
+        }
+
+        if (op.BlockRowOffset >= totalBlockRows)
+        {
+            ++op.SliceIndex;
+            op.BlockRowOffset = 0;
+            continue;
+        }
+
+        const int32_t remainingBlockRows = totalBlockRows - op.BlockRowOffset;
+        const uint64_t rowBytes = static_cast<uint64_t>(layout.RowBytes);
+        const uint64_t maxRowsByBudget = rowBytes > 0u ? (max_bytes / rowBytes) : static_cast<uint64_t>(remainingBlockRows);
+        const int32_t bandBlockRows = static_cast<int32_t>(std::clamp<uint64_t>(maxRowsByBudget, 1u, static_cast<uint64_t>(remainingBlockRows)));
+        const uint32_t bandTexelHeight = static_cast<uint32_t>(bandBlockRows) * blockEdge;
+        const uint64_t bandBytes = static_cast<uint64_t>(bandBlockRows) * rowBytes;
+
+        wgpu::TexelCopyBufferLayout bufferLayout{};
+        bufferLayout.offset = 0u;
+        bufferLayout.bytesPerRow = layout.RowBytes;
+        bufferLayout.rowsPerImage = static_cast<uint32_t>(bandBlockRows);
+
+        wgpu::Extent3D writeSize{};
+        writeSize.width = layout.CopyWidth;
+        writeSize.height = bandTexelHeight;
+        writeSize.depthOrArrayLayers = 1u;
+
+        wgpu::TexelCopyTextureInfo destination{};
+        destination.texture = op.Texture;
+        destination.mipLevel = static_cast<uint32_t>(piece.MipLevel);
+        destination.origin.x = static_cast<uint32_t>(piece.X);
+        destination.origin.y = static_cast<uint32_t>(piece.Y) + (static_cast<uint32_t>(op.BlockRowOffset) * blockEdge);
+        destination.origin.z = is3D ? static_cast<uint32_t>(piece.Z + op.SliceIndex) : static_cast<uint32_t>(piece.ArrayLayer + op.SliceIndex);
+
+        const uint64_t sliceByteSize = static_cast<uint64_t>(totalBlockRows) * rowBytes;
+        const uint64_t dataOffset = (static_cast<uint64_t>(op.SliceIndex) * sliceByteSize) +
+                                    (static_cast<uint64_t>(op.BlockRowOffset) * rowBytes);
+        const std::byte* bandData = piece.Data.get() + dataOffset;
+
+        queue.WriteTexture(&destination, bandData, static_cast<size_t>(bandBytes), &bufferLayout, &writeSize);
+        op.BlockRowOffset += bandBlockRows;
+
+        if (op.BlockRowOffset >= totalBlockRows)
+        {
+            op.BlockRowOffset = 0;
+            ++op.SliceIndex;
+        }
+
+        while (op.PieceIndex < pieceCount)
+        {
+            const InternalResourceDataContainer::ImageData& currentPiece = op.Pieces[static_cast<size_t>(op.PieceIndex)];
+            const PieceLayout currentLayout = ComputePieceLayout(currentPiece, op.Info, *row);
+            const int32_t currentSlices = is3D ? static_cast<int32_t>(currentLayout.CopyDepth) : std::max(1, currentPiece.NumLayers);
+
+            if (op.SliceIndex < currentSlices)
+            {
+                break;
+            }
+
+            ++op.PieceIndex;
+            op.SliceIndex = 0;
+            op.BlockRowOffset = 0;
+        }
+
+        finished = (op.PieceIndex >= pieceCount);
+        return bandBytes;
+    }
+
+    finished = true;
+    return 0u;
+}
+
+void ResourceContextImpl::failAllPendingWork(rhi::ResourceError error)
+{
+    while (!inFlightFutures.empty())
+    {
+        futures.Fail(inFlightFutures.front().FutureSlot, error);
+        inFlightFutures.pop_front();
+    }
+
+    while (!deferredOps.empty())
+    {
+        DeferredOp& frontOp = deferredOps.front();
+
+        if (const BufferUploadOp* bufferOp = std::get_if<BufferUploadOp>(&frontOp))
+        {
+            futures.Fail(bufferOp->FutureSlot, error);
+        }
+        else if (const ImageUploadOp* imageOp = std::get_if<ImageUploadOp>(&frontOp))
+        {
+            futures.Fail(imageOp->FutureSlot, error);
+        }
+        else if (const BufferCopyOp* copyOp = std::get_if<BufferCopyOp>(&frontOp))
+        {
+            futures.Fail(copyOp->FutureSlot, error);
+        }
+        else if (const DestroyOp* destroyOp = std::get_if<DestroyOp>(&frontOp))
+        {
+            futures.Fail(destroyOp->FutureSlot, error);
+        }
+
+        deferredOps.pop_front();
+    }
 }
 
 void ResourceContextImpl::destroyEntityResources(entt::entity entity)
@@ -1178,28 +1619,34 @@ bool BufferRangeIsValid(uint64_t offset, uint64_t size, uint64_t buffer_size) no
     return aligned && offset <= buffer_size && size <= buffer_size - offset;
 }
 
-bool BufferPiecesAreValid(const BufferPieceVector& pieces, uint64_t buffer_size)
+bool BufferPiecesAreValid(const BufferPieceVector& pieces, uint64_t buffer_size) noexcept
 {
-    std::vector<std::pair<uint64_t, uint64_t>> ranges;
-    ranges.reserve(pieces.size());
+    const int32_t pieceCount = static_cast<int32_t>(std::ssize(pieces));
 
-    for (const InternalResourceDataContainer::BufferData& piece : pieces)
+    if (pieceCount == 0)
     {
-        if (!BufferRangeIsValid(piece.DestinationOffset, piece.Size, buffer_size))
+        return false;
+    }
+
+    for (int32_t firstIndex = 0; firstIndex < pieceCount; ++firstIndex)
+    {
+        const InternalResourceDataContainer::BufferData& first = pieces[static_cast<size_t>(firstIndex)];
+
+        if (first.Size == 0u || !BufferRangeIsValid(first.DestinationOffset, first.Size, buffer_size))
         {
             return false;
         }
 
-        ranges.emplace_back(piece.DestinationOffset, piece.DestinationOffset + piece.Size);
-    }
-
-    std::ranges::sort(ranges);
-
-    for (size_t index = 1; index < ranges.size(); ++index)
-    {
-        if (ranges[index].first < ranges[index - 1].second)
+        for (int32_t secondIndex = firstIndex + 1; secondIndex < pieceCount; ++secondIndex)
         {
-            return false;
+            const InternalResourceDataContainer::BufferData& second = pieces[static_cast<size_t>(secondIndex)];
+            const bool overlaps = first.DestinationOffset < second.DestinationOffset + second.Size &&
+                                  second.DestinationOffset < first.DestinationOffset + first.Size;
+
+            if (overlaps)
+            {
+                return false;
+            }
         }
     }
 
@@ -1209,32 +1656,32 @@ bool BufferPiecesAreValid(const BufferPieceVector& pieces, uint64_t buffer_size)
 bool BufferCopyRegionsAreValid(std::span<const BufferCopyRegion> regions,
                                uint64_t source_size,
                                uint64_t destination_size,
-                               bool same_buffer)
+                               bool same_buffer) noexcept
 {
-    for (const BufferCopyRegion& region : regions)
-    {
-        const bool sourceValid = BufferRangeIsValid(region.SourceOffset, region.Size, source_size);
-        const bool destinationValid = BufferRangeIsValid(region.DestinationOffset, region.Size, destination_size);
+    const int32_t regionCount = static_cast<int32_t>(std::ssize(regions));
 
-        if (region.Size == 0u || !sourceValid || !destinationValid)
+    for (int32_t firstIndex = 0; firstIndex < regionCount; ++firstIndex)
+    {
+        const BufferCopyRegion& first = regions[static_cast<size_t>(firstIndex)];
+        const bool sourceValid = BufferRangeIsValid(first.SourceOffset, first.Size, source_size);
+        const bool destinationValid = BufferRangeIsValid(first.DestinationOffset, first.Size, destination_size);
+
+        if (first.Size == 0u || !sourceValid || !destinationValid)
         {
             return false;
         }
-    }
 
-    if (!same_buffer)
-    {
-        return true;
-    }
-
-    for (const BufferCopyRegion& first : regions)
-    {
-        for (const BufferCopyRegion& second : regions)
+        for (int32_t secondIndex = 0; secondIndex < regionCount; ++secondIndex)
         {
-            const bool sourceHitsDestination = first.SourceOffset < second.DestinationOffset + second.Size &&
+            const BufferCopyRegion& second = regions[static_cast<size_t>(secondIndex)];
+            const bool destinationsOverlap = firstIndex < secondIndex &&
+                                             first.DestinationOffset < second.DestinationOffset + second.Size &&
+                                             second.DestinationOffset < first.DestinationOffset + first.Size;
+            const bool sourceHitsDestination = same_buffer &&
+                                               first.SourceOffset < second.DestinationOffset + second.Size &&
                                                second.DestinationOffset < first.SourceOffset + first.Size;
 
-            if (sourceHitsDestination)
+            if (destinationsOverlap || sourceHitsDestination)
             {
                 return false;
             }
@@ -1588,8 +2035,13 @@ bool ImagePieceIsValid(const InternalResourceDataContainer::ImageData& piece,
     return piece.Size >= neededBytes && piece.Data != nullptr;
 }
 
-bool ImagePiecesAreValid(const ImagePieceVector& pieces, const ImageCreateInfo& info, bool require_full_mip)
+bool ImagePiecesAreValid(const ImagePieceVector& pieces, const ImageCreateInfo& info, bool require_full_mip) noexcept
 {
+    if (pieces.empty())
+    {
+        return false;
+    }
+
     const FormatRow* row = FindFormatRow(info.Format);
 
     if (row == nullptr)
@@ -1597,10 +2049,49 @@ bool ImagePiecesAreValid(const ImagePieceVector& pieces, const ImageCreateInfo& 
         return false;
     }
 
-    return std::ranges::all_of(pieces, [&info, row, require_full_mip](const InternalResourceDataContainer::ImageData& piece)
+    const bool is3D = info.Type == ImageType::Type3D;
+    const int32_t pieceCount = static_cast<int32_t>(std::ssize(pieces));
+
+    for (int32_t firstIndex = 0; firstIndex < pieceCount; ++firstIndex)
     {
-        return ImagePieceIsValid(piece, info, *row, require_full_mip);
-    });
+        const InternalResourceDataContainer::ImageData& first = pieces[static_cast<size_t>(firstIndex)];
+
+        if (!ImagePieceIsValid(first, info, *row, require_full_mip))
+        {
+            return false;
+        }
+
+        const int64_t firstMipDepth = MipDepth(info, first.MipLevel);
+        const int64_t firstDepth = is3D ? (first.Depth > 0 ? first.Depth : firstMipDepth) : 1;
+
+        for (int32_t secondIndex = firstIndex + 1; secondIndex < pieceCount; ++secondIndex)
+        {
+            const InternalResourceDataContainer::ImageData& second = pieces[static_cast<size_t>(secondIndex)];
+
+            if (first.MipLevel != second.MipLevel)
+            {
+                continue;
+            }
+
+            const int64_t secondMipDepth = MipDepth(info, second.MipLevel);
+            const int64_t secondDepth = is3D ? (second.Depth > 0 ? second.Depth : secondMipDepth) : 1;
+            const bool layersOverlap = first.ArrayLayer < static_cast<int64_t>(second.ArrayLayer) + second.NumLayers &&
+                                       second.ArrayLayer < static_cast<int64_t>(first.ArrayLayer) + first.NumLayers;
+            const bool xOverlaps = first.X < static_cast<int64_t>(second.X) + second.Width &&
+                                   second.X < static_cast<int64_t>(first.X) + first.Width;
+            const bool yOverlaps = first.Y < static_cast<int64_t>(second.Y) + second.Height &&
+                                   second.Y < static_cast<int64_t>(first.Y) + first.Height;
+            const bool zOverlaps = first.Z < static_cast<int64_t>(second.Z) + secondDepth &&
+                                   second.Z < static_cast<int64_t>(first.Z) + firstDepth;
+
+            if (layersOverlap && xOverlaps && yOverlaps && zOverlaps)
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
 }
 
 ResourceDescription DescribeBuffer(const BufferCreateInfo& info) noexcept
@@ -1638,6 +2129,40 @@ uint64_t TotalBufferUploadBytes(const BufferPieceVector& pieces) noexcept
     for (const InternalResourceDataContainer::BufferData& piece : pieces)
     {
         totalBytes += static_cast<uint64_t>(piece.Size);
+    }
+
+    return totalBytes;
+}
+
+uint64_t TotalImageUploadBytes(const ImagePieceVector& pieces, const ImageCreateInfo& info) noexcept
+{
+    const FormatRow* row = FindFormatRow(info.Format);
+
+    if (row == nullptr)
+    {
+        return 0u;
+    }
+
+    const bool is3D = info.Type == ImageType::Type3D;
+    uint64_t totalBytes = 0u;
+
+    for (const InternalResourceDataContainer::ImageData& piece : pieces)
+    {
+        const PieceLayout layout = ComputePieceLayout(piece, info, *row);
+        const int32_t layerCount = is3D ? 1 : std::max(1, piece.NumLayers);
+        totalBytes += layout.LayerBytes * static_cast<uint64_t>(layerCount);
+    }
+
+    return totalBytes;
+}
+
+uint64_t TotalCopyBytes(std::span<const BufferCopyRegion> regions) noexcept
+{
+    uint64_t totalBytes = 0u;
+
+    for (const BufferCopyRegion& region : regions)
+    {
+        totalBytes += region.Size;
     }
 
     return totalBytes;

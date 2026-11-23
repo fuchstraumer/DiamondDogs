@@ -6,6 +6,9 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#ifndef NDEBUG
+#include <print>
+#endif
 #include <string_view>
 #include <thread>
 #include <utility>
@@ -356,6 +359,26 @@ namespace rhi
 
     FutureState FutureTable::Wait(int32_t slot_index, uint64_t timeout_ns) const noexcept
     {
+        if (!WaitCanBlock())
+        {
+            const FutureState current = State(slot_index);
+
+#ifndef NDEBUG
+            if (timeout_ns != 0u && !IsFinal(current))
+            {
+                if (!loggedNonBlockingWait.exchange(true, std::memory_order_relaxed))
+                {
+                    std::println(stderr,
+                                 "[ResourceContext] Wait called on WebGPU with non-zero timeout on non-final future (slot {}, state {})",
+                                 slot_index,
+                                 static_cast<uint32_t>(current));
+                }
+            }
+#endif
+
+            return current;
+        }
+
         using Clock = std::chrono::steady_clock;
         const Clock::time_point startTime = Clock::now();
         const auto remainingNs = [&]() -> uint64_t

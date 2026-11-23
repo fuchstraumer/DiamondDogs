@@ -14,4 +14,9 @@ bool WaitForTransferTimeline([[maybe_unused]] void* wait_device,
     return true;
 }
 
+bool WaitCanBlock() noexcept
+{
+    return false;
+}
+
 } // namespace rhi

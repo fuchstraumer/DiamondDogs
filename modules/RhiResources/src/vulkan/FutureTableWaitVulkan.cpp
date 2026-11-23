@@ -32,4 +32,9 @@ bool WaitForTransferTimeline(void* wait_device,
     return result == VK_SUCCESS;
 }
 
+bool WaitCanBlock() noexcept
+{
+    return true;
+}
+
 } // namespace rhi
