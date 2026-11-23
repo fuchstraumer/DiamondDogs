@@ -57,6 +57,7 @@ namespace
     {
         graph.Rows[row].Future = std::move(future);
         graph.Rows[row].KindMismatch = false;
+        graph.Rows[row].ImportChecked = false;
         ++graph.States[row].Epoch;
         graph.States[row].InitialLayout = initial_layout;
         MarkRowChanged(graph.Compiled, row, graph.Controls);

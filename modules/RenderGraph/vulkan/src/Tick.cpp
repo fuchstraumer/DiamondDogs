@@ -104,9 +104,10 @@ void PollRows(GraphImpl& graph)
                             state.Readiness == ResourceReadiness::Complete;
 
         // a supplied object must keep its import's promise
-        if (exists && !runtime.Owned && !runtime.KindMismatch)
+        if (exists && !runtime.ImportChecked && !runtime.Owned && !runtime.KindMismatch)
         {
             const ImportMismatch mismatch = CheckImport(graph.Compiled.Data(), row, runtime.Future.Description());
+            runtime.ImportChecked = true;
             runtime.KindMismatch = !mismatch.FieldName.empty();
 
             if (runtime.KindMismatch)
@@ -402,6 +403,7 @@ namespace
 
     ImportMismatch CheckImport(const CompiledData& data, int32_t row, const ResourceDescription& description)
     {
+
         if (data.Frozen.Resources[row].Kind == ResourceKind::Image)
         {
             return CheckImageImport(data, row, description);
@@ -533,16 +535,20 @@ namespace
         if (pass.GroupCount > 0)
         {
             graph.SetScratch.clear();
+            
+            const int32_t instance = SetInstanceOf(pass, frame_slot, graph.FrameIndex);
+            const VkDescriptorSet* setsStart = &pass.Sets[(static_cast<size_t>(instance) * pass.GroupCount)];
 
-            for (int32_t group = 0; group < pass.GroupCount; ++group)
-            {
-                const int32_t instance = SetInstanceOf(pass, frame_slot, graph.FrameIndex);
-                const VkDescriptorSet set = pass.Sets[static_cast<size_t>(instance) * pass.GroupCount + group];
-                graph.SetScratch.emplace_back(reinterpret_cast<uint64_t>(set));
-            }
-
-            command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Compute, pipeline.LayoutHandle, 0u,
-                                              std::span<const rhi::DescriptorSetHandle>{ graph.SetScratch });
+            const std::span<const rhi::DescriptorSetHandle> descriptorSets
+            { 
+                reinterpret_cast<const rhi::DescriptorSetHandle*>(setsStart),
+                static_cast<size_t>(pass.GroupCount)
+            };
+    
+            command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Compute,
+                                              pipeline.LayoutHandle,
+                                              0u,
+                                              descriptorSets);
         }
 
         const int32_t params = data.Passes[pass_index].Params;

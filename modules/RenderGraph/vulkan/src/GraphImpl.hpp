@@ -34,6 +34,7 @@ namespace loom
         rhi::ResourceFuture<GraphicsResource> Future;
         bool Owned{ false };
         bool KindMismatch{ false };     // LM701 for this epoch: the passes treat the row as Failed
+        bool ImportChecked{ false };    // Avoids repeated CheckImport calls on each tick
         uint32_t Reported{ 0u };
     };
 
