@@ -113,9 +113,9 @@ namespace loom
         std::vector<VkDescriptorBufferInfo> BufferInfoScratch;
         std::vector<VkDescriptorImageInfo> ImageInfoScratch;
         std::vector<rhi::ImageBarrier> ImageBarrierScratch;
-        std::vector<rhi::DescriptorSetHandle> SetScratch;
 
         std::optional<rhi::GpuTimers> Timers;
+        bool AllRowsSettled{ false };
     };
 
     // GraphImpl.cpp: blocks until the graph's timeline reaches `value`, or the timeout passes. False on a timeout.

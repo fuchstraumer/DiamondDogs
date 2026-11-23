@@ -534,8 +534,6 @@ namespace
 
         if (pass.GroupCount > 0)
         {
-            graph.SetScratch.clear();
-            
             const int32_t instance = SetInstanceOf(pass, frame_slot, graph.FrameIndex);
             const VkDescriptorSet* setsStart = &pass.Sets[(static_cast<size_t>(instance) * pass.GroupCount)];
 
