@@ -2,6 +2,7 @@
 #ifndef DIAMOND_DOGS_LOOM_COMPILED_DATA_HPP
 #define DIAMOND_DOGS_LOOM_COMPILED_DATA_HPP
 #include "FramePlan.hpp"
+#include "Declarations.hpp"
 #include "LoomKeys.hpp"
 #include "PassStatements.hpp"
 #include "ShaderLibraryTypes.hpp"
@@ -75,6 +76,7 @@ namespace loom
         int32_t FirstUse{ 0 };              // Uses[FirstUse, FirstUse + UseCount)
         int32_t UseCount{ 0 };
         int32_t Params{ -1 };               // an index into CompiledData::Params, or -1
+        RunPolicy Policy{ RunPolicy::Invalid };
         bool ReadsHistory{ false };         // a BindPrevious; history rings come in step 6
     };
 
@@ -89,7 +91,9 @@ namespace loom
     struct CompiledData
     {
         lodestone::ShaderCodeFormat CodeFormat{ lodestone::ShaderCodeFormat::None };
-
+        // if the graph contains passes that run when inputs to them change, this flag is true:
+        // otherwise, it is false as it saves us quite a bit of work and overhead
+        bool HasWhenInputsChangesPasses{ false };
         FrozenGraph Frozen;
         OrderedGraph Ordered;
         SizedGraph Sized;
@@ -114,14 +118,27 @@ namespace loom
         std::vector<int32_t> CopyCounts;            // [resource]: 1, or HistoryDepth + 1
         std::vector<int32_t> ExtraCopyBase;         // [resource]: -1 for a row with one copy
         std::vector<int32_t> CopyRows;              // [copy]
+
+        std::vector<uint64_t> PassHashes; // [pass]
+        std::vector<uint64_t> ResourceHashes; // [resource]
     };
 
     // The copy that frame `frame_index` writes (previous false) or reads through BindPrevious (previous true).
     [[nodiscard]] inline int32_t CopyOf(const CompiledData& data, int32_t row, int64_t frame_index, bool previous) noexcept
     {
         const int64_t count = data.CopyCounts[row];
+        if (count == 1)
+        {
+            return row;
+        }
+
         const int64_t frame = previous ? frame_index - 1 : frame_index;
-        const int64_t ring = ((frame % count) + count) % count;
+        int64_t ring = frame % count;
+        if (ring < 0)
+        {
+            ring += count;
+        }
+
         return ring == 0 ? row : data.ExtraCopyBase[row] + static_cast<int32_t>(ring) - 1;
     }
 

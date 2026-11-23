@@ -58,9 +58,13 @@ namespace
         graph.Rows[row].Future = std::move(future);
         graph.Rows[row].KindMismatch = false;
         graph.Rows[row].ImportChecked = false;
+        graph.States[row].Readiness = ResourceReadiness::Pending;
         ++graph.States[row].Epoch;
         graph.States[row].InitialLayout = initial_layout;
+        graph.AllRowsSettled = false; // vital: if we don't update this, poll won't run!
+        ++graph.SupplyGeneration; // reset supply generation for this row
         MarkRowChanged(graph.Compiled, row, graph.Controls);
+
     }
 
     // For a history ring: the copy that the last submitted frame wrote.

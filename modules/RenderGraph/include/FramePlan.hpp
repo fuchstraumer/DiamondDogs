@@ -130,7 +130,6 @@ namespace loom
         std::vector<int32_t> SkippedWriter;
         std::vector<int32_t> BatchBarrier;
         std::vector<uint8_t> WrittenThisTick;
-        std::vector<rhi::ImageLayout> RowLayouts;   // [copy]: an image's layout as the batches are planned
     };
 
     // FramePlan.cpp: sizes every array of `plan` for the graph.

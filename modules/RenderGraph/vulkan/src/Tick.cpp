@@ -65,10 +65,16 @@ namespace
     ImportMismatch KindMismatchOf(std::string_view expected);
     ImportMismatch IntegerMismatch(std::string_view field_name, int64_t expected, int64_t actual);
     // A buffer: at least ByteSize bytes. An unknown size promises nothing.
-    ImportMismatch CheckBufferImport(const CompiledData& data, int32_t row, const ResourceDescription& description);
+    ImportMismatch CheckBufferImport(const CompiledData& data,
+                                     int32_t row,
+                                     const ResourceDescription& description);
     // An image: its format and layer count; for an Exact expectation, its extent and mip count too.
-    ImportMismatch CheckImageImport(const CompiledData& data, int32_t row, const ResourceDescription& description);
-    ImportMismatch CheckImport(const CompiledData& data, int32_t row, const ResourceDescription& description);
+    ImportMismatch CheckImageImport(const CompiledData& data,
+                                    int32_t row,
+                                    const ResourceDescription& description);
+    ImportMismatch CheckImport(const CompiledData& data,
+                               int32_t row,
+                               const ResourceDescription& description);
     void ReportMismatch(GraphImpl& graph, int32_t row, const ImportMismatch& mismatch);
     rhi::BufferHandle BufferOfRow(const GraphImpl& graph, int32_t row);
 
@@ -83,8 +89,15 @@ namespace
 
     // Zeroes each copy in plan.Clears: the whole buffer, or every mip and layer of an image (in General).
     void RecordClears(const GraphImpl& graph, rhi::CommandBuffer& command_buffer);
-    bool RecordDispatch(GraphImpl& graph, rhi::CommandBuffer& command_buffer, int32_t pass_index, int32_t frame_slot);
-    bool RecordFrame(GraphImpl& graph, rhi::CommandBuffer& command_buffer, int32_t frame_slot, uint64_t signal_value);
+    bool RecordDispatch(GraphImpl& graph,
+                        rhi::CommandBuffer& command_buffer,
+                        int32_t pass_index,
+                        int32_t frame_slot,
+                        int32_t& bound_pipeline);
+    bool RecordFrame(GraphImpl& graph,
+                     rhi::CommandBuffer& command_buffer,
+                     int32_t frame_slot,
+                     uint64_t signal_value);
     // CC-R2: every row a running pass uses that is Created and not Complete waits for its completion, from any
     // timeline. One wait per semaphore, at the highest value.
     void GatherWaits(GraphImpl& graph);
@@ -94,10 +107,27 @@ namespace
 // Spec 5.1 step 2. LM701 and LM702 are reported once per epoch.
 void PollRows(GraphImpl& graph)
 {
+    // If nothing has changed since the last tick and poll, don't scan each row again!
+    if (graph.AllRowsSettled)
+    {
+        return;
+    }
+
+    uint32_t createdCount{ 0u };
+    uint32_t settledCount{ 0u };
+
     for (int32_t row = 0; std::cmp_less(row,graph.Rows.size()); ++row)
     {
         RowRuntime& runtime = graph.Rows[row];
         ResourceState& state = graph.States[row];
+
+        if (state.Readiness == ResourceReadiness::Complete ||
+            state.Readiness == ResourceReadiness::Failed)
+        {
+            ++settledCount;
+            continue;
+        }
+
         state.Readiness = ReadinessOfRow(graph, row);
 
         const bool exists = state.Readiness == ResourceReadiness::Created ||
@@ -127,7 +157,20 @@ void PollRows(GraphImpl& graph)
             ReportRow(graph, DiagnosticCode::LM702, row);
             runtime.Reported = state.Epoch;
         }
+
+        if (state.Readiness == ResourceReadiness::Created)
+        {
+            ++createdCount;
+        }
+        else if (state.Readiness == ResourceReadiness::Complete ||
+                 state.Readiness == ResourceReadiness::Failed)
+        {
+            ++settledCount;
+        }
     }
+
+    graph.CreatedRowCount = createdCount;
+    graph.AllRowsSettled = std::cmp_equal(settledCount, graph.Rows.size());
 }
 
 // A frame slot's sets are rewritten only where a row changed epoch since the last write. The GPU is done with the
@@ -144,11 +187,24 @@ void WriteDescriptors(GraphImpl& graph, int32_t frame_slot)
         const BoundPass& bound = data.BoundPasses[passIndex];
         PassRuntime& pass = graph.Passes[passIndex];
 
+        if (bound.SlotCount == 0)
+        {
+            continue;
+        }
+        
+        const int32_t instance = SetInstanceOf(pass, frame_slot, graph.FrameIndex);
+
+        if (pass.InstanceGeneration[instance] == graph.SupplyGeneration)
+        {
+            continue;
+        }
+
+        pass.InstanceGeneration[instance] = graph.SupplyGeneration;
+
         for (int32_t slotOffset = 0; slotOffset < bound.SlotCount; ++slotOffset)
         {
             const BindingSlot& slot = data.Slots[bound.FirstSlot + slotOffset];
             const int32_t row = slot.Resource.Value;
-            const int32_t instance = SetInstanceOf(pass, frame_slot, graph.FrameIndex);
             uint32_t& written = pass.WrittenEpochs[static_cast<size_t>(instance) * bound.SlotCount + slotOffset];
 
             if (written == graph.States[row].Epoch)
@@ -520,16 +576,26 @@ namespace
         }
     }
 
-    bool RecordDispatch(GraphImpl& graph, rhi::CommandBuffer& command_buffer, int32_t pass_index, int32_t frame_slot)
+    bool RecordDispatch(GraphImpl& graph,
+                        rhi::CommandBuffer& command_buffer,
+                        int32_t pass_index,
+                        int32_t frame_slot,
+                        int32_t& bound_pipeline)
     {
         const CompiledData& data = graph.Compiled.Data();
         const LaidOutPass& laidOut = data.LaidOut.Passes[pass_index];
         const PipelineRuntime& pipeline = graph.Pipelines[laidOut.Pipeline];
         const PassRuntime& pass = graph.Passes[pass_index];
 
-        if (command_buffer.BindShaders(*pipeline.Program).IsFailure())
+        // Because our pipelines are flattened and deduplicated tables, if the indices
+        // are the same we can skip binding the pipeline again!
+        if (laidOut.Pipeline != bound_pipeline)
         {
-            return false;
+            if (command_buffer.BindShaders(*pipeline.Program).IsFailure())
+            {
+                return false;
+            }
+            bound_pipeline = laidOut.Pipeline;
         }
 
         if (pass.GroupCount > 0)
@@ -568,8 +634,8 @@ namespace
         if (dispatch.Source == GroupCountSource::AtRealize)
         {
             const int32_t image = data.Frozen.Passes[pass_index].Dispatch.Resource.Value;
-            const std::array<uint32_t, 3u> groups = GroupsOverImage(graph, image, dispatch.Workgroup);
-            command_buffer.Dispatch(groups[0], groups[1], groups[2]);
+            const UInt3 groups = GroupsOverImage(graph, image, dispatch.Workgroup);
+            command_buffer.Dispatch(groups.x, groups.y, groups.z);
             return true;
         }
 
@@ -599,6 +665,7 @@ namespace
             ++batch;
         }
 
+        int32_t boundPipeline = -1;
         for (int32_t runIndex = 0; runIndex < runCount; ++runIndex)
         {
             const bool batchHere = batch < graph.Plan.Batches.size() && graph.Plan.Batches[batch].BeforeRun == runIndex;
@@ -617,7 +684,7 @@ namespace
                 scope.emplace(*timerBlock, data.Frozen.Passes[passIndex].Key.Name);
             }
 
-            if (!RecordDispatch(graph, command_buffer, passIndex, frame_slot))
+            if (!RecordDispatch(graph, command_buffer, passIndex, frame_slot, boundPipeline))
             {
                 return false;
             }
@@ -628,8 +695,13 @@ namespace
 
     void GatherWaits(GraphImpl& graph)
     {
-        const CompiledData& data = graph.Compiled.Data();
+        if (graph.CreatedRowCount == 0u)
+        {
+            return;
+        }
+
         graph.WaitScratch.clear();
+        const CompiledData& data = graph.Compiled.Data();
 
         for (const int32_t passIndex : graph.Plan.Runs)
         {
@@ -651,9 +723,18 @@ namespace
                     continue;
                 }
 
-                const rhi::SemaphoreSubmitInfo candidate{ completion.Semaphore, completion.Value, rhi::PipelineStage::AllCommands };
-                bool merged = false;
+                // Build the semaphore wait that we'll fire on the GPU to ensure this resource is ready before the next pass uses it
+                const rhi::SemaphoreSubmitInfo candidate
+                {
+                    completion.Semaphore,
+                    completion.Value,
+                    rhi::PipelineStage::AllCommands
+                };
 
+                // If a semaphore with the same handle already exists, take the max of the two values:
+                // since tickets are monotonically increasing, taking the max ensures we wait for the
+                // latest signal without dumping the previous
+                bool merged = false;
                 for (rhi::SemaphoreSubmitInfo& wait : graph.WaitScratch)
                 {
                     if (wait.Semaphore == candidate.Semaphore)

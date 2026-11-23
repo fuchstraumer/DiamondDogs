@@ -27,18 +27,19 @@
 #include "size/SizedGraph.hpp"
 #include "LoomFormats.hpp"
 #include "ImageDataFormats.hpp"
+#include "containers/SmallVector.hpp"
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <format>
-#include <memory>
 #include <numeric>
 #include <string>
 #include <string_view>
 #include <span>
 #include <utility>
 #include <vector>
+
+using namespace foundation; // smallvector and other foundation utilities
 
 // Realize: checks that this backend can run the graph, then creates what the graph runs on. Loom builds its own
 // layouts and shader objects from the compiled slot table and the copied SPIR-V (step 5 fork F1), so nothing here
@@ -352,7 +353,7 @@ namespace
 
         for (int32_t group = 0; group < groups; ++group)
         {
-            std::vector<VkDescriptorSetLayoutBinding> bindings;
+            SmallVector<VkDescriptorSetLayoutBinding, 16> bindings;
 
             for (int32_t slotIndex = bound.FirstSlot; slotIndex < bound.FirstSlot + bound.SlotCount; ++slotIndex)
             {
@@ -412,29 +413,40 @@ namespace
         pipeline.PushBytes = compiled.PushConstantBytes;
 
         // ShaderBinaryOptions keeps spans, so this storage outlives the create call
-        std::vector<rhi::DescriptorSetLayoutHandle> layoutHandles(pipeline.SetLayouts.size());
+        SmallVector<rhi::DescriptorSetLayoutHandle, 8> layoutHandles(pipeline.SetLayouts.size());
 
         for (size_t index = 0u; index < pipeline.SetLayouts.size(); ++index)
         {
             layoutHandles[index].Set(pipeline.SetLayouts[index]);
         }
 
-        std::vector<rhi::PushConstantRange> pushRanges;
-
-        if (hasPush)
+        rhi::PushConstantRange pushConstant
         {
-            pushRanges.push_back(rhi::PushConstantRange{ pipeline.PushStages, 0u, compiled.PushConstantBytes });
-        }
+            pipeline.PushStages,
+            0u,
+            compiled.PushConstantBytes
+        };
+        
+        const std::span<rhi::PushConstantRange> pushSpan
+        {
+            &pushConstant,
+            hasPush ? 1u : 0u
+        };
 
-        std::vector<rhi::ShaderBinaryOptions> options;
+        // 4 should be WAYYYY more than enough for 99.9% of shaders, except raytracing payloads
+        // where it's whatever, we spill to the heap to handle those stupid things
+        foundation::SmallVector<rhi::ShaderBinaryOptions, 4> options;
         options.reserve(compiled.Stages.size());
 
         for (const CompiledStage& stage : compiled.Stages)
         {
+            std::span<rhi::DescriptorSetLayoutHandle> layoutSpan{ layoutHandles };
             const std::span<const uint32_t> spirvWords = SpirvWords(stage);
-            options.emplace_back(spirvWords, ToRhiShaderStages(stage.Stage), stage.EntryPoint,
-                                 std::span<rhi::PushConstantRange>{ pushRanges },
-                                 std::span<rhi::DescriptorSetLayoutHandle>{ layoutHandles });
+            options.emplace_back(spirvWords,
+                                 ToRhiShaderStages(stage.Stage),
+                                 stage.EntryPoint,
+                                 pushSpan,
+                                 layoutSpan);
         }
 
         if (rhi::ShaderProgram::CreateFromBinary(graph.Device.Handle(), options, pipeline.Program).IsFailure())
@@ -559,7 +571,7 @@ namespace
         graph.Passes.resize(passCount);
 
         uint32_t setCount = 0u;
-        std::vector<VkDescriptorPoolSize> poolSizes;
+        SmallVector<VkDescriptorPoolSize, 8> poolSizes;
 
         const auto countType = [&poolSizes](VkDescriptorType type, int32_t instances)
         {
@@ -594,6 +606,7 @@ namespace
             pass.Phases = PhasesOf(data, bound);
             const int32_t instances = frame_slots * pass.Phases;
             pass.WrittenEpochs.assign(static_cast<size_t>(instances) * bound.SlotCount, 0u);
+            pass.InstanceGeneration.assign(static_cast<size_t>(instances), 0u);
             setCount += static_cast<uint32_t>(pass.GroupCount * instances);
 
             for (int32_t slotIndex = bound.FirstSlot; slotIndex < bound.FirstSlot + bound.SlotCount; ++slotIndex)
@@ -741,12 +754,6 @@ namespace
         graph.BufferInfoScratch.reserve(data.Slots.size());
         graph.ImageInfoScratch.reserve(data.Slots.size());
         graph.ImageBarrierScratch.reserve(data.CopyRows.size());
-        graph.SetScratch.reserve(8u);
-
-        for (const PassRuntime& pass : graph.Passes)
-        {
-            graph.SetScratch.reserve(std::max(graph.SetScratch.capacity(), static_cast<size_t>(pass.GroupCount)));
-        }
     }
 
 }

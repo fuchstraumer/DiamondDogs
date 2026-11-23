@@ -91,7 +91,8 @@ namespace
 
     bool PolicyAllows(const CompiledData& data, int32_t pass_index, const PassControl& control, const FramePlan& plan)
     {
-        switch (data.Frozen.Passes[pass_index].Policy)
+        // changed: we had spare padding bits, policy moved here instead of in cold frozen pass data
+        switch (data.Passes[pass_index].Policy)
         {
         case RunPolicy::EveryFrame:
             return true;
@@ -173,7 +174,9 @@ namespace
                         std::span<const PassControl> controls,
                         std::span<const ResourceSync> sync,
                         int64_t frame_index,
-                        const FramePlan& plan)
+                        const FramePlan& plan,
+                        bool all_recordable,
+                        bool any_skipped_writer)
     {
         const PassControl& control = controls[pass_index];
 
@@ -188,21 +191,32 @@ namespace
         }
 
         const CompiledPass& pass = data.Passes[pass_index];
-        const PassDecision readiness = ReadinessOf(data, pass, resources);
 
-        if (readiness.Reason != SkipReason::Ran)
+        if (!all_recordable)
         {
-            return readiness;
+            const PassDecision readiness = ReadinessOf(data, pass, resources);
+            if (readiness.Reason != SkipReason::Ran)
+            {
+                return readiness;
+            }
         }
 
-        const PassDecision history = HistoryOf(data, pass, sync, frame_index);
-
-        if (history.Reason != SkipReason::Ran)
+        if (pass.ReadsHistory)
         {
-            return history;
+            const PassDecision history = HistoryOf(data, pass, sync, frame_index);
+
+            if (history.Reason != SkipReason::Ran)
+            {
+                return history;
+            }
         }
 
-        return PropagationOf(data, pass, plan);
+        if (any_skipped_writer)
+        {
+            return PropagationOf(data, pass, plan);
+        }
+
+        return PassDecision{ .Reason = SkipReason::Ran, .Cause = -1 };
     }
 
 }
@@ -218,11 +232,34 @@ namespace
         plan.Runs.clear();
         plan.Clears.clear();
         std::ranges::fill(plan.SkippedWriter, -1);
-        std::ranges::fill(plan.WrittenThisTick, uint8_t{ 0u });
+
+        // Only fill if the graph contains passes that will need it
+        if (data.HasWhenInputsChangesPasses)
+        {
+            std::ranges::fill(plan.WrittenThisTick, uint8_t{ 0u });
+        }
+
+        const auto isRecordable = [](const ResourceState& state)
+        {
+            return state.Readiness == ResourceReadiness::Created ||
+                   state.Readiness == ResourceReadiness::Complete;
+        };
+
+        const bool allRecordable = std::ranges::all_of(resources, isRecordable);
+        bool anySkippedWriter = false;
 
         for (const PassIndex passIndex : data.Ordered.Passes)
         {
-            const PassDecision decision = Decide(data, passIndex.Value, resources, controls, sync, frame_index, plan);
+            const PassDecision decision = Decide(data,
+                                                 passIndex.Value,
+                                                 resources,
+                                                 controls,
+                                                 sync,
+                                                 frame_index,
+                                                 plan,
+                                                 allRecordable,
+                                                 anySkippedWriter);
+
             plan.Decisions[passIndex.Value] = decision;
 
             const CompiledPass& pass = data.Passes[passIndex.Value];
@@ -234,7 +271,19 @@ namespace
             if (ran)
             {
                 plan.Runs.push_back(passIndex.Value);
-                PushClears(data, pass, sync, frame_index, plan);
+                // only need to push clears if the pass reads history
+                if (pass.ReadsHistory)
+                {
+                    PushClears(data, pass, sync, frame_index, plan);
+                }
+            }
+
+            const bool updateUses =
+                (ran && (anySkippedWriter || data.HasWhenInputsChangesPasses)) || propagates;
+
+            if (!updateUses)
+            {
+                continue;
             }
 
             for (int32_t useIndex = pass.FirstUse; useIndex < pass.FirstUse + pass.UseCount; ++useIndex)
@@ -244,12 +293,16 @@ namespace
                 if (ran && Writes(use) && !use.Previous)
                 {
                     plan.SkippedWriter[use.Resource] = -1;
-                    plan.WrittenThisTick[use.Resource] = 1u;
+                    if (data.HasWhenInputsChangesPasses)
+                    {
+                        plan.WrittenThisTick[use.Resource] = 1u;
+                    }
                 }
 
                 if (propagates && use.Initializes)
                 {
                     plan.SkippedWriter[use.Resource] = passIndex.Value;
+                    anySkippedWriter = true;
                 }
             }
         }
@@ -259,15 +312,18 @@ namespace
     {
         const CompiledData& data = compiled.Data();
 
-        // a WhenInputsChange pass that did not run keeps a change that a running pass made to its input
-        for (int32_t passIndex = 0; passIndex < static_cast<int32_t>(data.Passes.size()); ++passIndex)
+        if (data.HasWhenInputsChangesPasses)
         {
-            const bool watches = data.Frozen.Passes[passIndex].Policy == RunPolicy::WhenInputsChange;
-            const bool ran = plan.Decisions[passIndex].Reason == SkipReason::Ran;
-
-            if (watches && !ran && ReadsWrittenRow(data, data.Passes[passIndex], plan))
+            // a WhenInputsChange pass that did not run keeps a change that a running pass made to its input
+            for (int32_t passIndex = 0; passIndex < static_cast<int32_t>(data.Passes.size()); ++passIndex)
             {
-                controls[passIndex].InputsChanged = true;
+                const bool watches = data.Frozen.Passes[passIndex].Policy == RunPolicy::WhenInputsChange;
+                const bool ran = plan.Decisions[passIndex].Reason == SkipReason::Ran;
+
+                if (watches && !ran && ReadsWrittenRow(data, data.Passes[passIndex], plan))
+                {
+                    controls[passIndex].InputsChanged = true;
+                }
             }
         }
 
@@ -276,6 +332,11 @@ namespace
             controls[pass].RanOnce = true;
             controls[pass].InputsChanged = false;
             controls[pass].Triggered = false;
+        }
+
+        if (!data.HasWhenInputsChangesPasses)
+        {
+            return;
         }
 
         // a row written this Tick is next frame's history: its BindPrevious readers see a change on the next Tick
@@ -290,6 +351,7 @@ namespace
                 if (use.Previous && plan.WrittenThisTick[use.Resource] != 0u)
                 {
                     controls[passIndex].InputsChanged = true;
+                    break;
                 }
             }
         }
@@ -299,9 +361,19 @@ namespace
     {
         const CompiledData& data = compiled.Data();
 
+        if (!data.HasWhenInputsChangesPasses)
+        {
+            return;
+        }
+
         for (int32_t passIndex = 0; passIndex < static_cast<int32_t>(data.Passes.size()); ++passIndex)
         {
             const CompiledPass& pass = data.Passes[passIndex];
+
+            if (pass.Policy != RunPolicy::WhenInputsChange)
+            {
+                continue;
+            }
 
             for (int32_t useIndex = pass.FirstUse; useIndex < pass.FirstUse + pass.UseCount; ++useIndex)
             {
@@ -310,6 +382,7 @@ namespace
                 if (use.Resource == row && Reads(use))
                 {
                     controls[passIndex].InputsChanged = true;
+                    break;
                 }
             }
         }
@@ -319,9 +392,15 @@ namespace
     {
         const CompiledData& data = compiled.Data();
 
+        if (!data.HasWhenInputsChangesPasses)
+        {
+            return;
+        }
+
         for (int32_t passIndex = 0; passIndex < static_cast<int32_t>(data.Passes.size()); ++passIndex)
         {
-            if (data.Passes[passIndex].Params == params)
+            if (data.Passes[passIndex].Policy == RunPolicy::WhenInputsChange &&
+                data.Passes[passIndex].Params == params)
             {
                 controls[passIndex].InputsChanged = true;
             }

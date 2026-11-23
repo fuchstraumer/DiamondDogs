@@ -28,7 +28,6 @@ namespace loom
         plan.SkippedWriter.assign(resourceCount, -1);
         plan.BatchBarrier.assign(copyCount, -1);
         plan.WrittenThisTick.assign(resourceCount, 0u);
-        plan.RowLayouts.assign(copyCount, rhi::ImageLayout::Undefined);
     }
 
 }

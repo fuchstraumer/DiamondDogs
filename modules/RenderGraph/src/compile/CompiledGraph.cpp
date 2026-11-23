@@ -48,7 +48,7 @@ namespace
     {
         for (int32_t index = 0; index < PassCount(); ++index)
         {
-            if (data->Frozen.Passes[index].Key.Hash == pass.Hash)
+            if (data->PassHashes[index] == pass.Hash)
             {
                 return index;
             }
@@ -61,7 +61,7 @@ namespace
     {
         for (int32_t index = 0; index < ResourceCount(); ++index)
         {
-            if (data->Frozen.Resources[index].Key.Hash == resource.Hash)
+            if (data->ResourceHashes[index] == resource.Hash)
             {
                 return index;
             }

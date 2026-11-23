@@ -31,6 +31,7 @@ namespace loom
 
         // `params` is an index into CompiledData::Params
         [[nodiscard]] bool IsSet(int32_t params) const noexcept;
+        [[nodiscard]] uint32_t EpochOf(int32_t params) const noexcept;
         [[nodiscard]] std::span<const std::byte> Bytes(int32_t params) const noexcept;
 
         // LM703 for each pass in plan.Runs whose params key was never set. Returns false when it reported one.
@@ -43,11 +44,13 @@ namespace loom
             uint32_t ByteSize{ 0u };
             uint32_t Alignment{ 0u };
             uint32_t Offset{ 0u };
+            uint32_t Epoch;
             bool Set{ false };
         };
 
         std::vector<Slot> slots;
         std::vector<std::byte> storage;
+        uint32_t unsetCount{0u};
     };
 
 }

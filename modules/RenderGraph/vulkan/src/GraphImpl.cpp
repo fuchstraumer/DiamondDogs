@@ -4,6 +4,7 @@
 #include "LoomGraph.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFuture.hpp"
+#include "ResourceTypes.hpp"
 #include <vulkan/vulkan_core.h>
 #include <cstdint>
 #include <utility>
@@ -120,7 +121,11 @@ namespace
 
     int32_t SetInstanceOf(const PassRuntime& pass, int32_t frame_slot, int64_t frame_index) noexcept
     {
-        return frame_slot * pass.Phases + static_cast<int32_t>(frame_index % pass.Phases);
+        if (pass.Phases == 1)
+        {
+            return frame_slot;
+        }
+        return (frame_slot * pass.Phases) + static_cast<int32_t>(frame_index % pass.Phases);
     }
 
 }

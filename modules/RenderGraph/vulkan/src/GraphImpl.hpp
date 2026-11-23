@@ -59,6 +59,7 @@ namespace loom
         int32_t Phases{ 1 };
         std::vector<VkDescriptorSet> Sets;
         std::vector<uint32_t> WrittenEpochs;
+        std::vector<uint64_t> InstanceGeneration;   // lets us skip descriptor writes when nothing is updated
     };
 
     struct FrameSlotRuntime
@@ -115,7 +116,9 @@ namespace loom
         std::vector<rhi::ImageBarrier> ImageBarrierScratch;
 
         std::optional<rhi::GpuTimers> Timers;
+        uint32_t CreatedRowCount{ 0u };
         bool AllRowsSettled{ false };
+        uint64_t SupplyGeneration{ 1u };
     };
 
     // GraphImpl.cpp: blocks until the graph's timeline reaches `value`, or the timeout passes. False on a timeout.

@@ -1,4 +1,5 @@
 #include "compile/Uses.hpp"
+#include "Declarations.hpp"
 #include "bind/BoundGraph.hpp"
 #include "Records.hpp"
 #include "compile/CompiledData.hpp"
@@ -308,11 +309,19 @@ namespace
     {
         const int32_t passCount = static_cast<int32_t>(data.Frozen.Passes.size());
         data.Passes.resize(passCount);
+        data.PassHashes.resize(passCount);
+
+        data.ResourceHashes.resize(data.Frozen.Resources.size());
+        for (int32_t idx = 0; std::cmp_less(idx, data.ResourceHashes.size()); ++idx)
+        {
+            data.ResourceHashes[idx] = data.Frozen.Resources[idx].Key.Hash;
+        }
 
         for (int32_t passIndex = 0; passIndex < passCount; ++passIndex)
         {
             const FrozenPass& frozenPass = data.Frozen.Passes[passIndex];
             const BoundPass& boundPass = data.BoundPasses[passIndex];
+            data.PassHashes[passIndex] = frozenPass.Key.Hash;
             CompiledPass& pass = data.Passes[passIndex];
             pass.FirstUse = static_cast<int32_t>(data.Uses.size());
 
@@ -368,6 +377,12 @@ namespace
             };
 
             pass.ReadsHistory = std::ranges::any_of(frozenPass.Binds, previous);
+            pass.Policy = frozenPass.Policy;
+
+            if (pass.Policy == RunPolicy::WhenInputsChange)
+            {
+                data.HasWhenInputsChangesPasses = true;
+            }
         }
 
         ResolveLevelLayouts(data);

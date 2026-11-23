@@ -3,8 +3,6 @@
 #include "FramePlan.hpp"
 #include "PassStatements.hpp"
 #include "compile/CompiledData.hpp"
-#include "freeze/FrozenGraph.hpp"
-#include "Records.hpp"
 #include "RhiFlags.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -82,15 +80,26 @@ namespace
     }
 
     // One barrier per row in the open batch: a second need on the same row widens the first.
-    void AddBarrier(FramePlan& plan, int32_t row, const SyncScope& before, const SyncScope& after)
+    void AddBarrier(FramePlan& plan,
+                    int32_t row,
+                    const SyncScope& before,
+                    const SyncScope& after,
+                    const rhi::ImageLayout layout)
     {
         int32_t& index = plan.BatchBarrier[row];
 
         if (index < 0)
         {
             index = static_cast<int32_t>(plan.Barriers.size());
-            const rhi::ImageLayout layout = plan.RowLayouts[row];
-            plan.Barriers.push_back(PlannedBarrier{ .Resource = row, .Before = before, .After = after, .OldLayout = layout, .NewLayout = layout });
+            PlannedBarrier barrier
+            {
+                .Resource = row,
+                .Before = before,
+                .After = after,
+                .OldLayout = layout,
+                .NewLayout = layout
+            };
+            plan.Barriers.emplace_back(std::move(barrier));
             return;
         }
 
@@ -143,7 +152,7 @@ namespace
 
             if (!Contains(sync.VisibleTo, read))
             {
-                AddBarrier(plan, copy, sync.Write, read);
+                AddBarrier(plan, copy, sync.Write, read, sync.Layout);
             }
         }
 
@@ -156,14 +165,14 @@ namespace
 
         if (written)
         {
-            AddBarrier(plan, copy, sync.Write, write);
+            AddBarrier(plan, copy, sync.Write, write, sync.Layout);
         }
 
         if (!IsEmpty(sync.ReadsSinceWrite))
         {
             // an execution dependency: the reads made nothing that the write must see
             const SyncScope reads{ .Stages = sync.ReadsSinceWrite.Stages, .Accesses = rhi::Access::None };
-            AddBarrier(plan, copy, reads, write);
+            AddBarrier(plan, copy, reads, write, sync.Layout);
         }
     }
 
@@ -215,7 +224,6 @@ namespace
             state.ReadsSinceWrite = SyncScope{};
             state.Layout = newLayout;
             state.HasContents = true;
-            plan.RowLayouts[copy] = newLayout;
         }
 
         const int32_t count = static_cast<int32_t>(plan.Barriers.size()) - firstBarrier;
@@ -240,7 +248,6 @@ namespace
                 row.VisibleTo = barrier.After;
                 row.ReadsSinceWrite = SyncScope{};
                 row.Layout = barrier.NewLayout;
-                plan.RowLayouts[barrier.Resource] = barrier.NewLayout;
                 continue;
             }
 
@@ -278,8 +285,6 @@ namespace
             {
                 sync[copy] = ResourceSync{ .Layout = state.InitialLayout, .Epoch = state.Epoch };
             }
-
-            plan.RowLayouts[copy] = sync[copy].Layout;
         }
 
         PlanClears(data, sync, plan);

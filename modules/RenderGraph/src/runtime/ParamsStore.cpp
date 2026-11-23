@@ -48,6 +48,7 @@ namespace
         }
 
         storage.assign(offset, std::byte{ 0 });
+        unsetCount = static_cast<uint32_t>(slots.size());
     }
 
     int32_t ParamsStore::Set(KeyRef key, std::span<const std::byte> bytes, uint32_t alignment, std::source_location where,
@@ -93,13 +94,24 @@ namespace
         }
 
         std::memcpy(stored, bytes.data(), bytes.size());
-        slot->Set = true;
+        if (!slot->Set)
+        {
+            slot->Set = true;
+            --unsetCount;
+        }
+
+        ++slot->Epoch;
         return static_cast<int32_t>(slot - slots.begin());
     }
 
     bool ParamsStore::IsSet(int32_t params) const noexcept
     {
         return slots[params].Set;
+    }
+
+    uint32_t ParamsStore::EpochOf(int32_t params) const noexcept
+    {
+        return slots[params].Epoch;
     }
 
     std::span<const std::byte> ParamsStore::Bytes(int32_t params) const noexcept
@@ -110,6 +122,12 @@ namespace
 
     bool ParamsStore::CheckRuns(const CompiledGraph& compiled, const FramePlan& plan, DiagnosticSink& sink) const
     {
+        // everything is updated and set - don't need to walk this!
+        if (unsetCount == 0)
+        {
+            return true;
+        }
+
         const CompiledData& data = compiled.Data();
         bool allSet = true;
 
