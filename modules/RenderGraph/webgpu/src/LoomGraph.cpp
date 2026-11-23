@@ -254,13 +254,19 @@ namespace
         return frozen.Kind == kind && frozen.Origin == ResourceOrigin::Imported;
     }
 
-    void SupplyRow(GraphImpl& graph, int32_t row, rhi::ResourceFuture<GraphicsResource>&& future,
+    void SupplyRow(GraphImpl& graph,
+                   int32_t row,
+                   rhi::ResourceFuture<GraphicsResource>&& future,
                    rhi::ImageLayout initial_layout)
     {
         graph.Rows[row].Future = std::move(future);
         graph.Rows[row].KindMismatch = false;
+        graph.Rows[row].ImportChecked = false;
+        graph.States[row].Readiness = ResourceReadiness::Pending;
         ++graph.States[row].Epoch;
         graph.States[row].InitialLayout = initial_layout;
+        ++graph.SupplyGeneration;
+        graph.AllRowsSettled = false;
         MarkRowChanged(graph.Compiled, row, graph.Controls);
     }
 

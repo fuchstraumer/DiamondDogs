@@ -27,6 +27,7 @@ namespace loom
         rhi::ResourceFuture<GraphicsResource> Future;
         bool Owned{ false };
         bool KindMismatch{ false };     // LM701 for this epoch: the passes treat the row as Failed
+        bool ImportChecked{ false };
         uint32_t Reported{ 0u };
     };
 
@@ -52,6 +53,7 @@ namespace loom
         uint64_t ParamsSize{ 0u };
         std::vector<wgpu::BindGroup> BindGroups;
         std::vector<uint32_t> WrittenEpochs;
+        std::vector<uint64_t> PhaseGeneration;
     };
 
     struct GraphImpl;
@@ -91,6 +93,10 @@ namespace loom
         std::vector<wgpu::BindGroupEntry> EntryScratch;
         std::vector<std::byte> ParamsScratch;
         std::vector<std::byte> ZeroScratch;
+        uint64_t SupplyGeneration{ 1u };
+        uint64_t SyncedGeneration{ 0u };
+        uint64_t EmptyCopyCount{ 0u };
+        bool AllRowsSettled{ false };
     };
 
 }

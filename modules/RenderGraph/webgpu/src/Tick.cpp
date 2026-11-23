@@ -2,7 +2,6 @@
 #include "Declarations.hpp"
 #include "FramePlan.hpp"
 #include "GraphImpl.hpp"
-#include "ImageDataFormats.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
 #include "LoomFormats.hpp"
@@ -19,6 +18,7 @@
 #include "freeze/FrozenGraph.hpp"
 #include "layout/LaidOutGraph.hpp"
 #include "size/SizedGraph.hpp"
+#include "math/MathStorage.hpp"
 #include <webgpu/webgpu_cpp.h>
 #include <algorithm>
 #include <array>
@@ -69,33 +69,52 @@ namespace
     void BuildGroup(GraphImpl& graph, int32_t pass_index, int32_t phase, int32_t group);
     // DispatchThreadsOver an image whose extent was unknown at Compile (an AnyExtent import): the threads cover its
     // width, height, and depth or layers, as Layout counts a known extent.
-    std::array<uint32_t, 3u> GroupsOverImage(const GraphImpl& graph, int32_t row, const lodestone::WorkgroupSize& workgroup);
+    math::UInt3 GroupsOverImage(const GraphImpl& graph, int32_t row, const lodestone::WorkgroupSize& workgroup);
     // Zeroes each buffer copy in plan.Clears with the encoder. Image copies are cleared by ClearImages.
     void RecordBufferClears(const GraphImpl& graph, const wgpu::CommandEncoder& encoder);
     // Zeroes every mip and layer of each image copy in plan.Clears, with a queue write that precedes the submit.
     void ClearImages(GraphImpl& graph);
-    void RecordDispatch(GraphImpl& graph, const wgpu::ComputePassEncoder& compute_pass, int32_t pass_index);
+    void RecordDispatch(GraphImpl& graph,
+                        const wgpu::ComputePassEncoder& compute_pass,
+                        int32_t pass_index,
+                        int32_t& bound_pipeline);
     bool WritesUse(const PassUse& use);
     uint32_t MipExtent(int32_t base, uint32_t mip);
+    int32_t PhaseOf(int32_t phase, int64_t frame_index) noexcept;
 
 }
 
 // Spec 5.1 step 2. LM701 and LM702 are reported once per epoch.
 void PollRows(GraphImpl& graph)
 {
+    if (graph.AllRowsSettled)
+    {
+        return;
+    }
+
+    uint32_t settledCount = 0u;
+
     for (int32_t row = 0; std::cmp_less(row, graph.Rows.size()); ++row)
     {
         RowRuntime& runtime = graph.Rows[row];
         ResourceState& state = graph.States[row];
-        state.Readiness = ReadinessOfRow(graph, row);
 
+        if (state.Readiness == ResourceReadiness::Complete ||
+            state.Readiness == ResourceReadiness::Failed)
+        {
+            ++settledCount;
+            continue;
+        }
+
+        state.Readiness = ReadinessOfRow(graph, row);
         const bool exists = state.Readiness == ResourceReadiness::Created ||
                             state.Readiness == ResourceReadiness::Complete;
 
         // a supplied object must keep its import's promise
-        if (exists && !runtime.Owned && !runtime.KindMismatch)
+        if (exists && !runtime.ImportChecked && !runtime.Owned && !runtime.KindMismatch)
         {
             const ImportMismatch mismatch = CheckImport(graph.Compiled.Data(), row, runtime.Future.Description());
+            runtime.ImportChecked = true;
             runtime.KindMismatch = !mismatch.FieldName.empty();
 
             if (runtime.KindMismatch)
@@ -115,11 +134,25 @@ void PollRows(GraphImpl& graph)
             ReportRow(graph, DiagnosticCode::LM702, row);
             runtime.Reported = state.Epoch;
         }
+
+        if (state.Readiness == ResourceReadiness::Complete ||
+            state.Readiness == ResourceReadiness::Failed)
+        {
+            ++settledCount;
+        }
     }
+
+    graph.AllRowsSettled = std::cmp_equal(settledCount, graph.Rows.size());
 }
 
 void RefreshSync(GraphImpl& graph)
 {
+    if (graph.SyncedGeneration == graph.SupplyGeneration)
+    {
+        return;
+    }
+
+    graph.SyncedGeneration = graph.SupplyGeneration;
     const CompiledData& data = graph.Compiled.Data();
 
     for (size_t copy = 0u; copy < graph.Sync.size(); ++copy)
@@ -128,6 +161,11 @@ void RefreshSync(GraphImpl& graph)
 
         if (graph.Sync[copy].Epoch != state.Epoch)
         {
+            if (graph.Sync[copy].HasContents)
+            {
+                ++graph.EmptyCopyCount;
+            }
+
             graph.Sync[copy] = ResourceSync{ .Layout = state.InitialLayout, .Epoch = state.Epoch };
         }
     }
@@ -159,8 +197,18 @@ void UpdateBindGroups(GraphImpl& graph)
 {
     for (const int32_t passIndex : graph.Plan.Runs)
     {
-        const PassRuntime& pass = graph.Passes[passIndex];
-        const int32_t phase = static_cast<int32_t>(graph.FrameIndex % pass.Phases);
+        PassRuntime& pass = graph.Passes[passIndex];
+        if (pass.GroupCount == 0)
+        {
+            continue;
+        }
+
+        const int32_t phase = PhaseOf(pass.Phases, graph.FrameIndex);
+
+        if (pass.PhaseGeneration[phase] == graph.SupplyGeneration)
+        {
+            continue;
+        }
 
         for (int32_t group = 0; group < pass.GroupCount; ++group)
         {
@@ -169,6 +217,8 @@ void UpdateBindGroups(GraphImpl& graph)
                 BuildGroup(graph, passIndex, phase, group);
             }
         }
+
+        pass.PhaseGeneration[phase] = graph.SupplyGeneration;
     }
 }
 
@@ -196,9 +246,10 @@ bool SubmitFrame(GraphImpl& graph)
         return false;
     }
 
+    int32_t boundPipeline = -1;
     for (const int32_t passIndex : graph.Plan.Runs)
     {
-        RecordDispatch(graph, computePass, passIndex);
+        RecordDispatch(graph, computePass, passIndex, boundPipeline);
     }
 
     computePass.End();
@@ -216,11 +267,17 @@ bool SubmitFrame(GraphImpl& graph)
 
 void MarkContents(GraphImpl& graph)
 {
+    if (graph.EmptyCopyCount == 0u)
+    {
+        return;
+    }
+
     const CompiledData& data = graph.Compiled.Data();
 
     for (const int32_t copy : graph.Plan.Clears)
     {
         graph.Sync[copy].HasContents = true;
+        --graph.EmptyCopyCount;
     }
 
     for (const int32_t passIndex : graph.Plan.Runs)
@@ -233,7 +290,12 @@ void MarkContents(GraphImpl& graph)
 
             if (WritesUse(use))
             {
-                graph.Sync[CopyOf(data, use.Resource, graph.FrameIndex, use.Previous)].HasContents = true;
+                const int32_t copyIdx = CopyOf(data, use.Resource, graph.FrameIndex, use.Previous);
+                if (!graph.Sync[copyIdx].HasContents)
+                {
+                    graph.Sync[copyIdx].HasContents = true;
+                    ++graph.EmptyCopyCount;
+                }
             }
         }
     }
@@ -244,21 +306,25 @@ namespace
 
     ResourceReadiness ReadinessOf(const rhi::ResourceFuture<GraphicsResource>& future)
     {
-        if (future.State() == rhi::FutureState::Created)
+        auto handleCreated = [&future]()->ResourceReadiness
         {
             const rhi::GpuWait completion = future.Completion();
             const bool unsubmitted = completion.Value != 0u && !completion.Submitted;
             return unsubmitted ? ResourceReadiness::Pending : ResourceReadiness::Created;
-        }
+        };
 
-        if (future.State() == rhi::FutureState::Complete)
+        switch(future.State())
         {
+        case rhi::FutureState::Created:
+            return handleCreated();
+        case rhi::FutureState::Complete:
             return ResourceReadiness::Complete;
-        }
-
-        if (future.State() == rhi::FutureState::Failed)
-        {
+        case rhi::FutureState::Failed:
             return ResourceReadiness::Failed;
+        case rhi::FutureState::Pending:
+            [[fallthrough]];
+        case rhi::FutureState::Invalid:
+            break;
         }
 
         return ResourceReadiness::Pending;
@@ -413,7 +479,7 @@ namespace
         const BoundPass& bound = data.BoundPasses[pass_index];
         const PassRuntime& pass = graph.Passes[pass_index];
 
-        if (!pass.BindGroups[static_cast<size_t>(phase) * pass.GroupCount + group])
+        if (!pass.BindGroups[(static_cast<size_t>(phase) * pass.GroupCount) + group])
         {
             return true;
         }
@@ -422,9 +488,9 @@ namespace
         {
             const BindingSlot& slot = data.Slots[bound.FirstSlot + slotOffset];
 
-            if (static_cast<int32_t>(slot.Group) == group && slot.Resource.IsValid())
+            if (std::cmp_equal(slot.Group, group) && slot.Resource.IsValid())
             {
-                const uint32_t written = pass.WrittenEpochs[static_cast<size_t>(phase) * bound.SlotCount + slotOffset];
+                const uint32_t written = pass.WrittenEpochs[(static_cast<size_t>(phase) * bound.SlotCount) + slotOffset];
 
                 if (written != graph.States[slot.Resource.Value].Epoch)
                 {
@@ -452,7 +518,7 @@ namespace
             const BindingSlot& slot = data.Slots[bound.FirstSlot + slotOffset];
 
             // the constants block has a slot with no row: its entry is below
-            if (static_cast<int32_t>(slot.Group) == group && slot.Resource.IsValid())
+            if (std::cmp_equal(slot.Group, group) && slot.Resource.IsValid())
             {
                 const int32_t row = slot.Resource.Value;
                 // a history ring's copy for this frame; a phase always meets the same copies
@@ -478,12 +544,12 @@ namespace
                 }
 
                 graph.EntryScratch.push_back(entry);
-                pass.WrittenEpochs[static_cast<size_t>(phase) * bound.SlotCount + slotOffset] = graph.States[row].Epoch;
+                pass.WrittenEpochs[(static_cast<size_t>(phase) * bound.SlotCount) + slotOffset] = graph.States[row].Epoch;
             }
         }
 
         const bool hasConstants = compiled.ConstantsDelivery == lodestone::EntryPointConstantsDelivery::UniformBuffer &&
-                                  static_cast<int32_t>(compiled.ConstantsGroup) == group;
+                                  std::cmp_equal(compiled.ConstantsGroup, group);
 
         if (hasConstants)
         {
@@ -502,29 +568,32 @@ namespace
         pass.BindGroups[static_cast<size_t>(phase) * pass.GroupCount + group] = graph.Device.CreateBindGroup(&descriptor);
     }
 
-    std::array<uint32_t, 3u> GroupsOverImage(const GraphImpl& graph, int32_t row, const lodestone::WorkgroupSize& workgroup)
+    math::UInt3 GroupsOverImage(const GraphImpl& graph, int32_t row, const lodestone::WorkgroupSize& workgroup)
     {
+        using namespace math;
+        constexpr static UInt3 k_OneGroup{ 1u, 1u, 1u };
         const ResourceDescription& description = graph.Rows[row].Future.Description();
         const bool volume = description.Dimensions == ImageType::Type3D;
-        const uint32_t threadZ = volume ? std::max(static_cast<uint32_t>(description.Depth), 1u) :
-                                          std::max(static_cast<uint32_t>(description.ArrayLayers), 1u);
-
-        // x, y and z are at least 1, so the division rounds up to at least 1 group
-        const std::array<uint32_t, 3u> threads
+        const uint32_t threadZ = volume ? static_cast<uint32_t>(description.Depth) :
+                                          static_cast<uint32_t>(description.ArrayLayers);
+        UInt3 threads
         {
-            std::max(static_cast<uint32_t>(description.Width), 1u),
-            std::max(static_cast<uint32_t>(description.Height), 1u),
+            static_cast<uint32_t>(description.Width),
+            static_cast<uint32_t>(description.Height),
             threadZ
         };
+        // ensure that each thread dim is at least 1
+        threads = threads.Max(k_OneGroup);
 
-        const std::array<uint32_t, 3u> sizes{ std::max(workgroup.X, 1u), std::max(workgroup.Y, 1u), std::max(workgroup.Z, 1u) };
-
-        return std::array<uint32_t, 3u>
+        UInt3 workGroups
         {
-            (threads[0] + sizes[0] - 1u) / sizes[0],
-            (threads[1] + sizes[1] - 1u) / sizes[1],
-            (threads[2] + sizes[2] - 1u) / sizes[2]
+            workgroup.X,
+            workgroup.Y,
+            workgroup.Z
         };
+        workGroups = workGroups.Max(k_OneGroup);
+
+        return (threads + workGroups - k_OneGroup) / workGroups;
     }
 
     void RecordBufferClears(const GraphImpl& graph, const wgpu::CommandEncoder& encoder)
@@ -589,15 +658,22 @@ namespace
         }
     }
 
-    void RecordDispatch(GraphImpl& graph, const wgpu::ComputePassEncoder& compute_pass, int32_t pass_index)
+    void RecordDispatch(GraphImpl& graph,
+                        const wgpu::ComputePassEncoder& compute_pass,
+                        int32_t pass_index,
+                        int32_t& bound_pipeline)
     {
         const CompiledData& data = graph.Compiled.Data();
         const LaidOutPass& laidOut = data.LaidOut.Passes[pass_index];
         const PipelineRuntime& pipeline = graph.Pipelines[laidOut.Pipeline];
         const PassRuntime& pass = graph.Passes[pass_index];
-        const int32_t phase = static_cast<int32_t>(graph.FrameIndex % pass.Phases);
+        const int32_t phase = PhaseOf(pass.Phases, graph.FrameIndex);
 
-        compute_pass.SetPipeline(pipeline.Pipeline);
+        if (laidOut.Pipeline != bound_pipeline)
+        {
+            compute_pass.SetPipeline(pipeline.Pipeline);
+            bound_pipeline = laidOut.Pipeline;
+        }
 
         for (int32_t group = 0; group < pass.GroupCount; ++group)
         {
@@ -617,12 +693,13 @@ namespace
         if (dispatch.Source == GroupCountSource::AtRealize)
         {
             const int32_t image = data.Frozen.Passes[pass_index].Dispatch.Resource.Value;
-            const std::array<uint32_t, 3u> groups = GroupsOverImage(graph, image, dispatch.Workgroup);
+            const math::UInt3 groups = GroupsOverImage(graph, image, dispatch.Workgroup);
             compute_pass.DispatchWorkgroups(groups[0], groups[1], groups[2]);
             return;
         }
 
-        compute_pass.DispatchWorkgroups(static_cast<uint32_t>(dispatch.Groups.X), static_cast<uint32_t>(dispatch.Groups.Y),
+        compute_pass.DispatchWorkgroups(static_cast<uint32_t>(dispatch.Groups.X),
+                                        static_cast<uint32_t>(dispatch.Groups.Y),
                                         static_cast<uint32_t>(dispatch.Groups.Z));
     }
 
@@ -635,6 +712,11 @@ namespace
     uint32_t MipExtent(int32_t base, uint32_t mip)
     {
         return std::max(static_cast<uint32_t>(std::max(base, 1)) >> mip, 1u);
+    }
+
+    int32_t PhaseOf(int32_t phases, int64_t frame_index) noexcept
+    {
+        return phases == 1 ? 0 : static_cast<int32_t>(frame_index % phases);
     }
 
 }

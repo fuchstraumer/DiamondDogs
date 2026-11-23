@@ -180,6 +180,7 @@ namespace
                 pass.Phases = PhasesOf(data, bound);
                 pass.BindGroups.resize(static_cast<size_t>(pass.GroupCount) * pass.Phases);
                 pass.WrittenEpochs.assign(static_cast<size_t>(pass.Phases) * bound.SlotCount, 0u);
+                pass.PhaseGeneration.assign(static_cast<size_t>(pass.Phases), 0u);
             }
         }
     }
@@ -279,7 +280,7 @@ namespace
         graph.Params.Prepare(graph.Compiled);
         graph.Sync.assign(data.CopyRows.size(), ResourceSync{});
         graph.Controls.assign(data.Passes.size(), PassControl{});
-
+        graph.EmptyCopyCount = static_cast<uint32_t>(data.CopyRows.size());
         // the most a pass binds in one group: every slot, and the constants block
         graph.EntryScratch.reserve(data.Slots.size() + 1u);
     }
