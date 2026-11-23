@@ -2,13 +2,13 @@
 #ifndef RESOURCE_CONTEXT_UPLOAD_BUFFER_HPP
 #define RESOURCE_CONTEXT_UPLOAD_BUFFER_HPP
 #include "ImageDataFormats.hpp"
+#include "containers/SmallVector.hpp"
 #include "ResourceMessageTypesInternal.hpp"
 #include <vulkan/vulkan_core.h>
 #include <vk_mem_alloc.h>
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include <vector>
 
 /** @brief Where the staged bytes of one transfer go: a buffer, the offset in it where the transfer's range starts, and
  *  the mapped pointer to that offset. The staging ring and a dedicated UploadBuffer both make one. */
@@ -41,14 +41,14 @@ struct StagingDestination
 /** @brief Copies each piece into `destination`, packed one after another, and returns one copy region per piece. The
  *  source offset of a region is the place of the piece in staging, and its destination offset is the `DestinationOffset`
  *  of the piece. The destination must have StagedBufferSize bytes. */
-[[nodiscard]] std::vector<VkBufferCopy> WriteBufferData(
+[[nodiscard]] foundation::SmallVector<VkBufferCopy, 16> WriteBufferData(
     const StagingDestination& destination,
     const InternalResourceDataContainer::BufferDataVector& data_vector);
 
 /** @brief Copies each piece into `destination` and returns one copy region per piece. The destination must have
  *  StagedImageSize bytes, and its offset must be a multiple of `alignment`. Each piece is tightly packed in staging.
  *  The worker set the depth of every piece. */
-[[nodiscard]] std::vector<VkBufferImageCopy> WriteImageData(
+[[nodiscard]] foundation::SmallVector<VkBufferImageCopy, 16> WriteImageData(
     const StagingDestination& destination,
     const InternalResourceDataContainer::ImageDataVector& image_data_vector,
     VkImageAspectFlags aspect_mask,

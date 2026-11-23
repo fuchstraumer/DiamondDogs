@@ -13,6 +13,7 @@
 #include "UploadBuffer.hpp"
 #include "VulkanConversions.hpp"
 #include "containers/RingAllocator.hpp"
+#include "containers/SmallVector.hpp"
 #include "containers/mwsrQueue.hpp"
 #include "vulkan/vulkan_core.h"
 
@@ -847,7 +848,7 @@ void ResourceTransferSystem::processMessage(TransferSystemSetBufferDataMessage&&
         return;
     }
 
-    const std::vector<VkBufferCopy> bufferCopies = WriteBufferData(staging->Destination, dataVector);
+    const foundation::SmallVector<VkBufferCopy, 16> bufferCopies = WriteBufferData(staging->Destination, dataVector);
     flushStaging(*staging);
 
     const VkCommandBuffer cmd = beginTransfer(message.Waits);
@@ -875,7 +876,7 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
     InternalResourceDataContainer::ImageDataVector& imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(message.Data.DataVector);
 
     // only the subresources that the pieces write change layout. the others can be in use, in any layout
-    std::vector<VkImageSubresourceRange> touchedRanges(imageDataVector.size());
+    foundation::SmallVector<VkImageSubresourceRange, 16> touchedRanges(imageDataVector.size());
     for (auto&& [index, piece] : std::views::enumerate(imageDataVector))
     {
         touchedRanges[static_cast<size_t>(index)] = TouchedRangeOf(barrierAspect, piece.MipLevel, piece.ArrayLayer, piece.NumLayers);
@@ -892,7 +893,8 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
         return;
     }
 
-    const std::vector<VkBufferImageCopy> bufferImageCopies = WriteImageData(staging->Destination, imageDataVector, copyAspect, stagingAlignment);
+    const foundation::SmallVector<VkBufferImageCopy, 16> bufferImageCopies =
+        WriteImageData(staging->Destination, imageDataVector, copyAspect, stagingAlignment);
     flushStaging(*staging);
 
     const VkCommandBuffer cmd = beginTransfer(message.Waits);

@@ -131,7 +131,7 @@ struct InternalResourceDataContainer
         uint64_t DestinationOffset{ 0u };
     };
 
-    using BufferDataVector = std::vector<BufferData>;
+    using BufferDataVector = foundation::SmallVector<BufferData, 4>;
 
     // Images have a bit more metadata, so we need this struct for them
     struct ImageData
@@ -161,7 +161,7 @@ struct InternalResourceDataContainer
         int32_t MipLevel{ 0 };
     };
 
-    using ImageDataVector = std::vector<ImageData>;
+    using ImageDataVector = foundation::SmallVector<ImageData, 4>;
 
     std::variant<BufferDataVector, ImageDataVector> DataVector;
     std::optional<uint32_t> NumLayers;

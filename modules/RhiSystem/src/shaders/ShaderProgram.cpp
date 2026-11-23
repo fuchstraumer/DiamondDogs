@@ -1,4 +1,5 @@
 #include "ShaderProgram.hpp"
+#include "containers/SmallVector.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
 #include "RhiResult.hpp"
@@ -141,19 +142,23 @@ namespace rhi
 
                 Type = ProgramType::Compute;
                 const ShaderBinaryOptions& computeOptions = stages_to_create.front();
-                const std::vector<VkPushConstantRange> pushConstantRanges = computeOptions.PushConstants |
-                    std::views::transform(ConvertPushConstantRange) |
-                    std::ranges::to<std::vector>();
-                const std::vector<VkDescriptorSetLayout> setLayouts = computeOptions.DescriptorLayouts |
-                    std::views::transform(&DescriptorSetLayoutHandle::As<VkDescriptorSetLayout>) |
-                    std::ranges::to<std::vector>();
+                foundation::SmallVector<VkPushConstantRange, 2> pushConstantRanges;
+                pushConstantRanges.reserve(computeOptions.PushConstants.size());
+                for (const PushConstantRange& range : computeOptions.PushConstants)
+                {
+                    pushConstantRanges.emplace_back(ConvertPushConstantRange(range));
+                }
+
+                // ensure that the cast we're about to do is still valid
+                static_assert(sizeof(DescriptorSetLayoutHandle) == sizeof(VkDescriptorSetLayout) &&
+                              alignof(DescriptorSetLayoutHandle) == alignof(VkDescriptorSetLayout));
 
                 VkShaderCreateInfoEXT createInfo = k_ComputeCreateInfo;
                 createInfo.codeSize = computeOptions.Bytecode.size() * sizeof(uint32_t);
                 createInfo.pCode = computeOptions.Bytecode.data();
                 createInfo.pName = computeOptions.EntryPointName.c_str();
-                createInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
-                createInfo.pSetLayouts = setLayouts.data();
+                createInfo.setLayoutCount = static_cast<uint32_t>(computeOptions.DescriptorLayouts.size());
+                createInfo.pSetLayouts = reinterpret_cast<const VkDescriptorSetLayout*>(computeOptions.DescriptorLayouts.data());
                 createInfo.pushConstantRangeCount = static_cast<uint32_t>(pushConstantRanges.size());
                 createInfo.pPushConstantRanges = pushConstantRanges.data();
 

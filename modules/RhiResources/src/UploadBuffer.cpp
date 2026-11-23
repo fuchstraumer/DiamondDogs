@@ -1,4 +1,5 @@
 #include "UploadBuffer.hpp"
+#include "containers/SmallVector.hpp"
 #include "ImageDataFormats.hpp"
 #include "ResourceMessageTypesInternal.hpp"
 #include "vulkan/vulkan_core.h"
@@ -80,11 +81,11 @@ uint64_t ImageStagingAlignment(const ImageFormat& format) noexcept
     return std::lcm(TexelBlockBytes(format.ComponentFormat), k_TransferQueueOffsetAlignment);
 }
 
-std::vector<VkBufferCopy> WriteBufferData(
+foundation::SmallVector<VkBufferCopy, 16> WriteBufferData(
     const StagingDestination& destination,
     const InternalResourceDataContainer::BufferDataVector& data_vector)
 {
-    std::vector<VkBufferCopy> bufferCopies(data_vector.size());
+    foundation::SmallVector<VkBufferCopy, 16> bufferCopies(data_vector.size());
     uint64_t offset = 0u;
 
     for (auto&& [index, data] : std::views::enumerate(data_vector))
@@ -103,7 +104,7 @@ std::vector<VkBufferCopy> WriteBufferData(
     return bufferCopies;
 }
 
-std::vector<VkBufferImageCopy> WriteImageData(
+foundation::SmallVector<VkBufferImageCopy, 16> WriteImageData(
     const StagingDestination& destination,
     const InternalResourceDataContainer::ImageDataVector& image_data_vector,
     VkImageAspectFlags aspect_mask,
@@ -111,7 +112,7 @@ std::vector<VkBufferImageCopy> WriteImageData(
 {
     // fixed: this sized the vector to the element count and then also emplaced each copy, so every region was recorded
     // twice, the second time over the first. it also used the image's layer count for every element
-    std::vector<VkBufferImageCopy> bufferImageCopies(image_data_vector.size());
+    foundation::SmallVector<VkBufferImageCopy, 16> bufferImageCopies(image_data_vector.size());
     uint64_t offset = 0u;
 
     for (auto&& [index, data] : std::views::enumerate(image_data_vector))
