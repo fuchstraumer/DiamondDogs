@@ -7,7 +7,7 @@ If:
 # mode. The C++ standard comes from those command lines (/std:c++latest), and the compiler is not replaced:
 # Lodestone's `Compiler: clang++` would make clangd parse /MDd and the other MSVC flags as file names.
 CompileFlags:
-  CompilationDatabase: build/ninja-msvc
+  CompilationDatabase: build/ninja-clang-cl
   Add: [ -Wall, -Wpedantic, -Wextra, -Weverything,
          -Wno-c++98-compat, -Wno-c++98-compat-pedantic, -Wno-pre-c++17-compat,
          -Wno-exit-time-destructors, -Wno-global-constructors,
@@ -78,7 +78,7 @@ Documentation:
 
 ---
 If:
-  PathMatch: .*(BootstrapWebGpu|WebGpuTriangleTest|/webgpu/|WebGpu\.(hpp|cpp)).*
+  PathMatch: .*(BootstrapWebGpu|WebGpu[A-Za-z]*Test|/webgpu/|WebGpu\.(hpp|cpp)).*
 CompileFlags:
   CompilationDatabase: build/emscripten
   Remove: [ "--use-port=*" ]
