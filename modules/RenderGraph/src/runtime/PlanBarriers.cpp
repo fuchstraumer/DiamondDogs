@@ -193,7 +193,8 @@ namespace
     }
 
     // OnNoHistory::Clear: a clear is a transfer write of the whole copy. Its batch waits for every earlier access and
-    // puts an image in General, which vkCmdClearColorImage allows.
+    // puts an image in General, which vkCmdClearColorImage allows. A frame target's fallback clear is an empty
+    // rendering pass instead, because a swapchain image has no transfer usage: ColorAttachment layout and scope.
     void PlanClears(const CompiledData& data, std::span<ResourceSync> sync, FramePlan& plan)
     {
         if (plan.Clears.empty())
@@ -202,13 +203,18 @@ namespace
         }
 
         const int32_t firstBarrier = static_cast<int32_t>(plan.Barriers.size());
-        const SyncScope clear{ .Stages = rhi::PipelineStage::AllTransfer, .Accesses = rhi::Access::TransferWrite };
+        const SyncScope transferClear{ .Stages = rhi::PipelineStage::AllTransfer, .Accesses = rhi::Access::TransferWrite };
+        const SyncScope renderClear{ .Stages = rhi::PipelineStage::ColorAttachmentOutput,
+                                     .Accesses = rhi::Access::ColorAttachmentWrite };
 
         for (const int32_t copy : plan.Clears)
         {
             ResourceSync& state = sync[copy];
+            const bool target = IsFrameTargetRow(data, copy);
             const bool image = IsImageRow(data, data.CopyRows[copy]);
-            const rhi::ImageLayout newLayout = image ? rhi::ImageLayout::General : rhi::ImageLayout::Undefined;
+            const SyncScope clear = target ? renderClear : transferClear;
+            const rhi::ImageLayout imageLayout = target ? rhi::ImageLayout::ColorAttachment : rhi::ImageLayout::General;
+            const rhi::ImageLayout newLayout = image ? imageLayout : rhi::ImageLayout::Undefined;
             const SyncScope before{ .Stages = state.Write.Stages | state.ReadsSinceWrite.Stages, .Accesses = state.Write.Accesses };
 
             plan.Barriers.push_back(PlannedBarrier

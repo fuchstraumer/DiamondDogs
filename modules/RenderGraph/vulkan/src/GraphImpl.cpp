@@ -59,14 +59,14 @@ namespace
             [[maybe_unused]] const bool finished = WaitForTimeline(*this, LastSignaled, k_TeardownTimeoutNs);
         }
 
-        // a present waits on a RenderDone semaphore after the timeline signals, and only an idle queue proves that it
-        // finished (VK_EXT_swapchain_maintenance1 present fences would avoid this wait)
-        const auto presented = [](const TargetRuntime& target)
+        // a present waits on a RenderDone semaphore after the timeline signals: the target's present fences prove that
+        // it finished, and without them only an idle device does
+        const auto presentsUnfinished = [](TargetRuntime& target)
         {
-            return !target.RenderDone.empty();
+            return !target.RenderDone.empty() && !target.Target->WaitForPresents(k_TeardownTimeoutNs);
         };
 
-        if (std::ranges::any_of(Targets, presented))
+        if (std::ranges::any_of(Targets, presentsUnfinished))
         {
             vkDeviceWaitIdle(VulkanDevice);
         }

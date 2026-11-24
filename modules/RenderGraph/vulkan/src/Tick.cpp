@@ -37,7 +37,6 @@
 #include "TargetExtents.hpp"
 #include <array>
 #include <limits>
-#include <memory>
 #include <vector>
 #include <string_view>
 #include <cstddef>
@@ -172,7 +171,9 @@ namespace
     void ReallocateTarget(GraphImpl& graph, int32_t target)
     {
         const CompiledData& data = graph.Compiled.Data();
-        const Extent2D allocation = graph.Targets[target].Extents.Allocation;
+        // the first allocation is at once; a later one makes its images at Pending, and Allocation follows at the swap
+        const TargetExtents& extents = graph.Targets[target].Extents;
+        const Extent2D allocation = extents.Pending.IsEmpty() ? extents.Allocation : extents.Pending;
         int32_t lastFirstAllocated = -1;
 
         for (int32_t copy = 0; copy < static_cast<int32_t>(data.CopyRows.size()); ++copy)
@@ -264,7 +265,7 @@ namespace
                 continue;
             }
 
-            // a failed create keeps the old images: the next settled resize tries again
+            // a failed create keeps the old images and the old allocation: the next settle tries again
             if (failed)
             {
                 graph.Retired.push_back(std::move(next.Future));
@@ -284,6 +285,15 @@ namespace
         }
 
         std::erase_if(graph.NextImages, ofTarget);
+        TargetExtents& extents = graph.Targets[target].Extents;
+
+        if (failed)
+        {
+            DropPendingAllocation(extents);
+            return;
+        }
+
+        [[maybe_unused]] const ExtentChange committed = CommitAllocation(extents);
     }
 
 }
@@ -332,7 +342,7 @@ bool AcquireTargets(GraphImpl& graph)
         // a present may not reuse a semaphore that is still pending, so each image has its own
         while (runtime.RenderDone.size() < runtime.Acquired->ImageCount)
         {
-            runtime.RenderDone.push_back(std::make_unique<rhi::BinarySemaphore>(graph.Device.Handle()));
+            runtime.RenderDone.emplace_back(graph.Device.Handle());
         }
 
         // the acquired image owes nothing to earlier frames, and starts Undefined
@@ -355,7 +365,7 @@ void PresentTargets(GraphImpl& graph)
         }
 
         const bool swapchain = runtime.Acquired->ImageCount > 0u;
-        const rhi::BinarySemaphoreHandle renderDone = swapchain ? runtime.RenderDone[runtime.Acquired->ImageIndex]->Handle()
+        const rhi::BinarySemaphoreHandle renderDone = swapchain ? runtime.RenderDone[runtime.Acquired->ImageIndex].Handle()
                                                                 : rhi::BinarySemaphoreHandle{};
         runtime.Target->Present(renderDone);
         runtime.Acquired.reset();
@@ -632,7 +642,7 @@ bool SubmitFrame(GraphImpl& graph, int32_t frame_slot, uint64_t signal_value)
     {
         if (target.Acquired.has_value() && target.Acquired->ImageCount > 0u)
         {
-            signals[signalCount] = rhi::SemaphoreSubmitInfo{ target.RenderDone[target.Acquired->ImageIndex]->Handle(),
+            signals[signalCount] = rhi::SemaphoreSubmitInfo{ target.RenderDone[target.Acquired->ImageIndex].Handle(),
                                                              rhi::PipelineStage::AllCommands };
             ++signalCount;
         }
@@ -899,12 +909,28 @@ namespace
         {
             const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, VK_REMAINING_MIP_LEVELS, 0u, VK_REMAINING_ARRAY_LAYERS };
 
-            // a frame target whose writers skipped: its fallback color (step 7)
+            // a frame target whose writers skipped: its fallback color (step 7), through an empty rendering pass,
+            // because a swapchain image has color-attachment usage only
             if (IsFrameTargetRow(data, copy))
             {
-                const math::Float4 color = data.FrameTargets[FrameTargetOfRow(data, copy)].Fallback.ClearColor;
-                const VkClearColorValue fallback{ .float32 = { color.x, color.y, color.z, color.w } };
-                vkCmdClearColorImage(vulkanCommandBuffer, ImageOfCopy(graph, copy), VK_IMAGE_LAYOUT_GENERAL, &fallback, 1u, &range);
+                const int32_t target = FrameTargetOfRow(data, copy);
+                const Extent2D extent = graph.Targets[target].Acquired->Extent;
+
+                const rhi::ColorAttachment color
+                {
+                    .ImageView = rhi::ImageViewHandle{ reinterpret_cast<uint64_t>(ViewOfCopy(graph, copy)) },
+                    .Layout = rhi::ImageLayout::ColorAttachment,
+                    .LoadOp = rhi::LoadOp::Clear,
+                    .StoreOp = rhi::StoreOp::Store,
+                    .ClearValue = data.FrameTargets[target].Fallback.ClearColor,
+                };
+
+                rhi::RenderingInfo rendering{};
+                rendering.ColorAttachments = std::span<const rhi::ColorAttachment>{ &color, 1u };
+                rendering.RenderArea = rhi::Rect2D{ 0, 0, static_cast<uint32_t>(std::max(extent.Width, 1)),
+                                                    static_cast<uint32_t>(std::max(extent.Height, 1)) };
+                command_buffer.BeginRendering(rendering);
+                command_buffer.EndRendering();
                 continue;
             }
 

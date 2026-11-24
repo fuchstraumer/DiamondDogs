@@ -52,6 +52,11 @@ namespace loom
         return finalLayout;
     }
 
+    bool OffscreenFrameTarget::WaitForPresents([[maybe_unused]] uint64_t timeout_ns)
+    {
+        return true;
+    }
+
     uint32_t OffscreenFrameTarget::PresentCount() const noexcept
     {
         return presentCount;

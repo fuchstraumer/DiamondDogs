@@ -10,6 +10,15 @@
 namespace loom
 {
 
+namespace
+{
+
+    // Two presents more than the frames in flight before a fence comes round again
+    constexpr size_t k_ExtraPresentFences = 2u;
+    constexpr uint64_t k_DestroyTimeoutNs = 10'000'000'000ull;
+
+}
+
     SwapchainFrameTarget::SwapchainFrameTarget(const rhi::Device& _device, Swapchain& _swapchain, int32_t frame_slots) :
         device{ _device },
         swapchain{ _swapchain }
@@ -22,9 +31,33 @@ namespace loom
         {
             acquireSemaphores.emplace_back(device.Handle());
         }
+
+        if (!device.IsFeatureEnabled(k_PresentFenceFeature))
+        {
+            return;
+        }
+
+        // a present reuses a fence only after it signaled; the ring is long enough that the wait is almost never real
+        const size_t fenceCount = static_cast<size_t>(frame_slots) + k_ExtraPresentFences;
+        const VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, 0u };
+        presentFences.resize(fenceCount, VK_NULL_HANDLE);
+        fencePending.resize(fenceCount, 0u);
+
+        for (VkFence& fence : presentFences)
+        {
+            vkCreateFence(device.Handle().As<VkDevice>(), &fenceInfo, nullptr, &fence);
+        }
     }
 
-    SwapchainFrameTarget::~SwapchainFrameTarget() = default;
+    SwapchainFrameTarget::~SwapchainFrameTarget()
+    {
+        [[maybe_unused]] const bool finished = WaitForPresents(k_DestroyTimeoutNs);
+
+        for (const VkFence fence : presentFences)
+        {
+            vkDestroyFence(device.Handle().As<VkDevice>(), fence, nullptr);
+        }
+    }
 
     Extent2D SwapchainFrameTarget::CurrentExtent() const
     {
@@ -52,8 +85,12 @@ namespace loom
             }
         }
 
-        // the graph's frames finished; the present engine may still hold an image, so the wait is short, not none
-        vkDeviceWaitIdle(device.Handle().As<VkDevice>());
+        // the graph's frames finished, but a present may still wait on a render-done semaphore: its fence proves it
+        // finished, and without fences only an idle device does
+        if (!WaitForPresents(k_DestroyTimeoutNs))
+        {
+            vkDeviceWaitIdle(device.Handle().As<VkDevice>());
+        }
 
         if (swapchain.Recreate() != SwapchainRecreateResult::Success)
         {
@@ -121,11 +158,25 @@ namespace loom
     {
         const VkSemaphore wait = render_done.As<VkSemaphore>();
         const VkSwapchainKHR handle = static_cast<VkSwapchainKHR>(swapchain.GetNativeHandle());
+        VkFence fence = VK_NULL_HANDLE;
+
+        if (!presentFences.empty())
+        {
+            fence = takeFence();
+        }
+
+        const VkSwapchainPresentFenceInfoKHR fenceInfo
+        {
+            VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_KHR,
+            nullptr,
+            1u,
+            &fence
+        };
 
         const VkPresentInfoKHR presentInfo
         {
             VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-            nullptr,
+            fence != VK_NULL_HANDLE ? &fenceInfo : nullptr,
             1u,
             &wait,
             1u,
@@ -140,6 +191,49 @@ namespace loom
         {
             needsRecreate = true;
         }
+    }
+
+    VkFence SwapchainFrameTarget::takeFence()
+    {
+        const VkDevice vulkanDevice = device.Handle().As<VkDevice>();
+        const VkFence fence = presentFences[nextFence];
+
+        if (fencePending[nextFence] != 0u)
+        {
+            [[maybe_unused]] const VkResult waited = vkWaitForFences(vulkanDevice, 1u, &fence, VK_TRUE, k_DestroyTimeoutNs);
+        }
+
+        vkResetFences(vulkanDevice, 1u, &fence);
+        fencePending[nextFence] = 1u;
+        nextFence = (nextFence + 1u) % static_cast<uint32_t>(presentFences.size());
+        return fence;
+    }
+
+    bool SwapchainFrameTarget::WaitForPresents(uint64_t timeout_ns)
+    {
+        if (presentFences.empty())
+        {
+            return false;
+        }
+
+        const VkDevice vulkanDevice = device.Handle().As<VkDevice>();
+
+        for (size_t index = 0u; index < presentFences.size(); ++index)
+        {
+            if (fencePending[index] == 0u)
+            {
+                continue;
+            }
+
+            if (vkWaitForFences(vulkanDevice, 1u, &presentFences[index], VK_TRUE, timeout_ns) != VK_SUCCESS)
+            {
+                return false;
+            }
+
+            fencePending[index] = 0u;
+        }
+
+        return true;
     }
 
     rhi::ImageLayout SwapchainFrameTarget::FinalLayout() const

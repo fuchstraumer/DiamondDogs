@@ -40,14 +40,15 @@ GBufferOut GBufferPS(VertexOut input)
     return result;
 }
 
-// One triangle over the whole target, from SV_VertexID
+// One triangle over the whole target, from SV_VertexID. NDC is Y-up and texture v is down, so v = 1 - corner.y: a
+// pixel samples the texel at its own place.
 [shader("vertex")]
 VertexOut FullscreenVS(uint vertexId : SV_VertexID)
 {
     const float2 corner = float2(float((vertexId << 1u) & 2u), float(vertexId & 2u));
     VertexOut result;
     result.Position = float4(corner * 2.0f - 1.0f, 0.0f, 1.0f);
-    result.Uv = corner;
+    result.Uv = float2(corner.x, 1.0f - corner.y);
     return result;
 }
 

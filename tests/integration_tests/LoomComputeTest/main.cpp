@@ -316,6 +316,8 @@ namespace
             .FrameSlots = k_FrameSlots,
             .Timestamps = loom::PassTimestamps::On,
             .Sink = sink,
+            .FrameTargets = {},
+            .TargetSettleSeconds = 0.0,
         };
 
         loom::RealizeResult realized = loom::Graph::Realize(std::move(*compiled), realizeInputs);

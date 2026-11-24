@@ -73,14 +73,13 @@ namespace loom
     };
 
     // One frame target (step 7). Target is the caller's object. Acquired is this Tick's image, or nothing. RenderDone
-    // holds one binary semaphore per swapchain image: a present may not reuse a semaphore that is still pending. Each one is
-    // on the heap, because growth must not move one (a moved-from rhi::BinarySemaphore asserts when it is destroyed).
+    // holds one binary semaphore per swapchain image: a present may not reuse a semaphore that is still pending.
     struct TargetRuntime
     {
         FrameTarget* Target{ nullptr };
         TargetExtents Extents;
         std::optional<AcquiredTarget> Acquired;
-        std::vector<std::unique_ptr<rhi::BinarySemaphore>> RenderDone;
+        std::vector<rhi::BinarySemaphore> RenderDone;
     };
 
     // A settled resize's new image for one copy of an OfTarget image. Every new image of a target swaps in on one

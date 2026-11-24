@@ -52,6 +52,11 @@ namespace loom
         // The layout the target takes its image back in: PresentSource for a swapchain. Undefined keeps the image in
         // the layout of its last use (an offscreen target that a test reads afterwards picks TransferSource).
         [[nodiscard]] virtual rhi::ImageLayout FinalLayout() const = 0;
+
+        // Blocks until every present that this target made has finished, or until timeout_ns passes. Loom calls it
+        // before it destroys the render-done semaphores. False: the time passed, or the target cannot tell (a
+        // swapchain without present fences), and the caller must wait for the device instead.
+        [[nodiscard]] virtual bool WaitForPresents(uint64_t timeout_ns) = 0;
     };
 
     // Which object implements each imported FrameTargetKey (RealizeInputs::FrameTargets)
@@ -74,6 +79,8 @@ namespace loom
         [[nodiscard]] std::optional<AcquiredTarget> TryAcquire(const rhi::GpuWait& last_submit) override;
         void Present(rhi::BinarySemaphoreHandle render_done) override;
         [[nodiscard]] rhi::ImageLayout FinalLayout() const override;
+        // Nothing to wait for: an offscreen present is only a count
+        [[nodiscard]] bool WaitForPresents(uint64_t timeout_ns) override;
 
         // The count of Present calls: the frames that were handed back
         [[nodiscard]] uint32_t PresentCount() const noexcept;

@@ -37,6 +37,12 @@ namespace rhi
     {
         if (this != &other)
         {
+            // the semaphore this object held goes first, or it leaks
+            if (handle.IsValid() && device)
+            {
+                vkDestroySemaphore(device.As<VkDevice>(), handle.As<VkSemaphore>(), nullptr);
+            }
+
             device = other.device;
             handle = std::move(other.handle);
             other.handle = BinarySemaphoreHandle{ 0 };
@@ -47,7 +53,9 @@ namespace rhi
 
     BinarySemaphore::~BinarySemaphore()
     {
-        assert(device.IsValid() && "Device must be valid when destroying a binary semaphore");
+        // a moved-from semaphore has no device and no handle, and has nothing to destroy
+        assert((device.IsValid() || !handle.IsValid()) && "Device must be valid when destroying a binary semaphore");
+
         if (handle.IsValid() && device)
         {
             vkDestroySemaphore(device.As<VkDevice>(), handle.As<VkSemaphore>(), nullptr);
@@ -96,6 +104,12 @@ namespace rhi
     {
         if (this != &other)
         {
+            // the semaphore this object held goes first, or it leaks
+            if (handle.IsValid() && device)
+            {
+                vkDestroySemaphore(device.As<VkDevice>(), handle.As<VkSemaphore>(), nullptr);
+            }
+
             device = other.device;
             handle = std::move(other.handle);
             currentValue = other.currentValue;
@@ -108,7 +122,9 @@ namespace rhi
 
     TimelineSemaphore::~TimelineSemaphore()
     {
-        assert(device.IsValid() && "Device must be valid when destroying a timeline semaphore");
+        // a moved-from semaphore has no device and no handle, and has nothing to destroy
+        assert((device.IsValid() || !handle.IsValid()) && "Device must be valid when destroying a timeline semaphore");
+
         if (handle.IsValid() && device)
         {
             vkDestroySemaphore(device.As<VkDevice>(), handle.As<VkSemaphore>(), nullptr);

@@ -33,7 +33,7 @@ cmake --preset ninja-msvc
 ```
 
 ```bat
-cmake --build build/ninja-msvc --config Debug --target foundation_tests rhi_system_tests platform_system_tests resource_context_tests loom_tests color_pipe_tests frame_capture_tests input_system_tests ocean_camera_tests sea_state_tests content_compiler_tests agent_tools_tests bootstrap_tests bootstrap_vulkan_tests ContentCooker TriangleTest ComputeManifestTest ImGuiTest OceanFft loom_tests LoomComputeTest LoomImageTest
+cmake --build build/ninja-msvc --config Debug --target foundation_tests rhi_system_tests platform_system_tests resource_context_tests loom_tests color_pipe_tests frame_capture_tests input_system_tests ocean_camera_tests sea_state_tests content_compiler_tests agent_tools_tests bootstrap_tests bootstrap_vulkan_tests ContentCooker TriangleTest ComputeManifestTest ImGuiTest OceanFft loom_tests LoomComputeTest LoomImageTest LoomDrawTest LoomTriangleTest
 ```
 
 For a build that runs on another machine, build `OceanFft_package` in Release on `ninja-msvc`. It writes
@@ -103,6 +103,8 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `frame_capture_tests` | FrameCapture's conversions with no GPU (the decode of every captured format and encoding, the sRGB encode, the downsample), against the double reference in `color_math`. Also `CaptureSchedule`. |
 | `LoomComputeTest` | Loom on a real device: two compute levels through Compile, Realize and Tick, both `HASH_TWICE` variants against the CPU, and LM701 on a short import. |
 | `LoomImageTest` | Loom step 6 on a real device: a storage image then sampled, an imported image with a sampler that sizes a dispatch, history rings (a buffer and an image, `OnNoHistory::Clear`), `WhenInputsChange` and `OnTrigger`, against the CPU. It cannot prove image layouts on NVIDIA (the Loom README says why). |
+| `LoomDrawTest` | Loom step 7 on a real device, headless: a compute cull, a `DrawIndirectCount` depth prepass, a two-target GBuffer and a light pass into an `OffscreenFrameTarget`, every pixel against the CPU; then the Clear fallback with the light pass disabled. |
+| `LoomTriangleTest` | The same graph into `SwapchainFrameTarget`. Takes `--frames=N` and `--resize` like TriangleTest; with `--resize`, one recreation per resize, and the settled extents must equal the framebuffer. |
 | `ComputeManifestTest` | The cook-to-dispatch path. Lodestone cooks `HashFill.slang`, `rhi::ShaderLibrary` selects each variant, `ResourceContext` creates every buffer, and every output word matches the CPU. |
 | `GpuPyramidTest` | `pyramid::MipGenerator` fills every level of rgba32f and rgba16f 2D arrays, on the fast and the general pipeline, for power-of-two, odd and non-square sizes. Each level matches the CPU reduction of the level above it: min and max bit for bit, averages within float rounding. |
 | `OceanFftTest` | The ocean compute chain (IFFT kernels, spectrum, tick, resolve, mips) against double precision on the CPU. |

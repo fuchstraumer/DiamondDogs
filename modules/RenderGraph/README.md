@@ -344,7 +344,9 @@ graph image, the layout of the usage stated at `Supply` for an import. Against t
 
 `OnNoHistory::Clear` adds a batch before every run (`BeforeRun == k_BeforeClears`): each cleared copy waits for its
 earlier accesses and goes to a transfer write (an image to `General`). The backend then clears it, and the first
-level's reads wait for the clear by the rules above. A frame target with the `Clear` action joins the same batch.
+level's reads wait for the clear by the rules above. A frame target with the `Clear` action joins the same batch, but
+as a color-attachment write in `ColorAttachment`: the backend clears it with an empty rendering pass (load op Clear),
+because a swapchain image has color-attachment usage only, and `vkCmdClearColorImage` needs transfer usage.
 
 A frame-target row starts a new epoch at each acquire, in `Undefined`, so its first use this frame changes its layout
 from `Undefined`. After the last level, the frame-end batch (`BeforeRun == k_AfterRuns`) moves each acquired target
@@ -368,16 +370,40 @@ pending work, because a new object owes nothing to the old one. Split barriers c
 backend calls once per acquire:
 
 - **Target:** what the target reports (the swapchain extent; a web canvas's CSS size times `devicePixelRatio`).
-- **Allocation:** the extent the `OfTarget` images are made at (times each image's own scale, `ScaledExtent`). It
-  lags the target: it takes the target's value only after the target has kept one value for the settle window
-  (counted with Tick's `dT`, so no clock call), or when the target says its resize finished. The first report
-  allocates at once. An empty extent (a minimized window) never becomes the allocation.
+- **Allocation:** the extent of the `OfTarget` images in use (times each image's own scale, `ScaledExtent`). It
+  lags the target. When the target has kept one value for the settle window (counted with Tick's `dT`, so no clock
+  call), or says its resize finished, that value becomes **Pending**, and `UpdateTargetExtents` returns `Reallocate`.
+  The backend makes the new images at Pending, and `CommitAllocation` moves Pending to Allocation on the Tick that
+  swaps them in. A failed create calls `DropPendingAllocation`: the old allocation stays, and the settle window starts
+  again. The first report allocates at once. An empty extent (a minimized window) never becomes the allocation.
 - **Render:** `min(target x render scale, allocation)`. Viewports and scissors use it. `SetRenderScale` (0 < scale
   <= 1) is the hook for the scalability system: it changes only the render extent.
 
 During a drag the scene renders at the old allocation, and the pass that writes the frame target scales it up with
 `LoomFrame`'s `RenderToAllocation`. `UpdateTargetExtents` returns `Reallocate` once, when the resize settles; the
 backend then creates the new images in the background and swaps them in one Tick (step 7b).
+
+So Allocation, Render, `g_LoomFrame` and the images in use always agree: during the creation of the new images, all
+of them still describe the old ones. (Until 2026-11-23 the allocation moved at `Reallocate`, and the render area was
+larger than the images in use until the swap.)
+
+```mermaid
+sequenceDiagram
+    participant W as Window
+    participant X as TargetExtents
+    participant B as Backend (Tick)
+    participant R as ResourceContext
+    W->>X: CurrentExtent 960x540 to 1600x900 (drag)
+    Note over X: Target follows each report, StableSeconds = 0
+    Note over B: render at the old allocation, viewport = Render
+    X->>X: one value for the settle window
+    X-->>B: Reallocate (Pending = 1600x900, Allocation unchanged)
+    B->>R: create every OfTarget copy at Pending (NextImages)
+    Note over B: old images still bound, and Allocation and Render still describe them
+    R-->>B: all new images of the target exist
+    B->>B: SwapTargetImages: swap all in one Tick, new epoch per row, CommitAllocation
+    Note over B: old images go to Retired, destroyed after LastSubmit
+```
 
 ### Params (`ParamsStore`)
 
@@ -425,7 +451,30 @@ the last submit, unregisters the timeline, then frees what the graph made.
 
 ### Tick
 
-`Graph::Tick` never blocks (T1). Each status other than `Submitted` means "try again next Tick". In order:
+`Graph::Tick` never blocks (T1). Each status other than `Submitted` means "try again next Tick". The flow, with the
+status that each early exit returns:
+
+```mermaid
+flowchart TD
+    A[Frame slot free?] -- no --> A1([NoFrameSlot])
+    A -- yes --> B[RetireObjects, UpdateTargets: settle, Reallocate, SwapTargetImages]
+    B --> C[PollRows: futures to readiness, LM701 and LM702]
+    C --> D[DecideRuns: Runs, skip reasons, TargetActions, Clears]
+    D -- nothing runs or clears --> D1([NothingToRun])
+    D --> E[ParamsStore::CheckRuns]
+    E -- LM703 --> E1([Failed])
+    E --> F[AcquireTargets: Render or Clear targets only]
+    F -- a target gave nothing --> F1([TargetNotReady])
+    F --> G[PlanBarriers: batches, then WriteDescriptors: changed epochs only]
+    G --> H[Record: LoomFrame, clear batch and clears, per level: batch then passes, frame-end batch]
+    H --> I[Submit: wait acquires and uploads, signal timeline and RenderDone]
+    I --> J[PresentTargets, CommitRuns]
+    J --> K([Submitted])
+```
+
+The core (`DecideRuns`, `PlanBarriers`) only writes the `FramePlan`; the backend only reads it. That is why
+`loom_tests` can prove every decision and every barrier with no device, and why a WebGPU backend can reuse the plan.
+In order:
 
 1. **Frame slot.** If the timeline has not reached the value that this slot last signaled, return `NoFrameSlot`.
    `WaitForFrameSlot(timeout)` blocks for it, outside Tick, on desktop only.
@@ -453,8 +502,8 @@ the last submit, unregisters the timeline, then frees what the graph made.
 8. **Record and submit** (`SubmitFrame`). One `vkCmdPipelineBarrier2` per batch, with one global memory barrier
    that merges the scopes of the batch's rows (every buffer uses concurrent sharing, so this orders the same work as
    one buffer barrier per row; `ExplainLastTick` still lists the rows), plus one image barrier for each layout change
-   (every mip and layer, color aspect). The clear batch and the clears (`vkCmdFillBuffer`, `vkCmdClearColorImage`)
-   come first. Then the passes of that level. A `DispatchThreadsOver` an image whose extent Compile did not know (an
+   (every mip and layer, color aspect). The clear batch and the clears (`vkCmdFillBuffer`, `vkCmdClearColorImage`,
+   and an empty rendering pass for a frame target) come first. Then the passes of that level. A `DispatchThreadsOver` an image whose extent Compile did not know (an
    `AnyExtent` import) takes its group count from the image's `Description()`: width, height, and depth or layers. The
    submit waits for each row that a running pass uses and that is `Created`, not `Complete` (CC-R2), with one wait
    per semaphore at the highest value, and for each acquired target's acquire semaphore. It signals the graph's
@@ -477,11 +526,42 @@ the last submit, unregisters the timeline, then frees what the graph made.
    and return `Submitted`.
 
 **Frame targets.** `include/FrameTarget.hpp` (in `loom_vulkan`) is the interface: `CurrentExtent()`,
-`ResizeFinished()`, `TryAcquire(last_submit)`, `Present(render_done)` and `FinalLayout()`, none of which blocks.
-`OffscreenFrameTarget` serves headless runs and tests. `SwapchainFrameTarget` (`loom_vulkan_platform`, so that
-`loom_vulkan` links no PlatformSystem) acquires with a timeout of 0, and when the swapchain is out of date or
-suboptimal it recreates it, but only once `last_submit` has passed (`vkDeviceWaitIdle` then waits only for the present
-engine). `Graph::SetRenderScale(target, scale)` is the scalability hook; `Graph::ExtentsOf(target)` gives the three
+`ResizeFinished()`, `TryAcquire(last_submit)`, `Present(render_done)` and `FinalLayout()`, none of which blocks, and
+`WaitForPresents(timeout)`, which blocks and which only the `Graph` destructor calls. Loom holds a reference to each
+target and never owns it. `OffscreenFrameTarget` serves headless runs and tests. `SwapchainFrameTarget`
+(`loom_vulkan_platform`, so that `loom_vulkan` links no PlatformSystem) acquires with a timeout of 0, and when the
+swapchain is out of date or suboptimal it recreates it, but only once `last_submit` has passed.
+
+**Present fences.** A present waits on a render-done semaphore after the graph's timeline signals, so the timeline
+cannot say when a present finished. With swapchain maintenance1 (`SwapchainFrameTarget::k_PresentFenceFeature`, the
+EXT or the KHR extension; ask for it as Wanted, with `VK_KHR_surface_maintenance1` or `VK_EXT_surface_maintenance1`),
+each present gets a fence from a ring of frame slots + 2. A fence is reused only after it signaled, so in practice
+`Present` does not wait. A recreate and the `Graph` destructor wait on the fences. Without the feature they wait for
+the whole device (`vkDeviceWaitIdle`).
+
+One frame on a swapchain:
+
+```mermaid
+sequenceDiagram
+    participant T as Tick (CPU)
+    participant S as SwapchainFrameTarget
+    participant Q as Queue
+    participant P as Present engine
+    T->>S: TryAcquire(LastSubmit), timeout 0
+    S->>P: vkAcquireNextImageKHR(acquire semaphore k)
+    S-->>T: image i, view, extent, acquire semaphore k
+    Note over T: row epoch++, layout Undefined
+    T->>Q: submit: wait acquire k and upload timelines; clears, levels, frame-end batch
+    Note over Q: signals timeline value N and RenderDone[i]
+    T->>S: Present(RenderDone[i])
+    S->>P: vkQueuePresentKHR(wait RenderDone[i], present fence f)
+    P-->>S: fence f signals: RenderDone[i] and image i are free
+```
+
+Why one render-done semaphore per image, and one acquire semaphore per frame slot + 1: a present holds its semaphore
+until it finishes, and image i cannot be acquired again before its last present released it, so `RenderDone[i]` is
+free at the next acquire of i. An acquire semaphore is free once the submit that waited on it finished, and the frame
+slot rule makes sure of that after frame slots + 1 acquires. `Graph::SetRenderScale(target, scale)` is the scalability hook; `Graph::ExtentsOf(target)` gives the three
 extents.
 
 For the app: `Timeline()` and `PendingValue()` feed `ResourceContext::Tick`, and `LastSubmit()` is the `GpuWait` that
@@ -507,6 +587,15 @@ Image layouts have the same gap on this machine. With the image barriers removed
 layouts, and the layer does not check a descriptor's layout against the image's for these dispatches. So the layout
 plan is proven in `loom_tests`, and the backend's image barriers and descriptor layouts are not proven by any test.
 A clear that is not recorded is not caught either, because new memory is zero.
+
+Draw passes are better covered: the layer checks each attachment's layout at `vkCmdBeginRendering`, and the image
+accesses of each draw. The step 7 GPU plants (2026-11-23, ninja-msvc, each restored byte for byte) all failed the run:
+
+| Plant | Caught by |
+|---|---|
+| No wait on the acquire semaphore (`GatherWaits`) | LoomTriangleTest: `SYNC-HAZARD-WRITE-AFTER-PRESENT`, `MissingAcquireWait`, `non-acquired-swapchain-image-used`. LoomDrawTest cannot see it: an offscreen target has no semaphore. |
+| No frame-end batch | LoomTriangleTest: `VUID-VkPresentInfoKHR-pImageIndices-01430` (the image is not in `PresentSource`). LoomDrawTest: `VUID-vkCmdDraw-None-09600`. |
+| No batch before GBuffer (the prepass to GBuffer depth barrier, and the layout changes in the same batch) | Both: `VUID-vkCmdBeginRendering-pRenderingInfo-09588`, `-09592`, `VUID-vkCmdDraw-None-09600`. This plant also removes the layout changes, so it proves the layout path, not the depth write-to-read dependency on its own. |
 
 ## Formats
 
@@ -576,4 +665,19 @@ extent sizes the dispatch; a history buffer and a history image that count frame
 Every value must match the CPU, with zero validation messages. See "What synchronization validation sees" for what it
 cannot prove.
 
-Every test must be able to fail: plant the fault, see the test fail, and restore the source.
+`tests/integration_tests/LoomDrawTest` runs step 7 on a real device, headless, into a 64x64 RGBA8
+`OffscreenFrameTarget`. The graph (`LoomDrawGraph.cpp`, shared with LoomTriangleTest) is a compute cull that writes
+the indirect arguments and the count, a depth prepass through `DrawIndirectCount`, a GBuffer pass with two color
+targets and depth `Equal`, and a light pass that reads the GBuffer and `g_LoomFrame` and writes the frame target. The
+triangle is counter-clockwise in Y-up NDC with back faces culled, so it shows only if the negative viewport keeps the
+winding. After four Ticks every pixel must match the CPU within one code value (pixels within 2 px of an edge are
+skipped). Then `Enable(Light, false)`: every pixel must hold the Clear fallback color.
+
+`tests/integration_tests/LoomTriangleTest` draws the same graph into `SwapchainFrameTarget`, with `--frames=N` and
+`--resize` (use at least 120 frames). With `--resize`, the swapchain must be made again once per resize, and after the
+last resize settles (the test Ticks on for at most 1 s, uncounted), the target, allocation and render extents must
+equal the framebuffer. Synchronization validation is on, so a missing acquire wait or present barrier fails the run.
+
+Every test must be able to fail: plant the fault, see the test fail, and restore the source. After a restore, give the
+file a new modification time: ninja compares times, and a copy that keeps the old time leaves the planted object in
+the build.

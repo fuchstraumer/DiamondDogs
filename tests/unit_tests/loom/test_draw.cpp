@@ -623,7 +623,7 @@ TEST(Draw, AnOffscreenTargetWithNoFinalLayoutHasNoFrameEndBatch)
     EXPECT_EQ(BatchBefore(tick.Plan, loom::k_AfterRuns), nullptr);
 }
 
-TEST(Draw, AClearFallbackClearsInGeneralThenPresents)
+TEST(Draw, AClearFallbackClearsAsAnAttachmentThenPresents)
 {
     loom::CollectingSink sink;
     const std::optional<loom::CompiledGraph> compiled = CompileDrawGraph(DrawGraphOptions{}, sink);
@@ -638,16 +638,17 @@ TEST(Draw, AClearFallbackClearsInGeneralThenPresents)
     ASSERT_NE(clears, nullptr);
     const loom::PlannedBarrier* toClear = BarrierOf(tick.Plan, *clears, ScreenRow(*compiled));
     ASSERT_NE(toClear, nullptr);
-    EXPECT_EQ(toClear->NewLayout, rhi::ImageLayout::General);
-    EXPECT_EQ(toClear->After.Accesses, rhi::Access::TransferWrite);
+    EXPECT_EQ(toClear->NewLayout, rhi::ImageLayout::ColorAttachment);
+    EXPECT_EQ(toClear->After.Stages, rhi::PipelineStage::ColorAttachmentOutput);
+    EXPECT_EQ(toClear->After.Accesses, rhi::Access::ColorAttachmentWrite);
 
     const loom::BarrierBatch* frameEnd = BatchBefore(tick.Plan, loom::k_AfterRuns);
     ASSERT_NE(frameEnd, nullptr);
     const loom::PlannedBarrier* present = BarrierOf(tick.Plan, *frameEnd, ScreenRow(*compiled));
     ASSERT_NE(present, nullptr);
-    EXPECT_EQ(present->OldLayout, rhi::ImageLayout::General);
+    EXPECT_EQ(present->OldLayout, rhi::ImageLayout::ColorAttachment);
     EXPECT_EQ(present->NewLayout, rhi::ImageLayout::PresentSource);
-    EXPECT_EQ(present->Before.Accesses, rhi::Access::TransferWrite);
+    EXPECT_EQ(present->Before.Accesses, rhi::Access::ColorAttachmentWrite);
 }
 
 TEST(Draw, DepthMovesToReadOnlyBetweenPrepassAndGBuffer)
@@ -784,8 +785,57 @@ TEST(TargetExtents, ADragDoesNotReallocateUntilItSettles)
     }
 
     EXPECT_EQ(reallocations, 1);
+
+    // the old images stay in use until the new ones swap in, and every extent agrees with them
+    EXPECT_EQ(state.Pending, (loom::Extent2D{ 1400, 780 }));
+    EXPECT_EQ(state.Allocation, (loom::Extent2D{ 1280, 720 }));
+    EXPECT_EQ(state.Render, (loom::Extent2D{ 1280, 720 }));
+
+    EXPECT_EQ(loom::CommitAllocation(state), loom::ExtentChange::Reallocate);
+    EXPECT_TRUE(state.Pending.IsEmpty());
     EXPECT_EQ(state.Allocation, (loom::Extent2D{ 1400, 780 }));
     EXPECT_EQ(state.Render, (loom::Extent2D{ 1400, 780 }));
+    EXPECT_EQ(loom::CommitAllocation(state), loom::ExtentChange::None);
+}
+
+TEST(TargetExtents, ASecondSettleReplacesThePendingExtent)
+{
+    loom::TargetExtents state = Allocated(loom::Extent2D{ 1280, 720 });
+
+    EXPECT_EQ(loom::UpdateTargetExtents(state, loom::Extent2D{ 1600, 900 }, k_Frame, k_Settle, true),
+              loom::ExtentChange::Reallocate);
+
+    // the same extent again does not reallocate again
+    EXPECT_EQ(loom::UpdateTargetExtents(state, loom::Extent2D{ 1600, 900 }, k_Frame, k_Settle, true),
+              loom::ExtentChange::None);
+
+    EXPECT_EQ(loom::UpdateTargetExtents(state, loom::Extent2D{ 1920, 1080 }, k_Frame, k_Settle, true),
+              loom::ExtentChange::Reallocate);
+    EXPECT_EQ(state.Pending, (loom::Extent2D{ 1920, 1080 }));
+    EXPECT_EQ(state.Allocation, (loom::Extent2D{ 1280, 720 }));
+}
+
+TEST(TargetExtents, AFailedSwapKeepsTheAllocationAndSettlesAgain)
+{
+    loom::TargetExtents state = Allocated(loom::Extent2D{ 1280, 720 });
+
+    EXPECT_EQ(loom::UpdateTargetExtents(state, loom::Extent2D{ 1600, 900 }, k_Frame, k_Settle, false),
+              loom::ExtentChange::None);
+
+    for (int32_t frame = 0; frame < 9; ++frame)
+    {
+        [[maybe_unused]] const loom::ExtentChange change =
+            loom::UpdateTargetExtents(state, loom::Extent2D{ 1600, 900 }, k_Frame, k_Settle, false);
+    }
+
+    EXPECT_EQ(state.Pending, (loom::Extent2D{ 1600, 900 }));
+    loom::DropPendingAllocation(state);
+    EXPECT_TRUE(state.Pending.IsEmpty());
+    EXPECT_EQ(state.Allocation, (loom::Extent2D{ 1280, 720 }));
+
+    // the next Tick does not retry at once: the settle window starts again
+    EXPECT_EQ(loom::UpdateTargetExtents(state, loom::Extent2D{ 1600, 900 }, k_Frame, k_Settle, false),
+              loom::ExtentChange::None);
 }
 
 TEST(TargetExtents, AShrinkRendersIntoPartOfTheOldImages)
@@ -804,7 +854,7 @@ TEST(TargetExtents, TheResizeFinishedHintSettlesAtOnce)
 
     EXPECT_EQ(loom::UpdateTargetExtents(state, loom::Extent2D{ 1920, 1080 }, k_Frame, k_Settle, true),
               loom::ExtentChange::Reallocate);
-    EXPECT_EQ(state.Allocation, (loom::Extent2D{ 1920, 1080 }));
+    EXPECT_EQ(state.Pending, (loom::Extent2D{ 1920, 1080 }));
 }
 
 TEST(TargetExtents, AnEmptyTargetNeverBecomesTheAllocation)

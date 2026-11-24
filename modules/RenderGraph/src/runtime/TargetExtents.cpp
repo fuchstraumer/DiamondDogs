@@ -65,16 +65,37 @@ namespace
             state.StableSeconds += delta_seconds;
         }
 
-        const bool differs = !state.Target.IsEmpty() && state.Target != state.Allocation;
+        // a resize that settles again before its images swapped in replaces the pending extent
+        const Extent2D aimed = state.Pending.IsEmpty() ? state.Allocation : state.Pending;
+        const bool differs = !state.Target.IsEmpty() && state.Target != aimed;
         const bool settled = state.StableSeconds >= settle_seconds || resize_finished;
 
         if (differs && settled)
         {
-            state.Allocation = state.Target;
-            return UpdateRender(state, ExtentChange::Reallocate);
+            state.Pending = state.Target;
+            UpdateRender(state, ExtentChange::None);
+            return ExtentChange::Reallocate;
         }
 
         return UpdateRender(state, ExtentChange::None);
+    }
+
+    ExtentChange CommitAllocation(TargetExtents& state)
+    {
+        if (state.Pending.IsEmpty())
+        {
+            return ExtentChange::None;
+        }
+
+        state.Allocation = state.Pending;
+        state.Pending = Extent2D{};
+        return UpdateRender(state, ExtentChange::Reallocate);
+    }
+
+    void DropPendingAllocation(TargetExtents& state)
+    {
+        state.Pending = Extent2D{};
+        state.StableSeconds = 0.0;
     }
 
     bool SetRenderScale(TargetExtents& state, float scale)
