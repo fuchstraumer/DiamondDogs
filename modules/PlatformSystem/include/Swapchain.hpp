@@ -15,6 +15,9 @@ struct SwapchainImpl;
 // The device feature that gives present fences and vkReleaseSwapchainImagesKHR (the EXT or the KHR extension). The
 // window stage asks for it as Wanted. Without it, a recreate and the destruction need an idle device.
 inline constexpr std::string_view k_SwapchainMaintenance1Feature{ "VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR.swapchainMaintenance1" };
+// The device feature that VK_PRESENT_MODE_FIFO_LATEST_READY needs (EXT or KHR); the window stage asks for it as Wanted.
+// Without it, the swapchain does not offer that mode, even where the surface does.
+inline constexpr std::string_view k_FifoLatestReadyFeature{ "VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR.presentModeFifoLatestReady" };
 
 enum class SwapchainAcquireStatus : uint8_t
 {
@@ -53,6 +56,24 @@ enum class SwapchainReleaseStatus : uint8_t
     Released = 1,
     Unsupported = 2,    // no swapchain maintenance1: only a present gives an image back
     Failed = 3
+};
+
+enum class PresentModeChange : uint8_t
+{
+    Invalid = 0,
+    Unchanged = 1,      // the swapchain already uses this mode
+    NextPresent = 2,    // compatible with the current mode: the next present uses it, with no recreate
+    NeedsRecreate = 3,  // the surface offers it, but a new swapchain is needed: the next Recreate uses it
+    Unsupported = 4     // the surface does not offer it
+};
+
+// Counts for tests and measurements, since the swapchain was made
+struct SwapchainStatistics
+{
+    uint32_t Recreates{ 0u };
+    uint64_t RecreateNanoseconds{ 0u };         // the sum over every Recreate
+    uint64_t MaxRecreateNanoseconds{ 0u };
+    uint32_t PresentModeSwitches{ 0u };         // switches that needed no recreate
 };
 
 class Swapchain
@@ -118,8 +139,34 @@ public:
      * LimitToCorePresentation was not called. Then Recreate needs no idle device. */
     [[nodiscard]] bool UsesMaintenance1() const noexcept;
     /** @brief Uses core presentation only, as if the device had no swapchain maintenance1. For tests that prove the
-     * fallback on a device that has it. Call it before the first acquire. */
+     * fallback on a device that has it. Call it before the first acquire; the next Recreate also drops the
+     * maintenance1 structures from the swapchain's create info. */
     void LimitToCorePresentation() noexcept;
+
+    // Swapchain maintenance1 extras (presentation plan P2). Each needs UsesMaintenance1.
+
+    /** @brief True while the window has a framebuffer with area. A minimized window has none; with present scaling, the
+     * swapchain does not report that as out of date, so a caller checks it before it acquires. */
+    [[nodiscard]] bool WindowHasArea() const noexcept;
+    /** @brief The present modes the surface offers and the device can use */
+    [[nodiscard]] std::vector<::PresentMode> SupportedPresentModes() const;
+    /** @brief The present modes the current swapchain can switch to with no recreate (the current one included) */
+    [[nodiscard]] std::vector<::PresentMode> SwitchablePresentModes() const;
+    /** @brief Changes the present mode: at the next present when it is switchable, else at the next Recreate. */
+    [[nodiscard]] PresentModeChange SetPresentMode(::PresentMode mode);
+    /** @brief When on (the default), and the surface supports it, a swapchain whose window changed size is scaled by the
+     * presentation engine (aspect-ratio stretch where offered, centered) until it is recreated, instead of reporting
+     * out of date at once. Takes effect at the next Recreate. */
+    void SetPresentScaling(bool enabled) noexcept;
+    /** @brief When on, the images get their memory at their first acquire, so a Recreate returns sooner; image views
+     * are then made at the first acquire too, and ImageViewHandle is null before it. Off by default, because a caller
+     * may read every view before it acquires. Takes effect at the next Recreate. Known problem (2026-11-23): on NVIDIA
+     * driver 32.0.16.1714, the second Recreate of a deferred swapchain crashes inside the driver; the PlatformSystem
+     * README has the details. */
+    void SetDeferredImageMemory(bool enabled) noexcept;
+    [[nodiscard]] bool UsesPresentScaling() const noexcept;
+    [[nodiscard]] bool UsesDeferredImageMemory() const noexcept;
+    [[nodiscard]] SwapchainStatistics Statistics() const noexcept;
 
 private:
     std::unique_ptr<SwapchainImpl> impl;

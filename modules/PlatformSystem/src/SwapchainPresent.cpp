@@ -33,40 +33,47 @@ namespace
 
 }
 
-void SwapchainImpl::CreatePresentation()
+// Once per Swapchain object, before its first swapchain exists: the swapchain's create info depends on maintenance1
+void SwapchainImpl::InitPresentation()
 {
-    // once per Swapchain object
-    if (PresentQueue == VK_NULL_HANDLE)
+    if (PresentQueue != VK_NULL_HANDLE)
     {
-        const rhi::Device* device = reinterpret_cast<const rhi::Device*>(CreateInfo.RhiDevice);
-        PresentQueue = device->GetGeneralQueue().As<VkQueue>();
-        Maintenance1 = !CorePresentationOnly && device->IsFeatureEnabled(k_SwapchainMaintenance1Feature);
-
-        // the KHR and the EXT entry points are the same function; one of the two extensions is enabled
-        if (Maintenance1)
-        {
-            ReleaseImages = reinterpret_cast<PFN_vkReleaseSwapchainImagesKHR>(vkGetDeviceProcAddr(ParentDevice, "vkReleaseSwapchainImagesKHR"));
-
-            if (ReleaseImages == nullptr)
-            {
-                ReleaseImages = reinterpret_cast<PFN_vkReleaseSwapchainImagesKHR>(vkGetDeviceProcAddr(ParentDevice, "vkReleaseSwapchainImagesEXT"));
-            }
-
-            Maintenance1 = ReleaseImages != nullptr;
-        }
-
-        if (Maintenance1)
-        {
-            const VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, 0u };
-            PresentFences.resize(k_PresentFenceCount);
-
-            for (PresentFence& fence : PresentFences)
-            {
-                vkCreateFence(ParentDevice, &fenceInfo, nullptr, &fence.Fence);
-            }
-        }
+        return;
     }
 
+    const rhi::Device* device = reinterpret_cast<const rhi::Device*>(CreateInfo.RhiDevice);
+    PresentQueue = device->GetGeneralQueue().As<VkQueue>();
+    Maintenance1 = !CorePresentationOnly && device->IsFeatureEnabled(k_SwapchainMaintenance1Feature);
+
+    // the KHR and the EXT entry points are the same function; one of the two extensions is enabled
+    if (Maintenance1)
+    {
+        ReleaseImages = reinterpret_cast<PFN_vkReleaseSwapchainImagesKHR>(vkGetDeviceProcAddr(ParentDevice, "vkReleaseSwapchainImagesKHR"));
+
+        if (ReleaseImages == nullptr)
+        {
+            ReleaseImages = reinterpret_cast<PFN_vkReleaseSwapchainImagesKHR>(vkGetDeviceProcAddr(ParentDevice, "vkReleaseSwapchainImagesEXT"));
+        }
+
+        Maintenance1 = ReleaseImages != nullptr;
+    }
+
+    if (!Maintenance1)
+    {
+        return;
+    }
+
+    const VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, 0u };
+    PresentFences.resize(k_PresentFenceCount);
+
+    for (PresentFence& fence : PresentFences)
+    {
+        vkCreateFence(ParentDevice, &fenceInfo, nullptr, &fence.Fence);
+    }
+}
+
+void SwapchainImpl::CreatePresentation()
+{
     // per swapchain: one render-done semaphore per image, and no image acquired yet
     RenderDone.resize(ImageCount, VK_NULL_HANDLE);
 
@@ -226,6 +233,12 @@ SwapchainAcquire SwapchainImpl::TryAcquire(uint64_t timeout_ns)
 
     previous = semaphore;
 
+    // with deferred image memory, a view may be made only once its image was acquired
+    if (ImageViews[index] == VK_NULL_HANDLE)
+    {
+        CreateImageView(index);
+    }
+
     return SwapchainAcquire
     {
         .Status = status,
@@ -247,10 +260,21 @@ SwapchainPresentStatus SwapchainImpl::Present(uint32_t image_index)
         fence = takePresentFence();
     }
 
+    // the mode of this present: switchable modes change here, with no recreate (SetPresentMode)
+    const bool switchable = Maintenance1 && SwitchableModes.size() > 1u;
+
+    const VkSwapchainPresentModeInfoKHR modeInfo
+    {
+        VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODE_INFO_KHR,
+        nullptr,
+        1u,
+        &PresentMode
+    };
+
     const VkSwapchainPresentFenceInfoKHR fenceInfo
     {
         VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_KHR,
-        nullptr,
+        switchable ? &modeInfo : nullptr,
         1u,
         &fence
     };
@@ -356,6 +380,81 @@ bool SwapchainImpl::WaitForPresents(uint64_t timeout_ns)
 
     pollPresentation();
     return true;
+}
+
+PresentModeChange SwapchainImpl::SetPresentMode(VkPresentModeKHR mode)
+{
+    if (mode == PresentMode)
+    {
+        return PresentModeChange::Unchanged;
+    }
+
+    if (std::ranges::find(Info->presentModes, mode) == Info->presentModes.end() || !PresentModeUsable(mode))
+    {
+        return PresentModeChange::Unsupported;
+    }
+
+    // a later Recreate keeps the mode either way
+    CreateInfo.SwapchainPresentMode = FromVkPresentMode(mode);
+
+    if (Maintenance1 && std::ranges::find(SwitchableModes, mode) != SwitchableModes.end())
+    {
+        PresentMode = mode;
+        ++Statistics.PresentModeSwitches;
+        return PresentModeChange::NextPresent;
+    }
+
+    return PresentModeChange::NeedsRecreate;
+}
+
+VkSurfacePresentScalingCapabilitiesKHR SwapchainImpl::queryPresentModeSupport(VkPresentModeKHR mode)
+{
+    const rhi::Device* device = reinterpret_cast<const rhi::Device*>(CreateInfo.RhiDevice);
+    const VkPhysicalDevice physicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
+    VkSurfacePresentModeKHR modeInfo{ VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_KHR, nullptr, mode };
+
+    const VkPhysicalDeviceSurfaceInfo2KHR surfaceInfo
+    {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR,
+        &modeInfo,
+        reinterpret_cast<VkSurfaceKHR>(CreateInfo.VkSurfaceHandle)
+    };
+
+    // the first call counts the compatible modes, the second fills them
+    VkSurfacePresentModeCompatibilityKHR compatibility{ VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_COMPATIBILITY_KHR };
+    VkSurfacePresentScalingCapabilitiesKHR scaling{ VK_STRUCTURE_TYPE_SURFACE_PRESENT_SCALING_CAPABILITIES_KHR, &compatibility };
+    VkSurfaceCapabilities2KHR capabilities{ VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR, &scaling };
+    vkGetPhysicalDeviceSurfaceCapabilities2KHR(physicalDevice, &surfaceInfo, &capabilities);
+
+    SwitchableModes.assign(compatibility.presentModeCount, VK_PRESENT_MODE_MAX_ENUM_KHR);
+    compatibility.pPresentModes = SwitchableModes.data();
+    vkGetPhysicalDeviceSurfaceCapabilities2KHR(physicalDevice, &surfaceInfo, &capabilities);
+
+    const auto unusable = [this](VkPresentModeKHR other)
+    {
+        return !PresentModeUsable(other);
+    };
+
+    std::erase_if(SwitchableModes, unusable);
+
+    if (std::ranges::find(SwitchableModes, mode) == SwitchableModes.end())
+    {
+        SwitchableModes.push_back(mode);
+    }
+
+    scaling.pNext = nullptr;
+    return scaling;
+}
+
+bool SwapchainImpl::PresentModeUsable(VkPresentModeKHR mode) const noexcept
+{
+    if (mode != VK_PRESENT_MODE_FIFO_LATEST_READY_KHR)
+    {
+        return true;
+    }
+
+    const rhi::Device* device = reinterpret_cast<const rhi::Device*>(CreateInfo.RhiDevice);
+    return device->IsFeatureEnabled(k_FifoLatestReadyFeature);
 }
 
 // Frees what finished: present fences, consumed semaphores, and old swapchains whose presents all finished

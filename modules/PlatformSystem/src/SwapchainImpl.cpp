@@ -8,6 +8,7 @@
 #include "vulkan/vulkan_core.h"
 #include <GLFW/glfw3.h>
 #include <algorithm>
+#include <chrono>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -208,6 +209,29 @@ VkPresentModeKHR ToVkPresentMode(const PresentMode mode) noexcept
             return VK_PRESENT_MODE_FIFO_LATEST_READY_EXT;
         default:
             return VK_PRESENT_MODE_MAX_ENUM_KHR;
+    }
+}
+
+PresentMode FromVkPresentMode(const VkPresentModeKHR mode) noexcept
+{
+    switch (mode)
+    {
+        case VK_PRESENT_MODE_IMMEDIATE_KHR:
+            return PresentMode::Immediate;
+        case VK_PRESENT_MODE_FIFO_KHR:
+            return PresentMode::VerticalSync;
+        case VK_PRESENT_MODE_FIFO_RELAXED_KHR:
+            return PresentMode::VerticalSyncRelaxed;
+        case VK_PRESENT_MODE_MAILBOX_KHR:
+            return PresentMode::VerticalSyncMailbox;
+        case VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR:
+            return PresentMode::SharedDemandRefresh;
+        case VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR:
+            return PresentMode::SharedContinuousRefresh;
+        case VK_PRESENT_MODE_FIFO_LATEST_READY_KHR:
+            return PresentMode::VerticalSyncLatestReady;
+        default:
+            return PresentMode::Invalid;
     }
 }
 
@@ -450,6 +474,7 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& create_info)
         RefreshRate = 60.0f;
     }
 
+    InitPresentation();
     querySurface(create_info);
     chooseSurfaceFormat(create_info);
     Extent = chooseExtent(create_info);
@@ -467,6 +492,8 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& create_info)
 
 SwapchainRecreateResult SwapchainImpl::Recreate(const SwapchainCreateInfo& create_info)
 {
+    const auto start = std::chrono::steady_clock::now();
+
     if (create_info.RefreshRate > 1.0f)
     {
         RefreshRate = create_info.RefreshRate;
@@ -507,6 +534,12 @@ SwapchainRecreateResult SwapchainImpl::Recreate(const SwapchainCreateInfo& creat
     createSwapchainImages();
     createSwapchainImageViews();
     CreatePresentation();
+
+    const uint64_t elapsed = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now() - start).count());
+    ++Statistics.Recreates;
+    Statistics.RecreateNanoseconds += elapsed;
+    Statistics.MaxRecreateNanoseconds = std::max(Statistics.MaxRecreateNanoseconds, elapsed);
     return SwapchainRecreateResult::Success;
 }
 
@@ -598,7 +631,45 @@ uint32_t SwapchainImpl::chooseMinImageCount(const SwapchainCreateInfo& create_in
 
 void SwapchainImpl::createSwapchainHandle(const SwapchainCreateInfo& create_info, VkSwapchainKHR old_swapchain)
 {
-    const VkSwapchainCreateInfoKHR swapchainCreateInfo = getCreateInfo(create_info, old_swapchain);
+    VkSwapchainCreateInfoKHR swapchainCreateInfo = getCreateInfo(create_info, old_swapchain);
+    VkSwapchainPresentModesCreateInfoKHR modesInfo{ VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODES_CREATE_INFO_KHR };
+    VkSwapchainPresentScalingCreateInfoKHR scalingInfo{ VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_SCALING_CREATE_INFO_KHR };
+    PresentScalingActive = false;
+    DeferredMemoryActive = false;
+    SwitchableModes.assign(1u, swapchainCreateInfo.presentMode);
+
+    // maintenance1: the modes a present may switch to, the scaling while the window and the swapchain differ in size,
+    // and image memory at first acquire
+    if (Maintenance1)
+    {
+        const VkSurfacePresentScalingCapabilitiesKHR scaling = queryPresentModeSupport(swapchainCreateInfo.presentMode);
+        modesInfo.presentModeCount = static_cast<uint32_t>(SwitchableModes.size());
+        modesInfo.pPresentModes = SwitchableModes.data();
+        swapchainCreateInfo.pNext = &modesInfo;
+
+        const VkPresentScalingFlagsKHR offered = scaling.supportedPresentScaling;
+        const VkPresentScalingFlagsKHR behavior = (offered & VK_PRESENT_SCALING_ASPECT_RATIO_STRETCH_BIT_KHR) != 0u
+            ? VK_PRESENT_SCALING_ASPECT_RATIO_STRETCH_BIT_KHR
+            : (offered & VK_PRESENT_SCALING_STRETCH_BIT_KHR);
+        const bool centered = (scaling.supportedPresentGravityX & VK_PRESENT_GRAVITY_CENTERED_BIT_KHR) != 0u &&
+                              (scaling.supportedPresentGravityY & VK_PRESENT_GRAVITY_CENTERED_BIT_KHR) != 0u;
+
+        if (WantPresentScaling && behavior != 0u && centered)
+        {
+            scalingInfo.scalingBehavior = behavior;
+            scalingInfo.presentGravityX = VK_PRESENT_GRAVITY_CENTERED_BIT_KHR;
+            scalingInfo.presentGravityY = VK_PRESENT_GRAVITY_CENTERED_BIT_KHR;
+            modesInfo.pNext = &scalingInfo;
+            PresentScalingActive = true;
+        }
+
+        if (WantDeferredMemory)
+        {
+            swapchainCreateInfo.flags |= VK_SWAPCHAIN_CREATE_DEFERRED_MEMORY_ALLOCATION_BIT_KHR;
+            DeferredMemoryActive = true;
+        }
+    }
+
     const VkResult result = vkCreateSwapchainKHR(ParentDevice, &swapchainCreateInfo, nullptr, &Swapchain);
     if (result != VK_SUCCESS)
     {
@@ -713,7 +784,11 @@ void SwapchainImpl::destroySwapchainImageViews()
 {
     for (VkImageView imageView : ImageViews)
     {
-        vkDestroyImageView(ParentDevice, imageView, nullptr);
+        // with deferred image memory, an image that was never acquired has no view
+        if (imageView != VK_NULL_HANDLE)
+        {
+            vkDestroyImageView(ParentDevice, imageView, nullptr);
+        }
     }
     ImageViews.clear();
     // images are owned by the swapchain, so we don't destroy them directly
@@ -734,28 +809,39 @@ void SwapchainImpl::createSwapchainImages()
 
 void SwapchainImpl::createSwapchainImageViews()
 {
-    ImageViews.resize(ImageCount);
+    ImageViews.assign(ImageCount, VK_NULL_HANDLE);
+
+    // with deferred image memory, each view is made at its image's first acquire
+    if (DeferredMemoryActive)
+    {
+        return;
+    }
 
     for (size_t i = 0; i < ImageCount; ++i)
     {
-        VkImageViewCreateInfo viewCreateInfo{};
-        viewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        viewCreateInfo.image = Images[i];
-        viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewCreateInfo.format = VulkanFormat.format;
-        viewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-        viewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-        viewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-        viewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-        viewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        viewCreateInfo.subresourceRange.baseMipLevel = 0;
-        viewCreateInfo.subresourceRange.levelCount = 1;
-        viewCreateInfo.subresourceRange.baseArrayLayer = 0;
-        viewCreateInfo.subresourceRange.layerCount = 1;
+        CreateImageView(i);
+    }
+}
 
-        if (vkCreateImageView(ParentDevice, &viewCreateInfo, nullptr, &ImageViews[i]) != VK_SUCCESS)
-        {
-            throw std::runtime_error("Failed to create image views for swapchain images!");
-        }
+void SwapchainImpl::CreateImageView(size_t i)
+{
+    VkImageViewCreateInfo viewCreateInfo{};
+    viewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewCreateInfo.image = Images[i];
+    viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewCreateInfo.format = VulkanFormat.format;
+    viewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    viewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+    viewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+    viewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+    viewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewCreateInfo.subresourceRange.baseMipLevel = 0;
+    viewCreateInfo.subresourceRange.levelCount = 1;
+    viewCreateInfo.subresourceRange.baseArrayLayer = 0;
+    viewCreateInfo.subresourceRange.layerCount = 1;
+
+    if (vkCreateImageView(ParentDevice, &viewCreateInfo, nullptr, &ImageViews[i]) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create image views for swapchain images!");
     }
 }

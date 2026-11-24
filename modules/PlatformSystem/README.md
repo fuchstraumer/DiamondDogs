@@ -71,10 +71,41 @@ sequenceDiagram
     P-->>S: fence signals: serial n finished, old swapchains up to n can go
 ```
 
+## Maintenance1 extras (P2)
+
+All of these need `UsesMaintenance1()`; without it they do nothing, and a mode change always recreates.
+
+- **Present-mode switching.** At create, the swapchain lists the modes the surface says it can switch to from the
+  created mode (`VkSurfacePresentModeCompatibilityKHR`, in `VkSwapchainPresentModesCreateInfoKHR`), and each present
+  names its mode (`VkSwapchainPresentModeInfoKHR`). `SetPresentMode` returns `NextPresent` for a mode in that list (no
+  recreate), `NeedsRecreate` for another mode the surface offers (`SwapchainFrameTarget` then recreates at its next
+  acquire), and `Unsupported` otherwise. On the RTX 4080: FIFO switches to MAILBOX or IMMEDIATE and back; FIFO_RELAXED
+  and FIFO_LATEST_READY switch to nothing. FIFO_LATEST_READY counts as offered only when the device enabled
+  `k_FifoLatestReadyFeature` (the window stage asks for it as Wanted): the surface lists it either way, and creating
+  with it unenabled is a validation error.
+- **Present scaling** (`SetPresentScaling`, on by default). The swapchain is created with aspect-ratio stretch (or
+  stretch), centered, where the surface offers it. During a drag, the presentation engine scales the old images
+  instead of reporting out of date at once. A resize still recreates once it is reported suboptimal: the `--resize`
+  run recreates three times either way. With scaling, a minimized window is not reported as out of date, so
+  `SwapchainFrameTarget` asks `WindowHasArea()` before it acquires: without that check, 31 to 40 frames were drawn into a
+  minimized window per run.
+- **Deferred image memory** (`SetDeferredImageMemory`, off by default). The images get memory at their first acquire,
+  and their views are made then too. **It crashes the NVIDIA driver** (`nvoglv64.dll` 32.0.16.1714, an access
+  violation at offset 0xdec1b8, every run, both presets): the first recreate into a deferred swapchain works, the next
+  recreate from it crashes inside the driver, with no validation message. A driver bug in the `oldSwapchain` handoff of
+  deferred images is my guess, not proven. `LoomTriangleTest --deferred-memory` reproduces it.
+- **Statistics.** `Statistics()` counts recreates, their total and longest time, and the in-place mode switches.
+
+Recreate times measured by LoomTriangleTest (both presets, Debug): with maintenance1, 7 to 8 ms mean per recreate
+during `--resize` (no device idle); core presentation, 8 to 9 ms (device idle first). In `--present-modes` with core
+presentation, the longest recreate was 266 ms (a FIFO_LATEST_READY or IMMEDIATE swapchain coming up; not broken down
+yet).
+
 ## Tests
 
-`LoomTriangleTest` is the proof (see the Loom README): `--resize`, `--minimize`, `--no-maintenance1`, and, with
-maintenance1, ten acquire-and-release cycles through `Swapchain` before the graph runs.
+`LoomTriangleTest` is the proof (see the Loom README): `--resize`, `--minimize`, `--no-maintenance1`,
+`--present-modes`, `--no-scaling`, `--deferred-memory`, and, with maintenance1, ten acquire-and-release cycles through
+`Swapchain` before the graph runs.
 
 Plants (2026-11-23, ninja-msvc, each restored byte for byte):
 
@@ -83,3 +114,11 @@ Plants (2026-11-23, ninja-msvc, each restored byte for byte):
 | `Release` returns the semaphore to the free list without the empty submit | caught: `VUID-vkAcquireNextImageKHR-semaphore-01286` |
 | An acquire frees its own semaphore at once, instead of at the next acquire of the image | caught: the run crashes, with `VUID-VkSubmitInfo-pWaitSemaphores-parameter` |
 | The old swapchain is destroyed at once, not retired | **not caught.** In LoomTriangleTest every present has finished before the recreate (Loom waits for its last submit, and the probe showed completed serial = present serial at all three recreates), so the deferred destruction never runs. It is unproven on the GPU. |
+
+P2 plants (2026-11-23, ninja-msvc, each restored byte for byte):
+
+| Plant | Result |
+|---|---|
+| `SetPresentMode` treats every mode as switchable | caught: `VUID-VkSwapchainPresentModeInfoKHR-pPresentModes-07761` |
+| `SwapchainFrameTarget` skips the `WindowHasArea` check | caught by `--minimize`: 33 submits after the first 10 Ticks |
+| FIFO_LATEST_READY offered without its feature | **not caught here**: this device enables the feature (Wanted), so the gate changes nothing. Only a device without the feature can prove it. |

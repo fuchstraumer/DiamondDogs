@@ -70,7 +70,8 @@ namespace loom
 
         const Extent2D extent = CurrentExtent();
 
-        if (extent.IsEmpty())
+        // with present scaling, a minimized window is not out of date: it has no area, and nothing is drawn
+        if (extent.IsEmpty() || !swapchain.WindowHasArea())
         {
             return std::nullopt;
         }
@@ -133,6 +134,18 @@ namespace loom
     bool SwapchainFrameTarget::WaitForPresents(uint64_t timeout_ns)
     {
         return swapchain.WaitForPresents(timeout_ns);
+    }
+
+    PresentModeChange SwapchainFrameTarget::SetPresentMode(PresentMode mode)
+    {
+        const PresentModeChange change = swapchain.SetPresentMode(mode);
+
+        if (change == PresentModeChange::NeedsRecreate)
+        {
+            needsRecreate = true;
+        }
+
+        return change;
     }
 
     uint32_t SwapchainFrameTarget::RecreateCount() const noexcept

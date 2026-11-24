@@ -6,6 +6,8 @@
 #include <optional>
 
 class Swapchain;
+enum class PresentMode : uint8_t;
+enum class PresentModeChange : uint8_t;
 
 namespace rhi
 {
@@ -38,6 +40,10 @@ namespace loom
         [[nodiscard]] bool Release() override;
         [[nodiscard]] rhi::ImageLayout FinalLayout() const override;
         [[nodiscard]] bool WaitForPresents(uint64_t timeout_ns) override;
+
+        // Changes the present mode: at the next present when the swapchain can switch to it, else through a recreate
+        // that the next TryAcquire makes (presentation plan P2)
+        [[nodiscard]] PresentModeChange SetPresentMode(PresentMode mode);
 
         // The count of swapchain recreations, for tests that resize the window
         [[nodiscard]] uint32_t RecreateCount() const noexcept;

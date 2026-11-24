@@ -29,6 +29,8 @@ struct SwapchainInfo
 };
 
 [[nodiscard]] std::vector<SurfaceFormatPair> QuerySurfaceFormatPairs(const SwapchainCreateInfo& create_info);
+[[nodiscard]] VkPresentModeKHR ToVkPresentMode(PresentMode mode) noexcept;
+[[nodiscard]] PresentMode FromVkPresentMode(VkPresentModeKHR mode) noexcept;
 
 struct SwapchainImpl
 {
@@ -89,6 +91,20 @@ struct SwapchainImpl
     void RetirePresentation(VkSwapchainKHR old_swapchain);
     void DestroyPresentation();
 
+    void InitPresentation();
+    [[nodiscard]] PresentModeChange SetPresentMode(VkPresentModeKHR mode);
+    void CreateImageView(size_t index);
+    // A mode the surface offers and the device enabled the feature for (FIFO latest ready needs one)
+    [[nodiscard]] bool PresentModeUsable(VkPresentModeKHR mode) const noexcept;
+
+    // P2: the modes the current swapchain can switch to, and the create choices for the next Recreate
+    std::vector<VkPresentModeKHR> SwitchableModes;
+    bool WantPresentScaling{ true };
+    bool WantDeferredMemory{ false };
+    bool PresentScalingActive{ false };
+    bool DeferredMemoryActive{ false };
+    SwapchainStatistics Statistics;
+
     VkQueue PresentQueue{ VK_NULL_HANDLE };
     bool CorePresentationOnly{ false };
     bool Maintenance1{ false };
@@ -108,6 +124,8 @@ struct SwapchainImpl
 
 private:
     void pollPresentation();
+    // Fills SwitchableModes for `mode`, and returns the scaling the surface supports with it
+    [[nodiscard]] VkSurfacePresentScalingCapabilitiesKHR queryPresentModeSupport(VkPresentModeKHR mode);
     [[nodiscard]] uint64_t completedSerial() const noexcept;
     [[nodiscard]] VkSemaphore takeAcquireSemaphore();
     [[nodiscard]] VkFence takeFence();

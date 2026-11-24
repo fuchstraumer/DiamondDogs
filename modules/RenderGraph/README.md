@@ -679,7 +679,10 @@ equal the framebuffer. Synchronization validation is on, so a missing acquire wa
 `--minimize` minimizes the window at frame 30 for 60 Ticks: after the first 10 (the driver may still give out one image
 of the old swapchain), nothing may be submitted, and frames must resume after the restore. `--no-maintenance1` calls
 `Swapchain::LimitToCorePresentation`, so the fallback runs on a device that has the feature. With maintenance1, the
-test first acquires and releases ten images through `Swapchain`.
+test first acquires and releases ten images through `Swapchain`. `--present-modes` switches FIFO -> X -> FIFO for every
+other mode, 20 frames each: a switch the swapchain reports as in place must not recreate it (with maintenance1, at
+least one must be in place). `--no-scaling` and `--deferred-memory` change the swapchain's create choices (PlatformSystem
+README); the test recreates it once before the graph, and prints the recreate statistics.
 
 Every test must be able to fail: plant the fault, see the test fail, and restore the source. After a restore, give the
 file a new modification time: ninja compares times, and a copy that keeps the old time leaves the planted object in

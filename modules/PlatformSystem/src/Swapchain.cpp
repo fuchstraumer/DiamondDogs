@@ -1,15 +1,18 @@
 #include "Swapchain.hpp"
 #include "ImageDataFormats.hpp"
 #include "ImageDataFormatsVulkan.hpp"
-#include "math/Math.hpp"
 #include "PlatformTypes.hpp"
 #include "SwapchainImpl.hpp"
+#include "math/MathStorage.hpp"
 #include "vulkan/vulkan_core.h"
+#include <GLFW/glfw3.h>
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <ratio>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 // Forward declaration for conversion function
 extern ColorSpace FromVkColorSpace(const VkColorSpaceKHR space) noexcept;
@@ -181,4 +184,69 @@ void Swapchain::LimitToCorePresentation() noexcept
 {
     impl->CorePresentationOnly = true;
     impl->Maintenance1 = false;
+}
+
+bool Swapchain::WindowHasArea() const noexcept
+{
+    int width = 0;
+    int height = 0;
+    glfwGetFramebufferSize(static_cast<GLFWwindow*>(impl->CreateInfo.PlatformWindowHandle), &width, &height);
+    return width > 0 && height > 0;
+}
+
+std::vector<::PresentMode> Swapchain::SupportedPresentModes() const
+{
+    std::vector<::PresentMode> modes;
+
+    for (const VkPresentModeKHR mode : impl->Info->presentModes)
+    {
+        if (impl->PresentModeUsable(mode))
+        {
+            modes.push_back(FromVkPresentMode(mode));
+        }
+    }
+
+    return modes;
+}
+
+std::vector<::PresentMode> Swapchain::SwitchablePresentModes() const
+{
+    std::vector<::PresentMode> modes;
+
+    for (const VkPresentModeKHR mode : impl->SwitchableModes)
+    {
+        modes.push_back(FromVkPresentMode(mode));
+    }
+
+    return modes;
+}
+
+PresentModeChange Swapchain::SetPresentMode(::PresentMode mode)
+{
+    return impl->SetPresentMode(ToVkPresentMode(mode));
+}
+
+void Swapchain::SetPresentScaling(bool enabled) noexcept
+{
+    impl->WantPresentScaling = enabled;
+}
+
+void Swapchain::SetDeferredImageMemory(bool enabled) noexcept
+{
+    impl->WantDeferredMemory = enabled;
+}
+
+bool Swapchain::UsesPresentScaling() const noexcept
+{
+    return impl->PresentScalingActive;
+}
+
+bool Swapchain::UsesDeferredImageMemory() const noexcept
+{
+    return impl->DeferredMemoryActive;
+}
+
+SwapchainStatistics Swapchain::Statistics() const noexcept
+{
+    return impl->Statistics;
 }

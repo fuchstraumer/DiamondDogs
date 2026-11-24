@@ -36,6 +36,13 @@
 // --minimize minimizes the window for a while at frame 30: no frame may be submitted while it has no area, and frames
 // must resume after the restore. --no-maintenance1 makes the swapchain use core presentation, so the fallback runs on a
 // device that has swapchain maintenance1. With maintenance1, the test first acquires and releases images (Release).
+// --present-modes switches FIFO -> X -> FIFO for every other mode X the swapchain offers, k_FramesPerMode frames each:
+// a switch the swapchain reports as switchable must not recreate it, and any other must recreate it once (with --resize
+// the resizes recreate it too, so that count is not checked). With maintenance1, at least one switch must need no
+// recreate where the surface offers a compatible pair. --no-scaling turns present
+// scaling off (on by default where offered), and --deferred-memory turns deferred image memory on (off by default: it
+// crashes the NVIDIA driver at the second recreate, see the PlatformSystem README). The test recreates the swapchain
+// once before the graph so that the choice applies, and prints the recreate times.
 
 namespace
 {
@@ -59,6 +66,8 @@ namespace
     constexpr std::chrono::seconds k_WindowStateTimeout{ 2 };
     // Acquire-and-release cycles before the graph runs (maintenance1 only)
     constexpr int32_t k_ReleaseCycles = 10;
+    // --present-modes: frames in each mode
+    constexpr int32_t k_FramesPerMode = 20;
 
     struct TestOptions
     {
@@ -66,7 +75,114 @@ namespace
         bool Resize{ false };
         bool Minimize{ false };
         bool CorePresentationOnly{ false };
+        bool PresentModes{ false };
+        bool PresentScaling{ true };
+        bool DeferredMemory{ false };
     };
+
+    // --present-modes: which mode comes next, and the recreate count a switch must leave
+    struct ModeCycle
+    {
+        std::vector<PresentMode> Modes;
+        size_t Next{ 0u };
+        int32_t NextSwitchFrame{ k_FramesPerMode };
+        uint32_t ExpectedRecreates{ 0u };
+        int32_t Switches{ 0 };
+        int32_t WithoutRecreate{ 0 };
+        bool CheckRecreates{ true };
+    };
+
+    // FIFO between every other mode, so that each mode is entered from FIFO and left to FIFO: FIFO is the mode every
+    // surface offers, and the one other modes are most often compatible with
+    [[nodiscard]] std::vector<PresentMode> ModeSequence(const std::vector<PresentMode>& supported)
+    {
+        std::vector<PresentMode> sequence;
+
+        for (const PresentMode mode : supported)
+        {
+            if (mode == PresentMode::VerticalSync)
+            {
+                continue;
+            }
+
+            sequence.push_back(mode);
+            sequence.push_back(PresentMode::VerticalSync);
+        }
+
+        return sequence;
+    }
+
+    [[nodiscard]] std::string_view PresentModeName(PresentMode mode)
+    {
+        switch (mode)
+        {
+        case PresentMode::Immediate:
+            return "IMMEDIATE";
+        case PresentMode::VerticalSync:
+            return "FIFO";
+        case PresentMode::VerticalSyncRelaxed:
+            return "FIFO_RELAXED";
+        case PresentMode::VerticalSyncMailbox:
+            return "MAILBOX";
+        case PresentMode::VerticalSyncLatestReady:
+            return "FIFO_LATEST_READY";
+        case PresentMode::SharedDemandRefresh:
+            return "SHARED_DEMAND_REFRESH";
+        case PresentMode::SharedContinuousRefresh:
+            return "SHARED_CONTINUOUS_REFRESH";
+        case PresentMode::Invalid:
+            break;
+        }
+
+        return "INVALID";
+    }
+
+    // Before each switch, the earlier one must have left the recreate count it promised. Returns the failures.
+    int32_t SwitchPresentMode(ModeCycle& cycle, loom::SwapchainFrameTarget& target, int32_t submitted)
+    {
+        int32_t failures = 0;
+
+        if (submitted < cycle.NextSwitchFrame || cycle.Modes.empty())
+        {
+            return failures;
+        }
+
+        if (cycle.CheckRecreates && target.RecreateCount() != cycle.ExpectedRecreates)
+        {
+            std::cerr << std::format("present modes: {} recreations, expected {}\n", target.RecreateCount(),
+                                     cycle.ExpectedRecreates);
+            ++failures;
+        }
+
+        const PresentMode mode = cycle.Modes[cycle.Next];
+        cycle.Next = (cycle.Next + 1u) % cycle.Modes.size();
+        cycle.NextSwitchFrame += k_FramesPerMode;
+        const PresentModeChange change = target.SetPresentMode(mode);
+        ++cycle.Switches;
+
+        switch (change)
+        {
+        case PresentModeChange::NextPresent:
+            ++cycle.WithoutRecreate;
+            break;
+        case PresentModeChange::NeedsRecreate:
+            ++cycle.ExpectedRecreates;
+            break;
+        case PresentModeChange::Unchanged:
+            break;
+        case PresentModeChange::Unsupported:
+            [[fallthrough]];
+        case PresentModeChange::Invalid:
+            std::cerr << std::format("present modes: {} refused\n", PresentModeName(mode));
+            ++failures;
+            break;
+        }
+
+        std::cout << std::format("present mode {} at frame {}: {}\n", PresentModeName(mode), submitted,
+                                 change == PresentModeChange::NextPresent ? "switched" :
+                                 change == PresentModeChange::NeedsRecreate ? "recreate" : "unchanged");
+        return failures;
+    }
 
     [[nodiscard]] bool HasFlag(int argc, char* argv[], std::string_view flag)
     {
@@ -223,8 +339,17 @@ namespace
 
     // Ticks the graph until the window closes or the frame limit is reached (-1: no limit). Returns the submitted
     // count, or nothing when a Tick failed.
-    std::optional<int32_t> RunFrames(WindowedBoot& boot, loom::Graph& graph, const TestOptions& options, int32_t& failures)
+    std::optional<int32_t> RunFrames(WindowedBoot& boot, loom::Graph& graph, loom::SwapchainFrameTarget& target,
+                                     const TestOptions& options, int32_t& failures)
     {
+        ModeCycle cycle;
+
+        if (options.PresentModes)
+        {
+            cycle.Modes = ModeSequence(boot.Window.Platform().GetActiveSwapchain()->SupportedPresentModes());
+            cycle.CheckRecreates = !options.Resize;
+        }
+
         PlatformWindowSystem& platform = boot.Window.Platform();
         const auto deadline = std::chrono::steady_clock::now() + k_RunTimeout;
         auto last = std::chrono::steady_clock::now();
@@ -243,6 +368,11 @@ namespace
             if (options.Resize)
             {
                 ApplyScheduledResize(platform, submitted);
+            }
+
+            if (options.PresentModes)
+            {
+                failures += SwitchPresentMode(cycle, target, submitted);
             }
 
             if (options.Minimize && !minimized && submitted == k_MinimizeAtFrame)
@@ -268,6 +398,22 @@ namespace
                 std::cerr << "Tick failed\n" << graph.ExplainLastTick();
                 return std::nullopt;
             }
+        }
+
+        // a compatible pair exists (FIFO and MAILBOX or IMMEDIATE on most desktops): it must have switched in place
+        const Swapchain& swapchain = *platform.GetActiveSwapchain();
+        const bool pairOffered = swapchain.UsesMaintenance1() && swapchain.SwitchablePresentModes().size() > 1u;
+
+        if (options.PresentModes && pairOffered && cycle.WithoutRecreate == 0)
+        {
+            std::cerr << "present modes: no switch happened without a recreate\n";
+            ++failures;
+        }
+
+        if (options.PresentModes)
+        {
+            std::cout << std::format("present modes: {} switches, {} without a recreate\n", cycle.Switches,
+                                     cycle.WithoutRecreate);
         }
 
         return submitted;
@@ -356,6 +502,19 @@ namespace
             swapchain.LimitToCorePresentation();
         }
 
+        // the create choices apply at the next Recreate; nothing is acquired or submitted yet
+        swapchain.SetPresentScaling(options.PresentScaling);
+        swapchain.SetDeferredImageMemory(options.DeferredMemory);
+
+        if (swapchain.Recreate() != SwapchainRecreateResult::Success)
+        {
+            std::cerr << "the first recreate failed\n";
+            return 1;
+        }
+
+        std::cout << std::format("present scaling {}, deferred image memory {}\n", swapchain.UsesPresentScaling(),
+                                 swapchain.UsesDeferredImageMemory());
+
         std::cout << std::format("swapchain maintenance1: device {}, in use {}\n",
                                  device.IsFeatureEnabled(k_SwapchainMaintenance1Feature), swapchain.UsesMaintenance1());
 
@@ -389,7 +548,7 @@ namespace
         }
 
         graph->Supply(k_Positions, CreatePositions(resources));
-        const std::optional<int32_t> submitted = RunFrames(boot, *graph, options, failures);
+        const std::optional<int32_t> submitted = RunFrames(boot, *graph, target, options, failures);
         failures += submitted.has_value() ? 0 : 1;
 
         if (submitted.has_value())
@@ -403,6 +562,15 @@ namespace
             SettleExtents(boot, *graph);
             failures += CheckSettledExtents(platform, *graph);
         }
+
+        const SwapchainStatistics statistics = swapchain.Statistics();
+        const double meanMs = statistics.Recreates > 0u
+            ? static_cast<double>(statistics.RecreateNanoseconds) / statistics.Recreates / 1.0e6
+            : 0.0;
+        std::cout << std::format("swapchain: {} recreates, mean {:.3f} ms, max {:.3f} ms, {} mode switches without recreate\n",
+                                 statistics.Recreates, meanMs,
+                                 static_cast<double>(statistics.MaxRecreateNanoseconds) / 1.0e6,
+                                 statistics.PresentModeSwitches);
 
         const GraphicsResource positions = graph->BufferOf(k_Positions);
 
@@ -461,6 +629,9 @@ int main(int argc, char* argv[])
         .Resize = ParseResizeTest(argc, argv),
         .Minimize = HasFlag(argc, argv, "--minimize"),
         .CorePresentationOnly = HasFlag(argc, argv, "--no-maintenance1"),
+        .PresentModes = HasFlag(argc, argv, "--present-modes"),
+        .PresentScaling = !HasFlag(argc, argv, "--no-scaling"),
+        .DeferredMemory = HasFlag(argc, argv, "--deferred-memory"),
     };
 
     const int32_t failures = RunTest(boot, options);
