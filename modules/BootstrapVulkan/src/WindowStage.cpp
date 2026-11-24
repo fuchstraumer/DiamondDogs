@@ -72,6 +72,11 @@ namespace bootstrap
         needs.push_back(SpineNeed(k_SurfaceMaintenanceExt, NeedKind::InstanceExtension, NeedLevel::Wanted));
         needs.push_back(SpineNeed(k_SwapchainMaintenance1Feature, NeedKind::DeviceFeature, NeedLevel::Wanted));
         needs.push_back(SpineNeed(k_FifoLatestReadyFeature, NeedKind::DeviceFeature, NeedLevel::Wanted));
+        // present ids and waits, for frame pacing; the swapchain uses the best pair that the device and surface have
+        needs.push_back(SpineNeed(k_PresentId2Feature, NeedKind::DeviceFeature, NeedLevel::Wanted));
+        needs.push_back(SpineNeed(k_PresentWait2Feature, NeedKind::DeviceFeature, NeedLevel::Wanted));
+        needs.push_back(SpineNeed(k_PresentIdFeature, NeedKind::DeviceFeature, NeedLevel::Wanted));
+        needs.push_back(SpineNeed(k_PresentWaitFeature, NeedKind::DeviceFeature, NeedLevel::Wanted));
         return SuccessIn(Stage::Window);
     }
 

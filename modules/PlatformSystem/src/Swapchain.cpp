@@ -250,3 +250,18 @@ SwapchainStatistics Swapchain::Statistics() const noexcept
 {
     return impl->Statistics;
 }
+
+PresentWaitSupport Swapchain::PresentWaitTier() const noexcept
+{
+    return impl->PresentWaitTier;
+}
+
+uint64_t Swapchain::LastPresentId() const noexcept
+{
+    return impl->LastPresentId;
+}
+
+PresentWaitStatus Swapchain::WaitForPresent(uint64_t present_id, uint64_t timeout_ns)
+{
+    return impl->WaitForPresent(present_id, timeout_ns);
+}

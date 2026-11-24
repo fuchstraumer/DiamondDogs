@@ -101,11 +101,39 @@ during `--resize` (no device idle); core presentation, 8 to 9 ms (device idle fi
 presentation, the longest recreate was 266 ms (a FIFO_LATEST_READY or IMMEDIATE swapchain coming up; not broken down
 yet).
 
+## Present ids and present waits (P3)
+
+Every present gets an id when the swapchain has a present wait: 1, 2, 3, and so on, across recreates. An id is used up
+even when its present fails, so ids only go up. `LastPresentId()` is the id of the last present that was accepted.
+`WaitForPresent(id, timeout)` blocks until that present, or a later one, reached the display.
+
+`PresentWaitTier()` says which version is in use. It is chosen at each create, best first:
+
+| Tier | Needs | Per present | Wait |
+|---|---|---|---|
+| `PresentWait2` | device features `presentId2` and `presentWait2`, **and** the surface reports both (`VkSurfaceCapabilitiesPresentId2KHR`, `...PresentWait2KHR`); the swapchain is created with the two `PRESENT_ID_2` / `PRESENT_WAIT_2` flags | `VkPresentId2KHR` | `vkWaitForPresent2KHR` |
+| `PresentWait` | device features `presentId` and `presentWait` | `VkPresentIdKHR` | `vkWaitForPresentKHR` |
+| `None` | | no id | `Unsupported` |
+
+The window stage asks for all four features as Wanted. Present waits do not need maintenance1: the core path uses them
+too.
+
+A wait returns at once when there is nothing it could wait for: `NotPresented` for id 0 or an id above
+`LastPresentId`, and `Retired` for an id that went to a swapchain a Recreate replaced. Without the `Retired` guard, a
+wait on an old id before the first present on the new swapchain would block until the next present or the timeout.
+Once the new swapchain has presented, the driver answers such a wait itself ("or a later one"), which is why the plant
+that removes the guard is not caught (below).
+
+Loom has no part in this. The app owns the `Swapchain` and the graph presents inside Tick, so after Tick,
+`LastPresentId()` is that frame's id. The pacer (P4) waits on "last id minus k" before the next frame's input.
+
 ## Tests
 
 `LoomTriangleTest` is the proof (see the Loom README): `--resize`, `--minimize`, `--no-maintenance1`,
-`--present-modes`, `--no-scaling`, `--deferred-memory`, and, with maintenance1, ten acquire-and-release cycles through
-`Swapchain` before the graph runs.
+`--present-modes`, `--no-scaling`, `--deferred-memory`, `--present-wait`, `--present-wait-v1`, `--no-present-wait`,
+`--no-fifo-latest-ready`, and, with maintenance1, ten acquire-and-release cycles through `Swapchain` before the graph
+runs. The fallback switches decline the Wanted features at device creation (`DeviceConfig::Declined`), so the fallback
+runs on a device that really lacks them, not behind a test switch in `Swapchain`.
 
 Plants (2026-11-23, ninja-msvc, each restored byte for byte):
 
@@ -113,7 +141,7 @@ Plants (2026-11-23, ninja-msvc, each restored byte for byte):
 |---|---|
 | `Release` returns the semaphore to the free list without the empty submit | caught: `VUID-vkAcquireNextImageKHR-semaphore-01286` |
 | An acquire frees its own semaphore at once, instead of at the next acquire of the image | caught: the run crashes, with `VUID-VkSubmitInfo-pWaitSemaphores-parameter` |
-| The old swapchain is destroyed at once, not retired | **not caught.** In LoomTriangleTest every present has finished before the recreate (Loom waits for its last submit, and the probe showed completed serial = present serial at all three recreates), so the deferred destruction never runs. It is unproven on the GPU. |
+| The old swapchain is destroyed at once, not retired | **not caught, and cannot be on NVIDIA** (2026-11-24). A present fence signals as soon as the present took its semaphore, and under rule R that semaphore is already signaled. A present held back on purpose does not help: `vkCreateSwapchainKHR` with `oldSwapchain` waits inside the driver for the old swapchain's queued presents (a recreate took exactly as long as a 200 ms hold), so the recreate never finds a present pending. (Holding a present back with a host-signaled timeline is also not legal: `VUID-vkQueuePresentKHR-pWaitSemaphores-03268`.) The deferred path is the spec-correct net for drivers that do not wait; `Statistics().RetiredWithPendingPresents` shows whether it ran. |
 
 P2 plants (2026-11-23, ninja-msvc, each restored byte for byte):
 
@@ -122,3 +150,12 @@ P2 plants (2026-11-23, ninja-msvc, each restored byte for byte):
 | `SetPresentMode` treats every mode as switchable | caught: `VUID-VkSwapchainPresentModeInfoKHR-pPresentModes-07761` |
 | `SwapchainFrameTarget` skips the `WindowHasArea` check | caught by `--minimize`: 33 submits after the first 10 Ticks |
 | FIFO_LATEST_READY offered without its feature | **not caught here**: this device enables the feature (Wanted), so the gate changes nothing. Only a device without the feature can prove it. |
+
+P3 plants (2026-11-24, ninja-msvc, each restored byte for byte):
+
+| Plant | Result |
+|---|---|
+| The id is counted but never attached to the present | caught: `VUID-vkWaitForPresent2KHR-presentId-10817`, and every wait times out |
+| The 2 versions without their create flags | caught: `VUID-VkPresentId2KHR-None-10820`, `VUID-vkWaitForPresent2KHR-None-10816` |
+| The tier ignores the device (`--present-wait-v1`, ids2 used anyway) | caught: the tier check, `VUID-VkPresentInfoKHR-pNext-10821`, then an access violation |
+| `FirstPresentId` is not moved at a recreate (`--resize`) | **not caught**: the test waits on N - 1 only after N went to the new swapchain, and the driver correctly answers "a later one was presented". The guard matters for a wait before the first present on the new swapchain. |

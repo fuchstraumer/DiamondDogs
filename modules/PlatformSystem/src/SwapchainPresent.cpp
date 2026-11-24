@@ -45,6 +45,32 @@ void SwapchainImpl::InitPresentation()
     PresentQueue = device->GetGeneralQueue().As<VkQueue>();
     Maintenance1 = !CorePresentationOnly && device->IsFeatureEnabled(k_SwapchainMaintenance1Feature);
 
+    // present waits: the 2 versions first; whether the surface supports them is asked at each create
+    const bool ids2 = device->IsFeatureEnabled(k_PresentId2Feature) &&
+                      device->IsFeatureEnabled(k_PresentWait2Feature);
+
+    const bool ids1 = device->IsFeatureEnabled(k_PresentIdFeature) &&
+                      device->IsFeatureEnabled(k_PresentWaitFeature);
+
+    if (ids2)
+    {
+        WaitForPresent2 = reinterpret_cast<PFN_vkWaitForPresent2KHR>(vkGetDeviceProcAddr(ParentDevice, "vkWaitForPresent2KHR"));
+    }
+
+    if (ids1)
+    {
+        WaitForPresent1 = reinterpret_cast<PFN_vkWaitForPresentKHR>(vkGetDeviceProcAddr(ParentDevice, "vkWaitForPresentKHR"));
+    }
+
+    if (WaitForPresent2 != nullptr)
+    {
+        DeviceWaitTier = PresentWaitSupport::PresentWait2;
+    }
+    else if (WaitForPresent1 != nullptr)
+    {
+        DeviceWaitTier = PresentWaitSupport::PresentWait;
+    }
+
     // the KHR and the EXT entry points are the same function; one of the two extensions is enabled
     if (Maintenance1)
     {
@@ -106,6 +132,7 @@ void SwapchainImpl::RetirePresentation(VkSwapchainKHR old_swapchain)
         Retired.push_back(RetiredSwapchain{ .Swapchain = old_swapchain, .RenderDone = std::move(RenderDone),
                                             .LastSerial = PresentSerial });
         RenderDone.clear();
+        ++Statistics.RetiredWithPendingPresents;
         return;
     }
 
@@ -260,29 +287,71 @@ SwapchainPresentStatus SwapchainImpl::Present(uint32_t image_index)
         fence = takePresentFence();
     }
 
-    // the mode of this present: switchable modes change here, with no recreate (SetPresentMode)
-    const bool switchable = Maintenance1 && SwitchableModes.size() > 1u;
+    // each optional structure goes at the front of the chain
+    const void* chain = nullptr;
 
-    const VkSwapchainPresentModeInfoKHR modeInfo
+    // the mode of this present: switchable modes change here, with no recreate (SetPresentMode)
+    VkSwapchainPresentModeInfoKHR modeInfo
     {
         VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODE_INFO_KHR,
-        nullptr,
-        1u,
+        nullptr, 1u,
         &PresentMode
     };
 
-    const VkSwapchainPresentFenceInfoKHR fenceInfo
+    if (Maintenance1 && SwitchableModes.size() > 1u)
+    {
+        modeInfo.pNext = chain;
+        chain = &modeInfo;
+    }
+
+    VkSwapchainPresentFenceInfoKHR fenceInfo
     {
         VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_KHR,
-        switchable ? &modeInfo : nullptr,
+        nullptr,
         1u,
         &fence
     };
 
+    if (fence != VK_NULL_HANDLE)
+    {
+        fenceInfo.pNext = chain;
+        chain = &fenceInfo;
+    }
+
+    // an id is used up even when the present fails, so ids stay strictly increasing
+    const uint64_t presentId = PresentWaitTier != PresentWaitSupport::None ? ++NextPresentId : 0u;
+
+    VkPresentId2KHR id2
+    {
+        VK_STRUCTURE_TYPE_PRESENT_ID_2_KHR,
+        nullptr,
+        1u,
+        &presentId
+    };
+
+    VkPresentIdKHR id1
+    {
+        VK_STRUCTURE_TYPE_PRESENT_ID_KHR,
+        nullptr,
+        1u,
+        &presentId
+    };
+
+    if (PresentWaitTier == PresentWaitSupport::PresentWait2)
+    {
+        id2.pNext = chain;
+        chain = &id2;
+    }
+    else if (PresentWaitTier == PresentWaitSupport::PresentWait)
+    {
+        id1.pNext = chain;
+        chain = &id1;
+    }
+
     const VkPresentInfoKHR presentInfo
     {
         VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        fence != VK_NULL_HANDLE ? &fenceInfo : nullptr,
+        chain,
         1u,
         &RenderDone[image_index],
         1u,
@@ -292,6 +361,12 @@ SwapchainPresentStatus SwapchainImpl::Present(uint32_t image_index)
     };
 
     const VkResult result = vkQueuePresentKHR(PresentQueue, &presentInfo);
+    const bool accepted = result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR;
+
+    if (accepted && presentId != 0u)
+    {
+        LastPresentId = presentId;
+    }
 
     switch (result)
     {
@@ -405,6 +480,90 @@ PresentModeChange SwapchainImpl::SetPresentMode(VkPresentModeKHR mode)
     }
 
     return PresentModeChange::NeedsRecreate;
+}
+
+VkSwapchainCreateFlagsKHR SwapchainImpl::ChoosePresentWait()
+{
+    PresentWaitTier = DeviceWaitTier;
+
+    if (PresentWaitTier != PresentWaitSupport::PresentWait2)
+    {
+        return 0u;
+    }
+
+    const rhi::Device* device = reinterpret_cast<const rhi::Device*>(CreateInfo.RhiDevice);
+    const VkPhysicalDevice physicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
+
+    const VkPhysicalDeviceSurfaceInfo2KHR surfaceInfo
+    {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR,
+        nullptr,
+        reinterpret_cast<VkSurfaceKHR>(CreateInfo.VkSurfaceHandle)
+    };
+
+    // the 2 versions are per surface: a device can have them and this window still not
+    VkSurfaceCapabilitiesPresentWait2KHR wait2{ VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_PRESENT_WAIT_2_KHR };
+    VkSurfaceCapabilitiesPresentId2KHR id2{ VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_PRESENT_ID_2_KHR, &wait2 };
+    VkSurfaceCapabilities2KHR capabilities{ VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR, &id2 };
+    vkGetPhysicalDeviceSurfaceCapabilities2KHR(physicalDevice, &surfaceInfo, &capabilities);
+
+    if (id2.presentId2Supported == VK_TRUE && wait2.presentWait2Supported == VK_TRUE)
+    {
+        return VK_SWAPCHAIN_CREATE_PRESENT_ID_2_BIT_KHR | VK_SWAPCHAIN_CREATE_PRESENT_WAIT_2_BIT_KHR;
+    }
+
+    PresentWaitTier = WaitForPresent1 != nullptr ? PresentWaitSupport::PresentWait : PresentWaitSupport::None;
+    return 0u;
+}
+
+PresentWaitStatus SwapchainImpl::WaitForPresent(uint64_t present_id, uint64_t timeout_ns)
+{
+    if (PresentWaitTier == PresentWaitSupport::None)
+    {
+        return PresentWaitStatus::Unsupported;
+    }
+
+    if (present_id == 0u || present_id > LastPresentId)
+    {
+        return PresentWaitStatus::NotPresented;
+    }
+
+    if (present_id < FirstPresentId)
+    {
+        return PresentWaitStatus::Retired;
+    }
+
+    VkResult result = VK_ERROR_UNKNOWN;
+
+    if (PresentWaitTier == PresentWaitSupport::PresentWait2)
+    {
+        const VkPresentWait2InfoKHR waitInfo
+        {
+            VK_STRUCTURE_TYPE_PRESENT_WAIT_2_INFO_KHR,
+            nullptr,
+            present_id,
+            timeout_ns
+        };
+        result = WaitForPresent2(ParentDevice, Swapchain, &waitInfo);
+    }
+    else
+    {
+        result = WaitForPresent1(ParentDevice, Swapchain, present_id, timeout_ns);
+    }
+
+    switch (result)
+    {
+    case VK_SUCCESS:
+        [[fallthrough]];
+    case VK_SUBOPTIMAL_KHR:
+        return PresentWaitStatus::Presented;
+    case VK_TIMEOUT:
+        return PresentWaitStatus::Timeout;
+    case VK_ERROR_OUT_OF_DATE_KHR:
+        return PresentWaitStatus::OutOfDate;
+    default:
+        return PresentWaitStatus::Failed;
+    }
 }
 
 VkSurfacePresentScalingCapabilitiesKHR SwapchainImpl::queryPresentModeSupport(VkPresentModeKHR mode)

@@ -19,6 +19,7 @@
 #include "TargetExtents.hpp"
 #include "WindowedBoot.hpp"
 #include <GLFW/glfw3.h>
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <format>
@@ -26,8 +27,11 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
+#include <vector>
 
 // Loom step 7 on a swapchain: LoomDrawTest's graph, drawn into SwapchainFrameTarget each frame. --frames=N exits after N
 // submitted frames. --resize resizes the window three times (use at least 120 frames): the swapchain must be made again
@@ -68,6 +72,8 @@ namespace
     constexpr int32_t k_ReleaseCycles = 10;
     // --present-modes: frames in each mode
     constexpr int32_t k_FramesPerMode = 20;
+    // one frame reaches the display within a few refreshes; a second means the wait is broken
+    constexpr uint64_t k_PresentWaitTimeoutNs = 1'000'000'000ull;
 
     struct TestOptions
     {
@@ -78,6 +84,20 @@ namespace
         bool PresentModes{ false };
         bool PresentScaling{ true };
         bool DeferredMemory{ false };
+        bool PresentWait{ false };
+        // the best present wait the run may get: the --present-wait-v1 and --no-present-wait switches decline the rest
+        PresentWaitSupport MaxPresentWait{ PresentWaitSupport::PresentWait2 };
+        bool NoFifoLatestReady{ false };
+    };
+
+    // --present-wait: after each submitted frame, the frame before it must reach the display
+    struct PresentWaitCheck
+    {
+        uint64_t LastSeenId{ 0u };
+        uint64_t LastWaitedId{ 0u };
+        int32_t Presented{ 0 };
+        int32_t Retired{ 0 };
+        int32_t OutOfDate{ 0 };
     };
 
     // --present-modes: which mode comes next, and the recreate count a switch must leave
@@ -337,12 +357,66 @@ namespace
         return failures;
     }
 
+    // Waits for the present before the last one. Ids must never go back. Without present waits, every wait must say
+    // Unsupported and no id is given. Returns the failures.
+    int32_t WaitForPreviousPresent(PresentWaitCheck& check, Swapchain& swapchain)
+    {
+        const uint64_t id = swapchain.LastPresentId();
+
+        if (id < check.LastSeenId)
+        {
+            std::cerr << std::format("present wait: the id went back from {} to {}\n", check.LastSeenId, id);
+            return 1;
+        }
+
+        check.LastSeenId = id;
+
+        if (swapchain.PresentWaitTier() == PresentWaitSupport::None)
+        {
+            const PresentWaitStatus status = swapchain.WaitForPresent(1u, k_PresentWaitTimeoutNs);
+
+            if (id != 0u || status != PresentWaitStatus::Unsupported)
+            {
+                std::cerr << std::format("present wait: no support, but id {} and status {}\n", id, static_cast<int32_t>(status));
+                return 1;
+            }
+
+            return 0;
+        }
+
+        // nothing new to wait on: the frame before the last present was waited on already
+        if (id < 2u || id - 1u <= check.LastWaitedId)
+        {
+            return 0;
+        }
+
+        check.LastWaitedId = id - 1u;
+        const PresentWaitStatus status = swapchain.WaitForPresent(id - 1u, k_PresentWaitTimeoutNs);
+
+        switch (status)
+        {
+        case PresentWaitStatus::Presented:
+            ++check.Presented;
+            return 0;
+        case PresentWaitStatus::Retired:
+            ++check.Retired;
+            return 0;
+        case PresentWaitStatus::OutOfDate:
+            ++check.OutOfDate;
+            return 0;
+        default:
+            std::cerr << std::format("present wait: id {} gave status {}\n", id - 1u, static_cast<int32_t>(status));
+            return 1;
+        }
+    }
+
     // Ticks the graph until the window closes or the frame limit is reached (-1: no limit). Returns the submitted
     // count, or nothing when a Tick failed.
     std::optional<int32_t> RunFrames(WindowedBoot& boot, loom::Graph& graph, loom::SwapchainFrameTarget& target,
                                      const TestOptions& options, int32_t& failures)
     {
         ModeCycle cycle;
+        PresentWaitCheck waits;
 
         if (options.PresentModes)
         {
@@ -385,6 +459,7 @@ namespace
             {
             case loom::TickStatus::Submitted:
                 ++submitted;
+                failures += options.PresentWait ? WaitForPreviousPresent(waits, *platform.GetActiveSwapchain()) : 0;
                 break;
             case loom::TickStatus::NoFrameSlot:
                 [[fallthrough]];
@@ -397,6 +472,21 @@ namespace
             case loom::TickStatus::Failed:
                 std::cerr << "Tick failed\n" << graph.ExplainLastTick();
                 return std::nullopt;
+            }
+        }
+
+        if (options.PresentWait)
+        {
+            const Swapchain& waited = *platform.GetActiveSwapchain();
+            std::cout << std::format("present wait: tier {}, {} presented, {} retired, {} out of date, last id {}\n",
+                                     static_cast<int32_t>(waited.PresentWaitTier()), waits.Presented, waits.Retired,
+                                     waits.OutOfDate, waited.LastPresentId());
+
+            // with any support, waits must have reached the display
+            if (waited.PresentWaitTier() != PresentWaitSupport::None && waits.Presented == 0)
+            {
+                std::cerr << "present wait: no wait saw a present reach the display\n";
+                ++failures;
             }
         }
 
@@ -523,6 +613,32 @@ namespace
             failures += CheckRelease(swapchain);
         }
 
+        // a declined need must lower the tier: the fallback runs on the real device, not behind a switch
+        std::cout << std::format("present wait tier: {} (at most {})\n", static_cast<int32_t>(swapchain.PresentWaitTier()),
+                                 static_cast<int32_t>(options.MaxPresentWait));
+
+        if (swapchain.PresentWaitTier() > options.MaxPresentWait)
+        {
+            std::cerr << "the swapchain uses a present wait that the device was not given\n";
+            ++failures;
+        }
+
+        // FIFO latest ready without its feature: the surface still lists it, the swapchain must not offer it
+        const std::vector<PresentMode> supported = swapchain.SupportedPresentModes();
+        const bool latestReadyOffered = std::ranges::contains(supported, PresentMode::VerticalSyncLatestReady);
+
+        if (options.NoFifoLatestReady)
+        {
+            std::cout << std::format("fifo latest ready: feature {}, offered {}\n",
+                                     device.IsFeatureEnabled(k_FifoLatestReadyFeature), latestReadyOffered);
+        }
+
+        if (options.NoFifoLatestReady && latestReadyOffered)
+        {
+            std::cerr << "FIFO latest ready is offered without its feature\n";
+            ++failures;
+        }
+
         loom::SwapchainFrameTarget target{ device, swapchain };
         const loom::FrameTargetBinding binding{ .Key = k_Screen, .Target = target };
         loom::CollectingSink sink;
@@ -567,10 +683,11 @@ namespace
         const double meanMs = statistics.Recreates > 0u
             ? static_cast<double>(statistics.RecreateNanoseconds) / statistics.Recreates / 1.0e6
             : 0.0;
-        std::cout << std::format("swapchain: {} recreates, mean {:.3f} ms, max {:.3f} ms, {} mode switches without recreate\n",
+        std::cout << std::format("swapchain: {} recreates, mean {:.3f} ms, max {:.3f} ms, {} mode switches without recreate, "
+                                 "{} retired with presents pending\n",
                                  statistics.Recreates, meanMs,
                                  static_cast<double>(statistics.MaxRecreateNanoseconds) / 1.0e6,
-                                 statistics.PresentModeSwitches);
+                                 statistics.PresentModeSwitches, statistics.RetiredWithPendingPresents);
 
         const GraphicsResource positions = graph->BufferOf(k_Positions);
 
@@ -609,11 +726,47 @@ int main(int argc, char* argv[])
         PlatformWindowBehaviorFlags{ true, true, true, false, false }
     };
 
+    // the fallback switches decline Wanted needs, so the device really lacks the feature
+    const bool presentWaitV1 = HasFlag(argc, argv, "--present-wait-v1");
+    const bool noPresentWait = HasFlag(argc, argv, "--no-present-wait");
+    const bool noFifoLatestReady = HasFlag(argc, argv, "--no-fifo-latest-ready");
+    std::vector<std::string> declined;
+
+    if (presentWaitV1 || noPresentWait)
+    {
+        declined.emplace_back(k_PresentId2Feature);
+        declined.emplace_back(k_PresentWait2Feature);
+    }
+
+    if (noPresentWait)
+    {
+        declined.emplace_back(k_PresentIdFeature);
+        declined.emplace_back(k_PresentWaitFeature);
+    }
+
+    if (noFifoLatestReady)
+    {
+        declined.emplace_back(k_FifoLatestReadyFeature);
+    }
+
+    PresentWaitSupport maxPresentWait = PresentWaitSupport::PresentWait2;
+
+    if (presentWaitV1)
+    {
+        maxPresentWait = PresentWaitSupport::PresentWait;
+    }
+
+    if (noPresentWait)
+    {
+        maxPresentWait = PresentWaitSupport::None;
+    }
+
     const bootstrap::DeviceConfig config
     {
         .ApiVersion = rhi::ApiVersion::Latest,
         .Validation = rhi::ValidationLayers::Full,
         .ApplicationName = "LoomTriangleTest",
+        .Declined = std::move(declined),
     };
 
     WindowedBoot boot;
@@ -632,6 +785,9 @@ int main(int argc, char* argv[])
         .PresentModes = HasFlag(argc, argv, "--present-modes"),
         .PresentScaling = !HasFlag(argc, argv, "--no-scaling"),
         .DeferredMemory = HasFlag(argc, argv, "--deferred-memory"),
+        .PresentWait = HasFlag(argc, argv, "--present-wait") || presentWaitV1 || noPresentWait,
+        .MaxPresentWait = maxPresentWait,
+        .NoFifoLatestReady = noFifoLatestReady,
     };
 
     const int32_t failures = RunTest(boot, options);

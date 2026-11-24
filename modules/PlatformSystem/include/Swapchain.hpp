@@ -19,6 +19,33 @@ inline constexpr std::string_view k_SwapchainMaintenance1Feature{ "VkPhysicalDev
 // Without it, the swapchain does not offer that mode, even where the surface does.
 inline constexpr std::string_view k_FifoLatestReadyFeature{ "VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR.presentModeFifoLatestReady" };
 
+// Present ids and present waits (presentation plan P3). The window stage asks for all four as Wanted. The 2 versions
+// also need the surface to support them; the first versions need only the device.
+inline constexpr std::string_view k_PresentId2Feature{ "VkPhysicalDevicePresentId2FeaturesKHR.presentId2" };
+inline constexpr std::string_view k_PresentWait2Feature{ "VkPhysicalDevicePresentWait2FeaturesKHR.presentWait2" };
+inline constexpr std::string_view k_PresentIdFeature{ "VkPhysicalDevicePresentIdFeaturesKHR.presentId" };
+inline constexpr std::string_view k_PresentWaitFeature{ "VkPhysicalDevicePresentWaitFeaturesKHR.presentWait" };
+
+// Which present wait the current swapchain uses. Chosen at each create, best first.
+enum class PresentWaitSupport : uint8_t
+{
+    None = 0,           // no present ids: a caller paces on CPU time only
+    PresentWait = 1,    // VK_KHR_present_id and VK_KHR_present_wait
+    PresentWait2 = 2    // VK_KHR_present_id2 and VK_KHR_present_wait2, supported by this surface
+};
+
+enum class PresentWaitStatus : uint8_t
+{
+    Invalid = 0,
+    Presented = 1,      // the present with this id, or a later one, reached the display
+    Timeout = 2,
+    OutOfDate = 3,      // the swapchain went out of date; recreate it
+    Retired = 4,        // the id went to a swapchain that a Recreate replaced: there is nothing left to wait for
+    NotPresented = 5,   // no present has had this id yet (0, or above LastPresentId); waiting would only time out
+    Unsupported = 6,    // PresentWaitSupport::None
+    Failed = 7
+};
+
 enum class SwapchainAcquireStatus : uint8_t
 {
     Invalid = 0,
@@ -74,6 +101,7 @@ struct SwapchainStatistics
     uint64_t RecreateNanoseconds{ 0u };         // the sum over every Recreate
     uint64_t MaxRecreateNanoseconds{ 0u };
     uint32_t PresentModeSwitches{ 0u };         // switches that needed no recreate
+    uint32_t RetiredWithPendingPresents{ 0u };  // old swapchains kept until their presents finished
 };
 
 class Swapchain
@@ -167,6 +195,16 @@ public:
     [[nodiscard]] bool UsesPresentScaling() const noexcept;
     [[nodiscard]] bool UsesDeferredImageMemory() const noexcept;
     [[nodiscard]] SwapchainStatistics Statistics() const noexcept;
+
+    // Present ids and present waits (presentation plan P3). On the thread that presents, like the rest.
+    /** @brief The present wait the current swapchain uses. It can change at a Recreate. */
+    [[nodiscard]] PresentWaitSupport PresentWaitTier() const noexcept;
+    /** @brief The id of the last present that the swapchain accepted; 0 before the first one, and always 0 with
+     * PresentWaitSupport::None. Ids increase by one per present, across recreates. */
+    [[nodiscard]] uint64_t LastPresentId() const noexcept;
+    /** @brief Blocks until the present with `present_id` (or a later one) reached the display, or until timeout_ns
+     * passes. Returns at once for an id this swapchain cannot wait on (NotPresented, Retired, Unsupported). */
+    [[nodiscard]] PresentWaitStatus WaitForPresent(uint64_t present_id, uint64_t timeout_ns);
 
 private:
     std::unique_ptr<SwapchainImpl> impl;

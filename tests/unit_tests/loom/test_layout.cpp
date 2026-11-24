@@ -10,6 +10,7 @@
 #include "freeze/FrozenGraph.hpp"
 #include "GraphBuilder.hpp"
 #include "LoomDiagnostic.hpp"
+#include "LoomDeviceLimits.hpp"
 #include "LoomError.hpp"
 #include "LoomKeys.hpp"
 #include "PassBuilders.hpp"

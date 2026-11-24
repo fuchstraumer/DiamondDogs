@@ -77,6 +77,9 @@ struct SwapchainImpl
 
     void InitPresentation();
     [[nodiscard]] PresentModeChange SetPresentMode(VkPresentModeKHR mode);
+    [[nodiscard]] PresentWaitStatus WaitForPresent(uint64_t present_id, uint64_t timeout_ns);
+    // Before each create: the best present wait this device and surface support; returns the create flags it needs
+    [[nodiscard]] VkSwapchainCreateFlagsKHR ChoosePresentWait();
     void CreateImageView(size_t index);
     // A mode the surface offers and the device enabled the feature for (FIFO latest ready needs one)
     [[nodiscard]] bool PresentModeUsable(VkPresentModeKHR mode) const noexcept;
@@ -106,6 +109,14 @@ struct SwapchainImpl
     uint64_t PresentSerial{ 0u };
     VkQueue PresentQueue{ VK_NULL_HANDLE };
     PFN_vkReleaseSwapchainImagesKHR ReleaseImages{ nullptr };
+    // P3: present ids. Ids below FirstPresentId went to a swapchain that a Recreate replaced.
+    PFN_vkWaitForPresentKHR WaitForPresent1{ nullptr };
+    PFN_vkWaitForPresent2KHR WaitForPresent2{ nullptr };
+    uint64_t NextPresentId{ 0u };
+    uint64_t LastPresentId{ 0u };
+    uint64_t FirstPresentId{ 1u };
+    PresentWaitSupport DeviceWaitTier{ PresentWaitSupport::None };
+    PresentWaitSupport PresentWaitTier{ PresentWaitSupport::None };
     foundation::SmallVector<VkImage, 4> Images;
     foundation::SmallVector<VkImageView, 4> ImageViews;
     // free acquire semaphores; one more than the images is enough, and they are made when first needed

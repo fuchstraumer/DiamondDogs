@@ -670,12 +670,17 @@ void SwapchainImpl::createSwapchainHandle(const SwapchainCreateInfo& create_info
         }
     }
 
+    // present ids and waits need no maintenance1; the 2 versions need create flags
+    swapchainCreateInfo.flags |= ChoosePresentWait();
+
     const VkResult result = vkCreateSwapchainKHR(ParentDevice, &swapchainCreateInfo, nullptr, &Swapchain);
     if (result != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create swapchain!");
     }
     PresentMode = swapchainCreateInfo.presentMode;
+    // the ids of earlier presents belong to the old swapchain
+    FirstPresentId = NextPresentId + 1u;
 }
 
 void SwapchainImpl::ApplyHdrMetadata(const SwapchainHdrMetadata& metadata)

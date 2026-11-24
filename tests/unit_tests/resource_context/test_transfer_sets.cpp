@@ -328,7 +328,7 @@ TEST_F(TransferSetTest, EveryRefusalFailsTheWholeSetAndChangesNothing)
     const GraphicsResource source = CreateBufferWithWords(k_BufferBytes, MakeWordPattern(k_BufferBytes / sizeof(uint32_t), 353u));
     const GraphicsResource canary = CreateBufferWithWords(k_BufferBytes, canaryWords);
     const GraphicsResource hostVisible = CreateBufferAndWait(HostVisibleBuffer(k_BufferBytes), {});
-    const GraphicsResource noTransferUsage = CreateBufferAndWait(BufferCreateInfo{ ResourceDomain::GPUOnly, ResourceCreationFlags::None, BufferUsageBits::ComputeShaderUAV, k_BufferBytes }, {});
+    const GraphicsResource noTransferUsage = CreateBufferAndWait(BufferCreateInfo{ .Domain = ResourceDomain::GPUOnly, .Flags = ResourceCreationFlags::None, .Usage = BufferUsageBits::ComputeShaderUAV, .Size = k_BufferBytes }, {});
     const GraphicsResource image = CreateImageWithWords(SquareImageInfo(k_ImageEdge, 1u), MakeWordPattern(k_ImageEdge * k_ImageEdge, 354u));
     const GraphicsResource staleBuffer = CreateBufferWithWords(k_BufferBytes, canaryWords);
     DestroyAndWait(staleBuffer);

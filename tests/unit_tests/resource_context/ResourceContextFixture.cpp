@@ -3,6 +3,7 @@
 #include "RhiContextVulkan.hpp"
 #include "RhiSystemStart.hpp"
 #include "StartTestRhi.hpp"
+#include <algorithm>
 #include <cstring>
 #include <format>
 #include <iostream>
@@ -69,12 +70,14 @@ void ResourceContextTest::RecreateContextWithRing(int32_t max_futures, uint64_t 
 {
     context.reset();
     context = std::make_unique<ResourceContext>();
+    // Initialize refuses an upload size above the ring, so a small ring takes a smaller one
     const ResourceContextCreateInfo createInfo
     {
-        &rhiContext,
-        false,
-        max_futures,
-        staging_ring_size
+        .Context = &rhiContext,
+        .DeviceAddressesEnabled = false,
+        .MaxFutures = max_futures,
+        .StagingRingSize = staging_ring_size,
+        .UploadBytesPerTick = std::min(k_DefaultUploadBytesPerTick, staging_ring_size),
     };
     ASSERT_EQ(context->Initialize(createInfo), ResourceContextError::Success);
 }
