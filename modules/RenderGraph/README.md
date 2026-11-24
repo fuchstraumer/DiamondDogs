@@ -573,6 +573,28 @@ usage the image is in at handoff, and its first barrier starts from that usage's
 **Frames in flight.** Each resource has one copy, and the frame-start batch orders frame N+1 after frame N. Copies per
 frame slot come with async compute (step 8), chosen per resource from measurements.
 
+### The frame loop
+
+Tick never blocks, so the waiting happens outside it, in the app's loop (presentation plan D4). LoomTriangleTest's loop
+is the model; an app's loop has the same order:
+
+```mermaid
+flowchart TD
+    A["FramePacer::WaitForFrameStart(swapchain.LastPresentId())"] --> A1["1. latency limit: wait until present N + 1 - k reached the display (Swapchain::WaitForPresent)"]
+    A1 --> A2["2. schedule: Uncapped, FixedCadence or VrrCeiling sleep"]
+    A2 --> B["PlatformWindowSystem::Update: input"]
+    B --> C["ResourceContext::Tick: uploads the graph waits on"]
+    C --> D["Graph::Tick: acquire, record, submit, present"]
+    D --> E["Swapchain::LastPresentId is this frame's id"]
+    E --> A
+```
+
+The pacer comes first so that input is read as late as possible: with a latency limit of 1, a frame starts only once
+the display showed the frame before it, and the input it reads is at most one frame old when it reaches the screen.
+`FramePacer` is in foundation and has no graphics API: the app binds the swapchain's wait to it as a
+`PresentWaitDelegate` (LoomTriangleTest's `SwapchainPresentWait`). The PlatformSystem README explains the modes and
+the present ids.
+
 ### What synchronization validation sees
 
 The layer's synchronization validation does not check the descriptor accesses of shader-object dispatches (SDK
@@ -683,6 +705,12 @@ test first acquires and releases ten images through `Swapchain`. `--present-mode
 other mode, 20 frames each: a switch the swapchain reports as in place must not recreate it (with maintenance1, at
 least one must be in place). `--no-scaling` and `--deferred-memory` change the swapchain's create choices (PlatformSystem
 README); the test recreates it once before the graph, and prints the recreate statistics.
+`--present-wait`, `--present-wait-v1`, `--no-present-wait` and `--no-fifo-latest-ready` test P3 (PlatformSystem
+README). The loop runs through `FramePacer` (P5): `--pacing=uncapped|vrr|cadence:<hz>` (no `--pacing` is uncapped,
+the loop as it was) and `--latency=k`. It prints the frame-start gaps, the pacer's sleeps and present waits, and with
+`--present-wait` the gaps between waits that returned (with FIFO those follow the display). A cadence run's mean gap
+must be within 2 % of the cadence; a VRR run must never start two frames closer than its ceiling; with a latency limit
+and present waits, the limit must have waited for the display at least once.
 
 Every test must be able to fail: plant the fault, see the test fail, and restore the source. After a restore, give the
 file a new modification time: ninja compares times, and a copy that keeps the old time leaves the planted object in

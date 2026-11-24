@@ -665,3 +665,11 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
 
 - Loom draws on the GPU: `LoomDrawTest` and `LoomTriangleTest`, present fences (swapchain maintenance1), the frame target Clear fallback as a rendering pass, three GPU plants caught. Details in `docs/rendergraph-agent.md` (log, 2026-11-23 step 7c).
 - Presentation P0 and P1: `DisplayProbe` prints presentation support; `Swapchain` owns acquire, present, release and the present fences (swapchain maintenance1 where present). Details in `docs/rendergraph-agent.md` and `docs/presentation-plan.md`.
+
+### 2026-11-24 (Opus: scalability design)
+
+- Design draft for scaling (knobs, settings, the governor): `docs/scalability-plan.md`. Its Lodestone and Loom requests stay local to that file until the author moves them.
+- **2026-11-24:** Loom agent: presentation plan finished (P3 present ids and waits, P4 `foundation::FramePacer` and the
+  EDID range and adaptive-sync flag, P5 the paced loop in LoomTriangleTest), the NVIDIA deferred-memory crash isolated
+  (`docs/nvidia-deferred-swapchain/`), the EDID now read from the live connection's registry key. Details in
+  `docs/rendergraph-agent.md` (log) and `docs/presentation-plan.md`.

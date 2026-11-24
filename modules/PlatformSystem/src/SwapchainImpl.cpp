@@ -403,12 +403,12 @@ VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& re
 SwapchainImpl::SwapchainImpl(const SwapchainCreateInfo& create_info) :
     CreateInfo{ create_info },
     ParentDevice{ VK_NULL_HANDLE },
-    AppFormat{},
     VulkanFormat{ .format = VK_FORMAT_UNDEFINED, .colorSpace = VK_COLOR_SPACE_MAX_ENUM_KHR },
     Extent{ .width=0, .height=0 },
     MinImageCount{ create_info.MinImageCount },
     ImageCount{ 0 },
-    PresentMode{ VK_PRESENT_MODE_FIFO_KHR }
+    PresentMode{ VK_PRESENT_MODE_FIFO_KHR },
+    AppFormat{}
 {
     rhi::Device* device = reinterpret_cast<rhi::Device*>(create_info.RhiDevice);
     ParentDevice = device->Handle().As<VkDevice>();

@@ -18,10 +18,14 @@
 #include "SwapchainFrameTarget.hpp"
 #include "TargetExtents.hpp"
 #include "WindowedBoot.hpp"
+#include "timing/FramePacer.hpp"
 #include <GLFW/glfw3.h>
 #include <algorithm>
+#include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <system_error>
 #include <format>
 #include <iostream>
 #include <memory>
@@ -74,6 +78,11 @@ namespace
     constexpr int32_t k_FramesPerMode = 20;
     // one frame reaches the display within a few refreshes; a second means the wait is broken
     constexpr uint64_t k_PresentWaitTimeoutNs = 1'000'000'000ull;
+    // P5: the pacer's spin before a deadline, and how close its intervals must be (a mean within 2 %; a VRR gap may
+    // be short by the clock's rounding only)
+    constexpr std::chrono::microseconds k_PacerSpinMargin{ 300 };
+    constexpr double k_CadenceTolerance = 0.02;
+    constexpr double k_CeilingToleranceMs = 0.01;
 
     struct TestOptions
     {
@@ -88,6 +97,43 @@ namespace
         // the best present wait the run may get: the --present-wait-v1 and --no-present-wait switches decline the rest
         PresentWaitSupport MaxPresentWait{ PresentWaitSupport::PresentWait2 };
         bool NoFifoLatestReady{ false };
+        // P5: the frame pacer. Without --pacing it is Uncapped with no latency limit, which is the loop as it was.
+        foundation::PacingMode Pacing{ foundation::PacingMode::Uncapped };
+        double CadenceHz{ 0.0 };
+        uint32_t MaxFramesToDisplay{ 0u };
+    };
+
+    // Binds the swapchain's present wait to the pacer. A wait with nothing to wait for (an id not presented yet, or one
+    // that went to a replaced swapchain) counts as done; only a timeout or an error is a failure.
+    class SwapchainPresentWait
+    {
+    public:
+        explicit SwapchainPresentWait(PlatformWindowSystem& window_system) noexcept : platform{ &window_system }
+        {
+        }
+
+        bool Wait(uint64_t present_id, uint64_t timeout_ns)
+        {
+            const PresentWaitStatus status = platform->GetActiveSwapchain()->WaitForPresent(present_id, timeout_ns);
+            Presented += status == PresentWaitStatus::Presented ? 1 : 0;
+            return status != PresentWaitStatus::Timeout && status != PresentWaitStatus::Failed;
+        }
+
+        // the waits that saw a present reach the display: a latency limit that never waits did nothing
+        int32_t Presented{ 0 };
+
+    private:
+        PlatformWindowSystem* platform;
+    };
+
+    // What the pacer did per frame, and when each frame started
+    struct PacingRecord
+    {
+        std::vector<double> FrameGapsMs;
+        std::vector<double> PresentWaitMs;
+        std::vector<double> SleepMs;
+        int32_t PresentWaitFailures{ 0 };
+        std::optional<std::chrono::steady_clock::time_point> LastStart;
     };
 
     // --present-wait: after each submitted frame, the frame before it must reach the display
@@ -98,6 +144,10 @@ namespace
         int32_t Presented{ 0 };
         int32_t Retired{ 0 };
         int32_t OutOfDate{ 0 };
+        // when each wait for a present returned: with FIFO the wait blocks until the display, so the gaps follow the
+        // display's own intervals (present timing would give the exact times; that is a later round)
+        std::vector<double> DisplayGapsMs;
+        std::optional<std::chrono::steady_clock::time_point> LastDisplayed;
     };
 
     // --present-modes: which mode comes next, and the recreate count a switch must leave
@@ -215,6 +265,50 @@ namespace
         }
 
         return false;
+    }
+
+    // The text after `prefix` in the first argument that starts with it
+    [[nodiscard]] std::optional<std::string_view> FlagValue(int argc, char* argv[], std::string_view prefix)
+    {
+        for (int index = 1; index < argc; ++index)
+        {
+            const std::string_view argument{ argv[index] };
+
+            if (argument.starts_with(prefix))
+            {
+                return argument.substr(prefix.size());
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    // --pacing=uncapped, --pacing=vrr or --pacing=cadence:<hz>. False for anything else.
+    [[nodiscard]] bool ParsePacing(std::string_view value, foundation::PacingMode& mode, double& cadence_hz)
+    {
+        constexpr std::string_view k_Cadence{ "cadence:" };
+
+        if (value == "uncapped")
+        {
+            mode = foundation::PacingMode::Uncapped;
+            return true;
+        }
+
+        if (value == "vrr")
+        {
+            mode = foundation::PacingMode::VrrCeiling;
+            return true;
+        }
+
+        if (!value.starts_with(k_Cadence))
+        {
+            return false;
+        }
+
+        const std::string_view number = value.substr(k_Cadence.size());
+        const std::from_chars_result parsed = std::from_chars(number.data(), number.data() + number.size(), cadence_hz);
+        mode = foundation::PacingMode::FixedCadence;
+        return parsed.ec == std::errc{} && cadence_hz > 0.0;
     }
 
     constexpr bootstrap::BundleRequest k_Bundles[]
@@ -357,6 +451,124 @@ namespace
         return failures;
     }
 
+    // Adds the time since `last` (when there is one) to `gaps_ms`, and moves `last` to now
+    void RecordGapAt(std::vector<double>& gaps_ms, std::optional<std::chrono::steady_clock::time_point>& last,
+                     std::chrono::steady_clock::time_point now)
+    {
+        if (last.has_value())
+        {
+            gaps_ms.push_back(std::chrono::duration<double, std::milli>(now - *last).count());
+        }
+
+        last = now;
+    }
+
+    void RecordGap(std::vector<double>& gaps_ms, std::optional<std::chrono::steady_clock::time_point>& last)
+    {
+        RecordGapAt(gaps_ms, last, std::chrono::steady_clock::now());
+    }
+
+    struct Distribution
+    {
+        double Mean{ 0.0 };
+        double Min{ 0.0 };
+        double P99{ 0.0 };
+        double Max{ 0.0 };
+    };
+
+    [[nodiscard]] Distribution Summarize(std::vector<double> values)
+    {
+        if (values.empty())
+        {
+            return Distribution{};
+        }
+
+        std::ranges::sort(values);
+        double sum = 0.0;
+
+        for (const double value : values)
+        {
+            sum += value;
+        }
+
+        const size_t p99 = std::min(values.size() - 1u, values.size() * 99u / 100u);
+        return Distribution{ .Mean = sum / static_cast<double>(values.size()), .Min = values.front(), .P99 = values[p99], .Max = values.back() };
+    }
+
+    void PrintDistribution(std::string_view name, const std::vector<double>& values_ms)
+    {
+        const Distribution summary = Summarize(values_ms);
+        std::cout << std::format("{}: {} samples, mean {:.3f} ms, min {:.3f}, p99 {:.3f}, max {:.3f}\n", name,
+                                 values_ms.size(), summary.Mean, summary.Min, summary.P99, summary.Max);
+    }
+
+    [[nodiscard]] foundation::FramePacerSettings PacerSettings(const TestOptions& options, const PlatformWindowSystem& platform)
+    {
+        // VRR: the top of the window is the active mode's refresh rate (the EDID range only says what the display accepts)
+        const double activeHz = platform.GetActiveDisplayInfo().RefreshRateCapabilities.RefreshRate;
+
+        return foundation::FramePacerSettings
+        {
+            .Mode = options.Pacing,
+            .CadenceHz = options.CadenceHz,
+            .VrrMaxHz = activeHz,
+            .VrrGuardHz = foundation::RecommendedVrrGuardHz(activeHz),
+            .MaxFramesToDisplay = options.MaxFramesToDisplay,
+            .PresentWaitTimeout = std::chrono::nanoseconds(k_PresentWaitTimeoutNs),
+        };
+    }
+
+    // Prints what the pacer did, and checks what its mode promises. Returns the failures.
+    int32_t CheckPacing(const TestOptions& options, const foundation::FramePacerSettings& settings, const PacingRecord& record)
+    {
+        int32_t failures = 0;
+        // from the settings, not from the pacer: a pacer with a wrong interval must not set its own target
+        double minIntervalMs = 0.0;
+
+        if (options.Pacing == foundation::PacingMode::FixedCadence)
+        {
+            minIntervalMs = 1000.0 / settings.CadenceHz;
+        }
+
+        if (options.Pacing == foundation::PacingMode::VrrCeiling)
+        {
+            minIntervalMs = 1000.0 / (settings.VrrMaxHz - settings.VrrGuardHz);
+        }
+
+        std::cout << std::format("pacing: mode {}, min interval {:.3f} ms, latency limit {}, {} present wait failures\n",
+                                 static_cast<int32_t>(options.Pacing), minIntervalMs, options.MaxFramesToDisplay,
+                                 record.PresentWaitFailures);
+        PrintDistribution("frame start gaps", record.FrameGapsMs);
+        PrintDistribution("pacer sleeps", record.SleepMs);
+        PrintDistribution("pacer present waits", record.PresentWaitMs);
+        const Distribution gaps = Summarize(record.FrameGapsMs);
+
+        // a fixed cadence catches up from late frames, so its mean holds even when single frames do not
+        const bool cadenceOff = options.Pacing == foundation::PacingMode::FixedCadence &&
+                                std::abs(gaps.Mean - minIntervalMs) > k_CadenceTolerance * minIntervalMs;
+
+        if (cadenceOff)
+        {
+            std::cerr << std::format("pacing: mean frame gap {:.3f} ms, cadence {:.3f} ms\n", gaps.Mean, minIntervalMs);
+            ++failures;
+        }
+
+        // a VRR ceiling never lets two frames start closer than its interval
+        if (options.Pacing == foundation::PacingMode::VrrCeiling && gaps.Min < minIntervalMs - k_CeilingToleranceMs)
+        {
+            std::cerr << std::format("pacing: a frame gap of {:.3f} ms crossed the {:.3f} ms ceiling\n", gaps.Min, minIntervalMs);
+            ++failures;
+        }
+
+        if (record.PresentWaitFailures != 0)
+        {
+            std::cerr << "pacing: a present wait timed out or failed\n";
+            ++failures;
+        }
+
+        return failures;
+    }
+
     // Waits for the present before the last one. Ids must never go back. Without present waits, every wait must say
     // Unsupported and no id is given. Returns the failures.
     int32_t WaitForPreviousPresent(PresentWaitCheck& check, Swapchain& swapchain)
@@ -397,6 +609,7 @@ namespace
         {
         case PresentWaitStatus::Presented:
             ++check.Presented;
+            RecordGap(check.DisplayGapsMs, check.LastDisplayed);
             return 0;
         case PresentWaitStatus::Retired:
             ++check.Retired;
@@ -431,6 +644,13 @@ namespace
         bool minimized = false;
         const int32_t frameLimit = options.FrameLimit;
 
+        // the frame loop: pacer, then input, ResourceContext::Tick and Graph::Tick (TickOnce)
+        foundation::SystemPacerClock pacerClock{ k_PacerSpinMargin };
+        foundation::FramePacer pacer{ pacerClock, PacerSettings(options, platform) };
+        SwapchainPresentWait displayWait{ platform };
+        pacer.SetPresentWait(foundation::PresentWaitDelegate::Create<SwapchainPresentWait, &SwapchainPresentWait::Wait>(&displayWait));
+        PacingRecord pacing;
+
         while (!platform.ShouldWindowClose() && (frameLimit < 0 || submitted < frameLimit))
         {
             if (frameLimit >= 0 && std::chrono::steady_clock::now() > deadline)
@@ -454,6 +674,13 @@ namespace
                 minimized = true;
                 failures += RunMinimized(boot, graph, last);
             }
+
+            const foundation::FramePacerWait paced = pacer.WaitForFrameStart(platform.GetActiveSwapchain()->LastPresentId());
+            // the pacer's own start times: its promises hold between those, not between later reads of the clock
+            RecordGapAt(pacing.FrameGapsMs, pacing.LastStart, paced.Start);
+            pacing.SleepMs.push_back(std::chrono::duration<double, std::milli>(paced.Sleep).count());
+            pacing.PresentWaitMs.push_back(std::chrono::duration<double, std::milli>(paced.PresentWait).count());
+            pacing.PresentWaitFailures += paced.PresentWaitFailed ? 1 : 0;
 
             switch (TickOnce(boot, graph, last))
             {
@@ -482,6 +709,8 @@ namespace
                                      static_cast<int32_t>(waited.PresentWaitTier()), waits.Presented, waits.Retired,
                                      waits.OutOfDate, waited.LastPresentId());
 
+            PrintDistribution("display gaps (present wait returns)", waits.DisplayGapsMs);
+
             // with any support, waits must have reached the display
             if (waited.PresentWaitTier() != PresentWaitSupport::None && waits.Presented == 0)
             {
@@ -504,6 +733,16 @@ namespace
         {
             std::cout << std::format("present modes: {} switches, {} without a recreate\n", cycle.Switches,
                                      cycle.WithoutRecreate);
+        }
+
+        failures += CheckPacing(options, PacerSettings(options, platform), pacing);
+        const bool limitCanWait = options.MaxFramesToDisplay > 0u && platform.GetActiveSwapchain()->PresentWaitTier() != PresentWaitSupport::None;
+        std::cout << std::format("pacing: {} latency waits saw a present reach the display\n", displayWait.Presented);
+
+        if (limitCanWait && displayWait.Presented == 0)
+        {
+            std::cerr << "pacing: the latency limit never waited for the display\n";
+            ++failures;
         }
 
         return submitted;
@@ -776,6 +1015,31 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    foundation::PacingMode pacing = foundation::PacingMode::Uncapped;
+    double cadenceHz = 0.0;
+    const std::optional<std::string_view> pacingValue = FlagValue(argc, argv, "--pacing=");
+
+    if (pacingValue.has_value() && !ParsePacing(*pacingValue, pacing, cadenceHz))
+    {
+        std::cerr << std::format("unknown --pacing={} (uncapped, vrr, cadence:<hz>)\n", *pacingValue);
+        return 1;
+    }
+
+    // --latency=k: at most k presented frames may be on their way to the display when a frame starts
+    uint32_t maxFramesToDisplay = 0u;
+    const std::optional<std::string_view> latencyValue = FlagValue(argc, argv, "--latency=");
+
+    if (latencyValue.has_value())
+    {
+        const std::from_chars_result parsed = std::from_chars(latencyValue->data(), latencyValue->data() + latencyValue->size(), maxFramesToDisplay);
+
+        if (parsed.ec != std::errc{})
+        {
+            std::cerr << std::format("unknown --latency={}\n", *latencyValue);
+            return 1;
+        }
+    }
+
     const TestOptions options
     {
         .FrameLimit = ParseFrameLimit(argc, argv),
@@ -788,6 +1052,9 @@ int main(int argc, char* argv[])
         .PresentWait = HasFlag(argc, argv, "--present-wait") || presentWaitV1 || noPresentWait,
         .MaxPresentWait = maxPresentWait,
         .NoFifoLatestReady = noFifoLatestReady,
+        .Pacing = pacing,
+        .CadenceHz = cadenceHz,
+        .MaxFramesToDisplay = maxFramesToDisplay,
     };
 
     const int32_t failures = RunTest(boot, options);

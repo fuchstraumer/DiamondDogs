@@ -1,6 +1,7 @@
 #include "PlatformDisplayInfo.hpp"
 #include "../EdidRange.hpp"
 #include <optional>
+#include <string_view>
 #include <vector>
 #include <cmath>
 #include <unordered_map>
@@ -318,7 +319,7 @@ float CalculateColorSpaceConfidence(const EDIDChromaticityCoordinates& chromatic
 }
 
 // stub here because I have to include more windows headers to get this :(
-std::vector<uint8_t> GetEDIDFromRegistry(const std::wstring& monitor_friendly_name);
+std::vector<uint8_t> GetEDIDFromRegistry(const std::wstring& monitor_device_path);
 EDIDHdrData GetEDIDHdrData(const std::vector<uint8_t>& edid_data);
 
 // used to help us map GLFWmonitors to Windows monitors
@@ -336,6 +337,7 @@ struct DisplayConfigMonitorInfo
     bool IsPrimary{ false };
     DisplayColorCapabilities ColorCapabilities{};
     std::optional<EdidRefreshRange> RefreshRange;
+    bool DeclaresAdaptiveSync{ false };
 };
 
 std::string ConvertFromWideString(const std::wstring& wide_str)
@@ -464,10 +466,11 @@ void SetWindowsMonitorMappings()
         }
 
         // EDID fills only what DXGI did not provide
-        std::vector<uint8_t> edidData = GetEDIDFromRegistry(wFriendlyName);
+        std::vector<uint8_t> edidData = GetEDIDFromRegistry(std::wstring(targetName.monitorDevicePath));
         EDIDHdrData hdrData = GetEDIDHdrData(edidData);
         ApplyEdidWhereDxgiMissing(monitorInfo.ColorCapabilities, hdrData);
         monitorInfo.RefreshRange = ParseEdidRefreshRange(edidData);
+        monitorInfo.DeclaresAdaptiveSync = EdidDeclaresAdaptiveSync(edidData);
 
         k_GWindowsMonitorInfoMap.emplace(friendlyName, monitorInfo);
     }
@@ -498,6 +501,8 @@ DisplayInfo DisplayInfoFromDisplayConfigMonitorInfo(const DisplayConfigMonitorIn
         result.RefreshRateCapabilities.MaxRefreshRate = monitor_info.RefreshRange->MaxHz;
     }
 
+    result.RefreshRateCapabilities.DeclaresAdaptiveSync = monitor_info.DeclaresAdaptiveSync;
+
     result.ColorCapabilities = monitor_info.ColorCapabilities;
     return result;
 }
@@ -513,100 +518,50 @@ DisplayInfo RetrievePlatformPrimaryDisplayInfo() noexcept
     return DisplayInfoFromDisplayConfigMonitorInfo(monitor->second);
 }
 
-std::vector<uint8_t> GetEDIDFromRegistry(const std::wstring& monitor_friendly_name)
+// DisplayConfig's monitor device path, "\\?\DISPLAY#GSM9E8B#5&17229204&0&UID4353#{interface guid}", names the
+// registry key of this connection: "DISPLAY\GSM9E8B\5&17229204&0&UID4353". A search by friendly name can find the key
+// of an older connection of the same monitor first, with an older EDID (a firmware change gives a new one).
+std::vector<uint8_t> GetEDIDFromRegistry(const std::wstring& monitor_device_path)
 {
-    // what we're doing here actually doesn't account for the monitor name at all, but for now this just grabs the primary monitor effectively.
-    HKEY displaysKey;
-    LONG result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
-        L"SYSTEM\\CurrentControlSet\\Enum\\DISPLAY", 0, KEY_READ, &displaysKey);
-    
-    if (result != ERROR_SUCCESS) return {};
-    
-    // Enumerate display devices
-    DWORD subkeyIndex = 0;
-    wchar_t subkeyName[256];
-    DWORD subkeyNameSize = sizeof(subkeyName) / sizeof(wchar_t);
-    
-    while (RegEnumKeyExW(displaysKey, subkeyIndex++, subkeyName, &subkeyNameSize, 
-                         nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS)
-    {
-        HKEY deviceKey;
-        result = RegOpenKeyExW(displaysKey, subkeyName, 0, KEY_READ, &deviceKey);
-        if (result != ERROR_SUCCESS)
-        {
-            subkeyNameSize = sizeof(subkeyName) / sizeof(wchar_t);
-            continue;
-        }
-        
-        // Enumerate device instances
-        DWORD instanceIndex = 0;
-        wchar_t instanceName[256];
-        DWORD instanceNameSize = sizeof(instanceName) / sizeof(wchar_t);
-        
-        while (RegEnumKeyExW(deviceKey, instanceIndex++, instanceName, &instanceNameSize,
-                             nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS)
-        {
-            HKEY instanceKey;
-            std::wstring instancePath = std::wstring(subkeyName) + L"\\" + instanceName;
-            result = RegOpenKeyExW(displaysKey, instancePath.c_str(), 0, KEY_READ, &instanceKey);
-            
-            if (result == ERROR_SUCCESS)
-            {
-                // Check to see if friendly name matches, it's one of the values in the instance key
-                wchar_t friendlyName[256];
-                DWORD friendlyNameSize = sizeof(friendlyName);
-                result = RegQueryValueExW(instanceKey, L"FriendlyName", nullptr, nullptr, 
-                                          reinterpret_cast<LPBYTE>(friendlyName), &friendlyNameSize);
-                if (result == ERROR_SUCCESS)
-                {
-                    std::wstring friendlyNameStr(friendlyName, friendlyNameSize / sizeof(wchar_t) - 1);
-                    // Need to do an inexact match: sometimes the registry name has extra info, like the driver and other stuff
-                    // As long as we can find the monitor friendly name as a substring, we'll consider it a match
-                    if (friendlyNameStr.find(monitor_friendly_name) == std::wstring::npos)
-                    {
-                        // did not find the name, close the key and continue
-                        RegCloseKey(instanceKey);
-                        continue; // Not the monitor we're looking for
-                    }
-                }
+    constexpr std::wstring_view k_DevicePathPrefix{ L"\\\\?\\" };
+    std::wstring instance = monitor_device_path;
 
-                // Check device parameters for EDID
-                HKEY paramsKey;
-                result = RegOpenKeyExW(instanceKey, L"Device Parameters", 0, KEY_READ, &paramsKey);
-                if (result == ERROR_SUCCESS)
-                {
-                    DWORD edidSize = 0;
-                    result = RegQueryValueExW(paramsKey, L"EDID", nullptr, nullptr, nullptr, &edidSize);
-                    if (result == ERROR_SUCCESS && edidSize > 0)
-                    {
-                        std::vector<uint8_t> edidData(edidSize);
-                        result = RegQueryValueExW(paramsKey, L"EDID", nullptr, nullptr, 
-                                                  edidData.data(), &edidSize);
-                        if (result == ERROR_SUCCESS)
-                        {
-                            RegCloseKey(paramsKey);
-                            RegCloseKey(instanceKey);
-                            RegCloseKey(deviceKey);
-                            RegCloseKey(displaysKey);
-                            return edidData;
-                        }
-                    }
-                    RegCloseKey(paramsKey);
-                }
-                RegCloseKey(instanceKey);
-            }
-            instanceNameSize = sizeof(instanceName) / sizeof(wchar_t);
-        }
-        
-        RegCloseKey(deviceKey);
-        subkeyNameSize = sizeof(subkeyName) / sizeof(wchar_t);
+    if (instance.starts_with(k_DevicePathPrefix))
+    {
+        instance.erase(0u, k_DevicePathPrefix.size());
     }
-    
-    RegCloseKey(displaysKey);
-    return {};
+
+    // drop the interface guid, then turn the separators into key separators
+    const size_t guid = instance.rfind(L'#');
+
+    if (guid == std::wstring::npos)
+    {
+        return {};
+    }
+
+    instance.resize(guid);
+    std::ranges::replace(instance, L'#', L'\\');
+    const std::wstring keyPath = L"SYSTEM\\CurrentControlSet\\Enum\\" + instance + L"\\Device Parameters";
+    DWORD edidSize = 0;
+    LSTATUS result = RegGetValueW(HKEY_LOCAL_MACHINE, keyPath.c_str(), L"EDID", RRF_RT_REG_BINARY, nullptr, nullptr, &edidSize);
+
+    if (result != ERROR_SUCCESS || edidSize == 0)
+    {
+        return {};
+    }
+
+    std::vector<uint8_t> edidData(edidSize);
+    result = RegGetValueW(HKEY_LOCAL_MACHINE, keyPath.c_str(), L"EDID", RRF_RT_REG_BINARY, nullptr, edidData.data(), &edidSize);
+
+    if (result != ERROR_SUCCESS)
+    {
+        return {};
+    }
+
+    edidData.resize(edidSize);
+    return edidData;
 }
 
-// most of this was found in other libraries, like libdisplay-info
 EDIDHdrData GetEDIDHdrData(const std::vector<uint8_t>& edid_data)
 {
     EDIDHdrData hdrData;

@@ -92,7 +92,7 @@ FramePacerWait FramePacer::WaitForFrameStart(uint64_t last_present_id) noexcept
 {
     // the display first: the schedule then counts from when the display caught up
     FramePacerWait result = waitForDisplay(last_present_id);
-    result.Sleep = waitForSchedule();
+    waitForSchedule(result);
     return result;
 }
 
@@ -126,16 +126,17 @@ FramePacerWait FramePacer::waitForDisplay(uint64_t last_present_id) noexcept
     return result;
 }
 
-std::chrono::nanoseconds FramePacer::waitForSchedule() noexcept
+void FramePacer::waitForSchedule(FramePacerWait& result) noexcept
 {
     const Clock::time_point now = clock->Now();
+    result.Start = now;
 
     // the first frame after Configure starts at once
     if (interval == Clock::duration::zero() || !started)
     {
         started = true;
         nextStart = now + interval;
-        return std::chrono::nanoseconds::zero();
+        return;
     }
 
     // a fixed cadence catches up from a frame up to one interval late; later than that, or any lateness under a VRR
@@ -145,7 +146,7 @@ std::chrono::nanoseconds FramePacer::waitForSchedule() noexcept
     if (now >= nextStart + allowedLateness)
     {
         nextStart = now + interval;
-        return std::chrono::nanoseconds::zero();
+        return;
     }
 
     if (now < nextStart)
@@ -153,9 +154,12 @@ std::chrono::nanoseconds FramePacer::waitForSchedule() noexcept
         clock->SleepUntil(nextStart);
     }
 
-    const std::chrono::nanoseconds slept = std::chrono::duration_cast<std::chrono::nanoseconds>(clock->Now() - now);
-    nextStart += interval;
-    return slept;
+    // a sleep can wake late: a fixed cadence keeps its grid, so the next frame makes up for it; a VRR ceiling counts
+    // from the real start, so no two starts are ever closer than its interval
+    const Clock::time_point woke = clock->Now();
+    nextStart = settings.Mode == PacingMode::FixedCadence ? nextStart + interval : woke + interval;
+    result.Sleep = std::chrono::duration_cast<std::chrono::nanoseconds>(woke - now);
+    result.Start = woke;
 }
 
 } // namespace foundation

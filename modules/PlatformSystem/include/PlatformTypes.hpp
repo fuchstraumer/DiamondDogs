@@ -198,6 +198,9 @@ struct DisplayRefreshRateCapabilities
     // (the timings they accept), so it does not prove VRR. With VRR, the active RefreshRate is the top of the window.
     float MinRefreshRate{ 0.0f };
     float MaxRefreshRate{ 0.0f };
+    // The EDID says the display can refresh at a variable rate (EDID 1.4 continuous frequency, or a FreeSync block).
+    // Whether the driver has it on is not known: a later settings popup can ask the user to turn it on.
+    bool DeclaresAdaptiveSync{ false };
 };
 
 struct DisplayInfo

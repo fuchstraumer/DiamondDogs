@@ -146,7 +146,9 @@ two steps:
      would queue (FIFO) or tear (IMMEDIATE). `RecommendedVrrGuardHz` gives 2 Hz or 2 %, whichever is more (4.8 Hz at
      240 Hz: a 235.2 Hz ceiling).
 
-The display wait comes first, so the schedule counts from when the display caught up. Every setting is explicit; the
+The display wait comes first, so the schedule counts from when the display caught up. `FramePacerWait::Start` is the
+time the schedule counted the frame from: the promises hold between those times, not between the caller's later reads
+of the clock (a descheduled thread made one LoomTriangleTest gap look 31 us short). Every setting is explicit; the
 pacer reads time and sleeps through a `PacerClock` (the real one sleeps with `HighResolutionWait`, then spins), so the
 unit tests run on a fake clock. `FrameLimiter` is unchanged and stays for `VulkanScene` until both go.
 
@@ -154,9 +156,20 @@ unit tests run on a fake clock. `FrameLimiter` is unchanged and stays for `Vulka
 limits descriptor (tag 0xFD, with the EDID 1.4 +255 Hz offsets), read on Win32 with the EDID the HDR data already
 uses (`src/EdidRange.cpp`, platform free). Zero means unknown (Linux, or no descriptor). The range does **not** prove
 VRR: a fixed-refresh display lists the timings it accepts (often 56 to 76 Hz), and whether VRR is on is a driver
-setting. So there is no "supports VRR" flag. With VRR, the top of the window is the active mode's refresh rate, so
-`VrrMaxHz` comes from `RefreshRate`, and the EDID minimum tells where low-framerate compensation starts. On the
-author's LG ULTRAGEAR+: active 239.989 Hz, EDID 48 to 240 Hz.
+setting. With VRR, the top of the window is the active mode's refresh rate, so `VrrMaxHz` comes from
+`RefreshRate`, and the EDID minimum tells where low-framerate compensation starts.
+
+**Can the display do adaptive sync?** `DeclaresAdaptiveSync` is true when the EDID says so: the EDID 1.4 "continuous
+frequency" feature bit, or an AMD FreeSync block in a CTA-861 extension (HDMI Forum VRR and DisplayID Adaptive-Sync
+blocks are not read: no display here has them to test against). It says the display can, not that the driver has it
+on; a later settings popup can ask the user to turn it on. The author's LG ULTRAGEAR+ showed both sides on
+2026-11-24: before a monitor firmware setting change its EDID had the 48 to 240 Hz range but neither sign, and Windows
+offered no VRR; after it, both signs, and G-SYNC Compatible came on. Active 239.989 Hz.
+
+**Which EDID.** The registry keeps a key per connection of a monitor (`Enum\DISPLAY\<id>\<instance>`), and old
+connections keep their old EDID. The EDID is read from the key that DisplayConfig's `monitorDevicePath` names, the live
+connection. (Until 2026-11-24 it searched by friendly name and took the first match: here a stale 128-byte EDID, so the
+HDR data and the range came from an old copy.)
 
 ## Tests
 
@@ -200,3 +213,14 @@ P4 plants (2026-11-24, ninja-msvc, unit tests, each restored byte for byte): all
 | The schedule runs before the display wait | `ReportsTheWaitsItMade` |
 | The EDID +255 Hz offsets are ignored | `AddsTheMaxOffset`, `AddsBothOffsets` |
 | The EDID checksum is not checked | `RefusesABadBlock` |
+
+P5 plants (2026-11-24, ninja-msvc, LoomTriangleTest, each restored byte for byte): all caught.
+
+| Plant | Caught by |
+|---|---|
+| The VRR ceiling keeps a grid (`nextStart += interval`), the bug the first real run found | `--pacing=vrr`: a 4.016 ms gap under the 4.252 ms ceiling; also `VrrCeilingCountsFromTheRealStart` |
+| The loop gives the pacer present id 0 | `--latency=1`: the limit never waited for the display |
+| The cadence interval is doubled | `--pacing=cadence:60`: mean 33.3 ms (it first passed, because the check compared against the pacer's own interval; the target now comes from the settings) |
+
+Adaptive-sync plants (2026-11-24): the feature bit counted in EDID 1.3 (caught by `TheFeatureBitCountsOnlyInEdid14`);
+a CTA block with a bad checksum read (caught by `ABrokenCtaBlockIsIgnored`).

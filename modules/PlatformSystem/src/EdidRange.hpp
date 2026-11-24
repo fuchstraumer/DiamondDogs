@@ -17,4 +17,9 @@ struct EdidRefreshRange
  * Fixed-refresh displays list a range too (the timings they accept), so a range alone does not prove VRR. */
 [[nodiscard]] std::optional<EdidRefreshRange> ParseEdidRefreshRange(std::span<const uint8_t> edid) noexcept;
 
+/** @brief True when the EDID says the display can refresh at a variable rate: the EDID 1.4 "continuous frequency"
+ * feature bit, or an AMD FreeSync block in a CTA-861 extension. It says the display can; whether the driver has it on
+ * (G-SYNC Compatible, FreeSync) is not in the EDID. HDMI Forum VRR and DisplayID Adaptive-Sync blocks are not read. */
+[[nodiscard]] bool EdidDeclaresAdaptiveSync(std::span<const uint8_t> edid) noexcept;
+
 #endif // !DIAMOND_DOGS_PLATFORM_SYSTEM_EDID_RANGE_HPP

@@ -27,11 +27,14 @@ namespace
         {
             ++Sleeps;
 
+            // a real sleep can wake late; Overshoot plays that
             if (deadline > now)
             {
-                now = deadline;
+                now = deadline + Overshoot;
             }
         }
+
+        Clock::duration Overshoot{ 0 };
 
         void Advance(Clock::duration work) noexcept
         {
@@ -91,8 +94,10 @@ namespace
 
         for (int32_t frame = 0; frame < frames; ++frame)
         {
-            [[maybe_unused]] const foundation::FramePacerWait waited = pacer.WaitForFrameStart(0u);
+            const foundation::FramePacerWait waited = pacer.WaitForFrameStart(0u);
             const Clock::time_point start = clock.Now();
+            // nothing runs between the pacer and here on the fake clock, so its Start is now
+            EXPECT_EQ(waited.Start, start);
 
             if (frame > 0)
             {
@@ -188,6 +193,38 @@ TEST(FramePacerTest, VrrCeilingDoesNotBurstAfterASlowFrame)
         previous = start;
         clock.Advance(1ms);
     }
+}
+
+TEST(FramePacerTest, VrrCeilingCountsFromTheRealStart)
+{
+    // every sleep wakes 0.3 ms late (LoomTriangleTest saw this on the real clock): a ceiling that kept a grid would
+    // make the next gap 0.3 ms short. No gap may be under the ceiling interval.
+    FakeClock clock;
+    clock.Overshoot = 300us;
+    FramePacer pacer{ clock, Settings(PacingMode::VrrCeiling, 0.0, 240.0, 4.8, 0u) };
+    const std::vector<Clock::duration> gaps = FrameStartGaps(pacer, clock, 20, 1ms);
+
+    for (const Clock::duration gap : gaps)
+    {
+        EXPECT_GE(gap, pacer.MinFrameInterval());
+    }
+}
+
+TEST(FramePacerTest, FixedCadenceMakesUpForALateWake)
+{
+    // the same late wakes under a fixed cadence: the grid holds, so the mean stays on the cadence
+    FakeClock clock;
+    clock.Overshoot = 300us;
+    FramePacer pacer{ clock, Settings(PacingMode::FixedCadence, 60.0, 0.0, 0.0, 0u) };
+    const std::vector<Clock::duration> gaps = FrameStartGaps(pacer, clock, 31, 5ms);
+    Clock::duration total{ 0 };
+
+    for (const Clock::duration gap : gaps)
+    {
+        total += gap;
+    }
+
+    EXPECT_NEAR(Milliseconds(total) / static_cast<double>(gaps.size()), 1000.0 / 60.0, 0.3 / 30.0 + 1.0e-4);
 }
 
 TEST(FramePacerTest, FixedCadenceKeepsItsSchedule)

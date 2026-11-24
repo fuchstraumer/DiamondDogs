@@ -70,11 +70,14 @@ struct FramePacerSettings
  *  it did, or when there is nothing to wait for; false on a timeout or an error. The app binds the swapchain's wait. */
 using PresentWaitDelegate = Delegate<bool(uint64_t present_id, uint64_t timeout_ns)>;
 
-/** What one WaitForFrameStart spent, for statistics. */
+/** What one WaitForFrameStart spent, for statistics. Start is the time the schedule counts the frame from: the mode's
+ *  promises (a ceiling's minimum gap, a cadence's mean) hold between these times, not between the caller's own reads
+ *  of the clock, which a descheduled thread can delay. */
 struct FramePacerWait
 {
     std::chrono::nanoseconds PresentWait{ 0 };
     std::chrono::nanoseconds Sleep{ 0 };
+    PacerClock::Clock::time_point Start{};
     bool PresentWaitFailed{ false };
 };
 
@@ -101,7 +104,8 @@ public:
 
 private:
     [[nodiscard]] FramePacerWait waitForDisplay(uint64_t last_present_id) noexcept;
-    [[nodiscard]] std::chrono::nanoseconds waitForSchedule() noexcept;
+    // fills Sleep and Start
+    void waitForSchedule(FramePacerWait& result) noexcept;
 
     PacerClock* clock{ nullptr };
     FramePacerSettings settings;
