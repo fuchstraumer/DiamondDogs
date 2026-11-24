@@ -1,4 +1,6 @@
 #include "PlatformDisplayInfo.hpp"
+#include "../EdidRange.hpp"
+#include <optional>
 #include <vector>
 #include <cmath>
 #include <unordered_map>
@@ -333,6 +335,7 @@ struct DisplayConfigMonitorInfo
     uint32_t BitDepth{ 0 };
     bool IsPrimary{ false };
     DisplayColorCapabilities ColorCapabilities{};
+    std::optional<EdidRefreshRange> RefreshRange;
 };
 
 std::string ConvertFromWideString(const std::wstring& wide_str)
@@ -464,6 +467,7 @@ void SetWindowsMonitorMappings()
         std::vector<uint8_t> edidData = GetEDIDFromRegistry(wFriendlyName);
         EDIDHdrData hdrData = GetEDIDHdrData(edidData);
         ApplyEdidWhereDxgiMissing(monitorInfo.ColorCapabilities, hdrData);
+        monitorInfo.RefreshRange = ParseEdidRefreshRange(edidData);
 
         k_GWindowsMonitorInfoMap.emplace(friendlyName, monitorInfo);
     }
@@ -487,6 +491,13 @@ DisplayInfo DisplayInfoFromDisplayConfigMonitorInfo(const DisplayConfigMonitorIn
     result.RefreshRateCapabilities.RefreshRate = monitor_info.ActiveRefreshRate;
     result.RefreshRateCapabilities.IsInteger = false;
     result.RefreshRateCapabilities.RoundedRefreshRate = std::roundf(monitor_info.ActiveRefreshRate);
+
+    if (monitor_info.RefreshRange.has_value())
+    {
+        result.RefreshRateCapabilities.MinRefreshRate = monitor_info.RefreshRange->MinHz;
+        result.RefreshRateCapabilities.MaxRefreshRate = monitor_info.RefreshRange->MaxHz;
+    }
+
     result.ColorCapabilities = monitor_info.ColorCapabilities;
     return result;
 }

@@ -97,9 +97,11 @@ endif()
 
 set(timing_source_files
     "include/timing/FrameLimiter.hpp"
+    "include/timing/FramePacer.hpp"
     "include/timing/HighResolutionWait.hpp"
     "include/timing/MonotonicClock.hpp"
-    "src/timing/FrameLimiter.cpp")
+    "src/timing/FrameLimiter.cpp"
+    "src/timing/FramePacer.cpp")
 
 set(event_source_files
     "include/events/DisplayEvents.hpp"

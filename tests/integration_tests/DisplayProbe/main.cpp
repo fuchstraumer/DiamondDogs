@@ -834,6 +834,8 @@ namespace
         std::println("[PlatformSystem] RetrievePlatformPrimaryDisplayInfo");
         std::println("  Width x Height: {} x {}", displayInfo.Width, displayInfo.Height);
         std::println("  RefreshRate: {}", displayInfo.RefreshRateCapabilities.RefreshRate);
+        std::println("  EDID vertical range: {} to {} Hz (0: unknown)", displayInfo.RefreshRateCapabilities.MinRefreshRate,
+                     displayInfo.RefreshRateCapabilities.MaxRefreshRate);
         std::println("  hdrSupported: {}", caps.hdrSupported);
         std::println("  hdrEnabled: {}", caps.hdrEnabled);
         std::println("  wcgSupported: {}", caps.wcgSupported);

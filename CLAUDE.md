@@ -88,9 +88,9 @@ VMA asserts this way when a mapped allocation is destroyed.
 
 | Target | Proves |
 |---|---|
-| `foundation_tests` | Containers (the MWSR queue, including IDs that cross 2^31, 2^32 and 2^62), math, threading primitives, timing (the monotonic clock, `HighResolutionWait`, `FrameLimiter`), delegates. |
+| `foundation_tests` | Containers (the MWSR queue, including IDs that cross 2^31, 2^32 and 2^62), math, threading primitives, timing (the monotonic clock, `HighResolutionWait`, `FrameLimiter`, `FramePacer` on a fake clock), delegates. |
 | `rhi_system_tests` | Instance and device creation per API version, extension resolution, shader objects. |
-| `platform_system_tests` | Displays, windows, swapchain creation, JSON configuration. |
+| `platform_system_tests` | Displays, windows, swapchain creation, JSON configuration, the EDID refresh range (against the author's LG EDID). |
 | `resource_context_tests` | `ResourceContext` on a real device: every create path, uploads read back word for word, fills, copies, maps, samplers, four threads at once, and shutdown with queued work. |
 | `loom_tests` | Loom with no GPU: the builder, the diagnostic catalog, the sinks (counts, text and JSON Lines output), the JSON writer, Freeze, Resolve, Bind, Size (buffers and images), Order and explain, Layout (group counts, attachments, feedback loops, device limits), against test shaders cooked with a generated host header. |
 | `content_compiler_tests` | The content compiler with no GPU: kinds, the kind registry, the parameter box, the recipe table and ingestion. |
@@ -120,7 +120,7 @@ VMA asserts this way when a mapped allocation is destroyed.
 
 | Path | Holds |
 |---|---|
-| `foundation/` | Containers, math, threading, delegates, image formats. No graphics API. `timing/`: `MonotonicNanoseconds` and `Stopwatch` read the time (header-only, so `bootstrap` uses them without linking `foundation`); `HighResolutionWait` and `FrameLimiter` sleep. |
+| `foundation/` | Containers, math, threading, delegates, image formats. No graphics API. `timing/`: `MonotonicNanoseconds` and `Stopwatch` read the time (header-only, so `bootstrap` uses them without linking `foundation`); `HighResolutionWait` and `FrameLimiter` sleep; `FramePacer` decides when a frame starts (PlatformSystem README). |
 | `modules/ShaderBundle/` | `rhi::ShaderBundle`: reads a cooked Lodestone bundle with no device, so code that runs before the device exists can open bundles without the RHI. `rhi_system` links it. |
 | `modules/Bootstrap/` | `bootstrap`: the boot stages that need no RHI (`LaunchStage`, `CoreStage`), module descriptors and profiles, `BootResult`, and the boot timings. `README.md` explains it. `bootstrap_assert_no_rhi` fails the configure when a target reaches `rhi_system`. |
 | `modules/BootstrapVulkan/` | `bootstrap_vulkan`: the Vulkan boot stages (`WindowStage`, `DeviceStage`, `GpuStage`), `DeviceConfig`, and the spine needs. `modules/Bootstrap/README.md` explains it. |

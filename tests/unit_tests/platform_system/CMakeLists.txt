@@ -5,7 +5,8 @@ set(PLATFORM_SYSTEM_TEST_SOURCES
     TestPlatformSystem.cpp
     TestSwapchain.cpp
     TestJsonConfig.cpp
-    TestGlfwInput.cpp)
+    TestGlfwInput.cpp
+    TestEdidRange.cpp)
 
 add_unit_test_target(platform_system_tests
     "${PLATFORM_SYSTEM_TEST_SOURCES}"

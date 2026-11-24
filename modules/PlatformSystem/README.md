@@ -127,6 +127,37 @@ that removes the guard is not caught (below).
 Loom has no part in this. The app owns the `Swapchain` and the graph presents inside Tick, so after Tick,
 `LastPresentId()` is that frame's id. The pacer (P4) waits on "last id minus k" before the next frame's input.
 
+## Frame pacing (P4)
+
+`foundation::FramePacer` (`foundation/include/timing/FramePacer.hpp`) decides when the next frame starts. It has no
+graphics API: the app gives it the swapchain's present wait as a `PresentWaitDelegate`, and the last present id each
+frame. Call `WaitForFrameStart(last_present_id)` once per frame, before input and before the frame's work. It waits in
+two steps:
+
+1. **The latency limit** (`MaxFramesToDisplay`, k, any mode). With N the last present, it waits until present
+   N + 1 - k reached the display: k = 1 waits for the last present itself (lowest latency), k = 2 lets one frame be in
+   flight. Off when k is 0 or no present wait is bound.
+2. **The schedule**, by mode:
+   - `Uncapped`: no wait.
+   - `FixedCadence`: frames start on a fixed grid at `CadenceHz`. A frame up to one interval late is caught up (the
+     next one starts at once, the one after is back on the grid); a later one starts a new grid.
+   - `VrrCeiling`: a frame starts no sooner than 1 / (`VrrMaxHz` - `VrrGuardHz`) after the one before it, and a late
+     frame never makes the next one start early. Inside the VRR window the frame rate is free; above it, the driver
+     would queue (FIFO) or tear (IMMEDIATE). `RecommendedVrrGuardHz` gives 2 Hz or 2 %, whichever is more (4.8 Hz at
+     240 Hz: a 235.2 Hz ceiling).
+
+The display wait comes first, so the schedule counts from when the display caught up. Every setting is explicit; the
+pacer reads time and sleeps through a `PacerClock` (the real one sleeps with `HighResolutionWait`, then spins), so the
+unit tests run on a fake clock. `FrameLimiter` is unchanged and stays for `VulkanScene` until both go.
+
+**The VRR range.** `DisplayRefreshRateCapabilities` has `MinRefreshRate` and `MaxRefreshRate` from the EDID's range
+limits descriptor (tag 0xFD, with the EDID 1.4 +255 Hz offsets), read on Win32 with the EDID the HDR data already
+uses (`src/EdidRange.cpp`, platform free). Zero means unknown (Linux, or no descriptor). The range does **not** prove
+VRR: a fixed-refresh display lists the timings it accepts (often 56 to 76 Hz), and whether VRR is on is a driver
+setting. So there is no "supports VRR" flag. With VRR, the top of the window is the active mode's refresh rate, so
+`VrrMaxHz` comes from `RefreshRate`, and the EDID minimum tells where low-framerate compensation starts. On the
+author's LG ULTRAGEAR+: active 239.989 Hz, EDID 48 to 240 Hz.
+
 ## Tests
 
 `LoomTriangleTest` is the proof (see the Loom README): `--resize`, `--minimize`, `--no-maintenance1`,
@@ -159,3 +190,13 @@ P3 plants (2026-11-24, ninja-msvc, each restored byte for byte):
 | The 2 versions without their create flags | caught: `VUID-VkPresentId2KHR-None-10820`, `VUID-vkWaitForPresent2KHR-None-10816` |
 | The tier ignores the device (`--present-wait-v1`, ids2 used anyway) | caught: the tier check, `VUID-VkPresentInfoKHR-pNext-10821`, then an access violation |
 | `FirstPresentId` is not moved at a recreate (`--resize`) | **not caught**: the test waits on N - 1 only after N went to the new swapchain, and the driver correctly answers "a later one was presented". The guard matters for a wait before the first present on the new swapchain. |
+
+P4 plants (2026-11-24, ninja-msvc, unit tests, each restored byte for byte): all caught.
+
+| Plant | Caught by |
+|---|---|
+| A VRR ceiling catches up like a fixed cadence | `VrrCeilingDoesNotBurstAfterASlowFrame` (it first used a 30 ms stall, which restarts the schedule either way, and missed the plant; it now uses 1.5 intervals) |
+| The latency limit waits on N - k instead of N + 1 - k | `LatencyLimitWaitsForTheRightPresent`, `LatencyLimitOfOneWaitsForTheLastPresent` |
+| The schedule runs before the display wait | `ReportsTheWaitsItMade` |
+| The EDID +255 Hz offsets are ignored | `AddsTheMaxOffset`, `AddsBothOffsets` |
+| The EDID checksum is not checked | `RefusesABadBlock` |

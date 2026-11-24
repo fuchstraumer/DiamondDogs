@@ -194,6 +194,10 @@ struct DisplayRefreshRateCapabilities
     float RefreshRate{ 0.0f }; // Exact refresh rate, queried from platform API
     bool IsInteger{ true }; // True if refresh rate is effectively an integer value
     float RoundedRefreshRate{ 0.0f }; // Rounded to nearest whole number
+    // The vertical range from the EDID's range limits descriptor; 0 when unknown. Fixed-refresh displays list one too
+    // (the timings they accept), so it does not prove VRR. With VRR, the active RefreshRate is the top of the window.
+    float MinRefreshRate{ 0.0f };
+    float MaxRefreshRate{ 0.0f };
 };
 
 struct DisplayInfo

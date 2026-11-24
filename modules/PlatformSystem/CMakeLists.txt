@@ -11,6 +11,8 @@ if(NOT EMSCRIPTEN)
         "include/PlatformSystem.hpp"
         "include/PlatformTypes.hpp"
         "include/Swapchain.hpp"
+        "src/EdidRange.cpp"
+        "src/EdidRange.hpp"
         "src/GlfwInputSource.cpp"
         "src/GlfwInputSource.hpp"
         "src/GlfwInputTranslation.cpp"

@@ -23,6 +23,7 @@ set(FOUNDATION_TEST_SOURCES
 
     # Timing tests
     timing/test_frame_limiter.cpp
+    timing/test_frame_pacer.cpp
     timing/test_high_resolution_wait.cpp
     timing/test_monotonic_clock.cpp
 
