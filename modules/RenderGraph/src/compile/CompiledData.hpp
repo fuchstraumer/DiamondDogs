@@ -170,9 +170,10 @@ namespace loom
         std::vector<uint64_t> ResourceHashes; // [resource], resource rows only
     };
 
+    // A copy index past RowCount is a history ring's extra copy, not a frame target
     [[nodiscard]] inline bool IsFrameTargetRow(const CompiledData& data, int32_t row) noexcept
     {
-        return row >= static_cast<int32_t>(data.Frozen.Resources.size());
+        return row >= static_cast<int32_t>(data.Frozen.Resources.size()) && row < data.RowCount;
     }
 
     // The frame target of a frame-target row

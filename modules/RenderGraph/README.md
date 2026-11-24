@@ -395,16 +395,23 @@ fill `CompileInputs` from a device). `loom_vulkan` links `loom`, `rhi_system` an
 ### Realize
 
 `Graph::Realize(compiled, inputs)` first checks that it can run the graph, and refuses with a `RealizeError` if not.
-The "NotYet" values name what is missing: Draw and Record passes, frame targets and images sized from them (step 7b;
-the core compiles and plans them since step 7a), cube images and formats with no `ImageFormat`
-(`ResourceKindNotYet`), the `Handle` and `Pointer` placements (T2), the `g_LoomFrame` buffer (step 7b), and binding
-kinds other than uniform and storage buffers, sampled and storage textures, and samplers (arrays, texel buffers,
-combined texture-samplers and input targets). It then:
+The "NotYet" values name what is missing: cube images, formats with no `ImageFormat` and more frame targets than
+`LoomFrame` holds (`ResourceKindNotYet`), the `Handle` and `Pointer` placements (T2), and binding kinds other than
+uniform and storage buffers, sampled and storage textures, and samplers (arrays, texel buffers, combined
+texture-samplers, input targets) or a bound vertex buffer (vertices are pulled). Step 7 adds three checks:
+`FrameTargetUnbound` (an imported `FrameTargetKey` with no entry in `RealizeInputs::FrameTargets`), `SettleUnset`
+(`TargetSettleSeconds` < 0; it has no default) and `DrawStateUnavailable` (a draw, and the device lacks the
+`VK_EXT_extended_dynamic_state3` entry points). It then:
 
 - creates each graph-declared buffer, image (with one view, arrayed when a binding reads it as an array or it has
-  layers) and sampler through `ResourceContext`, and keeps the future, so a graph resource and an import have one
-  readiness path. A history ring's other copies are created the same way, named `<key>#<n>`. Usage comes from the
-  uses (SRV or UAV per stage), the CPU access, and transfer-destination for `OnNoHistory::Clear`;
+  layers; a depth format's view sees its depth aspect) and sampler through `ResourceContext`, and keeps the future,
+  so a graph resource and an import have one readiness path. A history ring's other copies are created the same way,
+  named `<key>#<n>`. Usage comes from the uses (UBO, SRV or UAV per stage; render-target and depth read and write;
+  index, vertex and indirect; transfer), the CPU access, and transfer-destination for `OnNoHistory::Clear`. An
+  `OfTarget` image (and its ring copies) waits: Tick makes it once its frame target first reports an extent;
+- binds each frame target to its `FrameTarget` object; its row is always `Created` and states the target's
+  `FinalLayout()`. When the graph draws, it loads the dynamic-state entry points (`RasterRecording.cpp`). When a shader
+  declares `g_LoomFrame`, it creates the `LoomFrame` uniform buffer;
 - builds its own set layouts, pipeline layouts and shader objects from the slot table and the copied SPIR-V
   (`rhi::ShaderProgram`), with no `VkPipeline`;
 - makes the descriptor sets of each pass: one set of groups per (frame slot, ring phase). A pass that binds history
@@ -413,7 +420,7 @@ combined texture-samplers and input targets). It then:
   slot, and a timeline semaphore that it registers with `ResourceContext` as a consumer timeline;
 - with `PassTimestamps::On`, makes `rhi::GpuTimers` for per-pass times (`LatestTimings()`).
 
-Realize does not block. `FrameSlots` and `Timestamps` have no defaults. The `Graph` destructor blocks: it waits for
+Realize does not block. `FrameSlots`, `Timestamps` and `TargetSettleSeconds` have no defaults. The `Graph` destructor blocks: it waits for
 the last submit, unregisters the timeline, then frees what the graph made.
 
 ### Tick
@@ -422,25 +429,60 @@ the last submit, unregisters the timeline, then frees what the graph made.
 
 1. **Frame slot.** If the timeline has not reached the value that this slot last signaled, return `NoFrameSlot`.
    `WaitForFrameSlot(timeout)` blocks for it, outside Tick, on desktop only.
-2. **Poll** (`PollRows`). Map each future to a readiness. A `Created` future whose transfer is not submitted yet is
+2. **Targets** (`RetireObjects`, `UpdateTargets`, step 7). Retired objects that exist are destroyed after
+   `LastSubmit()`. Each frame target's `CurrentExtent()` goes to `UpdateTargetExtents`. When the allocation extent
+   changes, every copy of every `OfTarget` image of that target is made again at the new extent: the first time,
+   each copy takes its image at once; after that, the new images wait in `NextImages`, the old ones stay in use, and
+   when all new images of the target exist they swap in on one Tick (a new epoch for each row, so its barriers,
+   descriptors and `WhenInputsChange` readers start again). No frame is skipped.
+3. **Poll** (`PollRows`). Map each future to a readiness. A `Created` future whose transfer is not submitted yet is
    `Pending` (Q4): there is nothing a submit could wait on. A history ring is as ready as its least ready copy.
    LM701 (a supplied object breaks its import's promise: a buffer smaller than `ByteSize`; an image whose format or
    layer count differs, or, for `Exact`, whose extent or mip count differs) and LM702 (a future failed) are reported
    once per epoch. A row with LM701 is
    `Failed` until the next `Supply`.
-3. **Decide** (`DecideRuns`). No pass runs: return `NothingToRun`.
-4. **Params** (`ParamsStore::CheckRuns`). LM703: return `Failed`.
-5. **Barriers** (`PlanBarriers`), then **descriptors** (`WriteDescriptors`). A slot's sets are written again only
-   where a row changed epoch since the last write.
-6. **Record and submit** (`SubmitFrame`). One `vkCmdPipelineBarrier2` per batch, with one global memory barrier
+4. **Decide** (`DecideRuns`). No pass runs and no target clears: return `NothingToRun`. (At the first Ticks, while the
+   `LoomFrame` buffer is still being created, also `NothingToRun`.)
+5. **Params** (`ParamsStore::CheckRuns`). LM703: return `Failed`.
+6. **Acquire** (`AcquireTargets`, spec 5.1 step 4). Each target whose action is `Render` or `Clear` is acquired with
+   `TryAcquire(LastSubmit())`. One that gives nothing returns `TargetNotReady`; nothing is recorded yet, so nothing is
+   lost, and a target acquired already stays acquired for the next Tick. A new acquire starts its row's epoch in
+   `Undefined`.
+7. **Barriers** (`PlanBarriers`), then **descriptors** (`WriteDescriptors`). A slot's sets are written again only
+   where a row changed epoch since the last write; a `g_LoomFrame` slot is written once.
+8. **Record and submit** (`SubmitFrame`). One `vkCmdPipelineBarrier2` per batch, with one global memory barrier
    that merges the scopes of the batch's rows (every buffer uses concurrent sharing, so this orders the same work as
    one buffer barrier per row; `ExplainLastTick` still lists the rows), plus one image barrier for each layout change
    (every mip and layer, color aspect). The clear batch and the clears (`vkCmdFillBuffer`, `vkCmdClearColorImage`)
    come first. Then the passes of that level. A `DispatchThreadsOver` an image whose extent Compile did not know (an
    `AnyExtent` import) takes its group count from the image's `Description()`: width, height, and depth or layers. The
    submit waits for each row that a running pass uses and that is `Created`, not `Complete` (CC-R2), with one wait
-   per semaphore at the highest value. It signals the graph's timeline.
-7. **Commit** (`CommitRuns`) and return `Submitted`.
+   per semaphore at the highest value, and for each acquired target's acquire semaphore. It signals the graph's
+   timeline, and the render-done semaphore of each acquired swapchain image (one per image: a present may not reuse a
+   pending semaphore).
+   - **First:** `LoomFrame` (`vkCmdUpdateBuffer` between two global barriers: last frame's reads finish before the
+     write, and the write is visible to this frame's reads).
+   - **Draw pass:** shader objects and the draw state (`RecordDrawState`: every piece of state that shader objects
+     need, from the pass's `PipelineDescription`) are set only when the pipeline changes. Then the descriptor sets
+     (graphics bind point) and params, `BeginRendering` from the pass's attachments (the role switch, with each use's
+     layout), a viewport with a negative height (Y-up NDC, as on WebGPU) and a scissor over the render area, the one
+     draw command (`RecordDrawCommand`: `vkCmdDraw`, `DrawIndexed`, `DrawIndirect` or `DrawIndirectCount`, indexed
+     when the pass has an `IndexBuffer`), and `EndRendering`. The render area is the smallest of the attachments: a
+     frame target's acquired extent, an `OfTarget` image's render extent times its scale, or another image's extent.
+   - **Record pass:** with target uses, a rendering scope (Keep, Store) and viewport around the callback, which gets
+     a `RecordContext` (the command buffer and the objects of its declared keys only). After it, all command buffer
+     state counts as unknown: the next pass binds its shaders and state again.
+   - **Last:** the frame-end batch (`k_AfterRuns`).
+9. **Present** (`PresentTargets`) each acquired target with its render-done semaphore, then **commit** (`CommitRuns`)
+   and return `Submitted`.
+
+**Frame targets.** `include/FrameTarget.hpp` (in `loom_vulkan`) is the interface: `CurrentExtent()`,
+`ResizeFinished()`, `TryAcquire(last_submit)`, `Present(render_done)` and `FinalLayout()`, none of which blocks.
+`OffscreenFrameTarget` serves headless runs and tests. `SwapchainFrameTarget` (`loom_vulkan_platform`, so that
+`loom_vulkan` links no PlatformSystem) acquires with a timeout of 0, and when the swapchain is out of date or
+suboptimal it recreates it, but only once `last_submit` has passed (`vkDeviceWaitIdle` then waits only for the present
+engine). `Graph::SetRenderScale(target, scale)` is the scalability hook; `Graph::ExtentsOf(target)` gives the three
+extents.
 
 For the app: `Timeline()` and `PendingValue()` feed `ResourceContext::Tick`, and `LastSubmit()` is the `GpuWait` that
 a transfer must wait on before it reads what the graph wrote. `Supply` on an imported buffer starts a new epoch. The

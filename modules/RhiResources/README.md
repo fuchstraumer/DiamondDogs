@@ -616,3 +616,60 @@ RhiSystem requests `VK_EXT_memory_budget` as an optional device extension, so a 
 worker asks the driver for the budget only when the device has the extension. With the extension, `UsageBytes` is the
 usage of the whole process: both allocators and all other memory use. Without the extension, VMA estimates the usage
 from its own allocations, and `FromExtension` is false.
+
+## WebGPU backend
+
+The WebGPU backend (`src/webgpu/ResourceContextImpl.hpp/.cpp`) obeys the same five contract rules as the Vulkan
+backend, with no worker thread and no transfer thread:
+
+- **One thread, no worker.** Every `ResourceContext` call runs on the calling thread. Creates with no initial data do
+  not touch the GPU queue and complete at once.
+- **One ordered operation queue.** Deferred operations (buffer uploads, image uploads, buffer-to-buffer copies, and
+  destroys) share one FIFO queue (`std::deque<DeferredOp>`). When the queue is not empty, every call that writes to the
+  GPU queue or destroys a resource goes to the back of the queue. When the queue is empty, an upload or copy that fits
+  in the remaining byte budget of the current tick runs at once on the GPU queue. This preserves call order without
+  per-resource tracking: a copy queued after a deferred upload sees the uploaded bytes, and a destroy queued after a
+  deferred upload runs only after the upload's writes have reached the GPU queue.
+- **`Tick` once per frame.** The application must call `Tick` once per frame. `Tick` is the only place where deferred
+  work moves forward:
+  1. It calls `instance.ProcessEvents()` and reads the shared completion record updated by `queue.OnSubmittedWorkDone`.
+     Every in-flight future whose serial is at most the completed serial transitions to `Complete` (or fails with
+     `SubmitFailed` if the callback reported a non-success status such as device loss).
+  2. It resets the per-tick byte budget and drains the deferred operation queue in chunks of at most 256 KiB
+     (`k_UploadChunkBytes`), splitting buffer uploads on 4-byte boundaries and image uploads on whole block rows.
+  3. If any work was written to the GPU queue during the tick (either during `Tick` or by immediate calls since the
+     previous `Tick`), it registers one `queue.OnSubmittedWorkDone` callback for the current serial and advances the
+     serial. Each callback captures a `std::shared_ptr<CompletionRecord>` by value and never touches the context, so
+     destroying the context with callbacks in flight is safe.
+- **Two limits and the progress rule.** Upload work in `Tick` is bounded by two independent limits and stops at the
+  first limit reached:
+  - **Byte budget:** `ResourceContextCreateInfo::UploadBytesPerTick` (default `k_DefaultUploadBytesPerTick`,
+    `k_DefaultStagingRingSize / 4`). `Initialize` fails with `InvalidCreateInfo` when `UploadBytesPerTick` is 0 or
+    above `StagingRingSize` (validated on both Vulkan and WebGPU; Vulkan otherwise ignores the field). Images, buffers
+    and buffer copies all count against the budget; destroys cost 0.
+  - **Time slice:** `Tick(pending_values, upload_time_slice)` stops draining when `upload_time_slice` has elapsed on
+    `MonotonicNanoseconds()`. The one-argument `Tick(pending_values)` forwards `k_NoUploadTimeSlice` and uses the byte
+    budget only. A time slice of 0 or less stops all upload progress for that tick (and logs once per context in debug
+    builds). Choose `UploadBytesPerTick` for steady staging memory pressure and pass the remaining frame time as
+    `upload_time_slice` so slow frames and mobile devices yield on time.
+  - **Progress rule:** when the deferred queue is not empty and `upload_time_slice > 0`, `Tick` writes at least one
+    chunk before checking the time slice, and an operation larger than the whole byte budget still writes one chunk per
+    tick. No operation ever stalls. `UploadOpsDeferred`, `UploadTicksAtBudget` and `UploadTicksAtTimeSlice` report which
+    limit controls the device.
+- **Serials, `Completion()`, and `GpuWait`.** Each tick that writes to the GPU queue has a monotonically rising serial
+  (starting at 1). When an operation's writes reach the GPU queue, the context calls `SetTransferring(slot, serial)`
+  and `SetSubmitted(slot)`, moving the future to `Created`. `future.Completion()` returns a `GpuWait` with an empty
+  timeline handle, `Value = serial`, and `Submitted = true`. Because WebGPU has a single queue that executes
+  submissions in order, a consumer on WebGPU needs no semaphore wait and treats `GpuWait` as a no-op.
+- **`Wait` does not block.** On WebGPU, `ResourceContext::Wait` never blocks: it returns the future's current state at
+  once, whatever timeout was passed. On the web, blocking the main thread prevents the browser event loop from
+  delivering GPU callbacks. On WebGPU, poll the future after `Tick`. `Wait` does not block.
+- **Destroy rule.** WebGPU keeps buffers and textures alive until submitted queue work that uses them finishes, so a
+  destroy needs only queue order. When the deferred queue is empty, `DestroyResource` destroys the WebGPU object and
+  completes at once; otherwise it is queued behind earlier operations. `DestroyResource(resource, after)` still
+  validates `after` (failing with `InvalidWait` if the semaphore is null or the value is 0), and then behaves the same
+  as the plain destroy because WebGPU has one ordered queue.
+- **Unsupported calls today.** Heaps and placed resources (`CreateMemoryHeap`, `CreatePlacedBuffer`,
+  `CreatePlacedImage`), `FillBuffer`, `MapBuffer`, `UnmapBuffer`, `CopyBuffer`, `CopyImage`, `SubmitTransferSet`, and
+  image copy operations (`CopyImageToBuffer`, `CopyBufferToImage`, `CopyImageContents`, and their region variants) fail
+  at once with `UnsupportedUsage` (or `UnsupportedCopy` for non-buffer `CopyResourceContentsMessage`).

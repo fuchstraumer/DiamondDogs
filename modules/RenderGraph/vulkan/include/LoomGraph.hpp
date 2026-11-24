@@ -3,6 +3,8 @@
 #define DIAMOND_DOGS_LOOM_VULKAN_GRAPH_HPP
 #include "CompiledGraph.hpp"
 #include "FramePlan.hpp"
+#include "FrameTarget.hpp"
+#include "TargetExtents.hpp"
 #include "LoomDeviceLimits.hpp"
 #include "LoomKeys.hpp"
 #include "ResourceFuture.hpp"
@@ -45,6 +47,9 @@ namespace loom
 
     // `Sink` receives the runtime diagnostics (LM701 to LM704) and must outlive the Graph. FrameSlots is the count of
     // frames in flight: one command pool and one descriptor set per pass for each.
+    // FrameTargets names the object of each imported FrameTargetKey; every one must outlive the Graph.
+    // TargetSettleSeconds is how long a frame target's extent must keep one value before the OfTarget images follow it
+    // (step 7, round 2 Q1; about 0.15 is a good start). It must be set, to 0 or more, even with no frame targets.
     struct RealizeInputs
     {
         ResourceContext& Resources;
@@ -52,6 +57,8 @@ namespace loom
         int32_t FrameSlots{ 0 };
         PassTimestamps Timestamps{ PassTimestamps::Invalid };
         DiagnosticSink& Sink;
+        std::span<const FrameTargetBinding> FrameTargets;
+        double TargetSettleSeconds{ -1.0 };
     };
 
     // Why Realize refused a graph. The "NotYet" values name work of later steps; the rest are API failures.
@@ -61,16 +68,20 @@ namespace loom
         FrameSlotCount = 1,             // FrameSlots < 1
         TimestampsUnset = 2,
         CodeNotSpirv = 3,               // the bundle's profile does not hold SPIR-V
-        PassKindNotYet = 4,             // a Draw or Record pass (step 7)
-        ResourceKindNotYet = 5,         // a frame target or an image sized from one (step 7), a cube image, or a format
-                                        // that RhiResources cannot create
+        PassKindNotYet = 4,             // no longer used: Draw and Record passes run since step 7
+        ResourceKindNotYet = 5,         // a cube image, a format that RhiResources cannot create, or more frame targets
+                                        // than LoomFrame holds (k_LoomMaxFrameTargets)
         PlacementNotBound = 6,          // a Handle or Pointer form: the bindless and BDA binding model (T2)
-        BindingNotYet = 7,              // a texel buffer, an array, a combined texture-sampler or an input target
+        BindingNotYet = 7,              // a texel buffer, an array, a combined texture-sampler, an input target, or a
+                                        // bound vertex buffer (step 7 Q8: vertices are pulled)
         DescriptorLayoutFailed = 8,
         PipelineLayoutFailed = 9,
         ShaderCreateFailed = 10,
         DescriptorPoolFailed = 11,
-        CommandPoolFailed = 12
+        CommandPoolFailed = 12,
+        FrameTargetUnbound = 13,        // an imported FrameTargetKey with no RealizeInputs::FrameTargets entry
+        SettleUnset = 14,               // RealizeInputs::TargetSettleSeconds < 0
+        DrawStateUnavailable = 15       // a Draw pass, and the device lacks the dynamic-state entry points
     };
 
     [[nodiscard]] std::string_view ToString(RealizeError error) noexcept;
@@ -117,6 +128,12 @@ namespace loom
         void Trigger(PassKey pass);
         // The last Tick's decisions as text: each pass, "ran" or why it skipped.
         [[nodiscard]] std::string ExplainLastTick() const;
+
+        // The scalability hook (step 7 Q4): the render extent of the target is its extent x scale, 0 < scale <= 1.
+        // Viewports change at once and no image is made again. False, and no change, for another scale or key.
+        [[nodiscard]] bool SetRenderScale(FrameTargetKey target, float scale);
+        // A frame target's three extents (TargetExtents.hpp), or nothing for a key the graph did not import
+        [[nodiscard]] std::optional<TargetExtents> ExtentsOf(FrameTargetKey target) const noexcept;
 
         // For the app's ResourceContext::Tick: the graph's timeline, and the value its next submit signals.
         [[nodiscard]] rhi::TimelineSemaphoreHandle Timeline() const noexcept;

@@ -5,7 +5,9 @@
 #include "ResourceContext.hpp"
 #include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
+#include "compile/CompiledData.hpp"
 #include <vulkan/vulkan_core.h>
+#include <algorithm>
 #include <cstdint>
 #include <utility>
 
@@ -44,7 +46,8 @@ namespace
         Sink{ inputs.Sink },
         VulkanDevice{ inputs.Device.Handle().As<VkDevice>() },
         Queue{ inputs.Device.GetGeneralQueue() },
-        Timeline{ inputs.Device.Handle() }
+        Timeline{ inputs.Device.Handle() },
+        SettleSeconds{ inputs.TargetSettleSeconds }
     {
     }
 
@@ -54,6 +57,18 @@ namespace
         if (LastSignaled > 0u)
         {
             [[maybe_unused]] const bool finished = WaitForTimeline(*this, LastSignaled, k_TeardownTimeoutNs);
+        }
+
+        // a present waits on a RenderDone semaphore after the timeline signals, and only an idle queue proves that it
+        // finished (VK_EXT_swapchain_maintenance1 present fences would avoid this wait)
+        const auto presented = [](const TargetRuntime& target)
+        {
+            return !target.RenderDone.empty();
+        };
+
+        if (std::ranges::any_of(Targets, presented))
+        {
+            vkDeviceWaitIdle(VulkanDevice);
         }
 
         // the context reads the timeline while it is registered, so it leaves before the semaphore does
@@ -98,25 +113,84 @@ namespace
             [[maybe_unused]] const rhi::FutureState state = Resources.Wait(destroyed, k_TeardownTimeoutNs);
         };
 
+        // an OfTarget image that no target extent made yet has no future
+        const auto destroyMade = [&destroyOwned](const rhi::ResourceFuture<GraphicsResource>& future)
+        {
+            if (future.State() != rhi::FutureState::Invalid)
+            {
+                destroyOwned(future);
+            }
+        };
+
         for (const RowRuntime& row : Rows)
         {
             if (row.Owned)
             {
-                destroyOwned(row.Future);
+                destroyMade(row.Future);
             }
         }
 
         // the graph makes every history copy
         for (const rhi::ResourceFuture<GraphicsResource>& copy : ExtraCopies)
         {
-            destroyOwned(copy);
+            destroyMade(copy);
+        }
+
+        // step 7: the images of a resize that did not swap in, the old images, and the LoomFrame buffer
+        for (const NextImage& next : NextImages)
+        {
+            destroyMade(next.Future);
+        }
+
+        for (const rhi::ResourceFuture<GraphicsResource>& retired : Retired)
+        {
+            destroyMade(retired);
+        }
+
+        destroyMade(LoomFrameBuffer);
+
+        for (const rhi::OperationFuture& destroy : Destroys)
+        {
+            [[maybe_unused]] const rhi::FutureState state = Resources.Wait(destroy, k_TeardownTimeoutNs);
         }
     }
 
     const rhi::ResourceFuture<GraphicsResource>& FutureOfCopy(const GraphImpl& graph, int32_t copy) noexcept
     {
-        const int32_t rowCount = static_cast<int32_t>(graph.Rows.size());
+        const int32_t rowCount = graph.Compiled.RowCount();
         return copy < rowCount ? graph.Rows[copy].Future : graph.ExtraCopies[copy - rowCount];
+    }
+
+    rhi::ResourceFuture<GraphicsResource>& FutureOfCopy(GraphImpl& graph, int32_t copy) noexcept
+    {
+        const int32_t rowCount = graph.Compiled.RowCount();
+        return copy < rowCount ? graph.Rows[copy].Future : graph.ExtraCopies[copy - rowCount];
+    }
+
+    VkImage ImageOfCopy(const GraphImpl& graph, int32_t copy) noexcept
+    {
+        const CompiledData& data = graph.Compiled.Data();
+
+        if (IsFrameTargetRow(data, copy) && copy < data.RowCount)
+        {
+            const TargetRuntime& target = graph.Targets[FrameTargetOfRow(data, copy)];
+            return target.Acquired.has_value() ? target.Acquired->Image.As<VkImage>() : VK_NULL_HANDLE;
+        }
+
+        return reinterpret_cast<VkImage>(FutureOfCopy(graph, copy).Get().VkHandle);
+    }
+
+    VkImageView ViewOfCopy(const GraphImpl& graph, int32_t copy) noexcept
+    {
+        const CompiledData& data = graph.Compiled.Data();
+
+        if (IsFrameTargetRow(data, copy) && copy < data.RowCount)
+        {
+            const TargetRuntime& target = graph.Targets[FrameTargetOfRow(data, copy)];
+            return target.Acquired.has_value() ? target.Acquired->View.As<VkImageView>() : VK_NULL_HANDLE;
+        }
+
+        return reinterpret_cast<VkImageView>(FutureOfCopy(graph, copy).Get().VkViewHandle);
     }
 
     int32_t SetInstanceOf(const PassRuntime& pass, int32_t frame_slot, int64_t frame_index) noexcept

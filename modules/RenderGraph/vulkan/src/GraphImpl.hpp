@@ -4,6 +4,10 @@
 #include "CommandPool.hpp"
 #include "CompiledGraph.hpp"
 #include "FramePlan.hpp"
+#include "FrameTarget.hpp"
+#include "LoomFrame.hpp"
+#include "RasterRecording.hpp"
+#include "TargetExtents.hpp"
 #include "GpuTimers.hpp"
 #include "LoomGraph.hpp"
 #include "ParamsStore.hpp"
@@ -68,10 +72,35 @@ namespace loom
         uint64_t SignaledValue{ 0u };   // the timeline value of the last submit that used this slot
     };
 
+    // One frame target (step 7). Target is the caller's object. Acquired is this Tick's image, or nothing. RenderDone
+    // holds one binary semaphore per swapchain image: a present may not reuse a semaphore that is still pending. Each one is
+    // on the heap, because growth must not move one (a moved-from rhi::BinarySemaphore asserts when it is destroyed).
+    struct TargetRuntime
+    {
+        FrameTarget* Target{ nullptr };
+        TargetExtents Extents;
+        std::optional<AcquiredTarget> Acquired;
+        std::vector<std::unique_ptr<rhi::BinarySemaphore>> RenderDone;
+    };
+
+    // A settled resize's new image for one copy of an OfTarget image. Every new image of a target swaps in on one
+    // Tick, once all of them exist (step 7, round 2 Q1).
+    struct NextImage
+    {
+        int32_t Copy{ -1 };
+        rhi::ResourceFuture<GraphicsResource> Future;
+    };
+
     struct GraphImpl;
 
-    // The object of one copy (CompiledData::CopyRows): a row's first copy is the row's own future.
+    // The object of one copy (CompiledData::CopyRows) of a resource row: a row's first copy is the row's own future,
+    // and a ring's other copies follow every row (CompiledData::RowCount). Not for a frame-target row.
     [[nodiscard]] const rhi::ResourceFuture<GraphicsResource>& FutureOfCopy(const GraphImpl& graph, int32_t copy) noexcept;
+    [[nodiscard]] rhi::ResourceFuture<GraphicsResource>& FutureOfCopy(GraphImpl& graph, int32_t copy) noexcept;
+
+    // The image and view of an image copy: a resource row's object, or a frame target's acquired image
+    [[nodiscard]] VkImage ImageOfCopy(const GraphImpl& graph, int32_t copy) noexcept;
+    [[nodiscard]] VkImageView ViewOfCopy(const GraphImpl& graph, int32_t copy) noexcept;
 
     // The instance of a pass's sets that frame `frame_index` uses.
     [[nodiscard]] int32_t SetInstanceOf(const PassRuntime& pass, int32_t frame_slot, int64_t frame_index) noexcept;
@@ -92,8 +121,8 @@ namespace loom
         uint64_t LastSignaled{ 0u };
         rhi::OperationFuture TimelineRegistration;
 
-        std::vector<RowRuntime> Rows;
-        // the history copies after each row's first: ExtraCopies[copy - Rows.size()] (CompiledData::ExtraCopyBase)
+        std::vector<RowRuntime> Rows;                   // [resource row]; frame-target rows have none
+        // the history copies after each row's first: ExtraCopies[copy - RowCount] (CompiledData::ExtraCopyBase)
         std::vector<rhi::ResourceFuture<GraphicsResource>> ExtraCopies;
         std::vector<PipelineRuntime> Pipelines;
         std::vector<PassRuntime> Passes;
@@ -119,6 +148,23 @@ namespace loom
         uint32_t CreatedRowCount{ 0u };
         bool AllRowsSettled{ false };
         uint64_t SupplyGeneration{ 1u };
+
+        // Step 7: frame targets, the OfTarget images that a settled resize is making, the objects that wait to be
+        // destroyed once they exist, and the destroys in flight
+        std::vector<TargetRuntime> Targets;             // [frame target]
+        double SettleSeconds{ 0.0 };
+        std::vector<NextImage> NextImages;
+        std::vector<rhi::ResourceFuture<GraphicsResource>> Retired;
+        std::vector<rhi::OperationFuture> Destroys;
+
+        // Draw passes: the dynamic-state entry points, and the LoomFrame buffer (one buffer, updated at the start of
+        // each frame's command buffer)
+        RasterFunctions Raster;
+        rhi::ResourceFuture<GraphicsResource> LoomFrameBuffer;
+        bool HasLoomFrame{ false };
+        LoomFrameConstants FrameConstants{};
+        double TimeSeconds{ 0.0 };
+        float DeltaSeconds{ 0.0f };
     };
 
     // GraphImpl.cpp: blocks until the graph's timeline reaches `value`, or the timeout passes. False on a timeout.

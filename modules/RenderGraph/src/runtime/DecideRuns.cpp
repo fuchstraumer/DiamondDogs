@@ -223,6 +223,9 @@ namespace
     // fallback decides. A Clear fallback clears the target before the first run (it joins plan.Clears).
     void DecideTargets(const CompiledData& data, FramePlan& plan)
     {
+        // todo-ship: can we flatten or amortize this walk? it shouldn't be too bad, but the difference between
+        // number of passes and the number of frame targets could be large, so we might want to optimize this walk in the future
+        // (as in, I expect there to be many passes with no frame target writes, which would make this walk somewhat sparse)
         if (data.FrameTargets.empty())
         {
             return;

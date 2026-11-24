@@ -12,9 +12,6 @@
 
 namespace loom
 {
-    // todo: wrapper for the swapchain that offers `TryAcquire` and `Present`, without blocking
-    struct FrameTarget {};
-
     struct GraphRecord;
 
     /**

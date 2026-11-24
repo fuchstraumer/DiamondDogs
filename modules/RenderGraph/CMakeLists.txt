@@ -141,7 +141,12 @@ if(NOT EMSCRIPTEN)
     # core's src folder; the core never sees this one.
     add_module(loom_vulkan
         "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/include/LoomGraph.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/include/FrameTarget.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/include/RecordContext.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/LoomGraph.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/OffscreenFrameTarget.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/RasterRecording.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/RasterRecording.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/GraphImpl.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/GraphImpl.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src/Realize.hpp"
@@ -155,6 +160,15 @@ if(NOT EMSCRIPTEN)
     target_include_directories(loom_vulkan PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/include")
     target_include_directories(loom_vulkan PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/src")
     target_link_libraries(loom_vulkan PUBLIC loom rhi_system rhi_resources)
+
+    # The swapchain as a frame target: its own target, so loom_vulkan does not link PlatformSystem (step 7 Q6)
+    add_module(loom_vulkan_platform
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/platform/include/SwapchainFrameTarget.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/platform/src/SwapchainFrameTarget.cpp"
+    )
+
+    target_include_directories(loom_vulkan_platform PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/platform/include")
+    target_link_libraries(loom_vulkan_platform PUBLIC loom_vulkan platform_system)
 else()
     # The WebGPU backend: Realize, recording and submit. It reads the core's compiled tables (src/compile), so it sees the
     # core's src folder; the core never sees this one.

@@ -121,10 +121,11 @@ struct ImageRange
  */
 struct ImageComponentMapping
 {
-    uint16_t R : 4 = 0;
-    uint16_t G : 4 = 1;
-    uint16_t B : 4 = 2;
-    uint16_t A : 4 = 3;
+    // ComponentSwizzle values, not channel indices: None is 0, so identity is Red, Green, Blue, Alpha
+    uint16_t R : 4 = static_cast<uint16_t>(ComponentSwizzle::Red);
+    uint16_t G : 4 = static_cast<uint16_t>(ComponentSwizzle::Green);
+    uint16_t B : 4 = static_cast<uint16_t>(ComponentSwizzle::Blue);
+    uint16_t A : 4 = static_cast<uint16_t>(ComponentSwizzle::Alpha);
     [[nodiscard]] constexpr ComponentSwizzle Red() const noexcept
     {
         return static_cast<ComponentSwizzle>(R);
@@ -143,6 +144,8 @@ struct ImageComponentMapping
     }
 };
 static_assert(sizeof(ImageComponentMapping) == 2, "ImageComponentMapping should be packed into two bytes");
+static_assert(ImageComponentMapping{}.Red() == ComponentSwizzle::Red && ImageComponentMapping{}.Alpha() == ComponentSwizzle::Alpha,
+              "A default ImageComponentMapping is the identity");
 
 /** @brief Default component mapping where each channel maps to itself (RGBA -> RGBA) */
 constexpr static inline ImageComponentMapping IdentityImageSwizzle{};

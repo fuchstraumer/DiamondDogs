@@ -67,6 +67,19 @@ namespace
 
     }
 
+    int32_t FrameTargetIndexOf(const CompiledData& data, KeyRef target)
+    {
+        for (size_t index = 0u; index < data.Frozen.FrameTargets.size(); ++index)
+        {
+            if (data.Frozen.FrameTargets[index].Key.Hash == target.Hash)
+            {
+                return static_cast<int32_t>(index);
+            }
+        }
+
+        return -1;
+    }
+
     // For a history ring: the copy that the last submitted frame wrote.
     GraphicsResource ObjectOfRow(const GraphImpl& graph, int32_t row)
     {
@@ -114,6 +127,12 @@ namespace
             return "DescriptorPoolFailed";
         case RealizeError::CommandPoolFailed:
             return "CommandPoolFailed";
+        case RealizeError::FrameTargetUnbound:
+            return "FrameTargetUnbound";
+        case RealizeError::SettleUnset:
+            return "SettleUnset";
+        case RealizeError::DrawStateUnavailable:
+            return "DrawStateUnavailable";
         }
 
         return "Invalid";
@@ -131,7 +150,7 @@ namespace
             return std::unexpected(RealizeError::TimestampsUnset);
         }
 
-        const RealizeError unsupported = CheckSupported(compiled.Data());
+        const RealizeError unsupported = CheckSupported(compiled.Data(), inputs);
 
         if (unsupported != RealizeError::Invalid)
         {
@@ -158,6 +177,13 @@ namespace
         }
 
         CreateResources(*impl);
+        error = PrepareTargets(*impl, inputs);
+
+        if (error != RealizeError::Invalid)
+        {
+            return std::unexpected(error);
+        }
+
         PrepareCoreState(*impl);
 
         if (inputs.Timestamps == PassTimestamps::On)
@@ -182,9 +208,14 @@ namespace
 
     Graph::~Graph() = default;
 
-    TickResult Graph::Tick([[maybe_unused]] std::chrono::duration<double> delta_time)
+    TickResult Graph::Tick(std::chrono::duration<double> delta_time)
     {
         GraphImpl& graph = *impl;
+        const double deltaSeconds = delta_time.count();
+
+        // LoomFrame's time counts every Tick, whether or not it submits
+        graph.TimeSeconds += deltaSeconds;
+        graph.DeltaSeconds = static_cast<float>(deltaSeconds);
         const int32_t frameSlot = static_cast<int32_t>(graph.FrameIndex % static_cast<int64_t>(graph.FrameSlots.size()));
         FrameSlotRuntime& slot = graph.FrameSlots[frameSlot];
         uint64_t completed = 0u;
@@ -204,13 +235,32 @@ namespace
             graph.Timers->Collect(completed + 1u);
         }
 
+        // step 7: retired objects, the target extents, and the OfTarget images that a settled resize made
+        RetireObjects(graph);
+        UpdateTargets(graph, deltaSeconds);
         PollRows(graph);
+
+        // the LoomFrame buffer must exist before a set names it; it is made at Realize, so this waits only at start
+        const rhi::FutureState frameBuffer = graph.LoomFrameBuffer.State();
+        const bool frameBufferMissing = frameBuffer != rhi::FutureState::Created && frameBuffer != rhi::FutureState::Complete;
+
+        if (graph.HasLoomFrame && frameBufferMissing)
+        {
+            return TickResult{ .Status = TickStatus::NothingToRun, .Ran = 0, .Skipped = graph.Compiled.PassCount() };
+        }
+
         DecideRuns(graph.Compiled, graph.States, graph.Controls, graph.Sync, graph.FrameIndex, graph.Plan);
 
         const int32_t ran = static_cast<int32_t>(graph.Plan.Runs.size());
         const TickResult counts{ .Status = TickStatus::Invalid, .Ran = ran, .Skipped = graph.Compiled.PassCount() - ran };
 
-        if (ran == 0)
+        // a target that clears to its fallback is work, even with no pass to run
+        const auto clears = [](TargetAction action)
+        {
+            return action == TargetAction::Clear;
+        };
+
+        if (ran == 0 && std::ranges::none_of(graph.Plan.TargetActions, clears))
         {
             return TickResult{ .Status = TickStatus::NothingToRun, .Ran = 0, .Skipped = counts.Skipped };
         }
@@ -220,6 +270,13 @@ namespace
             return TickResult{ .Status = TickStatus::Failed, .Ran = 0, .Skipped = counts.Skipped };
         }
 
+        // nothing is recorded yet, so a target that cannot be acquired loses nothing (spec 5.1 step 4)
+        if (!AcquireTargets(graph))
+        {
+            return TickResult{ .Status = TickStatus::TargetNotReady, .Ran = 0, .Skipped = counts.Skipped };
+        }
+
+        UpdateFrameConstants(graph);
         PlanBarriers(graph.Compiled, graph.States, graph.Sync, graph.FrameIndex, graph.Plan);
         WriteDescriptors(graph, frameSlot);
 
@@ -232,6 +289,7 @@ namespace
 
         slot.SignaledValue = signalValue;
         graph.LastSignaled = signalValue;
+        PresentTargets(graph);
         CommitRuns(graph.Compiled, graph.Plan, graph.Controls);
         ++graph.FrameIndex;
 
@@ -354,6 +412,30 @@ namespace
     std::string Graph::ExplainLastTick() const
     {
         return loom::ExplainLastTick(impl->Compiled, impl->Plan);
+    }
+
+    bool Graph::SetRenderScale(FrameTargetKey target, float scale)
+    {
+        const int32_t index = FrameTargetIndexOf(impl->Compiled.Data(), target.ToRef());
+
+        if (index < 0)
+        {
+            return false;
+        }
+
+        return loom::SetRenderScale(impl->Targets[index].Extents, scale);
+    }
+
+    std::optional<TargetExtents> Graph::ExtentsOf(FrameTargetKey target) const noexcept
+    {
+        const int32_t index = FrameTargetIndexOf(impl->Compiled.Data(), target.ToRef());
+
+        if (index < 0)
+        {
+            return std::nullopt;
+        }
+
+        return impl->Targets[index].Extents;
     }
 
     ShaderDeviceLimits ShaderLimitsOf(const rhi::Device& device)

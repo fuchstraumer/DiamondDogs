@@ -656,3 +656,7 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
 - Step 4, RhiSystem half: `StartInstance` and `StartDevice` enable only the needs (generated feature table, device planner, supports from the enabled set). A generator bug put `VK_EXT_debug_utils` in the device table; fixed. Details in `docs/rhi-agent.md` 4e.
 - `foundation/timing/`: `MonotonicNanoseconds`, `Stopwatch`, `HighResolutionWait` (was `PrecisionTimer`), `FrameLimiter` (no default argument). Details in `docs/rhi-agent.md` log, 2026-11-12.
 - Step 4 done: `modules/BootstrapVulkan` (`WindowStage`, `DeviceStage`, `GpuStage`, spine needs), the surface split from the swapchain in PlatformSystem, present and limit checks and `Declined` for every kind in the planner. `bootstrap_vulkan_tests` (10). Item 6 moved to step 5. Details in `docs/rhi-agent.md` 4f.
+
+### 2026-11-21 (Opus: RhiResources for Loom)
+
+- Resource description, barrier vocabulary and stage-first usage bits, buffer and image regions, BDA tests, destroy after a `GpuWait`, transfer sets: committed `69b92176` to `9a32184b`. Details in `docs/rhi-resources-agent.md`, sections 3 and 8.

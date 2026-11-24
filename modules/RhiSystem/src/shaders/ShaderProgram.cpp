@@ -68,7 +68,6 @@ namespace rhi
 
     struct ShaderProgramImpl
     {
-
         // In order to later discriminate how to handle unbound shader stages during binding, we need to be cognizant
         // of the broader "type" of program represented here
         enum class ProgramType : uint8_t
@@ -78,6 +77,14 @@ namespace rhi
             Compute,
             Mesh
         };
+
+        // 3 covers mesh shaders well, but 2 is more common in 99.9% of cases
+        foundation::SmallVector<VkShaderEXT, 2> Shaders;
+        foundation::SmallVector<std::string, 2> EntryPointNames;
+        foundation::SmallVector<VkShaderStageFlagBits, 2> UsedStages;
+        foundation::SmallVector<VkShaderStageFlagBits, 6> UnusedStages;
+        DeviceHandle ParentDevice;
+        ProgramType Type{ ProgramType::Invalid };
 
         ShaderProgramImpl(const DeviceHandle& device) :
             ParentDevice{ device }
@@ -104,14 +111,6 @@ namespace rhi
                 }
             }
         }
-
-        std::vector<VkShaderEXT> Shaders;
-        std::vector<VkShaderStageFlagBits> UsedStages;
-        std::vector<VkShaderStageFlagBits> UnusedStages;
-        std::vector<std::string> EntryPointNames;
-
-        DeviceHandle ParentDevice;
-        ProgramType Type{ ProgramType::Invalid };
 
         static VkPushConstantRange ConvertPushConstantRange(const PushConstantRange& range)
         {
@@ -279,7 +278,9 @@ namespace rhi
                 };
 
                 // set_difference needs both ranges sorted, and the caller may list stages in any order
-                std::vector<VkShaderStageFlagBits> sortedUsedStages = UsedStages;
+                // UsedStages stays in creation order, beside Shaders, so the sorted copy is a separate stack buffer
+                decltype(UsedStages) sortedUsedStages;
+                sortedUsedStages.append_range(UsedStages);
                 std::ranges::sort(sortedUsedStages);
 
                 // mesh first: a mesh program has a fragment stage too, so the graphics test would match it

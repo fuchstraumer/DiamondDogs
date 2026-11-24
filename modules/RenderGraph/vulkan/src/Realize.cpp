@@ -88,11 +88,62 @@ namespace
         { rhi::PipelineStage::MeshShader, ImageUsageBits::MeshShaderSRV, ImageUsageBits::MeshShaderUAV },
     };
 
+    bool HasAccess(const PassUse& use, rhi::Access access)
+    {
+        return (use.Scope.Accesses & access) != rhi::Access::None;
+    }
+
+    bool IsDepthFormat(lodestone::TextureFormat format)
+    {
+        return format == lodestone::TextureFormat::Depth16Unorm || format == lodestone::TextureFormat::Depth24Plus ||
+               format == lodestone::TextureFormat::Depth24PlusStencil8 || format == lodestone::TextureFormat::Depth32Float;
+    }
+
+    // The attachment and transfer usages of one use (step 7): targets, and a Record pass's copies
+    ImageUsageBits TargetUsageOf(const PassUse& use, bool stencil)
+    {
+        ImageUsageBits usage = ImageUsageBits::Invalid;
+
+        if (HasAccess(use, rhi::Access::ColorAttachmentRead))
+        {
+            usage |= ImageUsageBits::RenderTargetRead;
+        }
+
+        if (HasAccess(use, rhi::Access::ColorAttachmentWrite))
+        {
+            usage |= ImageUsageBits::RenderTargetWrite;
+        }
+
+        if (HasAccess(use, rhi::Access::DepthStencilAttachmentRead))
+        {
+            usage |= stencil ? ImageUsageBits::DepthStencilRead : ImageUsageBits::DepthRead;
+        }
+
+        if (HasAccess(use, rhi::Access::DepthStencilAttachmentWrite))
+        {
+            usage |= stencil ? ImageUsageBits::DepthStencilWrite : ImageUsageBits::DepthWrite;
+        }
+
+        if (HasAccess(use, rhi::Access::TransferRead))
+        {
+            usage |= ImageUsageBits::TransferSource;
+        }
+
+        if (HasAccess(use, rhi::Access::TransferWrite))
+        {
+            usage |= ImageUsageBits::TransferDestination;
+        }
+
+        return usage;
+    }
+
     // Every GPU use of an image row, and the transfer that its CpuAccess needs.
     ImageUsageBits ImageUsageOf(const CompiledData& data, int32_t row, CpuAccess cpu)
     {
         constexpr rhi::Access k_Storage = rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite;
         ImageUsageBits usage = ImageUsageBits::Invalid;
+        const ImageDeclaration& declaration = data.Frozen.Images[data.Frozen.Resources[row].DeclarationIndex].Declaration;
+        const bool stencil = declaration.Format == lodestone::TextureFormat::Depth24PlusStencil8;
 
         for (const PassUse& use : data.Uses)
         {
@@ -101,6 +152,7 @@ namespace
                 continue;
             }
 
+            usage |= TargetUsageOf(use, stencil);
             const bool sampled = (use.Scope.Accesses & rhi::Access::ShaderSampledRead) != rhi::Access::None;
             const bool storage = (use.Scope.Accesses & k_Storage) != rhi::Access::None;
 
@@ -134,8 +186,6 @@ namespace
         }
 
         // OnNoHistory::Clear clears the copy with vkCmdClearColorImage
-        const ImageDeclaration& declaration = data.Frozen.Images[data.Frozen.Resources[row].DeclarationIndex].Declaration;
-
         if (declaration.HistoryDepth > 0 && declaration.NoHistoryAction == OnNoHistory::Clear)
         {
             usage |= ImageUsageBits::TransferDestination;
@@ -197,7 +247,9 @@ namespace
         return count;
     }
 
-    rhi::ResourceFuture<GraphicsResource> CreateImage(GraphImpl& graph, int32_t row, std::string_view name)
+    // An image at `extent`: Size's extent, or for an OfTarget image the one its target's allocation gives
+    rhi::ResourceFuture<GraphicsResource> CreateImage(GraphImpl& graph, int32_t row, std::string_view name,
+                                                      const ImageExtent& extent)
     {
         const CompiledData& data = graph.Compiled.Data();
         const FrozenResource& frozen = data.Frozen.Resources[row];
@@ -205,7 +257,7 @@ namespace
         const SizedResource& sized = data.Sized.Resources[row];
         const bool volume = sized.Dimension == lodestone::TextureDimension::Texture3D;
         const int32_t layers = std::max(declaration.Layers, 1);
-        const int32_t mips = MipCountOf(declaration.Mips, sized.Extent);
+        const int32_t mips = MipCountOf(declaration.Mips, extent);
 
         ImageCreateInfo info{};
         info.Domain = ResourceDomain::GPUOnly;
@@ -213,23 +265,57 @@ namespace
         info.Type = ImageTypeOf(sized.Dimension);
         // CheckSupported refused a format with no ImageFormat
         info.Format = *ToImageFormat(declaration.Format);
-        info.Width = static_cast<uint32_t>(std::max(sized.Extent.Width, 1));
-        info.Height = static_cast<uint32_t>(std::max(sized.Extent.Height, 1));
-        info.Depth = volume ? static_cast<uint32_t>(std::max(sized.Extent.Depth, 1)) : 1u;
+        info.Width = static_cast<uint32_t>(std::max(extent.Width, 1));
+        info.Height = static_cast<uint32_t>(std::max(extent.Height, 1));
+        info.Depth = volume ? static_cast<uint32_t>(std::max(extent.Depth, 1)) : 1u;
         info.MipLevels = static_cast<uint32_t>(mips);
         info.ArrayLayers = static_cast<uint32_t>(layers);
         info.Name = name;
 
+        // a depth target's view sees its depth (and stencil) aspect
+        ImageAspectFlags aspect = ImageAspectFlags::Color;
+
+        if (IsDepthFormat(declaration.Format))
+        {
+            const bool stencil = declaration.Format == lodestone::TextureFormat::Depth24PlusStencil8;
+            aspect = stencil ? ImageAspectFlags::DepthStencil : ImageAspectFlags::Depth;
+        }
+
         ImageViewCreateInfo view{};
         view.ViewType = ViewTypeOf(sized, layers);
-        view.Range = ImageRange{ ImageAspectFlags::Color, 0u, static_cast<uint32_t>(mips), 0u, static_cast<uint32_t>(layers) };
+        view.Range = ImageRange{ aspect, 0u, static_cast<uint32_t>(mips), 0u, static_cast<uint32_t>(layers) };
         info.ViewInfo = view;
 
         return graph.Resources.CreateImage(info);
     }
 
-    // The resources step 6 can create: buffers, images of a known extent, samplers. An image sized from a frame
-    // target waits for step 7, and a cube for a request; a format with no ImageFormat cannot be created.
+    bool IsTargetSized(const CompiledData& data, int32_t row)
+    {
+        const FrozenResource& frozen = data.Frozen.Resources[row];
+
+        if (frozen.Kind != ResourceKind::Image || frozen.Origin != ResourceOrigin::Declared)
+        {
+            return false;
+        }
+
+        return data.Frozen.Images[frozen.DeclarationIndex].Declaration.Extent.Kind == ExtentSource::Kind::Target;
+    }
+
+    // The name of a copy: the key, and #n for a history ring's other copies
+    std::string CopyName(const CompiledData& data, int32_t row, int32_t copy)
+    {
+        const std::string_view key = data.Frozen.Resources[row].Key.Name;
+
+        if (copy == row)
+        {
+            return std::string{ key };
+        }
+
+        return std::format("{}#{}", key, copy - data.ExtraCopyBase[row] + 1);
+    }
+
+    // The resources this backend can create: buffers, images (an OfTarget image when its target first reports an
+    // extent), samplers. A cube waits for a request; a format with no ImageFormat cannot be created.
     RealizeError CheckResource(const CompiledData& data, int32_t row)
     {
         const FrozenResource& frozen = data.Frozen.Resources[row];
@@ -251,13 +337,56 @@ namespace
 
         const ImageDeclaration& declaration = data.Frozen.Images[frozen.DeclarationIndex].Declaration;
 
-        if (declaration.Extent.Kind == ExtentSource::Kind::Target || !ToImageFormat(declaration.Format).has_value())
+        if (!ToImageFormat(declaration.Format).has_value())
         {
             return RealizeError::ResourceKindNotYet;
         }
 
         return RealizeError::Invalid;
     }
+
+    // A slot's reflected shader stages as pipeline stages
+    rhi::PipelineStage PipelineStagesOf(lodestone::ShaderStageKind kinds)
+    {
+        constexpr std::pair<lodestone::ShaderStageKind, rhi::PipelineStage> k_Table[]
+        {
+            { lodestone::ShaderStageKind::Vertex, rhi::PipelineStage::VertexShader },
+            { lodestone::ShaderStageKind::Fragment, rhi::PipelineStage::FragmentShader },
+            { lodestone::ShaderStageKind::Compute, rhi::PipelineStage::ComputeShader },
+            { lodestone::ShaderStageKind::Task, rhi::PipelineStage::TaskShader },
+            { lodestone::ShaderStageKind::Mesh, rhi::PipelineStage::MeshShader },
+        };
+
+        const uint32_t bits = static_cast<uint32_t>(kinds);
+        rhi::PipelineStage result = rhi::PipelineStage::None;
+
+        for (const auto& [kind, stage] : k_Table)
+        {
+            if ((bits & static_cast<uint32_t>(kind)) != 0u)
+            {
+                result |= stage;
+            }
+        }
+
+        return result;
+    }
+
+    // The uniform and storage usage bits of each shader stage that a use names
+    struct StageBufferUsage
+    {
+        rhi::PipelineStage Stage;
+        BufferUsageBits Uniform;
+        BufferUsageBits Storage;
+    };
+
+    constexpr StageBufferUsage k_StageBufferUsages[]
+    {
+        { rhi::PipelineStage::VertexShader, BufferUsageBits::VertexShaderUBO, BufferUsageBits::VertexShaderUAV },
+        { rhi::PipelineStage::FragmentShader, BufferUsageBits::FragmentShaderUBO, BufferUsageBits::FragmentShaderUAV },
+        { rhi::PipelineStage::ComputeShader, BufferUsageBits::ComputeShaderUBO, BufferUsageBits::ComputeShaderUAV },
+        { rhi::PipelineStage::TaskShader, BufferUsageBits::TaskShaderUBO, BufferUsageBits::TaskShaderUAV },
+        { rhi::PipelineStage::MeshShader, BufferUsageBits::MeshShaderUBO, BufferUsageBits::MeshShaderUAV },
+    };
 
     // Every GPU use of a buffer row, in RhiResources' usage bits, and the CPU copy that its CpuAccess needs.
     BufferUsageBits UsageOf(const CompiledData& data, int32_t row, CpuAccess cpu)
@@ -272,24 +401,52 @@ namespace
             }
 
             constexpr rhi::Access k_Storage = rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite;
-            const bool compute = (use.Scope.Stages & rhi::PipelineStage::ComputeShader) != rhi::PipelineStage::None;
             const bool uniform = (use.Scope.Accesses & rhi::Access::UniformRead) != rhi::Access::None;
             const bool storage = (use.Scope.Accesses & k_Storage) != rhi::Access::None;
             const bool indirect = (use.Scope.Accesses & rhi::Access::IndirectCommandRead) != rhi::Access::None;
 
-            if (compute && uniform)
+            for (const StageBufferUsage& stage : k_StageBufferUsages)
             {
-                usage |= BufferUsageBits::ComputeShaderUBO;
+                if ((use.Scope.Stages & stage.Stage) == rhi::PipelineStage::None)
+                {
+                    continue;
+                }
+
+                if (uniform)
+                {
+                    usage |= stage.Uniform;
+                }
+
+                if (storage)
+                {
+                    usage |= stage.Storage;
+                }
             }
 
-            if (compute && storage)
-            {
-                usage |= BufferUsageBits::ComputeShaderUAV;
-            }
-
+            // one Vulkan usage serves both indirect forms
             if (indirect)
             {
-                usage |= BufferUsageBits::DispatchIndirect;
+                usage |= BufferUsageBits::DispatchIndirect | BufferUsageBits::DrawIndirect;
+            }
+
+            if ((use.Scope.Accesses & rhi::Access::IndexRead) != rhi::Access::None)
+            {
+                usage |= BufferUsageBits::IndexInput;
+            }
+
+            if ((use.Scope.Accesses & rhi::Access::VertexAttributeRead) != rhi::Access::None)
+            {
+                usage |= BufferUsageBits::VertexInput;
+            }
+
+            if ((use.Scope.Accesses & rhi::Access::TransferRead) != rhi::Access::None)
+            {
+                usage |= BufferUsageBits::TransferSource;
+            }
+
+            if ((use.Scope.Accesses & rhi::Access::TransferWrite) != rhi::Access::None)
+            {
+                usage |= BufferUsageBits::TransferDestination;
             }
         }
 
@@ -463,7 +620,7 @@ namespace
     void CreateHistoryCopies(GraphImpl& graph)
     {
         const CompiledData& data = graph.Compiled.Data();
-        const int32_t rowCount = static_cast<int32_t>(data.Frozen.Resources.size());
+        const int32_t rowCount = data.RowCount;
         graph.ExtraCopies.clear();
         graph.ExtraCopies.reserve(data.CopyRows.size() - static_cast<size_t>(rowCount));
 
@@ -471,11 +628,18 @@ namespace
         {
             const int32_t row = data.CopyRows[copy];
             const FrozenResource& frozen = data.Frozen.Resources[row];
-            const std::string name = std::format("{}#{}", frozen.Key.Name, copy - data.ExtraCopyBase[row] + 1);
+            const std::string name = CopyName(data, row, copy);
+
+            // an OfTarget copy waits for its target's first extent, like the row's first copy
+            if (IsTargetSized(data, row))
+            {
+                graph.ExtraCopies.emplace_back();
+                continue;
+            }
 
             if (frozen.Kind == ResourceKind::Image)
             {
-                graph.ExtraCopies.push_back(CreateImage(graph, row, name));
+                graph.ExtraCopies.push_back(CreateImage(graph, row, name, data.Sized.Resources[row].Extent));
                 continue;
             }
 
@@ -490,27 +654,44 @@ namespace
         }
     }
 
-    RealizeError CheckSupported(const CompiledData& data)
+    RealizeError CheckSupported(const CompiledData& data, const RealizeInputs& inputs)
     {
         if (data.CodeFormat != lodestone::ShaderCodeFormat::Spirv)
         {
             return RealizeError::CodeNotSpirv;
         }
 
-        for (int32_t passIndex = 0; passIndex < static_cast<int32_t>(data.Frozen.Passes.size()); ++passIndex)
+        if (inputs.TargetSettleSeconds < 0.0)
         {
-            const FrozenPass& pass = data.Frozen.Passes[passIndex];
-
-            if (pass.Kind != PassKind::Dispatch)
-            {
-                return RealizeError::PassKindNotYet;
-            }
-
+            return RealizeError::SettleUnset;
         }
 
-        if (!data.Frozen.FrameTargets.empty())
+        // vertices are pulled (step 7 Q8)
+        for (const FrozenPass& pass : data.Frozen.Passes)
+        {
+            if (!pass.VertexBuffers.empty())
+            {
+                return RealizeError::BindingNotYet;
+            }
+        }
+
+        // LoomFrame holds a fixed count of targets
+        if (data.Frozen.FrameTargets.size() > k_LoomMaxFrameTargets)
         {
             return RealizeError::ResourceKindNotYet;
+        }
+
+        for (const FrozenFrameTarget& target : data.Frozen.FrameTargets)
+        {
+            const auto boundHere = [&target](const FrameTargetBinding& binding)
+            {
+                return binding.Key.Hash == target.Key.Hash;
+            };
+
+            if (std::ranges::none_of(inputs.FrameTargets, boundHere))
+            {
+                return RealizeError::FrameTargetUnbound;
+            }
         }
 
         for (int32_t rowIndex = 0; rowIndex < static_cast<int32_t>(data.Frozen.Resources.size()); ++rowIndex)
@@ -530,8 +711,7 @@ namespace
                 return RealizeError::PlacementNotBound;
             }
 
-            // the LoomFrame buffer comes with step 7b
-            if (!SlotIsSupported(slot) || slot.BuiltIn != BuiltInBinding::None)
+            if (!SlotIsSupported(slot))
             {
                 return RealizeError::BindingNotYet;
             }
@@ -681,7 +861,7 @@ namespace
         for (int32_t frameSlot = 0; frameSlot < frame_slots; ++frameSlot)
         {
             FrameSlotRuntime& slot = graph.FrameSlots.emplace_back(
-                FrameSlotRuntime{ rhi::CommandPool(graph.Device.Handle(), rhi::CommandPool::Type::Compute, family), 0u });
+                FrameSlotRuntime{ rhi::CommandPool(graph.Device.Handle(), rhi::CommandPool::Type::Graphics, family), 0u });
 
             if (slot.Pool.AllocateCommandBuffers(1u).IsFailure())
             {
@@ -695,17 +875,24 @@ namespace
     void CreateResources(GraphImpl& graph)
     {
         const CompiledData& data = graph.Compiled.Data();
-        const int32_t rowCount = static_cast<int32_t>(data.Frozen.Resources.size());
-        graph.Rows.resize(rowCount);
-        graph.States.assign(rowCount, ResourceState{ .Readiness = ResourceReadiness::Pending, .Epoch = 0u });
+        const int32_t resourceCount = static_cast<int32_t>(data.Frozen.Resources.size());
+        graph.Rows.resize(resourceCount);
+        graph.States.assign(data.RowCount, ResourceState{ .Readiness = ResourceReadiness::Pending, .Epoch = 0u });
 
-        for (int32_t row = 0; row < rowCount; ++row)
+        for (int32_t row = 0; row < resourceCount; ++row)
         {
             const FrozenResource& frozen = data.Frozen.Resources[row];
 
             // an import waits for Supply
             if (frozen.Origin != ResourceOrigin::Declared)
             {
+                continue;
+            }
+
+            // an OfTarget image waits for its target's first extent (Tick makes it)
+            if (IsTargetSized(data, row))
+            {
+                graph.Rows[row].Owned = true;
                 continue;
             }
 
@@ -724,7 +911,7 @@ namespace
                 break;
             }
             case ResourceKind::Image:
-                graph.Rows[row].Future = CreateImage(graph, row, frozen.Key.Name);
+                graph.Rows[row].Future = CreateImage(graph, row, frozen.Key.Name, data.Sized.Resources[row].Extent);
                 break;
             case ResourceKind::Sampler:
                 graph.Rows[row].Future = graph.Resources.CreateSampler(data.Frozen.Samplers[frozen.DeclarationIndex].CreateInfo);
@@ -739,6 +926,103 @@ namespace
         }
 
         CreateHistoryCopies(graph);
+
+        // LoomFrame: one uniform buffer, written by vkCmdUpdateBuffer at the start of each frame
+        const auto loomFrame = [](const BindingSlot& slot)
+        {
+            return slot.BuiltIn == BuiltInBinding::LoomFrame;
+        };
+
+        graph.HasLoomFrame = std::ranges::any_of(data.Slots, loomFrame);
+
+        if (!graph.HasLoomFrame)
+        {
+            return;
+        }
+
+        BufferUsageBits usage = BufferUsageBits::TransferDestination;
+
+        for (const BindingSlot& slot : data.Slots)
+        {
+            if (!loomFrame(slot))
+            {
+                continue;
+            }
+
+            const rhi::PipelineStage stages = PipelineStagesOf(slot.Stages);
+
+            for (const StageBufferUsage& stage : k_StageBufferUsages)
+            {
+                if ((stages & stage.Stage) != rhi::PipelineStage::None)
+                {
+                    usage |= stage.Uniform;
+                }
+            }
+        }
+
+        BufferCreateInfo info{};
+        info.Domain = ResourceDomain::GPUOnly;
+        info.Usage = usage;
+        info.Size = sizeof(LoomFrameConstants);
+        info.Name = "LoomFrame";
+        graph.LoomFrameBuffer = graph.Resources.CreateBuffer(info, {});
+    }
+
+    RealizeError PrepareTargets(GraphImpl& graph, const RealizeInputs& inputs)
+    {
+        const CompiledData& data = graph.Compiled.Data();
+        graph.Targets.resize(data.FrameTargets.size());
+
+        for (size_t target = 0u; target < data.FrameTargets.size(); ++target)
+        {
+            const KeyRef key = data.Frozen.FrameTargets[target].Key;
+
+            const auto boundHere = [key](const FrameTargetBinding& binding)
+            {
+                return binding.Key.Hash == key.Hash;
+            };
+
+            // CheckSupported found every binding
+            const auto binding = std::ranges::find_if(inputs.FrameTargets, boundHere);
+            TargetRuntime& runtime = graph.Targets[target];
+            runtime.Target = &binding->Target;
+
+            // a frame-target row is always recordable; each acquire starts a new epoch in Undefined
+            ResourceState& state = graph.States[data.FrameTargets[target].Row];
+            state.Readiness = ResourceReadiness::Created;
+            state.FinalLayout = runtime.Target->FinalLayout();
+        }
+
+        const auto draws = [](const FrozenPass& pass)
+        {
+            return pass.Kind == PassKind::Draw;
+        };
+
+        if (std::ranges::any_of(data.Frozen.Passes, draws) && !LoadRasterFunctions(graph.VulkanDevice, graph.Raster))
+        {
+            return RealizeError::DrawStateUnavailable;
+        }
+
+        return RealizeError::Invalid;
+    }
+
+    int32_t TargetOfImage(const CompiledData& data, int32_t row) noexcept
+    {
+        if (!IsTargetSized(data, row))
+        {
+            return -1;
+        }
+
+        return data.Frozen.Images[data.Frozen.Resources[row].DeclarationIndex].ExtentTarget.Value;
+    }
+
+    rhi::ResourceFuture<GraphicsResource> CreateTargetImage(GraphImpl& graph, int32_t row, int32_t copy, Extent2D extent)
+    {
+        const CompiledData& data = graph.Compiled.Data();
+        const float scale = data.Frozen.Images[data.Frozen.Resources[row].DeclarationIndex].Declaration.Extent.Scale;
+        const Extent2D scaled = ScaledExtent(extent, scale);
+        const ImageExtent imageExtent{ .Width = scaled.Width, .Height = scaled.Height, .Depth = 1 };
+        return CreateImage(graph, row, CopyName(data, row, copy), imageExtent);
     }
 
     void PrepareCoreState(GraphImpl& graph)
@@ -749,8 +1033,11 @@ namespace
         graph.Sync.assign(data.CopyRows.size(), ResourceSync{});
         graph.Controls.assign(data.Passes.size(), PassControl{});
 
-        // the most a Tick writes: every barrier of a plan, one wait per row, every slot of every pass
-        graph.WaitScratch.reserve(data.Frozen.Resources.size());
+        // the most a Tick writes: every barrier of a plan, one wait per row and per target, every slot of every pass
+        graph.WaitScratch.reserve(static_cast<size_t>(data.RowCount));
+        graph.NextImages.reserve(data.CopyRows.size());
+        graph.Retired.reserve(data.CopyRows.size());
+        graph.Destroys.reserve(data.CopyRows.size());
         graph.WriteScratch.reserve(data.Slots.size());
         graph.BufferInfoScratch.reserve(data.Slots.size());
         graph.ImageInfoScratch.reserve(data.Slots.size());

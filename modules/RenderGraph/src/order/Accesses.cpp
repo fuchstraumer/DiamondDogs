@@ -102,33 +102,33 @@ namespace loom::order
         if (IsIndirectDraw(pass.Draw.Form))
         {
             results.push_back(PassAccess{ .Slot = SlotOfResource(pass.Draw.Arguments),
-                                            .Access = ResourceAccess::Read,
-                                            .Previous = false,
-                                            .Where = pass.Draw.Where });
+                                          .Access = ResourceAccess::Read,
+                                          .Previous = false,
+                                          .Where = pass.Draw.Where });
         }
 
         if (pass.Draw.Form == DrawForm::DrawIndirectCount)
         {
             results.push_back(PassAccess{ .Slot = SlotOfResource(pass.Draw.Count),
-                                            .Access = ResourceAccess::Read,
-                                            .Previous = false,
-                                            .Where = pass.Draw.Where });
+                                          .Access = ResourceAccess::Read,
+                                          .Previous = false,
+                                          .Where = pass.Draw.Where });
         }
 
         for (const FrozenVertexBuffer& vertex : pass.VertexBuffers)
         {
             results.push_back(PassAccess{ .Slot = SlotOfResource(vertex.Buffer),
-                                            .Access = ResourceAccess::Read,
-                                            .Previous = false,
-                                            .Where = vertex.Where });
+                                          .Access = ResourceAccess::Read,
+                                          .Previous = false,
+                                          .Where = vertex.Where });
         }
 
         if (pass.Index.Buffer.IsValid())
         {
             results.push_back(PassAccess{ .Slot = SlotOfResource(pass.Index.Buffer),
-                                            .Access = ResourceAccess::Read,
-                                            .Previous = false,
-                                            .Where = pass.Index.Where });
+                                          .Access = ResourceAccess::Read,
+                                          .Previous = false,
+                                          .Where = pass.Index.Where });
         }
 
         for (const FrozenColorTarget& color : pass.Colors)
@@ -138,17 +138,17 @@ namespace loom::order
                                             : SlotOfResource(color.Image);
 
             results.push_back(PassAccess{ .Slot = slot,
-                                            .Access = ColorTargetAccess(color),
-                                            .Previous = false,
-                                            .Where = color.Where });
+                                          .Access = ColorTargetAccess(color),
+                                          .Previous = false,
+                                          .Where = color.Where });
         }
 
         if (pass.Depth.Image.IsValid())
         {
             results.push_back(PassAccess{ .Slot = SlotOfResource(pass.Depth.Image),
-                                            .Access = DepthTargetAccess(pass.Depth),
-                                            .Previous = false,
-                                            .Where = pass.Depth.Where });
+                                          .Access = DepthTargetAccess(pass.Depth),
+                                          .Previous = false,
+                                          .Where = pass.Depth.Where });
         }
     }
 
