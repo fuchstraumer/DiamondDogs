@@ -115,9 +115,49 @@ TEST(SmallVectorTest, MatchesStdVectorAndBalancesEveryLifetime)
 
 TEST(SmallVectorTest, MatchesStdVectorOnTheMemmovePath)
 {
-    // int32_t is trivially copyable, so every relocation goes through memmove instead of move-and-destroy
+    // int32_t is trivially copyable: N=4 exercises the <=64B fixed inline copy path, N=32 exercises >64B memcpy,
+    // and N=0 exercises the zero-inline-storage path
     RunModel<int32_t, 4>(4u);
+    RunModel<int32_t, 32>(6u);
     RunModel<int32_t, 0>(5u);
+}
+
+TEST(SmallVectorTest, UnsizedForwardRangeEvaluatesFilterPredicateOnce)
+{
+    const std::array<int32_t, 8> source{ 1, 2, 3, 4, 5, 6, 7, 8 };
+    int32_t predicateCalls = 0;
+    const auto isOdd = [&predicateCalls](int32_t value) {
+        ++predicateCalls;
+        return (value & 1) != 0;
+    };
+
+    foundation::SmallVector<int32_t, 8> vector(std::from_range, source | std::views::filter(isOdd));
+    EXPECT_EQ(predicateCalls, static_cast<int32_t>(source.size()));
+    ASSERT_EQ(vector.size(), 4u);
+    EXPECT_EQ(vector[0], 1);
+    EXPECT_EQ(vector[1], 3);
+    EXPECT_EQ(vector[2], 5);
+    EXPECT_EQ(vector[3], 7);
+
+    predicateCalls = 0;
+    vector.insert_range(vector.begin() + 2, source | std::views::filter(isOdd));
+    EXPECT_EQ(predicateCalls, static_cast<int32_t>(source.size()));
+    ASSERT_EQ(vector.size(), 8u);
+    EXPECT_EQ(vector[2], 1);
+    EXPECT_EQ(vector[5], 7);
+}
+
+TEST(SmallVectorTest, ZeroInlineVectorIsCompactAndUsesCacheLineGrowthFloor)
+{
+    static_assert(sizeof(foundation::SmallVector<int32_t, 0>) == sizeof(int32_t*) + 2 * sizeof(uint32_t));
+
+    foundation::SmallVector<int32_t, 0> vector;
+    EXPECT_TRUE(vector.is_inline());
+    EXPECT_EQ(vector.capacity(), 0u);
+
+    vector.push_back(42);
+    EXPECT_FALSE(vector.is_inline());
+    EXPECT_GE(vector.capacity(), 16u);
 }
 
 TEST(SmallVectorTest, OverAlignedElementsStayAlignedOnTheHeap)
