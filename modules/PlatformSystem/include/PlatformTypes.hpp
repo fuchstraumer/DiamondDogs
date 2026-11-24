@@ -244,16 +244,16 @@ struct SwapchainCreateInfo
     std::optional<SurfaceFormatPair> ExplicitSurfaceFormat{ std::nullopt };
     /** @brief Presentation mode/VSync mode to attempt to apply to this swapchain. Will choose "best" option if left to default. */
     PresentMode SwapchainPresentMode{ PresentMode::Invalid };
-    float RefreshRate{ 0.0f };
     /** @brief If set to true, will ensure HDR is supported and enabled for this swapchain. Compatible with blank/default `DesiredColorSpace` and `SwapchainFormat`.
      * If those are set to specific HDR-capable values, will attempt to use those instead. */
     bool TryEnableHDR{ false };
+    float RefreshRate{ 0.0f };
+    /** @brief Index of the monitor/display used with this window. Will be used to query the platform system for dimensional info. Default value of is UINT32_MAX, which means just use the "primary" display if not changed. */
+    uint32_t DisplayIndex{ std::numeric_limits<uint32_t>::max() };
     /** @brief If `TryEnableHDR` is true, this passes on the color capabilities to use for HDR configuration. Will be used to decide on a color space and set HDR metadata */
     DisplayColorCapabilities HdrColorCapabilities{};
     /** @brief Pointer to the platform system this display swapchain will be a child of. */
     void* PlatformSystemPtr{ nullptr };
-    /** @brief Index of the monitor/display used with this window. Will be used to query the platform system for dimensional info. Default value of is UINT32_MAX, which means just use the "primary" display if not changed. */
-    uint32_t DisplayIndex{ std::numeric_limits<uint32_t>::max() };
 };
 
 enum class SwapchainRecreateResult : uint8_t
