@@ -72,14 +72,14 @@ namespace loom
         uint64_t SignaledValue{ 0u };   // the timeline value of the last submit that used this slot
     };
 
-    // One frame target (step 7). Target is the caller's object. Acquired is this Tick's image, or nothing. RenderDone
-    // holds one binary semaphore per swapchain image: a present may not reuse a semaphore that is still pending.
+    // One frame target (step 7). Target is the caller's object. Acquired is this Tick's image, or nothing. Presented:
+    // the graph has presented to it, so its teardown waits for the presents.
     struct TargetRuntime
     {
         FrameTarget* Target{ nullptr };
         TargetExtents Extents;
         std::optional<AcquiredTarget> Acquired;
-        std::vector<rhi::BinarySemaphore> RenderDone;
+        bool Presented{ false };
     };
 
     // A settled resize's new image for one copy of an OfTarget image. Every new image of a target swaps in on one

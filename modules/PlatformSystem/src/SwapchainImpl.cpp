@@ -462,6 +462,7 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& create_info)
     setHdrMetadata(create_info);
     createSwapchainImages();
     createSwapchainImageViews();
+    CreatePresentation();
 }
 
 SwapchainRecreateResult SwapchainImpl::Recreate(const SwapchainCreateInfo& create_info)
@@ -499,11 +500,13 @@ SwapchainRecreateResult SwapchainImpl::Recreate(const SwapchainCreateInfo& creat
     destroySwapchainImageViews();
     const VkSwapchainKHR oldSwapchain = Swapchain;
     createSwapchainHandle(create_info, sameSurface ? oldSwapchain : VK_NULL_HANDLE);
-    vkDestroySwapchainKHR(ParentDevice, oldSwapchain, nullptr);
+    // with present fences the old swapchain waits for its presents; without them the caller idled the device
+    RetirePresentation(oldSwapchain);
 
     setHdrMetadata(create_info);
     createSwapchainImages();
     createSwapchainImageViews();
+    CreatePresentation();
     return SwapchainRecreateResult::Success;
 }
 
@@ -696,6 +699,7 @@ void SwapchainImpl::setHdrMetadata(const SwapchainCreateInfo& create_info)
 
 void SwapchainImpl::Destroy()
 {
+    DestroyPresentation();
     destroySwapchainImageViews();
 
     if (Swapchain != VK_NULL_HANDLE)

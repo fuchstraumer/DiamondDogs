@@ -2,6 +2,7 @@
 #ifndef DIAMOND_DOGS_DISPLAY_SYSTEM_SWAPCHAIN_IMPL_HPP
 #define DIAMOND_DOGS_DISPLAY_SYSTEM_SWAPCHAIN_IMPL_HPP
 #include "PlatformTypes.hpp"
+#include "Swapchain.hpp"
 #include "ImageDataFormats.hpp"
 #include <cstdint>
 #include <vector>
@@ -56,7 +57,62 @@ struct SwapchainImpl
     VkSwapchainKHR Swapchain = VK_NULL_HANDLE;
     std::unique_ptr<SwapchainInfo> Info;
 
+    // Presentation (SwapchainPresent.cpp)
+    struct PresentFence
+    {
+        VkFence Fence{ VK_NULL_HANDLE };
+        uint64_t Serial{ 0u };      // the present that last used it
+        bool Pending{ false };
+    };
+
+    // An old swapchain that a present may still use. It goes once every present up to LastSerial finished.
+    struct RetiredSwapchain
+    {
+        VkSwapchainKHR Swapchain{ VK_NULL_HANDLE };
+        std::vector<VkSemaphore> RenderDone;
+        uint64_t LastSerial{ 0u };
+    };
+
+    // The acquire semaphore of a released image: signaled, never waited. An empty submit waits on it; once Fence
+    // signals, the semaphore is free again.
+    struct ConsumedSemaphore
+    {
+        VkSemaphore Semaphore{ VK_NULL_HANDLE };
+        VkFence Fence{ VK_NULL_HANDLE };
+    };
+
+    [[nodiscard]] SwapchainAcquire TryAcquire(uint64_t timeout_ns);
+    [[nodiscard]] SwapchainPresentStatus Present(uint32_t image_index);
+    [[nodiscard]] SwapchainReleaseStatus Release(uint32_t image_index);
+    [[nodiscard]] bool WaitForPresents(uint64_t timeout_ns);
+    void CreatePresentation();
+    void RetirePresentation(VkSwapchainKHR old_swapchain);
+    void DestroyPresentation();
+
+    VkQueue PresentQueue{ VK_NULL_HANDLE };
+    bool CorePresentationOnly{ false };
+    bool Maintenance1{ false };
+    PFN_vkReleaseSwapchainImagesKHR ReleaseImages{ nullptr };
+    // free acquire semaphores; one more than the images is enough, and they are made when first needed
+    std::vector<VkSemaphore> FreeAcquireSemaphores;
+    // per image: the semaphore of its last acquire. It is free again when the image is acquired again, because the
+    // present of that image waited on work that waited on this semaphore.
+    std::vector<VkSemaphore> ImageAcquireSemaphores;
+    std::vector<VkSemaphore> RenderDone;
+    std::vector<PresentFence> PresentFences;
+    uint32_t NextFence{ 0u };
+    uint64_t PresentSerial{ 0u };
+    std::vector<RetiredSwapchain> Retired;
+    std::vector<ConsumedSemaphore> Consumed;
+    std::vector<VkFence> FreeFences;
+
 private:
+    void pollPresentation();
+    [[nodiscard]] uint64_t completedSerial() const noexcept;
+    [[nodiscard]] VkSemaphore takeAcquireSemaphore();
+    [[nodiscard]] VkFence takeFence();
+    [[nodiscard]] VkFence takePresentFence();
+
     /** @brief Converts application-specific swapchain information to Vulkan-compatible structure */
     VkSwapchainCreateInfoKHR getCreateInfo(const SwapchainCreateInfo& create_info, VkSwapchainKHR old_swapchain) const noexcept;
     void querySurface(const SwapchainCreateInfo& create_info);

@@ -495,8 +495,9 @@ In order:
 5. **Params** (`ParamsStore::CheckRuns`). LM703: return `Failed`.
 6. **Acquire** (`AcquireTargets`, spec 5.1 step 4). Each target whose action is `Render` or `Clear` is acquired with
    `TryAcquire(LastSubmit())`. One that gives nothing returns `TargetNotReady`; nothing is recorded yet, so nothing is
-   lost, and a target acquired already stays acquired for the next Tick. A new acquire starts its row's epoch in
-   `Undefined`.
+   lost. The targets acquired so far go back (`ReleaseTargets`, `FrameTarget::Release`); a target that cannot give an
+   image back without a present (a swapchain without maintenance1) stays acquired for the next Tick. A new acquire
+   starts its row's epoch in `Undefined`.
 7. **Barriers** (`PlanBarriers`), then **descriptors** (`WriteDescriptors`). A slot's sets are written again only
    where a row changed epoch since the last write; a `g_LoomFrame` slot is written once.
 8. **Record and submit** (`SubmitFrame`). One `vkCmdPipelineBarrier2` per batch, with one global memory barrier
@@ -507,8 +508,7 @@ In order:
    `AnyExtent` import) takes its group count from the image's `Description()`: width, height, and depth or layers. The
    submit waits for each row that a running pass uses and that is `Created`, not `Complete` (CC-R2), with one wait
    per semaphore at the highest value, and for each acquired target's acquire semaphore. It signals the graph's
-   timeline, and the render-done semaphore of each acquired swapchain image (one per image: a present may not reuse a
-   pending semaphore).
+   timeline, and the render-done semaphore of each acquired target (`AcquiredTarget::RenderDone`; the target owns it).
    - **First:** `LoomFrame` (`vkCmdUpdateBuffer` between two global barriers: last frame's reads finish before the
      write, and the write is visible to this frame's reads).
    - **Draw pass:** shader objects and the draw state (`RecordDrawState`: every piece of state that shader objects
@@ -522,22 +522,23 @@ In order:
      a `RecordContext` (the command buffer and the objects of its declared keys only). After it, all command buffer
      state counts as unknown: the next pass binds its shaders and state again.
    - **Last:** the frame-end batch (`k_AfterRuns`).
-9. **Present** (`PresentTargets`) each acquired target with its render-done semaphore, then **commit** (`CommitRuns`)
-   and return `Submitted`.
+9. **Present** (`PresentTargets`) each acquired target, then **commit** (`CommitRuns`) and return `Submitted`.
 
 **Frame targets.** `include/FrameTarget.hpp` (in `loom_vulkan`) is the interface: `CurrentExtent()`,
-`ResizeFinished()`, `TryAcquire(last_submit)`, `Present(render_done)` and `FinalLayout()`, none of which blocks, and
-`WaitForPresents(timeout)`, which blocks and which only the `Graph` destructor calls. Loom holds a reference to each
-target and never owns it. `OffscreenFrameTarget` serves headless runs and tests. `SwapchainFrameTarget`
-(`loom_vulkan_platform`, so that `loom_vulkan` links no PlatformSystem) acquires with a timeout of 0, and when the
-swapchain is out of date or suboptimal it recreates it, but only once `last_submit` has passed.
+`ResizeFinished()`, `TryAcquire(last_submit)`, `Present()`, `Release()` and `FinalLayout()`, none of which blocks, and
+`WaitForPresents(timeout)`, which blocks and which only the `Graph` destructor calls. An `AcquiredTarget` carries the
+image, its view, and two semaphores that the target owns: the one Loom's submit waits on, and the render-done one it
+signals. Loom holds a reference to each target and never owns it. `OffscreenFrameTarget` serves headless runs and
+tests (no semaphores). `SwapchainFrameTarget` (`loom_vulkan_platform`, so that `loom_vulkan` links no PlatformSystem)
+adapts PlatformSystem's `Swapchain`, which owns acquire, present, release, every semaphore and the present fences
+(presentation plan P1; `modules/PlatformSystem/README.md` has the reuse rules). It acquires with a timeout of 0, and
+when the swapchain is out of date or suboptimal it recreates it, but only once `last_submit` has passed.
 
 **Present fences.** A present waits on a render-done semaphore after the graph's timeline signals, so the timeline
-cannot say when a present finished. With swapchain maintenance1 (`SwapchainFrameTarget::k_PresentFenceFeature`, the
-EXT or the KHR extension; ask for it as Wanted, with `VK_KHR_surface_maintenance1` or `VK_EXT_surface_maintenance1`),
-each present gets a fence from a ring of frame slots + 2. A fence is reused only after it signaled, so in practice
-`Present` does not wait. A recreate and the `Graph` destructor wait on the fences. Without the feature they wait for
-the whole device (`vkDeviceWaitIdle`).
+cannot say when a present finished. With swapchain maintenance1 (`k_SwapchainMaintenance1Feature`, which the window
+stage asks for as Wanted), `Swapchain` gives each present a fence, and a recreate needs no idle device: the old
+swapchain is destroyed once its presents finished. The `Graph` destructor waits on the fences. Without the feature, a
+recreate and the destructor wait for the whole device (`vkDeviceWaitIdle`).
 
 One frame on a swapchain:
 
@@ -548,20 +549,18 @@ sequenceDiagram
     participant Q as Queue
     participant P as Present engine
     T->>S: TryAcquire(LastSubmit), timeout 0
-    S->>P: vkAcquireNextImageKHR(acquire semaphore k)
-    S-->>T: image i, view, extent, acquire semaphore k
+    S->>P: Swapchain::TryAcquire: vkAcquireNextImageKHR(acquire semaphore a)
+    S-->>T: image i, view, extent, wait a, signal RenderDone[i]
     Note over T: row epoch++, layout Undefined
-    T->>Q: submit: wait acquire k and upload timelines; clears, levels, frame-end batch
+    T->>Q: submit: wait a and upload timelines; clears, levels, frame-end batch
     Note over Q: signals timeline value N and RenderDone[i]
-    T->>S: Present(RenderDone[i])
-    S->>P: vkQueuePresentKHR(wait RenderDone[i], present fence f)
-    P-->>S: fence f signals: RenderDone[i] and image i are free
+    T->>S: Present()
+    S->>P: Swapchain::Present: vkQueuePresentKHR(wait RenderDone[i], present fence f)
+    P-->>S: fence f signals: this present finished
 ```
 
-Why one render-done semaphore per image, and one acquire semaphore per frame slot + 1: a present holds its semaphore
-until it finishes, and image i cannot be acquired again before its last present released it, so `RenderDone[i]` is
-free at the next acquire of i. An acquire semaphore is free once the submit that waited on it finished, and the frame
-slot rule makes sure of that after frame slots + 1 acquires. `Graph::SetRenderScale(target, scale)` is the scalability hook; `Graph::ExtentsOf(target)` gives the three
+Why one render-done semaphore per image, and why an acquire semaphore is free again at the next acquire of the same
+image: PlatformSystem's README explains both. `Graph::SetRenderScale(target, scale)` is the scalability hook; `Graph::ExtentsOf(target)` gives the three
 extents.
 
 For the app: `Timeline()` and `PendingValue()` feed `ResourceContext::Tick`, and `LastSubmit()` is the `GpuWait` that
@@ -677,6 +676,10 @@ skipped). Then `Enable(Light, false)`: every pixel must hold the Clear fallback 
 `--resize` (use at least 120 frames). With `--resize`, the swapchain must be made again once per resize, and after the
 last resize settles (the test Ticks on for at most 1 s, uncounted), the target, allocation and render extents must
 equal the framebuffer. Synchronization validation is on, so a missing acquire wait or present barrier fails the run.
+`--minimize` minimizes the window at frame 30 for 60 Ticks: after the first 10 (the driver may still give out one image
+of the old swapchain), nothing may be submitted, and frames must resume after the restore. `--no-maintenance1` calls
+`Swapchain::LimitToCorePresentation`, so the fallback runs on a device that has the feature. With maintenance1, the
+test first acquires and releases ten images through `Swapchain`.
 
 Every test must be able to fail: plant the fault, see the test fail, and restore the source. After a restore, give the
 file a new modification time: ninja compares times, and a copy that keeps the old time leaves the planted object in

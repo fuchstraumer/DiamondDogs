@@ -6,6 +6,7 @@
 #include "LaunchStage.hpp"
 #include "PlatformSystem.hpp"
 #include "PlatformTypes.hpp"
+#include "Swapchain.hpp"
 #include <exception>
 #include <memory>
 #include <string>
@@ -18,6 +19,10 @@ namespace
     constexpr std::string_view k_SwapchainExtension{ "VK_KHR_swapchain" };
     // the swapchain reads the surface capabilities through vkGetPhysicalDeviceSurfaceCapabilities2KHR
     constexpr std::string_view k_SurfaceCapabilitiesExtension{ "VK_KHR_get_surface_capabilities2" };
+    // swapchain maintenance1 (present fences, release, present-mode switching) needs surface maintenance1, in its KHR
+    // or EXT form. All Wanted: without them the swapchain uses core presentation
+    constexpr std::string_view k_SurfaceMaintenanceKhr{ "VK_KHR_surface_maintenance1" };
+    constexpr std::string_view k_SurfaceMaintenanceExt{ "VK_EXT_surface_maintenance1" };
 
     [[nodiscard]] bootstrap::Need SpineNeed(std::string_view name, bootstrap::NeedKind kind, bootstrap::NeedLevel level) noexcept;
 }
@@ -63,6 +68,9 @@ namespace bootstrap
         needs.push_back(SpineNeed(k_HdrInstanceExtension, NeedKind::InstanceExtension, NeedLevel::Wanted));
         needs.push_back(SpineNeed(k_SwapchainExtension, NeedKind::DeviceExtension, NeedLevel::Required));
         needs.push_back(SpineNeed(k_HdrDeviceExtension, NeedKind::DeviceExtension, NeedLevel::Wanted));
+        needs.push_back(SpineNeed(k_SurfaceMaintenanceKhr, NeedKind::InstanceExtension, NeedLevel::Wanted));
+        needs.push_back(SpineNeed(k_SurfaceMaintenanceExt, NeedKind::InstanceExtension, NeedLevel::Wanted));
+        needs.push_back(SpineNeed(k_SwapchainMaintenance1Feature, NeedKind::DeviceFeature, NeedLevel::Wanted));
         return SuccessIn(Stage::Window);
     }
 

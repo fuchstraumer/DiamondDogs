@@ -21,7 +21,8 @@ if(NOT EMSCRIPTEN)
         "src/PlatformSystemImpl.cpp"
         "src/Swapchain.cpp"
         "src/SwapchainImpl.cpp"
-        "src/SwapchainImpl.hpp")
+        "src/SwapchainImpl.hpp"
+        "src/SwapchainPresent.cpp")
 
     target_link_libraries(platform_system PUBLIC foundation glfw ${Vulkan_LIBRARY} rhi_system platform_types)
     target_link_libraries(platform_system PRIVATE input_system)

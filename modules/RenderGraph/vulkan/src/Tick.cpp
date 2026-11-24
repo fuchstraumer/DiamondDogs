@@ -336,13 +336,8 @@ bool AcquireTargets(GraphImpl& graph)
 
         if (!runtime.Acquired.has_value())
         {
+            ReleaseTargets(graph);
             return false;
-        }
-
-        // a present may not reuse a semaphore that is still pending, so each image has its own
-        while (runtime.RenderDone.size() < runtime.Acquired->ImageCount)
-        {
-            runtime.RenderDone.emplace_back(graph.Device.Handle());
         }
 
         // the acquired image owes nothing to earlier frames, and starts Undefined
@@ -355,6 +350,18 @@ bool AcquireTargets(GraphImpl& graph)
     return true;
 }
 
+// Nothing is recorded for a Tick that could not acquire every target: give back what it acquired, where the target can
+void ReleaseTargets(GraphImpl& graph)
+{
+    for (TargetRuntime& runtime : graph.Targets)
+    {
+        if (runtime.Acquired.has_value() && runtime.Target->Release())
+        {
+            runtime.Acquired.reset();
+        }
+    }
+}
+
 void PresentTargets(GraphImpl& graph)
 {
     for (TargetRuntime& runtime : graph.Targets)
@@ -364,11 +371,9 @@ void PresentTargets(GraphImpl& graph)
             continue;
         }
 
-        const bool swapchain = runtime.Acquired->ImageCount > 0u;
-        const rhi::BinarySemaphoreHandle renderDone = swapchain ? runtime.RenderDone[runtime.Acquired->ImageIndex].Handle()
-                                                                : rhi::BinarySemaphoreHandle{};
-        runtime.Target->Present(renderDone);
+        runtime.Target->Present();
         runtime.Acquired.reset();
+        runtime.Presented = true;
     }
 }
 
@@ -626,7 +631,7 @@ bool SubmitFrame(GraphImpl& graph, int32_t frame_slot, uint64_t signal_value)
         return false;
     }
 
-    // the timeline, and each acquired swapchain image's render-done semaphore for its present
+    // the timeline, and each acquired target's render-done semaphore for its present
     std::array<rhi::SemaphoreSubmitInfo, k_LoomMaxFrameTargets + 1u> signals
     {
         rhi::SemaphoreSubmitInfo{ graph.Timeline.Handle(), signal_value, rhi::PipelineStage::AllCommands },
@@ -640,10 +645,9 @@ bool SubmitFrame(GraphImpl& graph, int32_t frame_slot, uint64_t signal_value)
 
     for (const TargetRuntime& target : graph.Targets)
     {
-        if (target.Acquired.has_value() && target.Acquired->ImageCount > 0u)
+        if (target.Acquired.has_value() && target.Acquired->RenderDone.IsValid())
         {
-            signals[signalCount] = rhi::SemaphoreSubmitInfo{ target.RenderDone[target.Acquired->ImageIndex].Handle(),
-                                                             rhi::PipelineStage::AllCommands };
+            signals[signalCount] = rhi::SemaphoreSubmitInfo{ target.Acquired->RenderDone, rhi::PipelineStage::AllCommands };
             ++signalCount;
         }
     }

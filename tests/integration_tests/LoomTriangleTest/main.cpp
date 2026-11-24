@@ -14,9 +14,11 @@
 #include "ResourceContext.hpp"
 #include "RhiSystem.hpp"
 #include "ShaderBundle.hpp"
+#include "Swapchain.hpp"
 #include "SwapchainFrameTarget.hpp"
 #include "TargetExtents.hpp"
 #include "WindowedBoot.hpp"
+#include <GLFW/glfw3.h>
 #include <chrono>
 #include <cstdint>
 #include <format>
@@ -24,12 +26,16 @@
 #include <memory>
 #include <optional>
 #include <span>
-#include <vector>
+#include <string_view>
+#include <thread>
 
 // Loom step 7 on a swapchain: LoomDrawTest's graph, drawn into SwapchainFrameTarget each frame. --frames=N exits after N
 // submitted frames. --resize resizes the window three times (use at least 120 frames): the swapchain must be made again
 // once per resize, and after the last resize settles, Loom's OfTarget images must have the framebuffer's extent.
 // Synchronization validation is on: a missing acquire wait or present barrier prints a message, and the run fails.
+// --minimize minimizes the window for a while at frame 30: no frame may be submitted while it has no area, and frames
+// must resume after the restore. --no-maintenance1 makes the swapchain use core presentation, so the fallback runs on a
+// device that has swapchain maintenance1. With maintenance1, the test first acquires and releases images (Release).
 
 namespace
 {
@@ -42,6 +48,38 @@ namespace
     constexpr std::chrono::seconds k_RunTimeout{ 60 };
     // Ten times the settle window
     constexpr std::chrono::seconds k_SettleTimeout{ 1 };
+    // --minimize: the frame it starts at, how many Ticks run while minimized, and the pause between them
+    constexpr int32_t k_MinimizeAtFrame = 30;
+    constexpr int32_t k_MinimizedTicks = 60;
+    // The driver may still give out one image of the old swapchain after the window lost its area; only the present
+    // that follows reports out of date. After these first Ticks, nothing may be submitted.
+    constexpr int32_t k_MinimizeGraceTicks = 10;
+    constexpr std::chrono::milliseconds k_MinimizedTickPause{ 5 };
+    // How long the window gets to report a minimize or a restore
+    constexpr std::chrono::seconds k_WindowStateTimeout{ 2 };
+    // Acquire-and-release cycles before the graph runs (maintenance1 only)
+    constexpr int32_t k_ReleaseCycles = 10;
+
+    struct TestOptions
+    {
+        int32_t FrameLimit{ -1 };
+        bool Resize{ false };
+        bool Minimize{ false };
+        bool CorePresentationOnly{ false };
+    };
+
+    [[nodiscard]] bool HasFlag(int argc, char* argv[], std::string_view flag)
+    {
+        for (int index = 1; index < argc; ++index)
+        {
+            if (std::string_view{ argv[index] } == flag)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     constexpr bootstrap::BundleRequest k_Bundles[]
     {
@@ -53,64 +91,173 @@ namespace
         },
     };
 
-    // LoomDrawTest's needs, and the present fences, which the swapchain maintenance1 extension (EXT or KHR) gives.
-    // Both are Wanted: without them the target waits for the whole device.
-    std::vector<bootstrap::Need> TriangleNeeds()
-    {
-        std::vector<bootstrap::Need> needs{ DeviceNeeds().begin(), DeviceNeeds().end() };
-        needs.push_back(bootstrap::Need{ .Name = "VK_KHR_surface_maintenance1", .Kind = bootstrap::NeedKind::InstanceExtension,
-                                         .Level = bootstrap::NeedLevel::Wanted });
-        needs.push_back(bootstrap::Need{ .Name = "VK_EXT_surface_maintenance1", .Kind = bootstrap::NeedKind::InstanceExtension,
-                                         .Level = bootstrap::NeedLevel::Wanted });
-        needs.push_back(bootstrap::Need{ .Name = loom::SwapchainFrameTarget::k_PresentFenceFeature,
-                                         .Kind = bootstrap::NeedKind::DeviceFeature, .Level = bootstrap::NeedLevel::Wanted });
-        return needs;
-    }
-
-    // Ticks the graph until the window closes or `frame_limit` frames are submitted (-1: no limit). Returns the
-    // submitted count, or nothing when a Tick failed.
-    std::optional<int32_t> RunFrames(WindowedBoot& boot, loom::Graph& graph, int32_t frame_limit, bool resize_test)
+    // One Tick of the app's frame. Returns the status, after it waited for a frame slot when there was none.
+    loom::TickStatus TickOnce(WindowedBoot& boot, loom::Graph& graph, std::chrono::steady_clock::time_point& last)
     {
         PlatformWindowSystem& platform = boot.Window.Platform();
         ResourceContext& resources = boot.Gpu.Resources();
+        platform.Update();
+        const ConsumerTimelineValue pending{ graph.Timeline(), graph.PendingValue() };
+        resources.Tick(std::span{ &pending, 1u });
+
+        const auto now = std::chrono::steady_clock::now();
+        const loom::TickResult result = graph.Tick(std::chrono::duration<double>{ now - last });
+        last = now;
+
+        if (result.Status == loom::TickStatus::NoFrameSlot && !graph.WaitForFrameSlot(std::chrono::nanoseconds(k_TimeoutNs)))
+        {
+            return loom::TickStatus::Failed;
+        }
+
+        return result.Status;
+    }
+
+    // Polls the window until `done` holds or k_WindowStateTimeout passes
+    template<typename Condition>
+    [[nodiscard]] bool WaitForWindow(PlatformWindowSystem& platform, const Condition& done)
+    {
+        const auto deadline = std::chrono::steady_clock::now() + k_WindowStateTimeout;
+
+        while (!done())
+        {
+            if (std::chrono::steady_clock::now() > deadline)
+            {
+                return false;
+            }
+
+            platform.Update();
+            std::this_thread::sleep_for(k_MinimizedTickPause);
+        }
+
+        return true;
+    }
+
+    // --minimize: at most one submit in the first k_MinimizeGraceTicks with the window minimized, and none after them.
+    // Returns the failures.
+    int32_t RunMinimized(WindowedBoot& boot, loom::Graph& graph, std::chrono::steady_clock::time_point& last)
+    {
+        PlatformWindowSystem& platform = boot.Window.Platform();
+        GLFWwindow* window = static_cast<GLFWwindow*>(platform.GetWindowHandle());
+        glfwIconifyWindow(window);
+
+        const auto hasNoArea = [&platform]()
+        {
+            int width = 0;
+            int height = 0;
+            platform.GetFramebufferSize(width, height);
+            return width == 0 || height == 0;
+        };
+
+        if (!WaitForWindow(platform, hasNoArea))
+        {
+            std::cerr << "the window did not minimize\n";
+            glfwRestoreWindow(window);
+            return 1;
+        }
+
+        int32_t submitted = 0;
+        int32_t lateSubmitted = 0;
+        int32_t failures = 0;
+
+        for (int32_t tick = 0; tick < k_MinimizedTicks; ++tick)
+        {
+            const loom::TickStatus status = TickOnce(boot, graph, last);
+            const int32_t submit = status == loom::TickStatus::Submitted ? 1 : 0;
+            submitted += submit;
+            lateSubmitted += tick >= k_MinimizeGraceTicks ? submit : 0;
+            failures += status == loom::TickStatus::Failed || status == loom::TickStatus::Invalid ? 1 : 0;
+            std::this_thread::sleep_for(k_MinimizedTickPause);
+        }
+
+        glfwRestoreWindow(window);
+
+        const auto hasArea = [&hasNoArea]()
+        {
+            return !hasNoArea();
+        };
+
+        std::cout << std::format("minimized: {} Ticks, {} submitted, {} after the first {}\n", k_MinimizedTicks,
+                                 submitted, lateSubmitted, k_MinimizeGraceTicks);
+
+        if (lateSubmitted != 0 || submitted > 1)
+        {
+            std::cerr << "frames were submitted while the window had no area\n";
+            ++failures;
+        }
+
+        if (!WaitForWindow(platform, hasArea))
+        {
+            std::cerr << "the window did not restore\n";
+            ++failures;
+        }
+
+        return failures;
+    }
+
+    // Acquires and releases k_ReleaseCycles images through the swapchain itself. Validation reports a semaphore that
+    // is reused while its signal is pending. Returns the failures.
+    int32_t CheckRelease(Swapchain& swapchain)
+    {
+        int32_t failures = 0;
+
+        for (int32_t cycle = 0; cycle < k_ReleaseCycles; ++cycle)
+        {
+            const SwapchainAcquire acquire = swapchain.TryAcquire(k_TimeoutNs);
+
+            if (acquire.Status != SwapchainAcquireStatus::Acquired && acquire.Status != SwapchainAcquireStatus::Suboptimal)
+            {
+                std::cerr << std::format("release check: acquire {} failed\n", cycle);
+                return failures + 1;
+            }
+
+            if (swapchain.Release(acquire.ImageIndex) != SwapchainReleaseStatus::Released)
+            {
+                std::cerr << std::format("release check: release {} failed\n", cycle);
+                ++failures;
+            }
+        }
+
+        std::cout << std::format("release check: {} acquire and release cycles\n", k_ReleaseCycles);
+        return failures;
+    }
+
+    // Ticks the graph until the window closes or the frame limit is reached (-1: no limit). Returns the submitted
+    // count, or nothing when a Tick failed.
+    std::optional<int32_t> RunFrames(WindowedBoot& boot, loom::Graph& graph, const TestOptions& options, int32_t& failures)
+    {
+        PlatformWindowSystem& platform = boot.Window.Platform();
         const auto deadline = std::chrono::steady_clock::now() + k_RunTimeout;
         auto last = std::chrono::steady_clock::now();
         int32_t submitted = 0;
+        bool minimized = false;
+        const int32_t frameLimit = options.FrameLimit;
 
-        while (!platform.ShouldWindowClose() && (frame_limit < 0 || submitted < frame_limit))
+        while (!platform.ShouldWindowClose() && (frameLimit < 0 || submitted < frameLimit))
         {
-            if (frame_limit >= 0 && std::chrono::steady_clock::now() > deadline)
+            if (frameLimit >= 0 && std::chrono::steady_clock::now() > deadline)
             {
-                std::cerr << std::format("timed out after {} of {} frames\n", submitted, frame_limit) << graph.ExplainLastTick();
+                std::cerr << std::format("timed out after {} of {} frames\n", submitted, frameLimit) << graph.ExplainLastTick();
                 return std::nullopt;
             }
 
-            if (resize_test)
+            if (options.Resize)
             {
                 ApplyScheduledResize(platform, submitted);
             }
 
-            platform.Update();
-            const ConsumerTimelineValue pending{ graph.Timeline(), graph.PendingValue() };
-            resources.Tick(std::span{ &pending, 1u });
+            if (options.Minimize && !minimized && submitted == k_MinimizeAtFrame)
+            {
+                minimized = true;
+                failures += RunMinimized(boot, graph, last);
+            }
 
-            const auto now = std::chrono::steady_clock::now();
-            const loom::TickResult result = graph.Tick(std::chrono::duration<double>{ now - last });
-            last = now;
-
-            switch (result.Status)
+            switch (TickOnce(boot, graph, last))
             {
             case loom::TickStatus::Submitted:
                 ++submitted;
                 break;
             case loom::TickStatus::NoFrameSlot:
-                if (!graph.WaitForFrameSlot(std::chrono::nanoseconds(k_TimeoutNs)))
-                {
-                    std::cerr << "the frame slot did not come free\n";
-                    return std::nullopt;
-                }
-
-                break;
+                [[fallthrough]];
             case loom::TickStatus::NothingToRun:
                 [[fallthrough]];
             case loom::TickStatus::TargetNotReady:
@@ -196,13 +343,28 @@ namespace
         return 0;
     }
 
-    int32_t RunTest(WindowedBoot& boot, int32_t frame_limit, bool resize_test)
+    int32_t RunTest(WindowedBoot& boot, const TestOptions& options)
     {
         ResourceContext& resources = boot.Gpu.Resources();
         PlatformWindowSystem& platform = boot.Window.Platform();
         const rhi::Device& device = *boot.Device.Rhi().GetDevice();
+        Swapchain& swapchain = *platform.GetActiveSwapchain();
+        int32_t failures = 0;
 
-        loom::SwapchainFrameTarget target{ device, *platform.GetActiveSwapchain(), k_FrameSlots };
+        if (options.CorePresentationOnly)
+        {
+            swapchain.LimitToCorePresentation();
+        }
+
+        std::cout << std::format("swapchain maintenance1: device {}, in use {}\n",
+                                 device.IsFeatureEnabled(k_SwapchainMaintenance1Feature), swapchain.UsesMaintenance1());
+
+        if (swapchain.UsesMaintenance1())
+        {
+            failures += CheckRelease(swapchain);
+        }
+
+        loom::SwapchainFrameTarget target{ device, swapchain };
         const loom::FrameTargetBinding binding{ .Key = k_Screen, .Target = target };
         loom::CollectingSink sink;
         const bootstrap::DeviceFilter filter = boot.Device.Filter();
@@ -227,16 +389,15 @@ namespace
         }
 
         graph->Supply(k_Positions, CreatePositions(resources));
-        std::cout << std::format("present fences: {}\n", device.IsFeatureEnabled(loom::SwapchainFrameTarget::k_PresentFenceFeature));
-        const std::optional<int32_t> submitted = RunFrames(boot, *graph, frame_limit, resize_test);
-        int32_t failures = submitted.has_value() ? 0 : 1;
+        const std::optional<int32_t> submitted = RunFrames(boot, *graph, options, failures);
+        failures += submitted.has_value() ? 0 : 1;
 
         if (submitted.has_value())
         {
             std::cout << std::format("{} frames submitted\n", *submitted);
         }
 
-        if (submitted.has_value() && resize_test)
+        if (submitted.has_value() && options.Resize)
         {
             failures += VerifyScheduledResize(platform, target.RecreateCount());
             SettleExtents(boot, *graph);
@@ -287,15 +448,22 @@ int main(int argc, char* argv[])
         .ApplicationName = "LoomTriangleTest",
     };
 
-    const std::vector<bootstrap::Need> needs = TriangleNeeds();
     WindowedBoot boot;
 
-    if (!StartWindowedBoot(boot, std::span{ argv, static_cast<size_t>(argc) }, k_Bundles, needs, config, windowInfo))
+    if (!StartWindowedBoot(boot, std::span{ argv, static_cast<size_t>(argc) }, k_Bundles, DeviceNeeds(), config, windowInfo))
     {
         return 1;
     }
 
-    const int32_t failures = RunTest(boot, ParseFrameLimit(argc, argv), ParseResizeTest(argc, argv));
+    const TestOptions options
+    {
+        .FrameLimit = ParseFrameLimit(argc, argv),
+        .Resize = ParseResizeTest(argc, argv),
+        .Minimize = HasFlag(argc, argv, "--minimize"),
+        .CorePresentationOnly = HasFlag(argc, argv, "--no-maintenance1"),
+    };
+
+    const int32_t failures = RunTest(boot, options);
 
     if (failures != 0)
     {

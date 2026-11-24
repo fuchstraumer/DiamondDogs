@@ -17,8 +17,8 @@ namespace loom
 {
 
     // One acquired image. Acquired is the binary semaphore that the acquire signals; Loom's submit waits on it before
-    // the first use of the image. An offscreen target has no semaphore (a null handle). ImageIndex and ImageCount let
-    // Loom keep one render-done semaphore per image, because a present may not reuse one that is still pending.
+    // the first use of the image. RenderDone is the binary semaphore that Loom's submit signals, and that the present
+    // waits on. The target owns both. An offscreen target has neither (null handles).
     struct AcquiredTarget
     {
         rhi::ImageHandle Image;
@@ -26,8 +26,7 @@ namespace loom
         lodestone::TextureFormat Format{ lodestone::TextureFormat::Invalid };
         Extent2D Extent;
         rhi::BinarySemaphoreHandle Acquired;
-        uint32_t ImageIndex{ 0u };
-        uint32_t ImageCount{ 0u };
+        rhi::BinarySemaphoreHandle RenderDone;
     };
 
     class FrameTarget
@@ -46,8 +45,12 @@ namespace loom
         // blocks. last_submit is Loom's last submit: a swapchain recreates itself only after it passed.
         [[nodiscard]] virtual std::optional<AcquiredTarget> TryAcquire(const rhi::GpuWait& last_submit) = 0;
 
-        // Hands the image back after `render_done` signals. Never blocks. An offscreen target gets a null handle.
-        virtual void Present(rhi::BinarySemaphoreHandle render_done) = 0;
+        // Hands the acquired image back after its RenderDone semaphore signals. Never blocks.
+        virtual void Present() = 0;
+
+        // Gives back an acquired image that this Tick did not use (another target gave nothing). False: the target
+        // cannot give it back without a present, so Loom keeps it acquired for the next Tick.
+        [[nodiscard]] virtual bool Release() = 0;
 
         // The layout the target takes its image back in: PresentSource for a swapchain. Undefined keeps the image in
         // the layout of its last use (an offscreen target that a test reads afterwards picks TransferSource).
@@ -77,7 +80,8 @@ namespace loom
         [[nodiscard]] Extent2D CurrentExtent() const override;
         [[nodiscard]] bool ResizeFinished() const override;
         [[nodiscard]] std::optional<AcquiredTarget> TryAcquire(const rhi::GpuWait& last_submit) override;
-        void Present(rhi::BinarySemaphoreHandle render_done) override;
+        void Present() override;
+        [[nodiscard]] bool Release() override;
         [[nodiscard]] rhi::ImageLayout FinalLayout() const override;
         // Nothing to wait for: an offscreen present is only a count
         [[nodiscard]] bool WaitForPresents(uint64_t timeout_ns) override;

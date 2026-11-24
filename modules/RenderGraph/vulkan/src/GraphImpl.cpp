@@ -59,11 +59,21 @@ namespace
             [[maybe_unused]] const bool finished = WaitForTimeline(*this, LastSignaled, k_TeardownTimeoutNs);
         }
 
-        // a present waits on a RenderDone semaphore after the timeline signals: the target's present fences prove that
-        // it finished, and without them only an idle device does
+        // an image acquired by a Tick that did not record goes back to its target
+        for (TargetRuntime& target : Targets)
+        {
+            if (target.Acquired.has_value())
+            {
+                [[maybe_unused]] const bool released = target.Target->Release();
+                target.Acquired.reset();
+            }
+        }
+
+        // a present waits on its render-done semaphore after the timeline signals: the target's present fences prove
+        // that it finished, and without them only an idle device does
         const auto presentsUnfinished = [](TargetRuntime& target)
         {
-            return !target.RenderDone.empty() && !target.Target->WaitForPresents(k_TeardownTimeoutNs);
+            return target.Presented && !target.Target->WaitForPresents(k_TeardownTimeoutNs);
         };
 
         if (std::ranges::any_of(Targets, presentsUnfinished))

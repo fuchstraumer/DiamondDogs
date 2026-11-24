@@ -660,3 +660,8 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
 ### 2026-11-21 (Opus: RhiResources for Loom)
 
 - Resource description, barrier vocabulary and stage-first usage bits, buffer and image regions, BDA tests, destroy after a `GpuWait`, transfer sets: committed `69b92176` to `9a32184b`. Details in `docs/rhi-resources-agent.md`, sections 3 and 8.
+
+### 2026-11-23 (Opus: Loom step 7c)
+
+- Loom draws on the GPU: `LoomDrawTest` and `LoomTriangleTest`, present fences (swapchain maintenance1), the frame target Clear fallback as a rendering pass, three GPU plants caught. Details in `docs/rendergraph-agent.md` (log, 2026-11-23 step 7c).
+- Presentation P0 and P1: `DisplayProbe` prints presentation support; `Swapchain` owns acquire, present, release and the present fences (swapchain maintenance1 where present). Details in `docs/rendergraph-agent.md` and `docs/presentation-plan.md`.

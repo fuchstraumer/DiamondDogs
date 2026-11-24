@@ -20,8 +20,12 @@ namespace loom
     void PollRows(GraphImpl& graph);
 
     // Step 4: acquires each frame target that this Tick renders or clears, and starts its row's new epoch. False when
-    // one could not be acquired (TargetNotReady); a target acquired already stays acquired for the next Tick.
+    // one could not be acquired (TargetNotReady): the targets acquired so far are released where they can be, and the
+    // others stay acquired for the next Tick.
     [[nodiscard]] bool AcquireTargets(GraphImpl& graph);
+
+    // Gives back every acquired target that can give its image back unused (FrameTarget::Release)
+    void ReleaseTargets(GraphImpl& graph);
 
     // Step 8: hands each acquired target back
     void PresentTargets(GraphImpl& graph);

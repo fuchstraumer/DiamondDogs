@@ -47,9 +47,13 @@ namespace
     bool HasExtension(std::span<const VkExtensionProperties> _extensions, std::string_view _name);
     void ProbeVulkanSurface();
     void ProbeVulkanSurfaceOnWindow(GLFWwindow* _window);
-    void ProbePhysicalDevices(VkInstance _instance, VkSurfaceKHR _surface);
-    void PrintPhysicalDevice(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface);
+    void ProbePhysicalDevices(VkInstance _instance, VkSurfaceKHR _surface, bool _surfaceMaintenance1);
+    void PrintPhysicalDevice(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface, bool _surfaceMaintenance1);
     void PrintSurfaceFormats(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface);
+    std::string_view PresentModeName(VkPresentModeKHR _mode);
+    void PrintPresentationFeatures(VkPhysicalDevice _physicalDevice);
+    void PrintPresentModes(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface, bool _surfaceMaintenance1);
+    void PrintSurfacePresentSupport(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface);
     void ProbeDxgiOutputs();
     void PrintDxgiAdapterOutputs(IDXGIAdapter1* _adapter, uint32_t adapter_index);
     void PrintDxgiOutput(IDXGIOutput* _output, uint32_t adapter_index, uint32_t output_index);
@@ -316,6 +320,18 @@ namespace
             extensionNames.push_back(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
         }
 
+        // surface maintenance1 lets the surface queries name one present mode: the KHR version first
+        const bool hasSurfaceMaintenanceKhr = HasExtension(instanceExtensions, VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
+        const bool hasSurfaceMaintenanceExt = HasExtension(instanceExtensions, VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
+        const bool surfaceMaintenance1 = hasSurfaceCapabilities2 && (hasSurfaceMaintenanceKhr || hasSurfaceMaintenanceExt);
+        std::println("[Vulkan] surface maintenance1 available: KHR {}, EXT {}", hasSurfaceMaintenanceKhr, hasSurfaceMaintenanceExt);
+
+        if (surfaceMaintenance1)
+        {
+            extensionNames.push_back(hasSurfaceMaintenanceKhr ? VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME
+                                                              : VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
+        }
+
         VkApplicationInfo applicationInfo{};
         applicationInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
         applicationInfo.pApplicationName = "DisplayProbe";
@@ -339,14 +355,14 @@ namespace
         const VkResult surfaceResult = glfwCreateWindowSurface(instance, _window, nullptr, &surface);
         if (VkCallSucceeded("glfwCreateWindowSurface", surfaceResult))
         {
-            ProbePhysicalDevices(instance, surface);
+            ProbePhysicalDevices(instance, surface, surfaceMaintenance1);
             vkDestroySurfaceKHR(instance, surface, nullptr);
         }
 
         vkDestroyInstance(instance, nullptr);
     }
 
-    void ProbePhysicalDevices(VkInstance _instance, VkSurfaceKHR _surface)
+    void ProbePhysicalDevices(VkInstance _instance, VkSurfaceKHR _surface, bool _surfaceMaintenance1)
     {
         uint32_t deviceCount = 0;
         const VkResult countResult = vkEnumeratePhysicalDevices(_instance, &deviceCount, nullptr);
@@ -364,11 +380,11 @@ namespace
 
         for (VkPhysicalDevice physicalDevice : physicalDevices)
         {
-            PrintPhysicalDevice(physicalDevice, _surface);
+            PrintPhysicalDevice(physicalDevice, _surface, _surfaceMaintenance1);
         }
     }
 
-    void PrintPhysicalDevice(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface)
+    void PrintPhysicalDevice(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface, bool _surfaceMaintenance1)
     {
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(_physicalDevice, &properties);
@@ -379,6 +395,202 @@ namespace
         std::println("[Vulkan]   VK_EXT_hdr_metadata available: {}", hasHdrMetadata);
 
         PrintSurfaceFormats(_physicalDevice, _surface);
+        PrintPresentationFeatures(_physicalDevice);
+        PrintPresentModes(_physicalDevice, _surface, _surfaceMaintenance1);
+        PrintSurfacePresentSupport(_physicalDevice, _surface);
+    }
+
+    std::string_view PresentModeName(VkPresentModeKHR _mode)
+    {
+        switch (_mode)
+        {
+        case VK_PRESENT_MODE_IMMEDIATE_KHR:
+            return "IMMEDIATE";
+        case VK_PRESENT_MODE_MAILBOX_KHR:
+            return "MAILBOX";
+        case VK_PRESENT_MODE_FIFO_KHR:
+            return "FIFO";
+        case VK_PRESENT_MODE_FIFO_RELAXED_KHR:
+            return "FIFO_RELAXED";
+        case VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR:
+            return "SHARED_DEMAND_REFRESH";
+        case VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR:
+            return "SHARED_CONTINUOUS_REFRESH";
+        case VK_PRESENT_MODE_FIFO_LATEST_READY_KHR:
+            return "FIFO_LATEST_READY";
+        default:
+            return "unknown";
+        }
+    }
+
+    // The presentation plan's P0: the device extensions and features that each tier of the plan uses
+    void PrintPresentationFeatures(VkPhysicalDevice _physicalDevice)
+    {
+        const std::vector<VkExtensionProperties> extensions = EnumerateDeviceExtensions(_physicalDevice);
+
+        constexpr std::string_view k_Extensions[]
+        {
+            "VK_KHR_swapchain_maintenance1",
+            "VK_EXT_swapchain_maintenance1",
+            "VK_KHR_present_id",
+            "VK_KHR_present_id2",
+            "VK_KHR_present_wait",
+            "VK_KHR_present_wait2",
+            "VK_EXT_present_timing",
+            "VK_KHR_present_mode_fifo_latest_ready",
+            "VK_EXT_present_mode_fifo_latest_ready",
+            "VK_NV_low_latency2",
+            "VK_AMD_anti_lag",
+        };
+
+        for (const std::string_view name : k_Extensions)
+        {
+            std::println("[Present]   {}: {}", name, HasExtension(extensions, name));
+        }
+
+        VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR maintenance1{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR };
+        VkPhysicalDevicePresentIdFeaturesKHR presentId{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR };
+        VkPhysicalDevicePresentId2FeaturesKHR presentId2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_2_FEATURES_KHR };
+        VkPhysicalDevicePresentWaitFeaturesKHR presentWait{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR };
+        VkPhysicalDevicePresentWait2FeaturesKHR presentWait2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_2_FEATURES_KHR };
+        VkPhysicalDevicePresentTimingFeaturesEXT presentTiming{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_TIMING_FEATURES_EXT };
+        VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR latestReady{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR };
+        VkPhysicalDeviceAntiLagFeaturesAMD antiLag{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ANTI_LAG_FEATURES_AMD };
+        VkPhysicalDeviceFeatures2 features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+
+        // only a structure whose extension the device offers goes into the chain
+        void** tail = &features.pNext;
+
+        const auto append = [&tail](bool _offered, auto& _structure)
+        {
+            if (!_offered)
+            {
+                return;
+            }
+
+            *tail = &_structure;
+            tail = &_structure.pNext;
+        };
+
+        const bool hasMaintenance1 = HasExtension(extensions, "VK_KHR_swapchain_maintenance1") ||
+                                     HasExtension(extensions, "VK_EXT_swapchain_maintenance1");
+        const bool hasLatestReady = HasExtension(extensions, "VK_KHR_present_mode_fifo_latest_ready") ||
+                                    HasExtension(extensions, "VK_EXT_present_mode_fifo_latest_ready");
+        append(hasMaintenance1, maintenance1);
+        append(HasExtension(extensions, "VK_KHR_present_id"), presentId);
+        append(HasExtension(extensions, "VK_KHR_present_id2"), presentId2);
+        append(HasExtension(extensions, "VK_KHR_present_wait"), presentWait);
+        append(HasExtension(extensions, "VK_KHR_present_wait2"), presentWait2);
+        append(HasExtension(extensions, "VK_EXT_present_timing"), presentTiming);
+        append(hasLatestReady, latestReady);
+        append(HasExtension(extensions, "VK_AMD_anti_lag"), antiLag);
+        vkGetPhysicalDeviceFeatures2(_physicalDevice, &features);
+
+        std::println("[Present]   feature swapchainMaintenance1: {}", maintenance1.swapchainMaintenance1 == VK_TRUE);
+        std::println("[Present]   feature presentId: {}, presentId2: {}", presentId.presentId == VK_TRUE,
+                     presentId2.presentId2 == VK_TRUE);
+        std::println("[Present]   feature presentWait: {}, presentWait2: {}", presentWait.presentWait == VK_TRUE,
+                     presentWait2.presentWait2 == VK_TRUE);
+        std::println("[Present]   feature presentTiming: {}, absolute: {}, relative: {}",
+                     presentTiming.presentTiming == VK_TRUE, presentTiming.presentAtAbsoluteTime == VK_TRUE,
+                     presentTiming.presentAtRelativeTime == VK_TRUE);
+        std::println("[Present]   feature presentModeFifoLatestReady: {}", latestReady.presentModeFifoLatestReady == VK_TRUE);
+        std::println("[Present]   feature antiLag: {}", antiLag.antiLag == VK_TRUE);
+    }
+
+    // Each present mode the surface offers; with surface maintenance1, its min image count, the modes a swapchain can
+    // switch to without a recreate, and the present scaling it supports
+    void PrintPresentModes(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface, bool _surfaceMaintenance1)
+    {
+        uint32_t modeCount = 0u;
+
+        if (!VkCallSucceeded("vkGetPhysicalDeviceSurfacePresentModesKHR",
+                             vkGetPhysicalDeviceSurfacePresentModesKHR(_physicalDevice, _surface, &modeCount, nullptr)))
+        {
+            return;
+        }
+
+        std::vector<VkPresentModeKHR> modes(modeCount);
+
+        if (!VkCallSucceeded("vkGetPhysicalDeviceSurfacePresentModesKHR",
+                             vkGetPhysicalDeviceSurfacePresentModesKHR(_physicalDevice, _surface, &modeCount, modes.data())))
+        {
+            return;
+        }
+
+        for (const VkPresentModeKHR mode : modes)
+        {
+            if (!_surfaceMaintenance1)
+            {
+                std::println("[Present]   present mode {}", PresentModeName(mode));
+                continue;
+            }
+
+            VkSurfacePresentModeKHR modeInfo{ VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_KHR, nullptr, mode };
+            const VkPhysicalDeviceSurfaceInfo2KHR surfaceInfo{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR, &modeInfo, _surface };
+
+            // the first call counts the compatible modes, the second fills them
+            VkSurfacePresentModeCompatibilityKHR compatibility{ VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_COMPATIBILITY_KHR };
+            VkSurfacePresentScalingCapabilitiesKHR scaling{ VK_STRUCTURE_TYPE_SURFACE_PRESENT_SCALING_CAPABILITIES_KHR, &compatibility };
+            VkSurfaceCapabilities2KHR capabilities{ VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR, &scaling };
+            vkGetPhysicalDeviceSurfaceCapabilities2KHR(_physicalDevice, &surfaceInfo, &capabilities);
+
+            std::vector<VkPresentModeKHR> compatible(compatibility.presentModeCount);
+            compatibility.pPresentModes = compatible.data();
+            vkGetPhysicalDeviceSurfaceCapabilities2KHR(_physicalDevice, &surfaceInfo, &capabilities);
+
+            std::string compatibleNames;
+
+            for (const VkPresentModeKHR other : compatible)
+            {
+                compatibleNames += std::format("{} ", PresentModeName(other));
+            }
+
+            std::println("[Present]   present mode {}: minImageCount {}, maxImageCount {}, switches without recreate to: {}",
+                         PresentModeName(mode), capabilities.surfaceCapabilities.minImageCount,
+                         capabilities.surfaceCapabilities.maxImageCount, compatibleNames);
+            std::println("[Present]     scaling flags 0x{:X}, gravity x 0x{:X}, y 0x{:X}, scaled extent {}x{} to {}x{}",
+                         scaling.supportedPresentScaling, scaling.supportedPresentGravityX,
+                         scaling.supportedPresentGravityY, scaling.minScaledImageExtent.width,
+                         scaling.minScaledImageExtent.height, scaling.maxScaledImageExtent.width,
+                         scaling.maxScaledImageExtent.height);
+        }
+    }
+
+    // Present id2, present wait2 and present timing are per surface, not only per device
+    void PrintSurfacePresentSupport(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface)
+    {
+        const std::vector<VkExtensionProperties> extensions = EnumerateDeviceExtensions(_physicalDevice);
+        VkSurfaceCapabilitiesPresentId2KHR presentId2{ VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_PRESENT_ID_2_KHR };
+        VkSurfaceCapabilitiesPresentWait2KHR presentWait2{ VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_PRESENT_WAIT_2_KHR };
+        VkPresentTimingSurfaceCapabilitiesEXT presentTiming{ VK_STRUCTURE_TYPE_PRESENT_TIMING_SURFACE_CAPABILITIES_EXT };
+        VkSurfaceCapabilities2KHR capabilities{ VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR };
+        void** tail = &capabilities.pNext;
+
+        const auto append = [&tail](bool _offered, auto& _structure)
+        {
+            if (!_offered)
+            {
+                return;
+            }
+
+            *tail = &_structure;
+            tail = &_structure.pNext;
+        };
+
+        append(HasExtension(extensions, "VK_KHR_present_id2"), presentId2);
+        append(HasExtension(extensions, "VK_KHR_present_wait2"), presentWait2);
+        append(HasExtension(extensions, "VK_EXT_present_timing"), presentTiming);
+
+        const VkPhysicalDeviceSurfaceInfo2KHR surfaceInfo{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR, nullptr, _surface };
+        vkGetPhysicalDeviceSurfaceCapabilities2KHR(_physicalDevice, &surfaceInfo, &capabilities);
+
+        std::println("[Present]   surface presentId2Supported: {}, presentWait2Supported: {}",
+                     presentId2.presentId2Supported == VK_TRUE, presentWait2.presentWait2Supported == VK_TRUE);
+        std::println("[Present]   surface presentTimingSupported: {}, absolute: {}, relative: {}, stage queries 0x{:X}",
+                     presentTiming.presentTimingSupported == VK_TRUE,
+                     presentTiming.presentAtAbsoluteTimeSupported == VK_TRUE,
+                     presentTiming.presentAtRelativeTimeSupported == VK_TRUE, presentTiming.presentStageQueries);
     }
 
     void PrintSurfaceFormats(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface)

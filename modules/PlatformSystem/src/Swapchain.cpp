@@ -152,3 +152,33 @@ void Swapchain::SetHdrMetadata(const SwapchainHdrMetadata& metadata)
     impl->ApplyHdrMetadata(metadata);
 }
 
+SwapchainAcquire Swapchain::TryAcquire(uint64_t timeout_ns)
+{
+    return impl->TryAcquire(timeout_ns);
+}
+
+SwapchainPresentStatus Swapchain::Present(uint32_t image_index)
+{
+    return impl->Present(image_index);
+}
+
+SwapchainReleaseStatus Swapchain::Release(uint32_t image_index)
+{
+    return impl->Release(image_index);
+}
+
+bool Swapchain::WaitForPresents(uint64_t timeout_ns)
+{
+    return impl->WaitForPresents(timeout_ns);
+}
+
+bool Swapchain::UsesMaintenance1() const noexcept
+{
+    return impl->Maintenance1;
+}
+
+void Swapchain::LimitToCorePresentation() noexcept
+{
+    impl->CorePresentationOnly = true;
+    impl->Maintenance1 = false;
+}

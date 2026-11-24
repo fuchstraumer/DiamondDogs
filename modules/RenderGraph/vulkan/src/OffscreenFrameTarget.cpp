@@ -37,14 +37,18 @@ namespace loom
             .Format = format,
             .Extent = extent,
             .Acquired = rhi::BinarySemaphoreHandle{},
-            .ImageIndex = 0u,
-            .ImageCount = 0u,
+            .RenderDone = rhi::BinarySemaphoreHandle{},
         };
     }
 
-    void OffscreenFrameTarget::Present([[maybe_unused]] rhi::BinarySemaphoreHandle render_done)
+    void OffscreenFrameTarget::Present()
     {
         ++presentCount;
+    }
+
+    bool OffscreenFrameTarget::Release()
+    {
+        return true;
     }
 
     rhi::ImageLayout OffscreenFrameTarget::FinalLayout() const
