@@ -47,7 +47,7 @@ struct SwapchainImpl
     struct RetiredSwapchain
     {
         VkSwapchainKHR Swapchain{ VK_NULL_HANDLE };
-        std::vector<VkSemaphore> RenderDone;
+        foundation::SmallVector<VkSemaphore, 4> RenderDone;
         uint64_t LastSerial{ 0u };
     };
 

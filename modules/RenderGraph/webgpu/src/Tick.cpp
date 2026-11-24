@@ -565,7 +565,7 @@ namespace
         descriptor.layout = pipeline.GroupLayouts[group];
         descriptor.entryCount = graph.EntryScratch.size();
         descriptor.entries = graph.EntryScratch.data();
-        pass.BindGroups[static_cast<size_t>(phase) * pass.GroupCount + group] = graph.Device.CreateBindGroup(&descriptor);
+        pass.BindGroups[(static_cast<size_t>(phase) * pass.GroupCount) + group] = graph.Device.CreateBindGroup(&descriptor);
     }
 
     math::UInt3 GroupsOverImage(const GraphImpl& graph, int32_t row, const lodestone::WorkgroupSize& workgroup)

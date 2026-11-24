@@ -1,10 +1,11 @@
 #include "QueryPool.hpp"
 #include "RhiHandle.hpp"
+#include "containers/SmallVector.hpp"
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <stdexcept>
 #include <utility>
-#include <vector>
 #include <vulkan/vulkan_core.h>
 
 namespace rhi
@@ -118,7 +119,7 @@ namespace rhi
 
         // each query's value, then its availability word. Without VK_QUERY_RESULT_WAIT_BIT this never blocks: an
         // unwritten query returns VK_NOT_READY and an availability of 0
-        std::vector<uint64_t> words(size_t{ result_count } * 2u);
+        foundation::SmallVector<uint64_t, 8> words(size_t{ result_count } * 2u);
         constexpr VkQueryResultFlags k_Flags = VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT;
         const VkResult result = vkGetQueryPoolResults(device.As<VkDevice>(), handle.As<VkQueryPool>(), first, result_count,
             words.size() * sizeof(uint64_t), words.data(), 2u * sizeof(uint64_t), k_Flags);
@@ -130,7 +131,7 @@ namespace rhi
 
         for (uint32_t i = 0; i < result_count; ++i)
         {
-            if (words[size_t{ i } * 2u + 1u] == 0u)
+            if (words[(size_t{ i } * 2u) + 1u] == 0u)
             {
                 return false;
             }

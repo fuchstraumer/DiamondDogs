@@ -1,7 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_LOOM_LAID_OUT_GRAPH_HPP
 #define DIAMOND_DOGS_LOOM_LAID_OUT_GRAPH_HPP
-#include "LoomDeviceLimits.hpp"
+#include "containers/SmallVector.hpp"
 #include "LoomFormats.hpp"
 #include "PassStatements.hpp"
 #include "ShaderLibraryTypes.hpp"
@@ -59,7 +59,7 @@ namespace loom
         std::string Variant;                // the variant's suffix: its axis values as names
         std::string EntryPoint;
         std::string FragmentEntryPoint;
-        std::vector<LaidOutColor> Colors;   // by slot
+        foundation::SmallVector<LaidOutColor, 4> Colors; // by slot. 4 is the typical maximum number of color attachments in a pipeline
         lodestone::TextureFormat DepthFormat{ k_NoTextureFormat };
         CompareOp DepthCompare{ CompareOp::Invalid };
         DepthWrite DepthWrites{ DepthWrite::Invalid };

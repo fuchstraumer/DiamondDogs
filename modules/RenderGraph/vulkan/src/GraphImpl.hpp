@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_LOOM_VULKAN_GRAPH_IMPL_HPP
 #include "CommandPool.hpp"
 #include "CompiledGraph.hpp"
+#include "containers/SmallVector.hpp"
 #include "FramePlan.hpp"
 #include "FrameTarget.hpp"
 #include "LoomFrame.hpp"
@@ -14,9 +15,7 @@
 #include "ResourceFuture.hpp"
 #include "RhiTypes.hpp"
 #include "Semaphore.hpp"
-#include "ShaderLibraryTypes.hpp"
 #include "ShaderProgram.hpp"
-#include "compile/CompiledData.hpp"
 #include <vulkan/vulkan_core.h>
 #include <cstdint>
 #include <memory>
@@ -45,7 +44,7 @@ namespace loom
     // The Vulkan objects of one pipeline. The set layouts are one per group, 0 to the highest group the slots use.
     struct PipelineRuntime
     {
-        std::vector<VkDescriptorSetLayout> SetLayouts;
+        foundation::SmallVector<VkDescriptorSetLayout, 6> SetLayouts;
         VkPipelineLayout Layout{ VK_NULL_HANDLE };
         rhi::PipelineLayoutHandle LayoutHandle;
         std::unique_ptr<rhi::ShaderProgram> Program;

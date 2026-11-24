@@ -1,5 +1,6 @@
 #include "ShaderProgram.hpp"
 #include "containers/SmallVector.hpp"
+#include "containers/DenseHashMap.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
 #include "RhiResult.hpp"
@@ -10,6 +11,7 @@
 #include "core/VulkanConversions.hpp"
 #include "vulkan/vulkan_core.h"
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cstdint>
 #include <exception>
@@ -21,8 +23,6 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
-#include <vector>
-#include <unordered_map>
 
 #ifdef RHI_SYSTEM_USE_VULKAN
     #include <vulkan/vulkan.h>
@@ -39,7 +39,31 @@ namespace rhi
     static PFN_vkDestroyShaderEXT pfn_vkDestroyShaderEXT = nullptr;
     static PFN_vkCmdBindShadersEXT pfn_vkCmdBindShadersEXT = nullptr;
 
-    static const std::vector<VkShaderStageFlagBits> k_VulkanGraphicsStages
+    constexpr size_t FlattenStageFlagsToIndex(const ShaderStageFlags stage)
+    {
+        // we set each bit in the ShaderStageFlags to a unique index, assuming the flags are powers of two,
+        // so we can simply use this switch table to ideally have constant-time lookups into tables
+        switch (stage)
+        {
+        case ShaderStageFlags::Vertex: return 0;
+        case ShaderStageFlags::TessellationControl: return 1;
+        case ShaderStageFlags::TessellationEvaluation: return 2;
+        case ShaderStageFlags::Geometry: return 3;
+        case ShaderStageFlags::Fragment: return 4;
+        case ShaderStageFlags::Compute: return 5;
+        case ShaderStageFlags::RayGeneration: return 6;
+        case ShaderStageFlags::AnyHit: return 7;
+        case ShaderStageFlags::ClosestHit: return 8;
+        case ShaderStageFlags::Miss: return 9;
+        case ShaderStageFlags::Intersection: return 10;
+        case ShaderStageFlags::Callable: return 11;
+        case ShaderStageFlags::Task: return 12;
+        case ShaderStageFlags::Mesh: return 13;
+        default: throw std::runtime_error("Invalid ShaderStageFlags value");
+        }
+    }
+
+    static const std::array<VkShaderStageFlagBits, 5> k_VulkanGraphicsStages
     {
         VK_SHADER_STAGE_VERTEX_BIT,
         VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
@@ -49,7 +73,7 @@ namespace rhi
     };
 
     // a mesh program also binds null to the vertex pipeline stages, so this list holds both kinds
-    static const std::vector<VkShaderStageFlagBits> k_VulkanMeshStages
+    static const std::array<VkShaderStageFlagBits, 7> k_VulkanMeshStages
     {
         VK_SHADER_STAGE_VERTEX_BIT,
         VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
@@ -60,7 +84,7 @@ namespace rhi
         VK_SHADER_STAGE_MESH_BIT_EXT
     };
 
-    static const std::vector<VkShaderStageFlagBits> k_VulkanMeshOnlyStages
+    static const std::array<VkShaderStageFlagBits, 2> k_VulkanMeshOnlyStages
     {
         VK_SHADER_STAGE_TASK_BIT_EXT,
         VK_SHADER_STAGE_MESH_BIT_EXT
@@ -215,14 +239,12 @@ namespace rhi
 
                 // need to convert from input format of push constant and descriptor layout info that's RHI-level and agnostic, to Vulkan format
                 // and then ensure they persist in storage until shade creation is done. yay
-                using PushConstantsVec = std::vector<VkPushConstantRange>;
-                using DescriptorSetLayoutsVec = std::vector<VkDescriptorSetLayout>;
-                std::unordered_map<ShaderStageFlags, std::pair<PushConstantsVec, DescriptorSetLayoutsVec>> stageMetaInfo;
+                using PushConstantsVec = foundation::SmallVector<VkPushConstantRange, 2>;
+                foundation::SmallVector<PushConstantsVec, 4> stagePushConstants(stages_to_create.size());
+                foundation::SmallVector<VkShaderCreateInfoEXT, 4> createInfos(stages_to_create.size(), k_GraphicsCreateInfo);
+                foundation::SmallVector<VkShaderEXT, 4> createdShaders(stages_to_create.size(), VK_NULL_HANDLE);
 
-                std::vector<VkShaderCreateInfoEXT> createInfos(stages_to_create.size(), k_GraphicsCreateInfo);
-                std::vector<VkShaderEXT> createdShaders(stages_to_create.size(), VK_NULL_HANDLE);
-
-                for (auto&& [stageOptions, createInfo] : std::views::zip(stages_to_create, createInfos))
+                for (auto&& [stageOptions, createInfo, pushConstantRanges] : std::views::zip(stages_to_create, createInfos, stagePushConstants))
                 {
                     createInfo.stage = static_cast<VkShaderStageFlagBits>(vk::ToVulkanStages(stageOptions.Stage));
                     createInfo.codeSize = stageOptions.Bytecode.size() * sizeof(uint32_t);
@@ -230,25 +252,19 @@ namespace rhi
                     EntryPointNames.emplace_back(stageOptions.EntryPointName);
                     createInfo.pName = stageOptions.EntryPointName.c_str();
 
-                    auto& [pushConstantRanges, setLayouts] = stageMetaInfo[stageOptions.Stage];
-
                     if (!stageOptions.PushConstants.empty())
                     {
-                        pushConstantRanges = stageOptions.PushConstants |
-                            std::views::transform(ConvertPushConstantRange) |
-                            std::ranges::to<PushConstantsVec>();
+                        pushConstantRanges.reserve(stageOptions.PushConstants.size());
+                        for (const PushConstantRange& range : stageOptions.PushConstants)
+                        {
+                            pushConstantRanges.emplace_back(ConvertPushConstantRange(range));
+                        }
                         createInfo.pushConstantRangeCount = static_cast<uint32_t>(pushConstantRanges.size());
                         createInfo.pPushConstantRanges = pushConstantRanges.data();
                     }
 
-                    if (!stageOptions.DescriptorLayouts.empty())
-                    {
-                        setLayouts = stageOptions.DescriptorLayouts |
-                            std::views::transform(&DescriptorSetLayoutHandle::As<VkDescriptorSetLayout>) |
-                            std::ranges::to<DescriptorSetLayoutsVec>();
-                        createInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
-                        createInfo.pSetLayouts = setLayouts.data();
-                    }
+                    createInfo.setLayoutCount = static_cast<uint32_t>(stageOptions.DescriptorLayouts.size());
+                    createInfo.pSetLayouts = reinterpret_cast<const VkDescriptorSetLayout*>(stageOptions.DescriptorLayouts.data());
                 }
 
                 // every stage but the last links to the stage after it, and zip stops at the shorter range
@@ -272,7 +288,7 @@ namespace rhi
                 // now the sort of annoying meta-information layer: we need to figure out what kind of program this is based on the used set of stages,
                 // and then fill the unused stages based on that
                 // TODO: Identify if we can't pare down the device features to disable unused stages like geoemetry and tesselation, bc they're rarely used
-                const auto usesAnyStageOf = [this](const std::vector<VkShaderStageFlagBits>& stages)
+                const auto usesAnyStageOf = [this](const std::span<const VkShaderStageFlagBits>& stages)
                 {
                     return std::ranges::find_first_of(stages, UsedStages) != stages.end();
                 };

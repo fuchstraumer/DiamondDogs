@@ -184,8 +184,8 @@ namespace loom::order
             for (auto&& [accessIdx, access] : std::views::enumerate(context.PassAccesses[passIdx]))
             {
                 const int32_t slotIdx = access.Slot.Value;
-                std::vector<AccessRef>& readers = collated.Readers[slotIdx];
-                std::vector<AccessRef>& writers = collated.Writers[slotIdx];
+                auto& readers = collated.Readers[slotIdx];
+                auto& writers = collated.Writers[slotIdx];
 
                 if (access.Previous)
                 {

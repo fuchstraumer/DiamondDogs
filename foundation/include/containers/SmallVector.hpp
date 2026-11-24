@@ -373,8 +373,12 @@ private:
     // up to one cache line (two AVX2 ymm registers), fixed-size inline memcpy compiles to 1-4 register moves
     // with zero CRT call and zero branches on element count
     static constexpr size_type k_FixedInlineCopyByteLimit = 64;
+public:
+    // in hindsight, I'm making this public: I can check it with a static_assert when using it to 
+    // see if we're getting this optimization at a given callsite!
     static constexpr bool k_UseFixedInlineCopy =
         std::is_trivially_copyable_v<T> && (N > 0) && (N * sizeof(T) <= k_FixedInlineCopyByteLimit);
+private:
 
     [[nodiscard]] static inline T* allocate(size_type element_count) noexcept;
     static inline void deallocate(T* buffer, size_type element_count) noexcept;

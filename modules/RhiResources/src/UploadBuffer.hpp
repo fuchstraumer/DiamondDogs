@@ -40,8 +40,9 @@ struct StagingDestination
 
 /** @brief Copies each piece into `destination`, packed one after another, and returns one copy region per piece. The
  *  source offset of a region is the place of the piece in staging, and its destination offset is the `DestinationOffset`
- *  of the piece. The destination must have StagedBufferSize bytes. */
-[[nodiscard]] foundation::SmallVector<VkBufferCopy, 16> WriteBufferData(
+ *  of the piece. The destination must have StagedBufferSize bytes. 
+ *  @note Return value sized to 2, as that gives us a vectorized move/copy using avx2 on desktop. Covers most cases well */
+[[nodiscard]] foundation::SmallVector<VkBufferCopy, 2> WriteBufferData(
     const StagingDestination& destination,
     const InternalResourceDataContainer::BufferDataVector& data_vector);
 

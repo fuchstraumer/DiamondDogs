@@ -8,6 +8,7 @@
 #include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 #include <webgpu/webgpu_cpp.h>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -19,6 +20,8 @@ class ResourceContext;
 namespace loom
 {
     class DiagnosticSink;
+
+    constexpr static size_t k_MaxGroupLayouts = 4ull;
 
     // One resource row. Future is the graph's own create, or the last Supply; it is empty for an import that nothing
     // supplied yet. Reported holds the epoch whose failure (LM701, LM702) the sink already has, so each is reported once.
@@ -35,7 +38,8 @@ namespace loom
     struct PipelineRuntime
     {
         wgpu::ShaderModule Module;
-        std::vector<wgpu::BindGroupLayout> GroupLayouts;
+        std::array<wgpu::BindGroupLayout, k_MaxGroupLayouts> GroupLayouts;
+        size_t NumGroupLayouts{ 0u }; // avoids std::vector, and we know 4 is the max supported everywhere
         wgpu::PipelineLayout Layout;
         wgpu::ComputePipeline Pipeline;
     };

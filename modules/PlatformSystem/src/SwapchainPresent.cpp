@@ -435,7 +435,7 @@ VkSurfacePresentScalingCapabilitiesKHR SwapchainImpl::queryPresentModeSupport(Vk
         return !PresentModeUsable(other);
     };
 
-    std::erase_if(SwitchableModes, unusable);
+    erase_if(SwitchableModes, unusable);
 
     if (std::ranges::find(SwitchableModes, mode) == SwitchableModes.end())
     {
@@ -480,7 +480,7 @@ void SwapchainImpl::pollPresentation()
         return true;
     };
 
-    std::erase_if(Consumed, consumedDone);
+    erase_if(Consumed, consumedDone);
     const uint64_t completed = completedSerial();
 
     const auto retiredDone = [this, completed](const RetiredSwapchain& retired)
@@ -499,7 +499,7 @@ void SwapchainImpl::pollPresentation()
         return true;
     };
 
-    std::erase_if(Retired, retiredDone);
+    erase_if(Retired, retiredDone);
 }
 
 // Every present with a serial up to this one finished: the oldest pending present, minus one

@@ -1,4 +1,5 @@
 #include "LoomKeys.hpp"
+#include "containers/SmallVector.hpp"
 #include "layout/LayoutContext.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "layout/LaidOutGraph.hpp"
@@ -193,11 +194,13 @@ namespace
 
 }
 
-    std::vector<LaidOutColor> CheckAttachments(LayoutContext& context, const FrozenPass& pass,
-                                               const ResolvedPass& resolved)
+    foundation::SmallVector<LaidOutColor, 4> CheckAttachments(LayoutContext& context,
+                                                              const FrozenPass& pass,
+                                                              const ResolvedPass& resolved)
     {
         const FragmentOutputs outputs = OutputsOf(resolved);
-        std::vector<LaidOutColor> colors;
+        foundation::SmallVector<LaidOutColor, 4> colors;
+        colors.reserve(pass.Colors.size()); // hopefully stays inline (please)
 
         // an output with no attachment is lost. OtherWhere is the Shaders statement.
         for (const lsm::ColorTarget& output : outputs.Colors)

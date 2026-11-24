@@ -10,6 +10,7 @@
 #include "ResourceTypes.hpp"
 #include "RhiResult.hpp"
 #include "RhiSystem.hpp"
+#include "TransferSystemMessagesInternal.hpp"
 #include "UploadBuffer.hpp"
 #include "VulkanConversions.hpp"
 #include "containers/RingAllocator.hpp"
@@ -848,7 +849,7 @@ void ResourceTransferSystem::processMessage(TransferSystemSetBufferDataMessage&&
         return;
     }
 
-    const foundation::SmallVector<VkBufferCopy, 16> bufferCopies = WriteBufferData(staging->Destination, dataVector);
+    const foundation::SmallVector<VkBufferCopy, 2> bufferCopies = WriteBufferData(staging->Destination, dataVector);
     flushStaging(*staging);
 
     const VkCommandBuffer cmd = beginTransfer(message.Waits);

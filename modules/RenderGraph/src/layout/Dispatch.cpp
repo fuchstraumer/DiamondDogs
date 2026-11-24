@@ -1,3 +1,4 @@
+#include "LoomDeviceLimits.hpp"
 #include "LoomKeys.hpp"
 #include "layout/LayoutContext.hpp"
 #include "bind/Layout.hpp"
@@ -5,8 +6,6 @@
 #include "layout/LaidOutGraph.hpp"
 #include "layout/Dispatch.hpp"
 #include "layout/Diagnostics.hpp"
-#include "bind/BoundGraph.hpp"
-#include "LoomDiagnostic.hpp"
 #include "resolve/ResolvedGraph.hpp"
 #include "size/SizedGraph.hpp"
 #include "Records.hpp"

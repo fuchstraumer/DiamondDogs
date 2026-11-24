@@ -1,9 +1,8 @@
 #pragma once
 #ifndef DIAMOND_DOGS_FOUNDATION_CONTENT_TEXT_SINK_HPP
 #define DIAMOND_DOGS_FOUNDATION_CONTENT_TEXT_SINK_HPP
-
 #include "content/CanonicalSink.hpp"
-
+#include "containers/SmallVector.hpp"
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -47,7 +46,7 @@ namespace foundation::content
         // the field name, "some " or the variant alternative, written in front of the next value
         std::string pendingLabel;
         // the index of the next element for each open array. -1 marks an open struct.
-        std::vector<int64_t> blockStack;
+        foundation::SmallVector<int64_t, 8> blockStack;
     };
 }
 

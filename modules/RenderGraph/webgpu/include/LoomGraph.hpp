@@ -68,7 +68,8 @@ namespace loom
         PipelineLayoutFailed = 9,
         ShaderCreateFailed = 10,
         PipelineCreateFailed = 11,
-        ParamsBufferFailed = 12
+        ParamsBufferFailed = 12,
+        BindGroupMaxExceeded = 13 // WGPU can only have up to 4 bind group layouts per pipeline
     };
 
     [[nodiscard]] std::string_view ToString(RealizeError error) noexcept;

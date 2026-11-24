@@ -2,6 +2,7 @@
 #ifndef DIAMOND_DOGS_LOOM_ORDER_CONTEXT_HPP
 #define DIAMOND_DOGS_LOOM_ORDER_CONTEXT_HPP
 #include "order/OrderedGraph.hpp"
+#include "containers/SmallVector.hpp"
 #include "LoomKeys.hpp"
 #include "PassStatements.hpp"
 #include "freeze/FrozenGraph.hpp"
@@ -126,8 +127,10 @@ namespace loom
                 int32_t PassIdx;
                 int32_t AccessIdx;
             };
-            std::vector<std::vector<AccessRef>> Writers;
-            std::vector<std::vector<AccessRef>> Readers;
+            // 64 bytes: copying this struct is vectorized entirely
+            using AccessRefVec = foundation::SmallVector<AccessRef, 8>;
+            std::vector<AccessRefVec> Writers;
+            std::vector<AccessRefVec> Readers;
         };
 
     }

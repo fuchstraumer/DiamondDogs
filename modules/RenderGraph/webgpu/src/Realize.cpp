@@ -177,7 +177,7 @@ namespace
             {
                 const BoundPass& bound = data.BoundPasses[passIndex];
                 PassRuntime& pass = graph.Passes[passIndex];
-                pass.GroupCount = static_cast<int32_t>(graph.Pipelines[pipeline].GroupLayouts.size());
+                pass.GroupCount = static_cast<int32_t>(graph.Pipelines[pipeline].NumGroupLayouts);
                 pass.Phases = PhasesOf(data, bound);
                 pass.BindGroups.resize(static_cast<size_t>(pass.GroupCount) * pass.Phases);
                 pass.WrittenEpochs.assign(static_cast<size_t>(pass.Phases) * bound.SlotCount, 0u);
@@ -698,6 +698,12 @@ namespace
         const CompiledData& data = graph.Compiled.Data();
         const BoundPass& bound = data.BoundPasses[compiled.LayoutPass];
         const int32_t groups = GroupCountOf(data, compiled);
+        if (!std::cmp_less_equal(groups, k_MaxGroupLayouts))
+        {
+            return RealizeError::BindGroupMaxExceeded;
+        }
+
+        pipeline.NumGroupLayouts = static_cast<size_t>(groups);
         const bool uniformConstants = compiled.ConstantsDelivery == lodestone::EntryPointConstantsDelivery::UniformBuffer;
 
         for (int32_t group = 0; group < groups; ++group)
@@ -728,11 +734,11 @@ namespace
                 return RealizeError::BindGroupLayoutFailed;
             }
 
-            pipeline.GroupLayouts.push_back(std::move(groupLayout));
+            pipeline.GroupLayouts[group] = std::move(groupLayout);
         }
 
         wgpu::PipelineLayoutDescriptor pipelineLayoutInfo{};
-        pipelineLayoutInfo.bindGroupLayoutCount = pipeline.GroupLayouts.size();
+        pipelineLayoutInfo.bindGroupLayoutCount = pipeline.NumGroupLayouts;
         pipelineLayoutInfo.bindGroupLayouts = pipeline.GroupLayouts.data();
         pipeline.Layout = graph.Device.CreatePipelineLayout(&pipelineLayoutInfo);
 

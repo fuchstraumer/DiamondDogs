@@ -1,6 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_FOUNDATION_CONTENT_JSON_WRITER_HPP
 #define DIAMOND_DOGS_FOUNDATION_CONTENT_JSON_WRITER_HPP
+#include "containers/SmallVector.hpp"
 #include <cstdint>
 #include <expected>
 #include <string>
@@ -86,7 +87,8 @@ namespace foundation::content
         void writeEscaped(std::string_view text) noexcept;
 
         std::string buffer;
-        std::vector<Frame> stack;
+        foundation::SmallVector<Frame, 8> stack;
+        static_assert(decltype(stack)::k_UseFixedInlineCopy, "JsonWriter::stack should use fixed inline copy for performance");
         bool pretty{ false };
     };
 

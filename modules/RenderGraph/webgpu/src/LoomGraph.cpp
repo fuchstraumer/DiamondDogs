@@ -67,6 +67,8 @@ namespace
             return "PipelineCreateFailed";
         case RealizeError::ParamsBufferFailed:
             return "ParamsBufferFailed";
+        case RealizeError::BindGroupMaxExceeded:
+            return "BindGroupMaxExceeded";
         }
 
         return "Invalid";

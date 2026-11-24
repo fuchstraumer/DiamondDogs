@@ -81,11 +81,11 @@ uint64_t ImageStagingAlignment(const ImageFormat& format) noexcept
     return std::lcm(TexelBlockBytes(format.ComponentFormat), k_TransferQueueOffsetAlignment);
 }
 
-foundation::SmallVector<VkBufferCopy, 16> WriteBufferData(
+foundation::SmallVector<VkBufferCopy, 2> WriteBufferData(
     const StagingDestination& destination,
     const InternalResourceDataContainer::BufferDataVector& data_vector)
 {
-    foundation::SmallVector<VkBufferCopy, 16> bufferCopies(data_vector.size());
+    foundation::SmallVector<VkBufferCopy, 2> bufferCopies(data_vector.size());
     uint64_t offset = 0u;
 
     for (auto&& [index, data] : std::views::enumerate(data_vector))

@@ -1,4 +1,5 @@
 #include "order/Liveness.hpp"
+#include "containers/SmallVector.hpp"
 #include "order/DataChecks.hpp"
 #include "Records.hpp"
 #include "Declarations.hpp"
@@ -101,8 +102,8 @@ namespace loom::order
 
         Liveness liveness
         {
-            .Feeders = std::vector<std::vector<int32_t>>(context.PassCount),
-            .Roots = std::vector<uint8_t>(context.PassCount, 0)
+            .Feeders = decltype(liveness.Feeders)(context.PassCount),
+            .Roots = decltype(liveness.Roots)(context.PassCount, 0)
         };
 
         const auto positionOf = [&positions](const AccessRef& ref)
@@ -178,7 +179,7 @@ namespace loom::order
     void CheckOrphans(OrderContext& context, const Liveness& liveness)
     {
         // Mark: every pass that a root reaches, walking from each reader back to the writers that feed it
-        std::vector<uint8_t> marked = liveness.Roots;
+        foundation::SmallVector<uint8_t, 64> marked = liveness.Roots;
         std::vector<int32_t> worklist;
 
         for (int32_t pass = 0; pass < context.PassCount; ++pass)
