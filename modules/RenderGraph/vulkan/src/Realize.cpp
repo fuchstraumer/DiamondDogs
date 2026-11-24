@@ -530,7 +530,8 @@ namespace
                 return RealizeError::PlacementNotBound;
             }
 
-            if (!SlotIsSupported(slot))
+            // the LoomFrame buffer comes with step 7b
+            if (!SlotIsSupported(slot) || slot.BuiltIn != BuiltInBinding::None)
             {
                 return RealizeError::BindingNotYet;
             }

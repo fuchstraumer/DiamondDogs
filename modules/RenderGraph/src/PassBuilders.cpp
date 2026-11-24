@@ -281,9 +281,29 @@ namespace loom
 
     void DrawBuilder::DrawIndirect(ResourceKey<Buffer> arguments, std::source_location where)
     {
+        DrawIndirect(arguments, 0, where);
+    }
+
+    void DrawBuilder::DrawIndirect(ResourceKey<Buffer> arguments, int64_t byte_offset, std::source_location where)
+    {
         DrawRecord draw{};
         draw.Form = DrawForm::DrawIndirect;
         draw.Arguments = arguments.ToRef();
+        draw.ArgumentOffset = byte_offset;
+        draw.Where = where;
+        record->Draws.push_back(draw);
+    }
+
+    void DrawBuilder::DrawIndirectCount(ResourceKey<Buffer> arguments, int64_t byte_offset, ResourceKey<Buffer> count,
+        int64_t count_offset, int32_t max_draws, std::source_location where)
+    {
+        DrawRecord draw{};
+        draw.Form = DrawForm::DrawIndirectCount;
+        draw.Arguments = arguments.ToRef();
+        draw.ArgumentOffset = byte_offset;
+        draw.Count = count.ToRef();
+        draw.CountOffset = count_offset;
+        draw.MaxDraws = max_draws;
         draw.Where = where;
         record->Draws.push_back(draw);
     }

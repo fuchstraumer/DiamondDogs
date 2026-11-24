@@ -16,8 +16,14 @@ set(LOOM_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PassBuilders.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PassStatements.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/SequenceBuilder.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/TargetExtents.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomFrame.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Records.hpp"
 )
+
+# LoomFrame.slang: the shader side of LoomFrame.hpp. A cook whose shaders import LoomFrame adds this folder to its
+# INCLUDE_DIRS.
+set(LOOM_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders" CACHE INTERNAL "The INCLUDE_DIRS entry for import LoomFrame")
 
 # Each source sits beside its own header; a *Context.hpp holds a stage's shared state and has no source.
 set(LOOM_SOURCES
@@ -111,6 +117,7 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/DecideRuns.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/PlanBarriers.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/ParamsStore.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/TargetExtents.cpp"
 )
 
 add_module(loom

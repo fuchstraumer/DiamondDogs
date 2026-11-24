@@ -44,6 +44,11 @@ namespace
         return static_cast<int32_t>(data->Frozen.Resources.size());
     }
 
+    int32_t CompiledGraph::RowCount() const noexcept
+    {
+        return data->RowCount;
+    }
+
     int32_t CompiledGraph::PassIndexOf(PassKey pass) const noexcept
     {
         for (int32_t index = 0; index < PassCount(); ++index)

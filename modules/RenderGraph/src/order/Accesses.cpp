@@ -99,9 +99,17 @@ namespace loom::order
 
     void AppendDrawAccesses(const OrderContext& context, std::vector<PassAccess>& results, const FrozenPass& pass)
     {
-        if (pass.Draw.Form == DrawForm::DrawIndirect)
+        if (IsIndirectDraw(pass.Draw.Form))
         {
             results.push_back(PassAccess{ .Slot = SlotOfResource(pass.Draw.Arguments),
+                                            .Access = ResourceAccess::Read,
+                                            .Previous = false,
+                                            .Where = pass.Draw.Where });
+        }
+
+        if (pass.Draw.Form == DrawForm::DrawIndirectCount)
+        {
+            results.push_back(PassAccess{ .Slot = SlotOfResource(pass.Draw.Count),
                                             .Access = ResourceAccess::Read,
                                             .Previous = false,
                                             .Where = pass.Draw.Where });

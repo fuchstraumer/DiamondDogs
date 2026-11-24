@@ -144,9 +144,18 @@ namespace loom
                   std::source_location where = std::source_location::current());
         void DrawIndexed(int32_t index_count, int32_t instance_count, int32_t first_index, int32_t vertex_offset,
                          int32_t first_instance, std::source_location where = std::source_location::current());
-        // Indexed when the pass has an IndexBuffer statement.
+        // Indexed when the pass has an IndexBuffer statement. One draw: 16 bytes of arguments, or 20 when indexed.
         void DrawIndirect(ResourceKey<Buffer> arguments,
                           std::source_location where = std::source_location::current());
+        // One argument buffer can hold several draws. byte_offset is a multiple of 4 (LM109).
+        void DrawIndirect(ResourceKey<Buffer> arguments, int64_t byte_offset,
+                          std::source_location where = std::source_location::current());
+        // Up to max_draws draws, packed tightly from byte_offset; the GPU reads the real count, a uint32, from `count`
+        // at count_offset (GPU-driven culling writes it). Both offsets are multiples of 4, and max_draws is at least 1
+        // (LM109). A device without drawIndirectCount falls back through a path list (step 7 Q5).
+        void DrawIndirectCount(ResourceKey<Buffer> arguments, int64_t byte_offset, ResourceKey<Buffer> count,
+                               int64_t count_offset, int32_t max_draws,
+                               std::source_location where = std::source_location::current());
 
     private:
         friend class GraphBuilder;

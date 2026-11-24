@@ -71,13 +71,54 @@ namespace loom
         uint32_t Alignment{ 0u };
     };
 
+    // What an attachment is to its pass (step 7 Q3). One table in Uses.cpp gives each role its layout, stages and
+    // accesses, and each backend maps the roles to its API in one switch. Stencil, Resolve, ShadingRate and
+    // InputAttachment come later as new values.
+    enum class AttachmentRole : uint8_t
+    {
+        Invalid = 0,
+        Color = 1,
+        Depth = 2
+    };
+
+    enum class AttachmentLoad : uint8_t
+    {
+        Invalid = 0,
+        Keep = 1,
+        Clear = 2,
+        DontCare = 3
+    };
+
+    // One attachment of a Draw pass, or of a Record pass that declares target uses (Loom begins rendering for it with
+    // Keep and Store). Row is a resource row or a frame-target row (CompiledData::RowCount).
+    struct CompiledAttachment
+    {
+        AttachmentRole Role{ AttachmentRole::Invalid };
+        int32_t Row{ -1 };
+        int32_t Slot{ -1 };                 // Color: the color slot. Depth: -1.
+        AttachmentLoad Load{ AttachmentLoad::Invalid };
+        AttachmentStore Store{ AttachmentStore::Invalid };
+        math::Float4 ClearValue{ 0.0f, 0.0f, 0.0f, 0.0f };     // Clear only: the color, or the depth in x
+    };
+
     struct CompiledPass
     {
+        PassKind Kind{ PassKind::Invalid };
         int32_t FirstUse{ 0 };              // Uses[FirstUse, FirstUse + UseCount)
         int32_t UseCount{ 0 };
+        int32_t FirstAttachment{ 0 };       // Attachments[FirstAttachment, FirstAttachment + AttachmentCount)
+        int32_t AttachmentCount{ 0 };
         int32_t Params{ -1 };               // an index into CompiledData::Params, or -1
         RunPolicy Policy{ RunPolicy::Invalid };
         bool ReadsHistory{ false };         // a BindPrevious; history rings come in step 6
+    };
+
+    // An imported frame target. Its row follows the resource rows. Fallback is the Output declaration's; a target with
+    // no Output keeps its last frame (no acquire, no present) when nothing writes it.
+    struct CompiledFrameTarget
+    {
+        int32_t Row{ -1 };
+        OutputFallback Fallback{ OutputFallback::KeepLast() };
     };
 
     // The levels where a resource row is first and last used, for the aliasing stage after step 6. -1 when no pass
@@ -105,9 +146,15 @@ namespace loom
         std::vector<uint8_t> SlotWritable;
         std::vector<BoundPass> BoundPasses;
 
+        // Rows: the resource rows (FrozenGraph::Resources), then one row per frame target (FrameTargets[t].Row). Every
+        // table indexed [row] has RowCount entries; the history copies follow them (CopyRows).
+        int32_t RowCount{ 0 };
+        std::vector<CompiledFrameTarget> FrameTargets;  // [frame target], as FrozenGraph::FrameTargets
+
         std::vector<CompiledPipeline> Pipelines;    // [pipeline], as LaidOut.Pipelines
         std::vector<CompiledPass> Passes;           // [pass]
         std::vector<PassUse> Uses;
+        std::vector<CompiledAttachment> Attachments;
         std::vector<CompiledParams> Params;
         std::vector<ResourceSpan> Spans;            // [resource]
         std::vector<rhi::ImageLayout> SlotLayouts;  // [slot]: the layout a descriptor names, the use's layout
@@ -115,13 +162,46 @@ namespace loom
         // History rings (spec R3): a row with HistoryDepth D has D + 1 copies, each its own object with its own barrier
         // state. Copy `row` is each row's first copy, so a row with no history is its own copy; the other copies of a
         // ring follow the rows, from ExtraCopyBase[row]. CopyRows[copy] is the copy's row.
-        std::vector<int32_t> CopyCounts;            // [resource]: 1, or HistoryDepth + 1
-        std::vector<int32_t> ExtraCopyBase;         // [resource]: -1 for a row with one copy
+        std::vector<int32_t> CopyCounts;            // [row]: 1, or HistoryDepth + 1
+        std::vector<int32_t> ExtraCopyBase;         // [row]: -1 for a row with one copy
         std::vector<int32_t> CopyRows;              // [copy]
 
         std::vector<uint64_t> PassHashes; // [pass]
-        std::vector<uint64_t> ResourceHashes; // [resource]
+        std::vector<uint64_t> ResourceHashes; // [resource], resource rows only
     };
+
+    [[nodiscard]] inline bool IsFrameTargetRow(const CompiledData& data, int32_t row) noexcept
+    {
+        return row >= static_cast<int32_t>(data.Frozen.Resources.size());
+    }
+
+    // The frame target of a frame-target row
+    [[nodiscard]] inline int32_t FrameTargetOfRow(const CompiledData& data, int32_t row) noexcept
+    {
+        return row - static_cast<int32_t>(data.Frozen.Resources.size());
+    }
+
+    [[nodiscard]] inline int32_t RowOfFrameTarget(const CompiledData& data, FrameTargetIndex target) noexcept
+    {
+        return static_cast<int32_t>(data.Frozen.Resources.size()) + target.Value;
+    }
+
+    // A frame target is an image row too
+    [[nodiscard]] inline bool IsImageRow(const CompiledData& data, int32_t row) noexcept
+    {
+        return IsFrameTargetRow(data, row) || data.Frozen.Resources[row].Kind == ResourceKind::Image;
+    }
+
+    // The key of any row, for the explain text
+    [[nodiscard]] inline KeyRef KeyOfRow(const CompiledData& data, int32_t row) noexcept
+    {
+        if (IsFrameTargetRow(data, row))
+        {
+            return data.Frozen.FrameTargets[FrameTargetOfRow(data, row)].Key;
+        }
+
+        return data.Frozen.Resources[row].Key;
+    }
 
     // The copy that frame `frame_index` writes (previous false) or reads through BindPrevious (previous true).
     [[nodiscard]] inline int32_t CopyOf(const CompiledData& data, int32_t row, int64_t frame_index, bool previous) noexcept

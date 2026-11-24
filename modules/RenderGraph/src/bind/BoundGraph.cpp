@@ -71,6 +71,12 @@ namespace
                 slot.Previous = frozenBind.Previous;
                 accesses[bindIndex] = slot.Access;
             }
+            else if (bind::IsLoomFrameBinding(resource))
+            {
+                // Loom's own buffer, written each Tick: a read, with no row (no barrier, no readiness)
+                slot.BuiltIn = BuiltInBinding::LoomFrame;
+                slot.Access = ResourceAccess::Read;
+            }
 
             result.Slots.push_back(slot);
             result.Sources.push_back(SlotSource{ .Reflection = resource,

@@ -150,7 +150,11 @@ namespace loom
     struct FrozenDraw
     {
         DrawForm Form{ DrawForm::Invalid };
-        ResourceIndex Arguments;            // DrawIndirect only
+        ResourceIndex Arguments;            // DrawIndirect and DrawIndirectCount
+        int64_t ArgumentOffset{ 0 };
+        ResourceIndex Count;                // DrawIndirectCount only
+        int64_t CountOffset{ 0 };
+        int32_t MaxDraws{ -1 };             // DrawIndirectCount only
         int32_t VertexOrIndexCount{ -1 };
         int32_t InstanceCount{ -1 };
         int32_t FirstVertexOrIndex{ -1 };

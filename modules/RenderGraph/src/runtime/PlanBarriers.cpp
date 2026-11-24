@@ -20,6 +20,7 @@
 //  - a write after reads needs a barrier from the reads to the write (an execution dependency);
 //  - an image use whose layout differs from the image's needs a layout change, which waits for the last write and
 //    every read since, and makes the write visible to the use. It replaces the three rules above for that use.
+// After the last level, the frame-end batch moves each acquired frame target to the layout it hands back in.
 namespace loom
 {
 
@@ -206,7 +207,7 @@ namespace
         for (const int32_t copy : plan.Clears)
         {
             ResourceSync& state = sync[copy];
-            const bool image = data.Frozen.Resources[data.CopyRows[copy]].Kind == ResourceKind::Image;
+            const bool image = IsImageRow(data, data.CopyRows[copy]);
             const rhi::ImageLayout newLayout = image ? rhi::ImageLayout::General : rhi::ImageLayout::Undefined;
             const SyncScope before{ .Stages = state.Write.Stages | state.ReadsSinceWrite.Stages, .Accesses = state.Write.Accesses };
 
@@ -228,6 +229,71 @@ namespace
 
         const int32_t count = static_cast<int32_t>(plan.Barriers.size()) - firstBarrier;
         plan.Batches.push_back(BarrierBatch{ .BeforeRun = k_BeforeClears, .FirstBarrier = firstBarrier, .Count = count });
+    }
+
+    // What waits on a frame target after the frame, by the layout it hands back in. Present waits on the submit's
+    // semaphore, so its barrier needs no stage after it.
+    SyncScope FinalScope(rhi::ImageLayout layout)
+    {
+        switch (layout)
+        {
+        case rhi::ImageLayout::PresentSource:
+            return SyncScope{};
+        case rhi::ImageLayout::TransferSource:
+            return SyncScope{ .Stages = rhi::PipelineStage::AllTransfer, .Accesses = rhi::Access::TransferRead };
+        case rhi::ImageLayout::ShaderReadOnly:
+            return SyncScope{ .Stages = rhi::PipelineStage::AllCommands, .Accesses = rhi::Access::ShaderSampledRead };
+        default:
+            break;
+        }
+
+        return SyncScope{ .Stages = rhi::PipelineStage::AllCommands, .Accesses = rhi::Access::MemoryRead };
+    }
+
+    // The frame-end batch (step 7): each frame target that this Tick acquires goes to the layout it hands back in,
+    // after every access of this frame.
+    void PlanFrameEnd(const CompiledData& data, std::span<const ResourceState> resources, std::span<ResourceSync> sync,
+                      FramePlan& plan)
+    {
+        const int32_t firstBarrier = static_cast<int32_t>(plan.Barriers.size());
+
+        for (size_t target = 0u; target < data.FrameTargets.size(); ++target)
+        {
+            const bool acquired = plan.TargetActions[target] == TargetAction::Render ||
+                                  plan.TargetActions[target] == TargetAction::Clear;
+            const int32_t row = data.FrameTargets[target].Row;
+            const rhi::ImageLayout finalLayout = resources[row].FinalLayout;
+
+            if (!acquired || finalLayout == rhi::ImageLayout::Undefined)
+            {
+                continue;
+            }
+
+            ResourceSync& state = sync[row];
+            const SyncScope before{ .Stages = state.Write.Stages | state.ReadsSinceWrite.Stages, .Accesses = state.Write.Accesses };
+            const SyncScope after = FinalScope(finalLayout);
+
+            plan.Barriers.push_back(PlannedBarrier
+            {
+                .Resource = row,
+                .Before = before,
+                .After = after,
+                .OldLayout = state.Layout,
+                .NewLayout = finalLayout,
+            });
+
+            state.Write = SyncScope{ .Stages = state.Write.Stages | after.Stages, .Accesses = state.Write.Accesses };
+            state.VisibleTo = after;
+            state.ReadsSinceWrite = SyncScope{};
+            state.Layout = finalLayout;
+        }
+
+        const int32_t count = static_cast<int32_t>(plan.Barriers.size()) - firstBarrier;
+
+        if (count > 0)
+        {
+            plan.Batches.push_back(BarrierBatch{ .BeforeRun = k_AfterRuns, .FirstBarrier = firstBarrier, .Count = count });
+        }
     }
 
     void CloseBatch(FramePlan& plan, int32_t before_run, int32_t first_barrier, std::span<ResourceSync> sync)
@@ -331,6 +397,8 @@ namespace
 
             levelStart = levelEnd;
         }
+
+        PlanFrameEnd(data, resources, sync, plan);
     }
 
 }

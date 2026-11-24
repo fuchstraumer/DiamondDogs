@@ -16,6 +16,7 @@ set(LOOM_TEST_SOURCES
     test_layout.cpp
     test_levels.cpp
     test_runtime.cpp
+    test_draw.cpp
 )
 
 add_unit_test_target(loom_tests
@@ -33,11 +34,14 @@ lodestone_add_shader_cook(loom_test_shaders
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
     TARGETS spirv spirv-modern-mutable
     HOST_TYPES "math/ShaderHostTypes.hpp"
+    # LoomDraw imports LoomFrame
+    INCLUDE_DIRS "${LOOM_SHADER_DIR}"
     MODULES shaders/LoomResolveTest.slang shaders/LoomResolveOther.slang shaders/LoomBindTest.slang shaders/LoomSizeTest.slang
     shaders/LoomLayoutTest.slang
-    # the runtime tests share LoomComputeTest's shaders, so the GPU test and the GPU-free one read one source
+    # the runtime tests share the GPU tests' shaders, so the GPU test and the GPU-free one read one source
     "${CMAKE_SOURCE_DIR}/tests/integration_tests/LoomComputeTest/LoomHashFill.slang"
-    "${CMAKE_SOURCE_DIR}/tests/integration_tests/LoomImageTest/LoomImages.slang")
+    "${CMAKE_SOURCE_DIR}/tests/integration_tests/LoomImageTest/LoomImages.slang"
+    "${CMAKE_SOURCE_DIR}/tests/integration_tests/LoomDrawTest/LoomDraw.slang")
 set_target_properties(loom_test_shaders PROPERTIES FOLDER "Tests/Unit Tests")
 add_dependencies(loom_tests loom_test_shaders)
 if(EMSCRIPTEN)

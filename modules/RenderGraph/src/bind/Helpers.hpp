@@ -31,6 +31,10 @@ namespace loom::bind
     // True when a key of `kind` can fill a binding of `binding_kind`.
     [[nodiscard]] bool KeyFitsBinding(ResourceKind kind, lodestone::BindingKind binding_kind);
 
+    // A uniform block named k_LoomFrameBindingName: Loom binds it with no Bind statement (step 7, round 2 Q3). A binding
+    // of that name and another kind is an ordinary binding, so an unbound one is LM302.
+    [[nodiscard]] bool IsLoomFrameBinding(const lodestone::manifest::ResolvedResource& resource);
+
 }
 
 #endif // !DIAMOND_DOGS_LOOM_BIND_HELPERS_HPP

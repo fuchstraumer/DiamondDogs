@@ -124,7 +124,12 @@ Bind reads the layout of the variant that Resolve selected:
      it runs only on a miss.
    - A name that only other variants have is skipped with no diagnostic. One build lambda then serves every variant.
    - A key of the wrong kind is LM304. A narrowing that adds access is LM303: a narrowing may only remove access.
-   - A binding of the selected variant that no bind names is LM302.
+   - A binding of the selected variant that no bind names is LM302, except one: a uniform block named `g_LoomFrame`.
+     Loom binds it itself (`BindingSlot::BuiltIn == LoomFrame`, with no resource row) to its own per-frame-slot
+     buffer, which holds `LoomFrameConstants` (`include/LoomFrame.hpp`): the time, dT, the frame index, and each frame
+     target's target, allocation and render extents. A shader declares it with `import LoomFrame;`
+     (`shaders/LoomFrame.slang`; its cook adds `LOOM_SHADER_DIR` to `INCLUDE_DIRS`). So a pass keeps its one `Params`
+     key and still reads the frame's facts. `loom_tests` checks the C++ mirror against the cooked Slang layout.
    - A view and its root bound to different keys in one pass is LM307 (see "Views and aliases" below). The check
      sees one pass only: a pass that binds the view without its root has nothing to compare with.
 3. `Params.cpp`: the `Params` statement against the entry point constants. LM305 is a size check, `sizeof(T)`
@@ -152,8 +157,9 @@ dimension and GPU usage (`src/size/ImageSize.cpp`). Samplers need nothing from S
 Each binding or statement that names a buffer is a requirement:
 
 - **Exact:** the shader states an element count (`[ls_element_count]`), so it uses exactly count times stride bytes.
-- **At least:** a uniform block (its block size), or indirect arguments (the offset plus 12 bytes for a dispatch, 16
-  for a draw).
+- **At least:** a uniform block (its block size), indirect arguments (the offset plus 12 bytes for a dispatch; for a
+  draw, the offset plus 16 bytes per draw, or 20 when it is indexed, times `MaxDraws` for `DrawIndirectCount`), or a
+  draw count (its offset plus 4 bytes).
 
 Sizes compare in **bytes**, never in elements, so two typed views of one buffer agree. A `Bytes(n)` buffer must fit
 every requirement. A `Derived` buffer takes its size from the first exact requirement, or from the largest one when
@@ -250,12 +256,26 @@ still holds Compile's diagnostics, because their binding names are views into it
 
 - `Pipelines` (`compile/Pipelines.cpp`): per distinct pipeline, a copy of each stage's code and entry point, the
   workgroup, the push constant range, and the pass whose slots give its descriptor layout.
-- `Uses` (`compile/Uses.cpp`): per pass, one entry per resource row it touches, merged over its slots and statements:
-  the access, the `SyncScope` (stages and accesses), the image layout the use needs, `Initializes` (a write with no
-  read, for Q3g), and `Previous` (a `BindPrevious` read, which reads last frame's copy: a separate use from a write of
-  the same row in that pass). Storage images use `General` and sampled reads `ShaderReadOnly`. Every use of one
-  image in one level must see one layout, because one barrier batch goes before the level, so uses that disagree all
-  take `General`. `SlotLayouts` gives each descriptor its use's layout.
+- **Rows.** The resource rows (`FrozenGraph::Resources`), then one row per imported frame target
+  (`CompiledFrameTarget::Row`; `IsFrameTargetRow`, `KeyOfRow`). `RowCount` (`CompiledGraph::RowCount()`) sizes every
+  per-row span: a backend's `ResourceState`s, `SkippedWriter`, the copy tables. A frame target's `Fallback` comes from
+  its `Output` declaration; with none it is `KeepLast`.
+- `Uses` (`compile/Uses.cpp`): per pass, one entry per row it touches, merged over its slots and statements: the
+  access, the `SyncScope` (stages and accesses), the image layout the use needs, `Initializes` (a write with no read,
+  for Q3g), and `Previous` (a `BindPrevious` read, which reads last frame's copy: a separate use from a write of the
+  same row in that pass). Storage images use `General` and sampled reads `ShaderReadOnly`. Every use of one image in
+  one level must see one layout, because one barrier batch goes before the level, so uses that disagree all take
+  `General`. `SlotLayouts` gives each descriptor its use's layout. Besides the shader slots: indirect arguments and a
+  draw count (`DrawIndirect` stage, indirect-command read), index and vertex buffers, attachments, and a Record pass's
+  `Uses` statements (one table maps each `ImageUse` and `BufferUse` to its scope and layout; a shader use names the
+  vertex, fragment and compute stages, because Loom cannot see which one the callback uses).
+- `Attachments` (step 7 Q3): per Draw pass, and per Record pass with target uses, one `CompiledAttachment` per target:
+  its `AttachmentRole` (`Color`, `Depth`; later `Stencil`, `Resolve`, `ShadingRate`), row, color slot, load, store and
+  clear value. One table (`AttachmentShape`) gives each role its scope and layout: a color target is
+  `ColorAttachmentOutput` in `ColorAttachment` (with the read bit when it keeps or blends); a depth target is the
+  fragment tests, in `DepthAttachment` when the pass writes it (a depth write or a load Clear) and in `DepthReadOnly`
+  when it only tests. A Record pass's targets load Keep and store Store: Loom begins rendering around its callback.
+  Each backend maps the roles to its API in one switch.
 - History copies: a row with `HistoryDepth` D has D + 1 copies (spec R3). Copy `row` is each row's first copy, so a
   row with no history is its own copy; a ring's other copies follow the rows (`ExtraCopyBase`, `CopyRows`).
   `CopyOf(data, row, frame, previous)` gives the copy that frame `frame` writes, or reads through `BindPrevious`.
@@ -299,7 +319,13 @@ Each pass, in run order:
    contents behind. A `BindPrevious` read does not propagate either: it reads last frame.
 
 `FramePlan::Decisions[pass]` holds each reason and its cause, and `Runs` holds the passes that run.
-`ExplainLastTick(compiled, plan)` (and `Graph::ExplainLastTick()`) prints them, one line per pass.
+
+Then each frame target gets a `TargetAction` (step 7): `Render` when a pass that runs writes it; otherwise its
+fallback decides. `OutputFallback::Clear` gives `Clear`, and the target row joins `FramePlan::Clears` (the backend
+clears it to the fallback color). `KeepLast` gives `Skip`: the backend does not acquire the target and does not
+present it, so the compositor or the canvas keeps showing the last frame, and no copy of each frame is kept.
+`ExplainLastTick(compiled, plan)` (and `Graph::ExplainLastTick()`) prints the decisions, one line per pass, then one
+line per frame target.
 
 ### Barriers (`PlanBarriers`)
 
@@ -318,7 +344,13 @@ graph image, the layout of the usage stated at `Supply` for an import. Against t
 
 `OnNoHistory::Clear` adds a batch before every run (`BeforeRun == k_BeforeClears`): each cleared copy waits for its
 earlier accesses and goes to a transfer write (an image to `General`). The backend then clears it, and the first
-level's reads wait for the clear by the rules above.
+level's reads wait for the clear by the rules above. A frame target with the `Clear` action joins the same batch.
+
+A frame-target row starts a new epoch at each acquire, in `Undefined`, so its first use this frame changes its layout
+from `Undefined`. After the last level, the frame-end batch (`BeforeRun == k_AfterRuns`) moves each acquired target
+to the `ResourceState::FinalLayout` that the backend states for it (`PresentSource` for a swapchain), after every
+access of the frame. A target with no final layout (an offscreen target that keeps its last use's layout) has no
+frame-end barrier.
 
 Scopes are in the RHI's barrier vocabulary, `rhi::PipelineStage` and `rhi::Access` (`rhi_types`, which links no
 RHI), so the core and every backend share one set of values and no mapping step exists. Storage and sampled reads use
@@ -329,6 +361,23 @@ All barriers before one level go into one `BarrierBatch`, with one planned barri
 widens the first). Because the state carries over from the last Tick, the first batch is the frame-start batch: it orders
 this frame's first accesses after earlier frames' work on the same queue. A row whose epoch changed starts with no
 pending work, because a new object owes nothing to the old one. Split barriers come later, from measured timestamps.
+
+### Target extents (`TargetExtents`)
+
+`include/TargetExtents.hpp` holds the three extents of a frame target (step 7, round 2 Q1), as a pure function that a
+backend calls once per acquire:
+
+- **Target:** what the target reports (the swapchain extent; a web canvas's CSS size times `devicePixelRatio`).
+- **Allocation:** the extent the `OfTarget` images are made at (times each image's own scale, `ScaledExtent`). It
+  lags the target: it takes the target's value only after the target has kept one value for the settle window
+  (counted with Tick's `dT`, so no clock call), or when the target says its resize finished. The first report
+  allocates at once. An empty extent (a minimized window) never becomes the allocation.
+- **Render:** `min(target x render scale, allocation)`. Viewports and scissors use it. `SetRenderScale` (0 < scale
+  <= 1) is the hook for the scalability system: it changes only the render extent.
+
+During a drag the scene renders at the old allocation, and the pass that writes the frame target scales it up with
+`LoomFrame`'s `RenderToAllocation`. `UpdateTargetExtents` returns `Reallocate` once, when the resize settles; the
+backend then creates the new images in the background and swaps them in one Tick (step 7b).
 
 ### Params (`ParamsStore`)
 
@@ -346,10 +395,11 @@ fill `CompileInputs` from a device). `loom_vulkan` links `loom`, `rhi_system` an
 ### Realize
 
 `Graph::Realize(compiled, inputs)` first checks that it can run the graph, and refuses with a `RealizeError` if not.
-The "NotYet" values name what is missing: Draw and Record passes, frame targets and images sized from them (step 7),
-cube images and formats with no `ImageFormat` (`ResourceKindNotYet`), the `Handle` and `Pointer` placements (T2), and
-binding kinds other than uniform and storage buffers, sampled and storage textures, and samplers (arrays, texel
-buffers, combined texture-samplers and input targets). It then:
+The "NotYet" values name what is missing: Draw and Record passes, frame targets and images sized from them (step 7b;
+the core compiles and plans them since step 7a), cube images and formats with no `ImageFormat`
+(`ResourceKindNotYet`), the `Handle` and `Pointer` placements (T2), the `g_LoomFrame` buffer (step 7b), and binding
+kinds other than uniform and storage buffers, sampled and storage textures, and samplers (arrays, texel buffers,
+combined texture-samplers and input targets). It then:
 
 - creates each graph-declared buffer, image (with one view, arrayed when a binding reads it as an array or it has
   layers) and sampler through `ResourceContext`, and keeps the future, so a graph resource and an import have one
@@ -470,6 +520,7 @@ When Loom needs something from Lodestone, it stubs it here and adds a row to Lod
 | `test_diagnostics.cpp` | The catalog and the sinks. |
 | `test_levels.cpp` | Kahn levels, the level-major run order, the persistence rule for LM503, and buffer imports. |
 | `test_runtime.cpp` (`LoomHashFill.slang`, `LoomImages.slang`) | `Compile`, `DecideRuns` (pending and failed rows, `Once`, `WhenInputsChange`, `OnTrigger`, `NoHistory`, Q3g), `PlanBarriers` (level and frame-start batches, write after reads, epochs, image layout changes, history copies, the clear batch), `ParamsStore` (LM703, LM704, the byte compare), and `ExplainLastTick`, from readiness values written by hand. |
+| `test_draw.cpp` (`LoomDraw.slang`, shared with the step 7 GPU test) | Step 7a: frame-target rows, attachments and their uses (depth read-only, color, Record targets as Keep and Store), indirect draw reads, `DrawIndirectCount` checks (LM109, LM401), `g_LoomFrame` with no `Bind` and its C++ mirror against the cooked layout, the target actions and fallbacks, the frame-end batch, the target clear, and the three target extents. |
 
 `tests/integration_tests/LoomComputeTest` runs on a real device, headless. `HashFillCS` writes `Output` (an imported
 buffer that the test supplies with a sentinel), and `HashAgainCS` reads it and writes `Output2`, so the graph has two

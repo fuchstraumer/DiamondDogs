@@ -36,9 +36,36 @@ namespace loom::freeze
             .Where = draw.Where
         };
 
-        if (draw.Form == DrawForm::DrawIndirect)
+        if (IsIndirectDraw(draw.Form))
         {
+            // vkCmdDrawIndirect needs 4-byte aligned offsets; whether the arguments fit waits for Size
             frozen.Arguments = ResolveResource(context, draw.Arguments, KeyClass::Buffer, draw.Where);
+            frozen.ArgumentOffset = draw.ArgumentOffset;
+
+            if (draw.ArgumentOffset < 0 || draw.ArgumentOffset % 4 != 0)
+            {
+                ReportOutOfRange(context, "ArgumentOffset", draw.ArgumentOffset, draw.Where);
+            }
+
+            if (draw.Form == DrawForm::DrawIndirect)
+            {
+                return frozen;
+            }
+
+            frozen.Count = ResolveResource(context, draw.Count, KeyClass::Buffer, draw.Where);
+            frozen.CountOffset = draw.CountOffset;
+            frozen.MaxDraws = draw.MaxDraws;
+
+            if (draw.CountOffset < 0 || draw.CountOffset % 4 != 0)
+            {
+                ReportOutOfRange(context, "CountOffset", draw.CountOffset, draw.Where);
+            }
+
+            if (draw.MaxDraws < 1)
+            {
+                ReportOutOfRange(context, "MaxDraws", draw.MaxDraws, draw.Where);
+            }
+
             return frozen;
         }
 

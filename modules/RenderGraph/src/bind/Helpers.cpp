@@ -1,4 +1,5 @@
 #include "bind/Helpers.hpp"
+#include "LoomFrame.hpp"
 #include "PassStatements.hpp"
 #include "Records.hpp"
 #include "ShaderLibraryTypes.hpp"
@@ -114,6 +115,11 @@ namespace loom::bind
         }
 
         return false;
+    }
+
+    bool IsLoomFrameBinding(const lodestone::manifest::ResolvedResource& resource)
+    {
+        return resource.Kind() == lodestone::BindingKind::UniformBuffer && BindingNameOf(resource) == k_LoomFrameBindingName;
     }
 
 }

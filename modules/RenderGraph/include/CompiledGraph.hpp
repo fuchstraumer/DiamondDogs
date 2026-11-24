@@ -24,6 +24,8 @@ namespace loom
         [[nodiscard]] const CompiledData& Data() const noexcept;
         [[nodiscard]] int32_t PassCount() const noexcept;
         [[nodiscard]] int32_t ResourceCount() const noexcept;
+        // The resource rows and then one row per frame target: the size of every per-row span the runtime takes
+        [[nodiscard]] int32_t RowCount() const noexcept;
         // -1 when the graph has no such pass or resource
         [[nodiscard]] int32_t PassIndexOf(PassKey pass) const noexcept;
         [[nodiscard]] int32_t ResourceIndexOf(KeyRef resource) const noexcept;

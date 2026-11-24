@@ -27,11 +27,15 @@ namespace loom
     // object starts with no pending GPU work, so the barrier state of its row starts again.
     // InitialLayout is the layout an image is in when its epoch starts: Undefined for a graph image, and the layout of
     // the usage that Supply stated for an import. Buffers ignore it.
+    // A frame-target row (step 7): the backend keeps it Created, starts a new epoch at each acquire (Undefined), and
+    // states FinalLayout, the layout the target hands back in (PresentSource for a swapchain). The frame-end batch moves
+    // each acquired target to it. Every other row keeps FinalLayout Undefined.
     struct ResourceState
     {
         ResourceReadiness Readiness{ ResourceReadiness::Invalid };
         uint32_t Epoch{ 0u };
         rhi::ImageLayout InitialLayout{ rhi::ImageLayout::Undefined };
+        rhi::ImageLayout FinalLayout{ rhi::ImageLayout::Undefined };
     };
 
     // The stages and the accesses of one use, in the RHI's barrier vocabulary (rhi_types links no RHI). The values
@@ -103,8 +107,22 @@ namespace loom
 
     // The barriers that go before Runs[BeforeRun]: one batch at each level boundary, and one at frame start (before
     // the first run), which covers the work of earlier frames. Barriers[FirstBarrier, FirstBarrier + Count).
-    // BeforeRun k_BeforeClears: the batch before the clears of OnNoHistory::Clear, which come before every run.
+    // BeforeRun k_BeforeClears: the batch before the clears (OnNoHistory::Clear, and OutputFallback::Clear of a frame
+    // target), which come before every run. BeforeRun k_AfterRuns: the frame-end batch, after the last run, which moves
+    // each acquired frame target to its FinalLayout.
     inline constexpr int32_t k_BeforeClears = -1;
+    inline constexpr int32_t k_AfterRuns = -2;
+
+    // What a frame target needs this Tick (step 7). Render: a pass that runs writes it; acquire and present it. Clear:
+    // no pass that runs writes it and its fallback is Clear; acquire it, clear it to the fallback color, present it.
+    // Skip: no pass that runs writes it and its fallback is KeepLast; do not acquire it or present it.
+    enum class TargetAction : uint8_t
+    {
+        Invalid = 0,
+        Skip = 1,
+        Render = 2,
+        Clear = 3
+    };
 
     struct BarrierBatch
     {
@@ -120,12 +138,15 @@ namespace loom
         std::vector<int32_t> Runs;              // the passes that run, in run order
         std::vector<PlannedBarrier> Barriers;
         std::vector<BarrierBatch> Batches;
-        std::vector<int32_t> Clears;            // the copies that OnNoHistory::Clear zeroes before the first run
+        // the copies cleared before the first run: zeroed for OnNoHistory::Clear, or, for a frame-target row, set to
+        // its fallback color
+        std::vector<int32_t> Clears;
+        std::vector<TargetAction> TargetActions;    // [frame target]
 
-        // PlannedBarrier::Resource, Clears, BatchBarrier and RowLayouts count copies (CompiledData::CopyRows): a row
-        // with no history is its own copy.
+        // PlannedBarrier::Resource, Clears and BatchBarrier count copies (CompiledData::CopyRows): a row with no
+        // history is its own copy.
 
-        // scratch, [resource]: the skipped initializing writer (Q3g), a row's barrier in the open batch, and whether
+        // scratch, [row]: the skipped initializing writer (Q3g), a row's barrier in the open batch, and whether
         // a pass that runs this Tick writes the row (WhenInputsChange rule c)
         std::vector<int32_t> SkippedWriter;
         std::vector<int32_t> BatchBarrier;

@@ -3,6 +3,7 @@
 #include "bind/BoundGraph.hpp"
 #include "Records.hpp"
 #include "compile/CompiledData.hpp"
+#include "order/Accesses.hpp"
 #include "FramePlan.hpp"
 #include "PassStatements.hpp"
 #include "ShaderLibraryTypes.hpp"
@@ -13,8 +14,9 @@
 #include <utility>
 #include <vector>
 
-// Each pass's use of each resource row, for readiness, Q3g and the barriers. Bound slots give the shader uses; an
-// indirect dispatch or draw adds the read of its arguments. Draw targets and Record uses come with step 7.
+// Each pass's use of each row, for readiness, Q3g and the barriers. Bound slots give the shader uses; an indirect
+// dispatch or draw adds the read of its arguments (and its count); a draw adds its index and vertex reads and its
+// targets; a Record pass adds its Uses statements. Targets are also the pass's attachments.
 namespace loom::compile
 {
 
@@ -149,6 +151,183 @@ namespace
         return rhi::ImageLayout::Undefined;
     }
 
+    // The scope and the layout of one use that no shader binding reflects: an attachment, a vertex or index read, or a
+    // Record pass's statement
+    struct UseShape
+    {
+        SyncScope Scope;
+        rhi::ImageLayout Layout{ rhi::ImageLayout::Undefined };
+    };
+
+    // A Record callback may touch a resource from any shader stage, so its shader uses name all three
+    constexpr rhi::PipelineStage k_RecordShaderStages = rhi::PipelineStage::VertexShader |
+                                                        rhi::PipelineStage::FragmentShader |
+                                                        rhi::PipelineStage::ComputeShader;
+
+    rhi::Access StorageAccesses(ResourceAccess access)
+    {
+        rhi::Access accesses = rhi::Access::None;
+
+        if (Reads(access))
+        {
+            accesses |= rhi::Access::ShaderStorageRead;
+        }
+
+        if (Writes(access))
+        {
+            accesses |= rhi::Access::ShaderStorageWrite;
+        }
+
+        return accesses;
+    }
+
+    // The attachment role table (step 7 Q3): each role's layout, stages and accesses
+    UseShape AttachmentShape(AttachmentRole role, ResourceAccess access)
+    {
+        switch (role)
+        {
+        case AttachmentRole::Color:
+        {
+            rhi::Access accesses = rhi::Access::None;
+
+            if (Reads(access))
+            {
+                accesses |= rhi::Access::ColorAttachmentRead;
+            }
+
+            if (Writes(access))
+            {
+                accesses |= rhi::Access::ColorAttachmentWrite;
+            }
+
+            return UseShape
+            {
+                .Scope = SyncScope{ .Stages = rhi::PipelineStage::ColorAttachmentOutput, .Accesses = accesses },
+                .Layout = rhi::ImageLayout::ColorAttachment,
+            };
+        }
+        case AttachmentRole::Depth:
+        {
+            // the depth test reads the target in every depth use; a load Clear or a depth write writes it
+            rhi::Access accesses = rhi::Access::DepthStencilAttachmentRead;
+
+            if (Writes(access))
+            {
+                accesses |= rhi::Access::DepthStencilAttachmentWrite;
+            }
+
+            return UseShape
+            {
+                .Scope = SyncScope{ .Stages = rhi::PipelineStage::EarlyFragmentTests | rhi::PipelineStage::LateFragmentTests,
+                                    .Accesses = accesses },
+                .Layout = Writes(access) ? rhi::ImageLayout::DepthAttachment : rhi::ImageLayout::DepthReadOnly,
+            };
+        }
+        case AttachmentRole::Invalid:
+            break;
+        }
+
+        return UseShape{};
+    }
+
+    UseShape ImageUseShape(ImageUse use, ResourceAccess access)
+    {
+        switch (use)
+        {
+        case ImageUse::Sampled:
+            return UseShape
+            {
+                .Scope = SyncScope{ .Stages = k_RecordShaderStages, .Accesses = rhi::Access::ShaderSampledRead },
+                .Layout = rhi::ImageLayout::ShaderReadOnly,
+            };
+        case ImageUse::Storage:
+            return UseShape
+            {
+                .Scope = SyncScope{ .Stages = k_RecordShaderStages, .Accesses = StorageAccesses(access) },
+                .Layout = rhi::ImageLayout::General,
+            };
+        case ImageUse::ColorTarget:
+            return AttachmentShape(AttachmentRole::Color, access);
+        case ImageUse::DepthTarget:
+            return AttachmentShape(AttachmentRole::Depth, access);
+        case ImageUse::TransferSource:
+            return UseShape
+            {
+                .Scope = SyncScope{ .Stages = rhi::PipelineStage::AllTransfer, .Accesses = rhi::Access::TransferRead },
+                .Layout = rhi::ImageLayout::TransferSource,
+            };
+        case ImageUse::TransferDestination:
+            return UseShape
+            {
+                .Scope = SyncScope{ .Stages = rhi::PipelineStage::AllTransfer, .Accesses = rhi::Access::TransferWrite },
+                .Layout = rhi::ImageLayout::TransferDestination,
+            };
+        case ImageUse::Invalid:
+            break;
+        }
+
+        return UseShape{};
+    }
+
+    SyncScope BufferUseScope(BufferUse use, ResourceAccess access)
+    {
+        switch (use)
+        {
+        case BufferUse::Uniform:
+            return SyncScope{ .Stages = k_RecordShaderStages, .Accesses = rhi::Access::UniformRead };
+        case BufferUse::Storage:
+            return SyncScope{ .Stages = k_RecordShaderStages, .Accesses = StorageAccesses(access) };
+        case BufferUse::Vertex:
+            return SyncScope{ .Stages = rhi::PipelineStage::VertexAttributeInput, .Accesses = rhi::Access::VertexAttributeRead };
+        case BufferUse::Index:
+            return SyncScope{ .Stages = rhi::PipelineStage::IndexInput, .Accesses = rhi::Access::IndexRead };
+        case BufferUse::Indirect:
+            return SyncScope{ .Stages = rhi::PipelineStage::DrawIndirect, .Accesses = rhi::Access::IndirectCommandRead };
+        case BufferUse::TransferSource:
+            return SyncScope{ .Stages = rhi::PipelineStage::AllTransfer, .Accesses = rhi::Access::TransferRead };
+        case BufferUse::TransferDestination:
+            return SyncScope{ .Stages = rhi::PipelineStage::AllTransfer, .Accesses = rhi::Access::TransferWrite };
+        case BufferUse::Invalid:
+            break;
+        }
+
+        return SyncScope{};
+    }
+
+    AttachmentLoad ToAttachmentLoad(const ColorLoad& load)
+    {
+        switch (load.Kind)
+        {
+        case ColorLoad::Kind::Keep:
+            return AttachmentLoad::Keep;
+        case ColorLoad::Kind::Clear:
+            return AttachmentLoad::Clear;
+        case ColorLoad::Kind::DontCare:
+            return AttachmentLoad::DontCare;
+        case ColorLoad::Kind::Invalid:
+            break;
+        }
+
+        return AttachmentLoad::Invalid;
+    }
+
+    AttachmentLoad ToAttachmentLoad(const DepthLoad& load)
+    {
+        switch (load.Kind)
+        {
+        case DepthLoad::Kind::Keep:
+            return AttachmentLoad::Keep;
+        case DepthLoad::Kind::Clear:
+            return AttachmentLoad::Clear;
+        case DepthLoad::Kind::DontCare:
+            return AttachmentLoad::DontCare;
+        case DepthLoad::Kind::Invalid:
+            break;
+        }
+
+        return AttachmentLoad::Invalid;
+    }
+
     // Two layouts for one image at one time cannot both hold: General serves every shader access.
     rhi::ImageLayout CombineLayouts(rhi::ImageLayout lhs, rhi::ImageLayout rhs)
     {
@@ -187,21 +366,141 @@ namespace
         existing->Scope.Accesses |= use.Scope.Accesses;
     }
 
-    void AddArgumentsUse(std::vector<PassUse>& uses, int32_t first_use, ResourceIndex arguments)
+    // A read of a buffer outside the shader: indirect arguments, a draw count, vertices or indices
+    void AddBufferRead(std::vector<PassUse>& uses, int32_t first_use, ResourceIndex buffer, BufferUse as)
     {
-        if (!arguments.IsValid())
+        if (!buffer.IsValid())
         {
             return;
         }
 
         const PassUse use
         {
-            .Resource = arguments.Value,
+            .Resource = buffer.Value,
             .Access = ResourceAccess::Read,
-            .Scope = SyncScope{ .Stages = rhi::PipelineStage::DrawIndirect, .Accesses = rhi::Access::IndirectCommandRead },
+            .Scope = BufferUseScope(as, ResourceAccess::Read),
         };
 
         AddUse(uses, first_use, use);
+    }
+
+    void AddAttachment(CompiledData& data, int32_t first_use, const CompiledAttachment& attachment,
+                       ResourceAccess access)
+    {
+        const UseShape shape = AttachmentShape(attachment.Role, access);
+        const PassUse use
+        {
+            .Resource = attachment.Row,
+            .Access = access,
+            .Scope = shape.Scope,
+            .Layout = shape.Layout,
+        };
+
+        AddUse(data.Uses, first_use, use);
+        data.Attachments.push_back(attachment);
+    }
+
+    // A Draw pass: its indirect buffers, its index and vertex buffers, and its targets
+    void GatherDrawUses(CompiledData& data, const FrozenPass& frozen_pass, int32_t first_use)
+    {
+        const FrozenDraw& draw = frozen_pass.Draw;
+
+        if (IsIndirectDraw(draw.Form))
+        {
+            AddBufferRead(data.Uses, first_use, draw.Arguments, BufferUse::Indirect);
+        }
+
+        if (draw.Form == DrawForm::DrawIndirectCount)
+        {
+            AddBufferRead(data.Uses, first_use, draw.Count, BufferUse::Indirect);
+        }
+
+        AddBufferRead(data.Uses, first_use, frozen_pass.Index.Buffer, BufferUse::Index);
+
+        for (const FrozenVertexBuffer& vertices : frozen_pass.VertexBuffers)
+        {
+            AddBufferRead(data.Uses, first_use, vertices.Buffer, BufferUse::Vertex);
+        }
+
+        for (const FrozenColorTarget& color : frozen_pass.Colors)
+        {
+            const int32_t row = color.Kind == TargetKind::FrameTarget ? RowOfFrameTarget(data, color.FrameTarget)
+                                                                       : color.Image.Value;
+            const CompiledAttachment attachment
+            {
+                .Role = AttachmentRole::Color,
+                .Row = row,
+                .Slot = color.Slot,
+                .Load = ToAttachmentLoad(color.Load),
+                .Store = color.Store,
+                .ClearValue = color.Load.ClearColor,
+            };
+
+            AddAttachment(data, first_use, attachment, order::ColorTargetAccess(color));
+        }
+
+        if (!frozen_pass.Depth.Image.IsValid())
+        {
+            return;
+        }
+
+        const CompiledAttachment depth
+        {
+            .Role = AttachmentRole::Depth,
+            .Row = frozen_pass.Depth.Image.Value,
+            .Slot = -1,
+            .Load = ToAttachmentLoad(frozen_pass.Depth.Load),
+            .Store = frozen_pass.Depth.Store,
+            .ClearValue = math::Float4{ frozen_pass.Depth.Load.ClearDepth, 0.0f, 0.0f, 0.0f },
+        };
+
+        AddAttachment(data, first_use, depth, order::DepthTargetAccess(frozen_pass.Depth));
+    }
+
+    // A Record pass: each Uses statement. A target use is also an attachment, which Loom begins rendering with (Keep
+    // and Store) around the callback (step 7 Q7).
+    void GatherRecordUses(CompiledData& data, const FrozenPass& frozen_pass, int32_t first_use)
+    {
+        int32_t colorSlot = 0;
+
+        for (const FrozenUse& statement : frozen_pass.Uses)
+        {
+            const bool frameTarget = statement.Target == TargetKind::FrameTarget;
+            const int32_t row = frameTarget ? RowOfFrameTarget(data, statement.FrameTarget) : statement.Resource.Value;
+
+            if (statement.Kind == ResourceKind::Buffer)
+            {
+                AddUse(data.Uses, first_use, PassUse{ .Resource = row,
+                                                      .Access = statement.Access,
+                                                      .Scope = BufferUseScope(statement.AsBuffer, statement.Access) });
+                continue;
+            }
+
+            const bool color = statement.AsImage == ImageUse::ColorTarget;
+            const bool depth = statement.AsImage == ImageUse::DepthTarget;
+
+            if (color || depth)
+            {
+                const CompiledAttachment attachment
+                {
+                    .Role = color ? AttachmentRole::Color : AttachmentRole::Depth,
+                    .Row = row,
+                    .Slot = color ? colorSlot : -1,
+                    .Load = AttachmentLoad::Keep,
+                    .Store = AttachmentStore::Store,
+                };
+
+                colorSlot += color ? 1 : 0;
+                AddAttachment(data, first_use, attachment, statement.Access);
+                continue;
+            }
+
+            const UseShape shape = ImageUseShape(statement.AsImage, statement.Access);
+            AddUse(data.Uses, first_use, PassUse{ .Resource = row,
+                                                  .Access = statement.Access,
+                                                  .Scope = shape.Scope,
+                                                  .Layout = shape.Layout });
+        }
     }
 
     int32_t HistoryDepthOf(const FrozenGraph& frozen, int32_t row)
@@ -353,16 +652,25 @@ namespace
                 AddUse(data.Uses, pass.FirstUse, use);
             }
 
+            pass.Kind = frozenPass.Kind;
+            pass.FirstAttachment = static_cast<int32_t>(data.Attachments.size());
+
             if (frozenPass.Kind == PassKind::Dispatch && frozenPass.Dispatch.Form == DispatchForm::Indirect)
             {
-                AddArgumentsUse(data.Uses, pass.FirstUse, frozenPass.Dispatch.Resource);
+                AddBufferRead(data.Uses, pass.FirstUse, frozenPass.Dispatch.Resource, BufferUse::Indirect);
             }
 
-            if (frozenPass.Kind == PassKind::Draw && frozenPass.Draw.Form == DrawForm::DrawIndirect)
+            if (frozenPass.Kind == PassKind::Draw)
             {
-                AddArgumentsUse(data.Uses, pass.FirstUse, frozenPass.Draw.Arguments);
+                GatherDrawUses(data, frozenPass, pass.FirstUse);
             }
 
+            if (frozenPass.Kind == PassKind::Record)
+            {
+                GatherRecordUses(data, frozenPass, pass.FirstUse);
+            }
+
+            pass.AttachmentCount = static_cast<int32_t>(data.Attachments.size()) - pass.FirstAttachment;
             pass.UseCount = static_cast<int32_t>(data.Uses.size()) - pass.FirstUse;
 
             for (int32_t useIndex = pass.FirstUse; useIndex < pass.FirstUse + pass.UseCount; ++useIndex)
@@ -421,9 +729,32 @@ namespace
         }
     }
 
+    void GatherFrameTargets(CompiledData& data)
+    {
+        const int32_t resourceCount = static_cast<int32_t>(data.Frozen.Resources.size());
+        const int32_t targetCount = static_cast<int32_t>(data.Frozen.FrameTargets.size());
+        data.RowCount = resourceCount + targetCount;
+        data.FrameTargets.assign(targetCount, CompiledFrameTarget{});
+
+        for (int32_t target = 0; target < targetCount; ++target)
+        {
+            data.FrameTargets[target].Row = resourceCount + target;
+        }
+
+        for (const FrozenOutput& output : data.Frozen.Outputs)
+        {
+            if (output.Target.IsValid())
+            {
+                data.FrameTargets[output.Target.Value].Fallback = output.OnSkip;
+            }
+        }
+    }
+
     void GatherCopies(CompiledData& data)
     {
-        const int32_t rowCount = static_cast<int32_t>(data.Frozen.Resources.size());
+        // a frame-target row has one copy: HistoryDepthOf reads resource rows only
+        const int32_t resourceCount = static_cast<int32_t>(data.Frozen.Resources.size());
+        const int32_t rowCount = data.RowCount;
         data.CopyCounts.assign(rowCount, 1);
         data.ExtraCopyBase.assign(rowCount, -1);
         data.CopyRows.resize(rowCount);
@@ -433,7 +764,7 @@ namespace
             data.CopyRows[row] = row;
         }
 
-        for (int32_t row = 0; row < rowCount; ++row)
+        for (int32_t row = 0; row < resourceCount; ++row)
         {
             const int32_t depth = HistoryDepthOf(data.Frozen, row);
 
@@ -454,7 +785,7 @@ namespace
 
     void ComputeSpans(CompiledData& data)
     {
-        data.Spans.assign(data.Frozen.Resources.size(), ResourceSpan{});
+        data.Spans.assign(data.RowCount, ResourceSpan{});
 
         for (int32_t passIndex = 0; passIndex < static_cast<int32_t>(data.Passes.size()); ++passIndex)
         {

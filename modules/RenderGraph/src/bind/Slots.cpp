@@ -248,7 +248,9 @@ void CheckUnboundResources(BindContext& context,
     for (size_t position = 0u; position < layout.Resources.size(); ++position)
     {
         const bool bound = std::ranges::contains(matches, static_cast<int32_t>(position));
-        if (bound || std::cmp_equal(position, constantsPosition))
+        const bool builtIn = IsLoomFrameBinding(layout.Resources[position].Resource);
+
+        if (bound || builtIn || std::cmp_equal(position, constantsPosition))
         {
             continue;
         }

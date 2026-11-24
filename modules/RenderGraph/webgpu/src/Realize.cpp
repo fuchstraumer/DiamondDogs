@@ -121,7 +121,8 @@ namespace
                 return RealizeError::PlacementNotBound;
             }
 
-            if (!SlotIsSupported(slot))
+            // the LoomFrame buffer is not written by this backend yet
+            if (!SlotIsSupported(slot) || slot.BuiltIn != BuiltInBinding::None)
             {
                 return RealizeError::BindingNotYet;
             }

@@ -60,8 +60,14 @@ namespace loom
         Invalid = 0,
         Draw = 1,
         DrawIndexed = 2,
-        DrawIndirect = 3
+        DrawIndirect = 3,
+        DrawIndirectCount = 4       // the GPU reads the draw count from a second buffer
     };
+
+    [[nodiscard]] constexpr bool IsIndirectDraw(DrawForm form) noexcept
+    {
+        return form == DrawForm::DrawIndirect || form == DrawForm::DrawIndirectCount;
+    }
 
     // vkCmdDrawIndexed takes a signed vertex offset, so the unset value is one no real draw uses.
     inline constexpr int32_t k_UnsetVertexOffset = std::numeric_limits<int32_t>::min();
@@ -121,7 +127,11 @@ namespace loom
     struct DrawRecord
     {
         DrawForm Form{ DrawForm::Invalid };
-        KeyRef Arguments;                   // DrawIndirect only
+        KeyRef Arguments;                   // DrawIndirect and DrawIndirectCount
+        int64_t ArgumentOffset{ 0 };        // the byte offset of the first draw's arguments
+        KeyRef Count;                       // DrawIndirectCount: the buffer that holds the draw count
+        int64_t CountOffset{ 0 };
+        int32_t MaxDraws{ -1 };
         int32_t VertexOrIndexCount{ -1 };
         int32_t InstanceCount{ -1 };
         int32_t FirstVertexOrIndex{ -1 };

@@ -10,6 +10,8 @@ namespace loom
 
     namespace compile
     {
+        // The frame-target rows (RowCount) and each target's fallback. Runs before GatherCopies and GatherUses.
+        void GatherFrameTargets(CompiledData& data);
         void GatherUses(CompiledData& data);
         void GatherParams(CompiledData& data);
         void ComputeSpans(CompiledData& data);

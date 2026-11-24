@@ -49,9 +49,12 @@ namespace
         lodestone::BufferUsageFlags Usage{ lodestone::BufferUsageFlags::Invalid };
     };
 
-    // vkCmdDispatchIndirect reads three uint32 values, vkCmdDrawIndirect four
+    // vkCmdDispatchIndirect reads three uint32 values, vkCmdDrawIndirect four, vkCmdDrawIndexedIndirect five. A draw
+    // count is one uint32.
     constexpr int64_t k_DispatchArgumentBytes = 12;
     constexpr int64_t k_DrawArgumentBytes = 16;
+    constexpr int64_t k_DrawIndexedArgumentBytes = 20;
+    constexpr int64_t k_DrawCountBytes = 4;
 
     // The bytes a binding states, when the shader states them. DescribeCreation decides whether the shader gives the
     // size at all (G10); the element count or the block size then gives the number.
@@ -160,12 +163,25 @@ namespace
                                                            .Where = dispatch.Where });
             }
 
-            if (pass.Draw.Form == DrawForm::DrawIndirect && IsBuffer(frozen, pass.Draw.Arguments))
+            if (IsIndirectDraw(pass.Draw.Form) && IsBuffer(frozen, pass.Draw.Arguments))
             {
+                // the draws are packed tightly, so draw n starts at offset + n * stride
+                const int64_t stride = pass.Index.Buffer.IsValid() ? k_DrawIndexedArgumentBytes : k_DrawArgumentBytes;
+                const int64_t draws = pass.Draw.Form == DrawForm::DrawIndirectCount ? pass.Draw.MaxDraws : 1;
                 BufferFacts& buffer = facts[pass.Draw.Arguments.Value];
                 buffer.Usage |= lodestone::BufferUsageFlags::Indirect;
                 buffer.Requirements.push_back(Requirement{ .Kind = Need::AtLeast,
-                                                           .Bytes = k_DrawArgumentBytes,
+                                                           .Bytes = pass.Draw.ArgumentOffset + draws * stride,
+                                                           .Pass = pass.Key,
+                                                           .Where = pass.Draw.Where });
+            }
+
+            if (pass.Draw.Form == DrawForm::DrawIndirectCount && IsBuffer(frozen, pass.Draw.Count))
+            {
+                BufferFacts& buffer = facts[pass.Draw.Count.Value];
+                buffer.Usage |= lodestone::BufferUsageFlags::Indirect;
+                buffer.Requirements.push_back(Requirement{ .Kind = Need::AtLeast,
+                                                           .Bytes = pass.Draw.CountOffset + k_DrawCountBytes,
                                                            .Pass = pass.Key,
                                                            .Where = pass.Draw.Where });
             }

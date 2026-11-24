@@ -219,6 +219,62 @@ namespace
         return PassDecision{ .Reason = SkipReason::Ran, .Cause = -1 };
     }
 
+    // Step 7: what each frame target needs this Tick. A target that a running pass writes renders; otherwise its
+    // fallback decides. A Clear fallback clears the target before the first run (it joins plan.Clears).
+    void DecideTargets(const CompiledData& data, FramePlan& plan)
+    {
+        if (data.FrameTargets.empty())
+        {
+            return;
+        }
+
+        std::ranges::fill(plan.TargetActions, TargetAction::Skip);
+
+        for (const int32_t passIndex : plan.Runs)
+        {
+            const CompiledPass& pass = data.Passes[passIndex];
+
+            for (int32_t useIndex = pass.FirstUse; useIndex < pass.FirstUse + pass.UseCount; ++useIndex)
+            {
+                const PassUse& use = data.Uses[useIndex];
+
+                if (IsFrameTargetRow(data, use.Resource) && Writes(use))
+                {
+                    plan.TargetActions[FrameTargetOfRow(data, use.Resource)] = TargetAction::Render;
+                }
+            }
+        }
+
+        for (size_t target = 0u; target < data.FrameTargets.size(); ++target)
+        {
+            const CompiledFrameTarget& frameTarget = data.FrameTargets[target];
+            const bool clears = frameTarget.Fallback.Kind == OutputFallback::Kind::Clear;
+
+            if (plan.TargetActions[target] == TargetAction::Skip && clears)
+            {
+                plan.TargetActions[target] = TargetAction::Clear;
+                plan.Clears.push_back(frameTarget.Row);
+            }
+        }
+    }
+
+    std::string_view TargetActionText(TargetAction action)
+    {
+        switch (action)
+        {
+        case TargetAction::Render:
+            return "rendered";
+        case TargetAction::Clear:
+            return "cleared to its fallback color";
+        case TargetAction::Skip:
+            return "not acquired, keeps its last frame";
+        case TargetAction::Invalid:
+            break;
+        }
+
+        return "not decided";
+    }
+
 }
 
     void DecideRuns(const CompiledGraph& compiled,
@@ -306,6 +362,8 @@ namespace
                 }
             }
         }
+
+        DecideTargets(data, plan);
     }
 
     void CommitRuns(const CompiledGraph& compiled, const FramePlan& plan, std::span<PassControl> controls)
@@ -430,10 +488,10 @@ namespace
                 break;
             case SkipReason::NotCreated:
                 text += std::format("{}: skipped, '{}' does not exist yet\n", pass,
-                                    data.Frozen.Resources[decision.Cause].Key.Name);
+                                    KeyOfRow(data, decision.Cause).Name);
                 break;
             case SkipReason::Failed:
-                text += std::format("{}: skipped, '{}' failed\n", pass, data.Frozen.Resources[decision.Cause].Key.Name);
+                text += std::format("{}: skipped, '{}' failed\n", pass, KeyOfRow(data, decision.Cause).Name);
                 break;
             case SkipReason::Propagated:
                 text += std::format("{}: skipped, its writer '{}' skipped\n", pass,
@@ -447,6 +505,12 @@ namespace
                 text += std::format("{}: not decided\n", pass);
                 break;
             }
+        }
+
+        for (size_t target = 0u; target < data.FrameTargets.size(); ++target)
+        {
+            text += std::format("frame target '{}': {}\n", data.Frozen.FrameTargets[target].Key.Name,
+                                TargetActionText(plan.TargetActions[target]));
         }
 
         return text;

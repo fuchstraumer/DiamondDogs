@@ -17,6 +17,13 @@ namespace loom
     struct FrozenGraph;
     struct ResolvedGraph;
 
+    // A binding that Loom fills itself, with no Bind statement and no resource row. The backend owns its buffer.
+    enum class BuiltInBinding : uint8_t
+    {
+        None = 0,
+        LoomFrame = 1           // a uniform block named k_LoomFrameBindingName (LoomFrame.hpp)
+    };
+
     // One resource of one pass's pipeline, in placement order (guide section 3). A Bound resource is a descriptor at
     // (Group, Binding). A Handle or Pointer resource is an 8-byte value that Loom writes at ValueOffset in Container;
     // Group and Binding then name the uniform buffer that holds it, or are 0 when Container is PushConstants.
@@ -33,6 +40,7 @@ namespace loom
         uint32_t ArrayCount{ 0u };                              // 0: unbounded
         ResourceIndex Resource;                                 // the bound key's row in FrozenGraph::Resources
         bool Previous{ false };                                 // BindPrevious: the history ring's last-frame copy
+        BuiltInBinding BuiltIn{ BuiltInBinding::None };         // LoomFrame: Resource is invalid
     };
 
     // The entry point constants of one pass. ParamsIndex points into FrozenPass::Params, and is -1 when the pass has no
