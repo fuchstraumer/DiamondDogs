@@ -26,8 +26,7 @@ namespace color
 
     [[nodiscard]] Vec3d ApplyExposure(const Vec3d& scene_ap1, double exposure_ev) noexcept;
 
-    /** @brief Returns the paper-white-relative linear Rec.2020 color. Invalid, KhronosNeutral and AgX return NaN: no
-     *  reference exists for them yet. */
+    /** @brief Returns the paper-white-relative linear Rec.2020 color. Invalid returns NaN. */
     [[nodiscard]] Vec3d Tonemap(TonemapperKind kind, const Vec3d& exposed_ap1, const DisplayTarget& target) noexcept;
 
     /** @brief Returns the exposure of `luminance` in stops from middle gray, which FalseColorEv rounds to a zone. A

@@ -88,5 +88,13 @@ else()
         INCLUDE_DIRS ${COLOR_PIPE_COMPOSITE_INCLUDE_DIRS}
         MODULES "${COLOR_PIPE_COMPOSITE_SHADER_MODULE}" "${COLOR_PIPE_BLOOM_SHADER_MODULE}")
     add_dependencies(color_pipe_shaders color_pipe_shader_data)
+
+    # ColorCompositePolicy.toml holds the ColorBloom keys too, so ColorBloomPolicy.toml is not registered: the merge
+    # fails on a key that two files set
+    diamond_dogs_register_shader_modules(
+        MODULES "${COLOR_PIPE_COMPOSITE_SHADER_MODULE}" "${COLOR_PIPE_BLOOM_SHADER_MODULE}"
+        POLICY_FILES "${COLOR_PIPE_COMPOSITE_POLICY_FILE}"
+        INCLUDE_DIRS ${COLOR_PIPE_COMPOSITE_INCLUDE_DIRS}
+        DEPENDS color_pipe_shader_data)
     set_target_properties(color_pipe_shaders PROPERTIES FOLDER "Modules")
 endif()

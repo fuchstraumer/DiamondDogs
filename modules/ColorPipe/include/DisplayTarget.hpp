@@ -33,6 +33,8 @@ namespace color
         FalseColorEv,
         KhronosNeutral,
         AgX,
+        // AgX with Blender's "Punchy" look: more contrast and saturation
+        AgXPunchy,
     };
 
     /** @brief What the application asks for. ColorPipe::Target reports what the pipe got. */

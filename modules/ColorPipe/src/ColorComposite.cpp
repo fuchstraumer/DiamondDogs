@@ -43,7 +43,14 @@ namespace color
         [[nodiscard]] Vec3d TonemapPassthrough(const Vec3d& exposed_ap1, const DisplayTarget& target) noexcept;
         [[nodiscard]] Vec3d TonemapFalseColorEv(const Vec3d& exposed_ap1) noexcept;
         [[nodiscard]] Vec3d TonemapKhronosNeutral(const Vec3d& exposed_ap1, const DisplayTarget& target) noexcept;
-        [[nodiscard]] Vec3d TonemapAgX(const Vec3d& exposed_ap1, const DisplayTarget& target) noexcept;
+        enum class AgxLook : uint8_t
+        {
+            Base,
+            // Blender's "Punchy" look
+            Punchy,
+        };
+
+        [[nodiscard]] Vec3d TonemapAgX(const Vec3d& exposed_ap1, const DisplayTarget& target, AgxLook look) noexcept;
         [[nodiscard]] Vec3d NotANumber() noexcept;
     }
 
@@ -63,7 +70,9 @@ namespace color
         case TonemapperKind::KhronosNeutral:
             return TonemapKhronosNeutral(exposed_ap1, target);
         case TonemapperKind::AgX:
-            return TonemapAgX(exposed_ap1, target);
+            return TonemapAgX(exposed_ap1, target, AgxLook::Base);
+        case TonemapperKind::AgXPunchy:
+            return TonemapAgX(exposed_ap1, target, AgxLook::Punchy);
         default:
             return NotANumber();
         }
@@ -217,18 +226,23 @@ namespace color
             return Multiply(Rec709ToRec2020(), linearRec709);
         }
 
-        constexpr Mat3d k_Ap1ToAgxInset
+        // AgX in an AP1 working space: Troy Sobotka's AgX_compressed_matrix (AgX-S2O3, compression 0.20) run on ACEScg
+        // instead of sRGB, and its inverse as the outset. docs/ocean-spectra-check/agx_matrices.py generates them. Each
+        // row of the inset sums to 1, so a gray stays gray
+        constexpr Mat3d k_AgxInsetAp1
         { {
-            std::array<double, 3>{ 1.4242167303573248, -0.44453410335192245, 0.020317372994598713 },
-            std::array<double, 3>{ -0.044029197774698277, 0.96554338243400251, 0.078485815340695361 },
-            std::array<double, 3>{ 0.04097325078724233, -0.050275587678294958, 1.0093023368910528 },
+            std::array<double, 3>{ 0.8627463964473798, 0.05484751562926519, 0.08240608792335495 },
+            std::array<double, 3>{ 0.0627463964473798, 0.8548475156292649, 0.08240608792335503 },
+            std::array<double, 3>{ 0.06274639644737985, 0.05484751562926517, 0.8824060879233553 },
         } };
 
-        constexpr Mat3d k_AgxOutsetToRec2020
+        // the outset works on the display encoded curve output, so the conversion to Rec.2020 happens after the 2.2
+        // power, in linear light
+        constexpr Mat3d k_AgxOutsetAp1
         { {
-            std::array<double, 3>{ 0.73125620860645901, 0.31356609159127502, -0.044822300197734338 },
-            std::array<double, 3>{ 0.033372950385875823, 1.051387787463244, -0.08476073784911943 },
-            std::array<double, 3>{ -0.032509362717976532, 0.011978928465452423, 1.0205304342525243 },
+            std::array<double, 3>{ 1.171567004440775, -0.06855939453658151, -0.10300760990419364 },
+            std::array<double, 3>{ -0.07843299555922477, 1.1814406054634188, -0.1030076099041938 },
+            std::array<double, 3>{ -0.07843299555922478, -0.06855939453658147, 1.146992390095806 },
         } };
 
         constexpr double k_AgxMinEv = -12.473931188332412;
@@ -287,9 +301,33 @@ namespace color
             return Clamp(rec2020, 0.0, HeadroomOf(target));
         }
 
-        Vec3d TonemapAgX(const Vec3d& exposed_ap1, const DisplayTarget& target) noexcept
+        // Blender's "Punchy" AgX look, an ASC CDL step on the display encoded curve output: power 1.35, then saturation
+        // 1.4 around the luminance taken before the power. The working space is AP1, so the luminance uses the AP1
+        // weights. ColorCompositeTonemappers.slang AgxPunchyLook must match
+        constexpr double k_AgxPunchyPower = 1.35;
+        constexpr double k_AgxPunchySaturation = 1.4;
+
+        Vec3d AgxPunchyLook(const Vec3d& curved) noexcept
         {
-            const Vec3d inset = Multiply(k_Ap1ToAgxInset, exposed_ap1);
+            const double luma = (curved.X * Ap1LuminanceWeights.X) +
+                                (curved.Y * Ap1LuminanceWeights.Y) +
+                                (curved.Z * Ap1LuminanceWeights.Z);
+            const Vec3d powered{
+                std::pow(std::max(curved.X, 0.0), k_AgxPunchyPower),
+                std::pow(std::max(curved.Y, 0.0), k_AgxPunchyPower),
+                std::pow(std::max(curved.Z, 0.0), k_AgxPunchyPower)
+            };
+
+            return Vec3d{
+                luma + (k_AgxPunchySaturation * (powered.X - luma)),
+                luma + (k_AgxPunchySaturation * (powered.Y - luma)),
+                luma + (k_AgxPunchySaturation * (powered.Z - luma))
+            };
+        }
+
+        Vec3d TonemapAgX(const Vec3d& exposed_ap1, const DisplayTarget& target, AgxLook look) noexcept
+        {
+            const Vec3d inset = Multiply(k_AgxInsetAp1, exposed_ap1);
             const Vec3d logColor{
                 std::clamp(std::log2(std::max(inset.X, 1.0e-10)), k_AgxMinEv, k_AgxMaxEv),
                 std::clamp(std::log2(std::max(inset.Y, 1.0e-10)), k_AgxMinEv, k_AgxMaxEv),
@@ -300,12 +338,21 @@ namespace color
                 (logColor.Y - k_AgxMinEv) * k_AgxInvEvRange,
                 (logColor.Z - k_AgxMinEv) * k_AgxInvEvRange
             };
-            const Vec3d curved{
+            const Vec3d baseCurved{
                 AgxDefaultContrastApprox(normLog.X),
                 AgxDefaultContrastApprox(normLog.Y),
                 AgxDefaultContrastApprox(normLog.Z)
             };
-            const Vec3d rec2020 = Multiply(k_AgxOutsetToRec2020, curved);
+            const Vec3d curved = (look == AgxLook::Punchy) ? AgxPunchyLook(baseCurved) : baseCurved;
+            // the contrast curve's output is display encoded (a 2.2 power), so the outset result goes back to linear
+            // light before the composite encodes it for the display
+            const Vec3d outset = Multiply(k_AgxOutsetAp1, curved);
+            const Vec3d linearAp1{
+                std::pow(std::max(outset.X, 0.0), 2.2),
+                std::pow(std::max(outset.Y, 0.0), 2.2),
+                std::pow(std::max(outset.Z, 0.0), 2.2)
+            };
+            const Vec3d rec2020 = Multiply(Ap1ToRec2020(), linearAp1);
             return Clamp(rec2020, 0.0, HeadroomOf(target));
         }
 

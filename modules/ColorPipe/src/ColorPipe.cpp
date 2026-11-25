@@ -49,13 +49,14 @@ namespace color
         constexpr std::string_view k_TonemapperAxisName{ "TONEMAPPER" };
         constexpr std::string_view k_EncodeAxisName{ "ENCODE" };
 
-        constexpr std::array<TonemapperKind, 4> k_WrittenTonemappers{
+        constexpr std::array<TonemapperKind, 5> k_WrittenTonemappers{
             TonemapperKind::Passthrough,
             TonemapperKind::FalseColorEv,
             TonemapperKind::KhronosNeutral,
-            TonemapperKind::AgX
+            TonemapperKind::AgX,
+            TonemapperKind::AgXPunchy
         };
-        constexpr size_t k_TonemapperKindCount = 5u;
+        constexpr size_t k_TonemapperKindCount = 6u;
 
         constexpr std::string_view k_BloomModuleName{ "ColorBloom" };
         constexpr std::string_view k_BloomDownsampleEntry{ "ColorBloomDownsampleCS" };
@@ -679,6 +680,7 @@ namespace color
             case TonemapperKind::FalseColorEv: return "FalseColorEv";
             case TonemapperKind::KhronosNeutral: return "KhronosNeutral";
             case TonemapperKind::AgX: return "AgX";
+            case TonemapperKind::AgXPunchy: return "AgXPunchy";
             default: return "";
             }
         }
