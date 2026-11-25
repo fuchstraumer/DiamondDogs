@@ -69,6 +69,10 @@ namespace
         { "bloom", { SceneCommand::Kind::Bloom, 0u, 0u, false } },
         { "cdlod", { SceneCommand::Kind::Cdlod, 0u, 0u, true } },
         { "cdlod_scale", { SceneCommand::Kind::CdlodScale, 1u, 1u, false } },
+        { "lod_scale", { SceneCommand::Kind::LodScale, 1u, 1u, false } },
+        { "seed", { SceneCommand::Kind::Seed, 1u, 1u, false } },
+        { "time_scale", { SceneCommand::Kind::TimeScale, 1u, 1u, false } },
+        { "snapshot", { SceneCommand::Kind::Snapshot, 0u, 0u, false } },
         { "cdlod_morph", { SceneCommand::Kind::CdlodMorph, 1u, 1u, false } },
         { "cdlod_max_level", { SceneCommand::Kind::CdlodMaxLevel, 1u, 1u, false } },
         { "wireframe", { SceneCommand::Kind::Wireframe, 0u, 0u, true } },
@@ -183,7 +187,8 @@ namespace
         "distance",
     };
 
-    const std::array<std::string_view, 11> k_SurfaceDebugModes
+    // the order is the shader's SURF_DEBUG_* index (OceanRenderCommon.slang and OceanDeferred.slang)
+    const std::array<std::string_view, k_SurfaceDebugModeCount> k_SurfaceDebugModes
     {
         "off",
         "normal",
@@ -196,6 +201,9 @@ namespace
         "reflectdir",
         "foamterms",
         "specsplit",
+        "slopedir",
+        "compression",
+        "fineenergy",
     };
 }
 
@@ -451,7 +459,7 @@ int32_t FindSsrDebugMode(std::string_view name)
     return static_cast<int32_t>(found - k_SsrDebugModes.begin());
 }
 
-const std::array<std::string_view, 11>& SurfaceDebugModeNames() noexcept
+const std::array<std::string_view, k_SurfaceDebugModeCount>& SurfaceDebugModeNames() noexcept
 {
     return k_SurfaceDebugModes;
 }
@@ -947,6 +955,10 @@ namespace
         {
             canonical = "agx";
         }
+        else if (lower == "agxpunchy" || lower == "agx_punchy" || lower == "agx punchy" || lower == "punchy")
+        {
+            canonical = "agxpunchy";
+        }
         else if (lower == "neutral" || lower == "khronos_neutral" || lower == "khronos neutral")
         {
             canonical = "neutral";
@@ -1056,17 +1068,16 @@ namespace
         cmd.Type = SceneCommand::Kind::SpecAa;
         if (words.size() == 2u)
         {
+            // a bare on or off switches the pass and keeps the strength
             if (words[1] == "off")
             {
                 cmd.Text = "off";
-                cmd.Values[0] = 0.0f;
-                cmd.ValueCount = 1u;
+                cmd.ValueCount = 0u;
             }
             else if (words[1] == "on")
             {
                 cmd.Text = "on";
-                cmd.Values[0] = 1.0f;
-                cmd.ValueCount = 1u;
+                cmd.ValueCount = 0u;
             }
             else
             {
@@ -1108,17 +1119,16 @@ namespace
         cmd.Type = SceneCommand::Kind::Taa;
         if (words.size() == 2u)
         {
+            // a bare on or off switches the pass and keeps the blend alpha. An alpha of 0 would freeze the history
             if (words[1] == "off")
             {
                 cmd.Text = "off";
-                cmd.Values[0] = 0.0f;
-                cmd.ValueCount = 1u;
+                cmd.ValueCount = 0u;
             }
             else if (words[1] == "on")
             {
                 cmd.Text = "on";
-                cmd.Values[0] = 0.1f;
-                cmd.ValueCount = 1u;
+                cmd.ValueCount = 0u;
             }
             else
             {
@@ -1212,17 +1222,16 @@ namespace
         cmd.Type = SceneCommand::Kind::AutoExposure;
         if (words.size() == 2u)
         {
+            // a bare on or off switches the metering and keeps the speed. A speed of 0 would never adapt
             if (words[1] == "off")
             {
                 cmd.Text = "off";
-                cmd.Values[0] = 0.0f;
-                cmd.ValueCount = 1u;
+                cmd.ValueCount = 0u;
             }
             else if (words[1] == "on")
             {
                 cmd.Text = "on";
-                cmd.Values[0] = 1.0f;
-                cmd.ValueCount = 1u;
+                cmd.ValueCount = 0u;
             }
             else
             {

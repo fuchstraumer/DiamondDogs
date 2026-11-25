@@ -54,6 +54,7 @@
 #include <array>
 #include <bit>
 #include <chrono>
+#include <fstream>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -640,17 +641,15 @@ void OceanScene::Initialize(void* user_data)
     imgui = std::make_unique<ImGuiModule>(imguiInfo);
     startup.Mark("ImGuiModule");
 
-    // capture only costs anything on the frames it copies, but it needs transfer source usage on the swapchain
-    if (settings.Capture.Count > 0u || settings.Commands != nullptr || settings.Tools != nullptr)
+    // capture only costs anything on the frames it copies, but it needs transfer source usage on the swapchain. Every
+    // run has it, because the panel's snapshot control captures in any run
+    if (swapchain->SupportsTransferSource())
     {
-        if (swapchain->SupportsTransferSource())
-        {
-            frameCapture = std::make_unique<capture::FrameCapture>(*resources, numFramebuffers, settings.CaptureDirectory);
-        }
-        else
-        {
-            std::cerr << "OceanFft: the swapchain images cannot be a transfer source, so capture is off\n";
-        }
+        frameCapture = std::make_unique<capture::FrameCapture>(*resources, numFramebuffers, settings.CaptureDirectory);
+    }
+    else
+    {
+        std::cerr << "OceanFft: the swapchain images cannot be a transfer source, so capture is off\n";
     }
 
     startup.Mark("frame capture");
@@ -1590,6 +1589,10 @@ void OceanScene::runCommand(const SceneCommand& command)
         {
             tonemapper = color::TonemapperKind::AgX;
         }
+        else if (command.Text == "agxpunchy")
+        {
+            tonemapper = color::TonemapperKind::AgXPunchy;
+        }
         else if (command.Text == "neutral")
         {
             tonemapper = color::TonemapperKind::KhronosNeutral;
@@ -1643,6 +1646,19 @@ void OceanScene::runCommand(const SceneCommand& command)
     case SceneCommand::Kind::CdlodScale:
         lodDistanceScale = std::clamp(v[0], 0.2f, 10.0f);
         updateCdlodSettings();
+        break;
+    case SceneCommand::Kind::LodScale:
+        lodScale = std::clamp(v[0], 1.0f, 60.0f);
+        break;
+    case SceneCommand::Kind::Seed:
+        spectrum.NoiseSeed = static_cast<uint32_t>(std::max(v[0], 0.0f));
+        spectrumChanged = true;
+        break;
+    case SceneCommand::Kind::TimeScale:
+        timeScale = std::max(v[0], 0.0f);
+        break;
+    case SceneCommand::Kind::Snapshot:
+        snapshotPending = true;
         break;
     case SceneCommand::Kind::CdlodMorph:
         morphStartRatio = std::clamp(v[0], 0.1f, 0.95f);
@@ -1892,6 +1908,7 @@ void OceanScene::printState() const
     switch (tonemapper)
     {
     case color::TonemapperKind::AgX: tonemapperName = "agx"; break;
+    case color::TonemapperKind::AgXPunchy: tonemapperName = "agxpunchy"; break;
     case color::TonemapperKind::KhronosNeutral: tonemapperName = "neutral"; break;
     case color::TonemapperKind::Passthrough: tonemapperName = "passthrough"; break;
     case color::TonemapperKind::FalseColorEv: tonemapperName = "falsecolor"; break;
@@ -1908,6 +1925,207 @@ void OceanScene::printState() const
         sssStrength, bodyReflectanceScale, leadrSlopeVarianceScale, foamRoughnessScale, seabedRoughnessScale);
     std::cout << std::format("\nasync compute {}", (useAsyncCompute && hasAsyncComputeQueue) ? "on" : "off");
     std::cout << '\n' << std::flush;
+}
+
+void OceanScene::writeReproScript(std::ostream& out) const
+{
+    const ArcballCamera::State& view = camera.Current;
+    const math::Float2 extent = swapchain->GetExtent();
+
+    out << "# OceanFft repro script: run with --script=<this file>. Every line is a scene command (SceneCommands.hpp)\n";
+    out << std::format("# frame {}, the sea was {}\n", frameNumber, paused ? "paused" : "running");
+    out << std::format("resize {} {}\n", static_cast<int32_t>(extent.x), static_cast<int32_t>(extent.y));
+    out << "ui off\n";
+
+    // the sea state first: the spectrum commands below run the sea state pipe again
+    const foundation::reflect::TypeInfo& seaStateInfo = foundation::reflect::GetTypeInfo<ocean::SeaState>();
+
+    for (const foundation::reflect::FieldInfo& field : seaStateInfo.Fields)
+    {
+        const float value = *static_cast<const float*>(foundation::reflect::FieldAddress(field, &seaState));
+        out << std::format("sea {} {:.9g}\n", field.Name, value);
+    }
+
+    constexpr std::array<std::string_view, 3> k_SpectrumNames{ "jonswap", "elfouhaily", "bringer" };
+    constexpr std::array<std::string_view, 6> k_SpreadingNames{ "mitsuyasu", "hasselmann", "donelan", "elfouhaily", "hybrid", "ewans" };
+    const size_t spectrumIndex = std::min<size_t>(spectrum.EnergySpectrumModel, k_SpectrumNames.size() - 1u);
+    const size_t spreadingIndex = std::min<size_t>(spectrum.DirectionalSpreadingMode, k_SpreadingNames.size() - 1u);
+    out << std::format("spectrum {}\n", k_SpectrumNames[spectrumIndex]);
+    out << std::format("spreading {}\n", k_SpreadingNames[spreadingIndex]);
+    out << std::format("seed {}\n", spectrum.NoiseSeed);
+    out << std::format("choppiness {:.9g}\n", choppiness);
+    out << std::format("rotate {}\n", rotateCascades ? "on" : "off");
+
+    for (uint32_t cascade = 0u; cascade < ocean::k_CascadeCount; ++cascade)
+    {
+        out << std::format("cascade {} {}\n", cascade, cascadeEnabled[cascade] ? "on" : "off");
+        out << std::format("foamweight {} {:.9g}\n", cascade, foamWeights[cascade]);
+    }
+
+    out << std::format("foam enable {}\n", foamSettings.Enabled ? 1 : 0);
+    out << std::format("foam raise {:.9g}\n", foamSettings.ThresholdRaise);
+    out << std::format("foam decay {:.9g}\n", foamSettings.DecayTime);
+    out << std::format("foam gain {:.9g}\n", foamSettings.PersistenceGain);
+    out << std::format("foam residual {:.9g}\n", foamSettings.ResidualAmount);
+    out << std::format("foam softness {:.9g}\n", foamSettings.ResidualSoftness);
+    out << std::format("foam scale {:.9g}\n", foamSettings.TextureTileSize);
+    out << std::format("foam drift {:.9g}\n", foamSettings.WindDrift);
+    out << std::format("shading underwater {:.9g}\n", underwaterFoam);
+    out << std::format("shading specular {:.9g}\n", sunSpecular);
+    out << std::format("shading albedo {:.9g}\n", foamAlbedoGain);
+    out << std::format("shading normal {:.9g}\n", foamNormalStrength);
+
+    std::string_view skyName = "preetham";
+
+    switch (skyPreset)
+    {
+    case ocean::OceanSkyPreset::BrightDay:
+        skyName = "day";
+        break;
+    case ocean::OceanSkyPreset::Twilight:
+        skyName = "twilight";
+        break;
+    case ocean::OceanSkyPreset::OvercastEvening:
+        skyName = "overcast";
+        break;
+    case ocean::OceanSkyPreset::StarryNight:
+        skyName = "night";
+        break;
+    case ocean::OceanSkyPreset::AuroralNight:
+        skyName = "aurora";
+        break;
+    default:
+        break;
+    }
+
+    out << std::format("sky {}\n", skyName);
+
+    if (useBrunetonAtmosphere)
+    {
+        out << "sky bruneton\n";
+    }
+
+    out << std::format("sky_res {}\n", downsample8k ? "8k" : "16k");
+    out << std::format("sky_intensity {:.9g}\n", skyIntensityScale);
+    out << std::format("sun {:.9g} {:.9g}\n", sunElevation / k_DegreesToRadians, sunAzimuth / k_DegreesToRadians);
+
+    std::string_view tonemapperName = "agx";
+
+    switch (tonemapper)
+    {
+    case color::TonemapperKind::AgXPunchy:
+        tonemapperName = "agxpunchy";
+        break;
+    case color::TonemapperKind::KhronosNeutral:
+        tonemapperName = "neutral";
+        break;
+    case color::TonemapperKind::Passthrough:
+        tonemapperName = "passthrough";
+        break;
+    case color::TonemapperKind::FalseColorEv:
+        tonemapperName = "falsecolor";
+        break;
+    default:
+        break;
+    }
+
+    out << std::format("tonemap {}\n", tonemapperName);
+    out << std::format("exposure {:.9g}\n", exposure.Ev);
+    out << std::format("auto_exposure {} {:.9g}\n", exposure.Auto ? "on" : "off", exposure.Speed);
+    out << std::format("bloom {:.9g} {:.9g}\n", bloomSettings.Intensity, bloomSettings.Scatter);
+
+    if (!bloomSettings.Enabled)
+    {
+        out << "bloom off\n";
+    }
+
+    out << std::format("spec_aa {} {:.9g}\n", useSpecularAa ? "on" : "off", specularAaStrength);
+    out << std::format("taa {} {:.9g}\n", useTaa ? "on" : "off", taaBlendAlpha);
+    out << std::format("ssr {:.9g}\n", ssrIntensity);
+    out << std::format("brdf sss {:.9g}\n", sssStrength);
+    out << std::format("brdf body {:.9g}\n", bodyReflectanceScale);
+    out << std::format("brdf leadr {:.9g}\n", leadrSlopeVarianceScale);
+    out << std::format("brdf foam_roughness {:.9g}\n", foamRoughnessScale);
+    out << std::format("brdf seabed_roughness {:.9g}\n", seabedRoughnessScale);
+    out << std::format("lod_scale {:.9g}\n", lodScale);
+    out << std::format("cdlod {}\n", useCdlod ? "on" : "off");
+    out << std::format("cdlod_scale {:.9g}\n", lodDistanceScale);
+    out << std::format("cdlod_morph {:.9g}\n", morphStartRatio);
+
+    if (cdlodMaxLevelOverride.has_value())
+    {
+        out << std::format("cdlod_max_level {}\n", *cdlodMaxLevelOverride);
+    }
+
+    out << std::format("wireframe {}\n", wireframe ? "on" : "off");
+    out << std::format("async_compute {}\n", useAsyncCompute ? "on" : "off");
+    // the debug commands take the mode's name; the first name of each table turns the view off
+    const auto writeDebugMode = [&out](std::string_view command, std::span<const std::string_view> names, int32_t index)
+    {
+        const size_t clamped = std::min<size_t>(static_cast<size_t>(std::max(index, 0)), names.size() - 1u);
+        out << std::format("{} {}\n", command, names[clamped]);
+    };
+
+    writeDebugMode("surfdebug", SurfaceDebugModeNames(), surfaceDebugMode);
+    writeDebugMode("atmosdebug", AtmosphereDebugModeNames(), atmosphereDebugMode);
+    writeDebugMode("ssrdebug", SsrDebugModeNames(), ssrDebugMode);
+
+    if (settings.FixedTimeStep > 0.0f)
+    {
+        out << std::format("dt {:.9g}\n", settings.FixedTimeStep);
+    }
+
+    out << std::format("time_scale {:.9g}\n", timeScale);
+    out << std::format("camera {:.9g} {:.9g} {:.9g} {:.9g} {:.9g} {:.9g}\n",
+        view.Yaw / k_DegreesToRadians, view.Pitch / k_DegreesToRadians, view.Distance,
+        view.Target[0], view.Target[1], view.Target[2]);
+
+    // the frame is held at its time. The persistent foam depends on its history, so it is rebuilt for this time
+    out << "pause on\n";
+    out << std::format("time {:.9g}\n", simulationTime);
+
+    if (foamSettings.Enabled)
+    {
+        out << "foamreset\n";
+    }
+
+    out << "wait 60\n";
+}
+
+void OceanScene::beginSnapshot()
+{
+    const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    const std::string name = std::format("snapshot_{:%Y%m%d_%H%M%S}_f{}", now, frameNumber);
+
+    // the script is the part that matters, so it is written even when this swapchain cannot be captured
+    if (frameCapture != nullptr)
+    {
+        captureRequest = name;
+        snapshotThisFrame = true;
+    }
+    else
+    {
+        std::cerr << "snapshot: the swapchain cannot be captured, so only the script is written\n";
+    }
+
+    std::error_code directoryError;
+    std::filesystem::create_directories(settings.CaptureDirectory, directoryError);
+
+    const std::filesystem::path scriptPath = settings.CaptureDirectory / (name + ".txt");
+    std::ofstream script{ scriptPath };
+
+    if (!script)
+    {
+        std::cerr << std::format("snapshot: cannot write {}\n", scriptPath.string());
+        return;
+    }
+
+    writeReproScript(script);
+    script << std::format("# the original image is {}.png; this capture is the replay\n", name);
+    script << std::format("capture {}_replay\n", name);
+    // about two seconds at 60 Hz: the snapshot control reads SAVED meanwhile
+    snapshotSavedFrames = 120;
+    std::cout << std::format("snapshot {} (.png and .txt)\n", (settings.CaptureDirectory / name).string());
 }
 
 std::array<float, 3> OceanScene::sunDirection() const noexcept
@@ -1929,8 +2147,11 @@ void OceanScene::drawDebugModeCombo(
     int32_t& selected_mode)
 {
     const std::string currentName{ mode_names[static_cast<size_t>(selected_mode)] };
+    const std::string comboId = std::format("##{}", label);
 
-    if (ImGui::BeginCombo(label, currentName.c_str()))
+    ocean::BeginFieldRow(label);
+
+    if (ImGui::BeginCombo(comboId.c_str(), currentName.c_str()))
     {
         for (int32_t index = 0; index < static_cast<int32_t>(mode_names.size()); ++index)
         {
@@ -1953,10 +2174,10 @@ void OceanScene::drawPanel()
 
     if (ocean::BeginTelemetryPanel("Ocean", fonts, headerFontMode, &showUi))
     {
-        ocean::DrawTelemetryBanner(fonts, headerFontMode, simulationSettings, &showUi);
-        ocean::DrawSeaReadoutCard(fonts, seaState, seaReadout);
-        (void)ocean::DrawSimulationTransportBar(fonts, &paused, &timeScale, ocean::AccentTone::Amber);
-        (void)ocean::DrawTelemetryTabBar(fonts, currentTab, ocean::AccentTone::Cyan);
+        ocean::DrawTelemetryBanner(simulationSettings, &showUi);
+        ocean::DrawSeaReadout(seaState, seaReadout);
+        (void)ocean::DrawSimulationTransportBar(&paused, &timeScale, &snapshotPending, snapshotSavedFrames > 0);
+        (void)ocean::DrawTelemetryTabs(currentTab);
 
         bool seaStateChanged = false;
 
@@ -1964,45 +2185,39 @@ void OceanScene::drawPanel()
         {
         case ocean::TelemetryTab::SeaState:
         {
-            seaStateChanged |= ocean::DrawPresetGrid(fonts, seaState);
+            seaStateChanged |= ocean::DrawPresetSelector(seaState);
 
-            seaStateChanged |= ocean::DrawArtistSlider(
+            seaStateChanged |= ocean::DrawSlider(
                 "##wind_force",
                 "Wind force",
                 seaReadout.BeaufortName,
                 &seaState.WindForce,
                 0.0f,
                 12.0f,
-                std::format("Bft {:.1f}  ({:.1f}", seaState.WindForce, seaReadout.WindSpeed),
-                "m/s)",
-                fonts,
-                ocean::AccentTone::Cyan,
+                std::format("Bft {:.1f}", seaState.WindForce),
+                std::format("{:.1f} m/s", seaReadout.WindSpeed),
                 false);
 
-            seaStateChanged |= ocean::DrawArtistSlider(
+            seaStateChanged |= ocean::DrawSlider(
                 "##open_water",
                 "Open water",
                 "sheltered 5 km -> full sea",
                 &seaState.Openness,
                 0.0f,
                 1.0f,
-                std::format("{:.0f}%  ({:.0f}", seaState.Openness * 100.0f, spectrum.Fetch),
-                "km)",
-                fonts,
-                ocean::AccentTone::Cyan,
+                std::format("{:.0f}%", seaState.Openness * 100.0f),
+                std::format("{:.0f} km", spectrum.Fetch),
                 false);
 
-            seaStateChanged |= ocean::DrawCenteredAngleSlider(
+            seaStateChanged |= ocean::DrawAngleSlider(
                 "##wind_dir",
                 "Wind direction",
                 "travel heading",
                 &seaState.WindDirection,
                 -180.0f,
-                180.0f,
-                fonts,
-                ocean::AccentTone::Cyan);
+                180.0f);
 
-            seaStateChanged |= ocean::DrawArtistSlider(
+            seaStateChanged |= ocean::DrawSlider(
                 "##spread",
                 "Directional spread",
                 "aligned -> confused sea",
@@ -2011,24 +2226,20 @@ void OceanScene::drawPanel()
                 1.0f,
                 std::format("{:.2f}", seaState.Spread),
                 "",
-                fonts,
-                ocean::AccentTone::Cyan,
                 false);
 
-            seaStateChanged |= ocean::DrawArtistSlider(
+            seaStateChanged |= ocean::DrawSlider(
                 "##regularity",
                 "Wave regularity",
                 "broad band -> clean groups",
                 &seaState.Regularity,
                 0.0f,
-                3.0f,
-                std::format("{:.2f}  (gamma {:.1f})", seaState.Regularity, spectrum.PeakingFactor),
-                "",
-                fonts,
-                ocean::AccentTone::Cyan,
+                1.0f,
+                std::format("{:.2f}", seaState.Regularity),
+                std::format("gamma {:.1f}", spectrum.PeakingFactor),
                 false);
 
-            seaStateChanged |= ocean::DrawArtistSlider(
+            seaStateChanged |= ocean::DrawSlider(
                 "##ripple_detail",
                 "Ripple detail",
                 "smooth -> fine capillary",
@@ -2037,11 +2248,9 @@ void OceanScene::drawPanel()
                 1.0f,
                 std::format("{:.0f}%", seaState.RippleDetail * 100.0f),
                 "",
-                fonts,
-                ocean::AccentTone::Cyan,
                 false);
 
-            seaStateChanged |= ocean::DrawArtistSlider(
+            seaStateChanged |= ocean::DrawSlider(
                 "##water_depth",
                 "Water depth",
                 "shoaling dispersion",
@@ -2050,13 +2259,11 @@ void OceanScene::drawPanel()
                 500.0f,
                 std::format("{:.0f}", seaState.Depth),
                 "m",
-                fonts,
-                ocean::AccentTone::Cyan,
                 true);
 
-            ocean::DrawSubSectionDivider("DISTANT SWELL", fonts, headerFontMode, ocean::AccentTone::Amber);
+            ocean::DrawSectionLabel("DISTANT SWELL");
 
-            seaStateChanged |= ocean::DrawArtistSlider(
+            seaStateChanged |= ocean::DrawSlider(
                 "##swell_height",
                 "Swell height",
                 "0 turns swell off",
@@ -2065,34 +2272,28 @@ void OceanScene::drawPanel()
                 6.0f,
                 std::format("{:.2f}", seaState.SwellHeight),
                 "m",
-                fonts,
-                ocean::AccentTone::Amber,
                 false);
 
-            seaStateChanged |= ocean::DrawArtistSlider(
+            seaStateChanged |= ocean::DrawSlider(
                 "##swell_period",
                 "Swell period",
                 "wavelength dispersion",
                 &seaState.SwellPeriod,
                 5.0f,
                 20.0f,
-                std::format("{:.1f} s  ({:.0f}", seaState.SwellPeriod, seaReadout.SwellWavelength),
-                "m)",
-                fonts,
-                ocean::AccentTone::Amber,
+                std::format("{:.1f} s", seaState.SwellPeriod),
+                std::format("{:.0f} m", seaReadout.SwellWavelength),
                 false);
 
-            seaStateChanged |= ocean::DrawCenteredAngleSlider(
+            seaStateChanged |= ocean::DrawAngleSlider(
                 "##swell_dir",
                 "Swell direction",
                 "distant storm heading",
                 &seaState.SwellDirection,
                 -180.0f,
-                180.0f,
-                fonts,
-                ocean::AccentTone::Amber);
+                180.0f);
 
-            seaStateChanged |= ocean::DrawArtistSlider(
+            seaStateChanged |= ocean::DrawSlider(
                 "##swell_order",
                 "Swell order",
                 "loose -> parallel crests",
@@ -2101,13 +2302,11 @@ void OceanScene::drawPanel()
                 1.0f,
                 std::format("{:.2f}", seaState.SwellOrder),
                 "",
-                fonts,
-                ocean::AccentTone::Amber,
                 false);
 
-            ocean::DrawSubSectionDivider("AMPLITUDE ENVELOPE", fonts, headerFontMode, ocean::AccentTone::Ice);
+            ocean::DrawSectionLabel("AMPLITUDE ENVELOPE");
 
-            seaStateChanged |= ocean::DrawArtistSlider(
+            seaStateChanged |= ocean::DrawSlider(
                 "##height_scale",
                 "Height scale",
                 "1.0x physical reference",
@@ -2116,15 +2315,13 @@ void OceanScene::drawPanel()
                 4.0f,
                 std::format("{:.2f}", seaState.HeightScale),
                 "x",
-                fonts,
-                ocean::AccentTone::Ice,
                 false);
             break;
         }
 
         case ocean::TelemetryTab::Surface:
         {
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##choppiness",
                 "Choppiness",
                 "horizontal Gerstner lambda",
@@ -2133,11 +2330,9 @@ void OceanScene::drawPanel()
                 2.0f,
                 std::format("{:.2f}", choppiness),
                 "lambda",
-                fonts,
-                ocean::AccentTone::Cyan,
                 false);
 
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##detail_distance",
                 "Detail distance",
                 "cascade fade multiplier",
@@ -2146,11 +2341,9 @@ void OceanScene::drawPanel()
                 60.0f,
                 std::format("{:.1f}", lodScale),
                 "x patch",
-                fonts,
-                ocean::AccentTone::Cyan,
                 true);
 
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##time_scale",
                 "Time scale",
                 "simulation clock rate",
@@ -2159,43 +2352,35 @@ void OceanScene::drawPanel()
                 4.0f,
                 std::format("{:.2f}", timeScale),
                 "x",
-                fonts,
-                ocean::AccentTone::Cyan,
                 false);
 
-            ocean::DrawSubSectionDivider("CASCADE BANDS", fonts, headerFontMode, ocean::AccentTone::Cyan);
-            ocean::DrawCascadeBandStrip(fonts, simulationSettings.LengthScales, cascadeEnabled);
+            ocean::DrawSectionLabel("CASCADE BANDS");
+            ocean::DrawCascadeBandStrip(simulationSettings.LengthScales, cascadeEnabled);
 
-            (void)ocean::DrawTelemetryToggle(
+            (void)ocean::DrawToggle(
                 "##rotate_cascades",
                 "Rotate cascades (tiling A/B)",
                 "ALIGNED",
                 "ROTATED",
-                &rotateCascades,
-                fonts,
-                ocean::AccentTone::Amber);
+                &rotateCascades);
 
-            ocean::DrawSubSectionDivider("CDLOD TERRAIN MESH", fonts, headerFontMode, ocean::AccentTone::Cyan);
-            (void)ocean::DrawTelemetryToggle(
+            ocean::DrawSectionLabel("CDLOD TERRAIN MESH");
+            (void)ocean::DrawToggle(
                 "##use_cdlod",
                 "CDLOD tessellation",
                 "RING GRID",
                 "CDLOD",
-                &useCdlod,
-                fonts,
-                ocean::AccentTone::Cyan);
+                &useCdlod);
 
             if (useCdlod)
             {
                 bool autoLevel = !cdlodMaxLevelOverride.has_value();
-                if (ocean::DrawTelemetryToggle(
+                if (ocean::DrawToggle(
                         "##cdlod_auto_level",
                         "Auto level (finest cascade)",
                         "MANUAL",
                         "AUTO",
-                        &autoLevel,
-                        fonts,
-                        ocean::AccentTone::Cyan))
+                        &autoLevel))
                 {
                     if (autoLevel)
                     {
@@ -2209,7 +2394,7 @@ void OceanScene::drawPanel()
                 }
 
                 float maxLevelFloat = static_cast<float>(cdlod ? cdlod->Settings().MaxLevel : 9u);
-                if (ocean::DrawArtistSlider(
+                if (ocean::DrawSlider(
                         "##cdlod_max_level",
                         "Max level",
                         "maximum CDLOD quadtree subdivision depth (1 to 14)",
@@ -2218,15 +2403,13 @@ void OceanScene::drawPanel()
                         14.0f,
                         std::format("{:.0f}", maxLevelFloat),
                         "",
-                        fonts,
-                        ocean::AccentTone::Cyan,
                         false))
                 {
                     cdlodMaxLevelOverride = static_cast<uint32_t>(std::round(maxLevelFloat));
                     updateCdlodSettings();
                 }
 
-                if (ocean::DrawArtistSlider(
+                if (ocean::DrawSlider(
                         "##lod_distance_scale",
                         "Distance scale",
                         "range multiplier for LOD transitions",
@@ -2235,14 +2418,12 @@ void OceanScene::drawPanel()
                         5.0f,
                         std::format("{:.2f}", lodDistanceScale),
                         "x",
-                        fonts,
-                        ocean::AccentTone::Cyan,
                         false))
                 {
                     updateCdlodSettings();
                 }
 
-                if (ocean::DrawArtistSlider(
+                if (ocean::DrawSlider(
                         "##morph_start_ratio",
                         "Morph start ratio",
                         "fraction of range before continuous morphing",
@@ -2251,28 +2432,24 @@ void OceanScene::drawPanel()
                         0.95f,
                         std::format("{:.2f}", morphStartRatio),
                         "",
-                        fonts,
-                        ocean::AccentTone::Cyan,
                         false))
                 {
                     updateCdlodSettings();
                 }
             }
 
-            (void)ocean::DrawTelemetryToggle(
+            (void)ocean::DrawToggle(
                 "##wireframe_mode",
                 "Wireframe mode",
                 "FILL",
                 "LINES",
-                &wireframe,
-                fonts,
-                ocean::AccentTone::Amber);
+                &wireframe);
             break;
         }
 
         case ocean::TelemetryTab::Foam:
         {
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##whitecap_threshold",
                 "Breaking threshold",
                 "0: violent breaking only, 1: broad whitecaps",
@@ -2281,11 +2458,9 @@ void OceanScene::drawPanel()
                 1.0f,
                 std::format("{:.2f}", seaState.WhitecapThreshold),
                 "",
-                fonts,
-                ocean::AccentTone::Ice,
                 false);
 
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##foam_amount",
                 "Foam amount",
                 "0: none, 1: physical reference, 2+: heavy foam",
@@ -2294,11 +2469,9 @@ void OceanScene::drawPanel()
                 4.0f,
                 std::format("{:.2f}", seaState.FoamAmount),
                 "x",
-                fonts,
-                ocean::AccentTone::Ice,
                 false);
 
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##crest_sharpness",
                 "Crest sharpness",
                 "0: blobs (determinant), 1: sharp crest lines (eigenvalue)",
@@ -2307,16 +2480,14 @@ void OceanScene::drawPanel()
                 1.0f,
                 std::format("{:.2f}", seaState.CrestSharpness),
                 "",
-                fonts,
-                ocean::AccentTone::Ice,
                 false);
 
-            ocean::DrawSubSectionDivider("PER-CASCADE WEIGHTS", fonts, headerFontMode, ocean::AccentTone::Ice);
+            ocean::DrawSectionLabel("PER-CASCADE WEIGHTS");
             for (uint32_t cascade = 0u; cascade < ocean::k_CascadeCount; ++cascade)
             {
                 const std::string sliderId = std::format("##foam_weight_{}", cascade);
                 const std::string sliderLabel = std::format("Foam weight {:.1f} m", simulationSettings.LengthScales[cascade]);
-                (void)ocean::DrawArtistSlider(
+                (void)ocean::DrawSlider(
                     sliderId.c_str(),
                     sliderLabel,
                     "0: cascade adds no foam, 1: as computed",
@@ -2325,16 +2496,14 @@ void OceanScene::drawPanel()
                     1.5f,
                     std::format("{:.2f}", foamWeights[cascade]),
                     "x",
-                    fonts,
-                    ocean::AccentTone::Ice,
                     false);
             }
 
             drawPersistentFoamControls();
 
-            ocean::DrawSubSectionDivider("LOOKDEV", fonts, headerFontMode, ocean::AccentTone::Ice);
+            ocean::DrawSectionLabel("LOOKDEV");
 
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##underwater_foam",
                 "Underwater foam",
                 "tints the water under the foam and removes its specular",
@@ -2343,11 +2512,9 @@ void OceanScene::drawPanel()
                 2.0f,
                 std::format("{:.2f}", underwaterFoam),
                 "x",
-                fonts,
-                ocean::AccentTone::Ice,
                 false);
 
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##sun_specular",
                 "Sun specular",
                 "0 turns the sun highlight off, for foam lookdev",
@@ -2356,11 +2523,9 @@ void OceanScene::drawPanel()
                 2.0f,
                 std::format("{:.2f}", sunSpecular),
                 "x",
-                fonts,
-                ocean::AccentTone::Ice,
                 false);
 
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##foam_albedo",
                 "Foam albedo",
                 "gain on the brightness of the foam texture",
@@ -2369,11 +2534,9 @@ void OceanScene::drawPanel()
                 4.0f,
                 std::format("{:.2f}", foamAlbedoGain),
                 "x",
-                fonts,
-                ocean::AccentTone::Ice,
                 false);
 
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##foam_normal",
                 "Foam normal",
                 "how far the foam texture bends the surface normal",
@@ -2382,15 +2545,13 @@ void OceanScene::drawPanel()
                 2.0f,
                 std::format("{:.2f}", foamNormalStrength),
                 "x",
-                fonts,
-                ocean::AccentTone::Ice,
                 false);
             break;
         }
 
         case ocean::TelemetryTab::Physics:
         {
-            if (ocean::DrawSpectrumPhysicsInspector(fonts, spectrum))
+            if (ocean::DrawSpectrumPhysicsInspector(spectrum))
             {
                 seaReadout = ocean::MeasureSpectrum(spectrum);
                 spectrumChanged = true;
@@ -2407,7 +2568,7 @@ void OceanScene::drawPanel()
 
         case ocean::TelemetryTab::Scene:
         {
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##seabed_depth",
                 "Seabed depth",
                 "absorption floor",
@@ -2416,13 +2577,11 @@ void OceanScene::drawPanel()
                 200.0f,
                 std::format("{:.1f}", seabedDepth),
                 "m",
-                fonts,
-                ocean::AccentTone::Cyan,
                 true);
 
             const float minSunElevationDeg = useBrunetonAtmosphere ? k_MinBrunetonSunElevationDeg : k_MinPreethamSunElevationDeg;
             float sunElevationDeg = std::max(sunElevation / k_DegreesToRadians, minSunElevationDeg);
-            if (ocean::DrawArtistSlider(
+            if (ocean::DrawSlider(
                     "##sun_elevation",
                     "Sun elevation",
                     "horizon -> zenith",
@@ -2431,51 +2590,45 @@ void OceanScene::drawPanel()
                     90.0f,
                     std::format("{:.1f}", sunElevationDeg),
                     "deg",
-                    fonts,
-                    ocean::AccentTone::Amber,
                     false))
             {
                 sunElevation = sunElevationDeg * k_DegreesToRadians;
             }
 
             float sunAzimuthDeg = sunAzimuth / k_DegreesToRadians;
-            if (ocean::DrawCenteredAngleSlider(
+            if (ocean::DrawAngleSlider(
                     "##sun_azimuth",
                     "Sun azimuth",
                     "solar heading",
                     &sunAzimuthDeg,
                     -180.0f,
-                    180.0f,
-                    fonts,
-                    ocean::AccentTone::Amber))
+                    180.0f))
             {
                 sunAzimuth = sunAzimuthDeg * k_DegreesToRadians;
             }
 
             bool useMichroma = headerFontMode == ocean::HeaderFontMode::Michroma;
-            if (ocean::DrawTelemetryToggle(
+            if (ocean::DrawToggle(
                     "##header_font_mode",
                     "Header typeface",
                     "BLINKER",
                     "MICHROMA",
-                    &useMichroma,
-                    fonts,
-                    ocean::AccentTone::Ice))
+                    &useMichroma))
             {
                 headerFontMode = useMichroma ? ocean::HeaderFontMode::Michroma : ocean::HeaderFontMode::Blinker;
             }
 
-            ocean::DrawSubSectionDivider("DEFERRED & TEMPORAL", fonts, headerFontMode, ocean::AccentTone::Cyan);
-            (void)ocean::DrawTelemetryToggle("##use_bruneton", "Bruneton sky", "OFF", "ON", &useBrunetonAtmosphere, fonts, ocean::AccentTone::Amber);
-            (void)ocean::DrawTelemetryToggle("##use_spec_aa", "Specular AA", "OFF", "ON", &useSpecularAa, fonts, ocean::AccentTone::Cyan);
-            (void)ocean::DrawArtistSlider("##spec_aa_str", "Spec AA str", "variance filter", &specularAaStrength, 0.0f, 4.0f, std::format("{:.2f}", specularAaStrength), "", fonts, ocean::AccentTone::Cyan, false);
-            (void)ocean::DrawTelemetryToggle("##use_taa", "Temporal AA", "OFF", "ON", &useTaa, fonts, ocean::AccentTone::Cyan);
-            (void)ocean::DrawArtistSlider("##taa_alpha", "TAA alpha", "blend rate", &taaBlendAlpha, 0.01f, 0.5f, std::format("{:.2f}", taaBlendAlpha), "", fonts, ocean::AccentTone::Cyan, false);
-            (void)ocean::DrawArtistSlider("##ssr_int", "SSR intensity", "crest reflections", &ssrIntensity, 0.0f, 2.0f, std::format("{:.2f}", ssrIntensity), "", fonts, ocean::AccentTone::Ice, false);
-            (void)ocean::DrawTelemetryToggle("##auto_exp", "Auto exposure", "OFF", "ON", &exposure.Auto, fonts, ocean::AccentTone::Amber);
+            ocean::DrawSectionLabel("DEFERRED & TEMPORAL");
+            (void)ocean::DrawToggle("##use_bruneton", "Bruneton sky", "OFF", "ON", &useBrunetonAtmosphere);
+            (void)ocean::DrawToggle("##use_spec_aa", "Specular AA", "OFF", "ON", &useSpecularAa);
+            (void)ocean::DrawSlider("##spec_aa_str", "Spec AA str", "variance filter", &specularAaStrength, 0.0f, 4.0f, std::format("{:.2f}", specularAaStrength), "", false);
+            (void)ocean::DrawToggle("##use_taa", "Temporal AA", "OFF", "ON", &useTaa);
+            (void)ocean::DrawSlider("##taa_alpha", "TAA alpha", "blend rate", &taaBlendAlpha, 0.01f, 0.5f, std::format("{:.2f}", taaBlendAlpha), "", false);
+            (void)ocean::DrawSlider("##ssr_int", "SSR intensity", "crest reflections", &ssrIntensity, 0.0f, 2.0f, std::format("{:.2f}", ssrIntensity), "", false);
+            (void)ocean::DrawToggle("##auto_exp", "Auto exposure", "OFF", "ON", &exposure.Auto);
 
-            ocean::DrawSubSectionDivider("SKY & ENVIRONMENT", fonts, headerFontMode, ocean::AccentTone::Amber);
-            if (ocean::DrawSkyPresetGrid(fonts, skyPreset))
+            ocean::DrawSectionLabel("SKY & ENVIRONMENT");
+            if (ocean::DrawSkyPresetSelector(skyPreset))
             {
                 // a preset is a sky of its own, the same as the sky scene commands
                 useBrunetonAtmosphere = false;
@@ -2488,14 +2641,12 @@ void OceanScene::drawPanel()
                 }
             }
 
-            if (ocean::DrawTelemetryToggle(
+            if (ocean::DrawToggle(
                     "##downsample_8k",
                     "HDRI resolution",
                     "16K FULL",
                     "8K DOWNSAMPLED",
-                    &downsample8k,
-                    fonts,
-                    ocean::AccentTone::Amber))
+                    &downsample8k))
             {
                 if (environment)
                 {
@@ -2505,7 +2656,7 @@ void OceanScene::drawPanel()
                 }
             }
 
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##sky_intensity",
                 "Sky intensity",
                 "radiance multiplier",
@@ -2514,12 +2665,10 @@ void OceanScene::drawPanel()
                 10.0f,
                 std::format("{:.2f}", skyIntensityScale),
                 "x",
-                fonts,
-                ocean::AccentTone::Amber,
                 false);
 
-            ocean::DrawSubSectionDivider("COLOR PIPE & TONEMAPPING", fonts, headerFontMode, ocean::AccentTone::Ice);
-            if (ocean::DrawTonemapperGrid(fonts, tonemapper))
+            ocean::DrawSectionLabel("COLOR PIPE & TONEMAPPING");
+            if (ocean::DrawTonemapperSelector(tonemapper))
             {
                 if (colorPipe)
                 {
@@ -2527,7 +2676,7 @@ void OceanScene::drawPanel()
                 }
             }
 
-            if (ocean::DrawArtistSlider(
+            if (ocean::DrawSlider(
                     "##exposure_ev",
                     "Exposure EV",
                     "stops of exposure compensation",
@@ -2536,8 +2685,6 @@ void OceanScene::drawPanel()
                     6.0f,
                     std::format("{:+.1f}", exposure.Ev),
                     "EV",
-                    fonts,
-                    ocean::AccentTone::Ice,
                     false))
             {
                 if (colorPipe)
@@ -2546,14 +2693,12 @@ void OceanScene::drawPanel()
                 }
             }
 
-            if (ocean::DrawTelemetryToggle(
+            if (ocean::DrawToggle(
                     "##hdr_bloom",
                     "HDR bloom",
                     "OFF",
                     "ON",
-                    &bloomSettings.Enabled,
-                    fonts,
-                    ocean::AccentTone::Ice))
+                    &bloomSettings.Enabled))
             {
                 if (colorPipe)
                 {
@@ -2563,7 +2708,7 @@ void OceanScene::drawPanel()
 
             if (bloomSettings.Enabled)
             {
-                if (ocean::DrawArtistSlider(
+                if (ocean::DrawSlider(
                         "##bloom_intensity",
                         "Bloom intensity",
                         "energy scale",
@@ -2572,8 +2717,6 @@ void OceanScene::drawPanel()
                         0.2f,
                         std::format("{:.3f}", bloomSettings.Intensity),
                         "",
-                        fonts,
-                        ocean::AccentTone::Ice,
                         false))
                 {
                     if (colorPipe)
@@ -2582,7 +2725,7 @@ void OceanScene::drawPanel()
                     }
                 }
 
-                if (ocean::DrawArtistSlider(
+                if (ocean::DrawSlider(
                         "##bloom_scatter",
                         "Bloom scatter",
                         "upsample blur radius",
@@ -2591,8 +2734,6 @@ void OceanScene::drawPanel()
                         1.0f,
                         std::format("{:.2f}", bloomSettings.Scatter),
                         "",
-                        fonts,
-                        ocean::AccentTone::Ice,
                         false))
                 {
                     if (colorPipe)
@@ -2602,8 +2743,8 @@ void OceanScene::drawPanel()
                 }
             }
 
-            ocean::DrawSubSectionDivider("OCEAN BRDF & SHADING", fonts, headerFontMode, ocean::AccentTone::Cyan);
-            (void)ocean::DrawArtistSlider(
+            ocean::DrawSectionLabel("OCEAN BRDF & SHADING");
+            (void)ocean::DrawSlider(
                 "##sss_strength",
                 "Subsurface scatter",
                 "forward scattering strength",
@@ -2612,11 +2753,9 @@ void OceanScene::drawPanel()
                 2.0f,
                 std::format("{:.2f}", sssStrength),
                 "",
-                fonts,
-                ocean::AccentTone::Cyan,
                 false);
 
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##body_reflectance",
                 "Body reflectance",
                 "x open-ocean R_rs",
@@ -2625,11 +2764,9 @@ void OceanScene::drawPanel()
                 4.0f,
                 std::format("{:.2f}", bodyReflectanceScale),
                 "",
-                fonts,
-                ocean::AccentTone::Cyan,
                 false);
 
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##leadr_variance",
                 "LEADR slope scale",
                 "geometric slope variance scale",
@@ -2638,11 +2775,9 @@ void OceanScene::drawPanel()
                 3.0f,
                 std::format("{:.2f}", leadrSlopeVarianceScale),
                 "",
-                fonts,
-                ocean::AccentTone::Cyan,
                 false);
 
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##foam_roughness",
                 "Foam roughness",
                 "whitecap microfacet roughness scale",
@@ -2651,11 +2786,9 @@ void OceanScene::drawPanel()
                 3.0f,
                 std::format("{:.2f}", foamRoughnessScale),
                 "",
-                fonts,
-                ocean::AccentTone::Cyan,
                 false);
 
-            (void)ocean::DrawArtistSlider(
+            (void)ocean::DrawSlider(
                 "##seabed_roughness",
                 "Seabed roughness",
                 "sand microfacet roughness scale",
@@ -2664,31 +2797,25 @@ void OceanScene::drawPanel()
                 3.0f,
                 std::format("{:.2f}", seabedRoughnessScale),
                 "",
-                fonts,
-                ocean::AccentTone::Cyan,
                 false);
 
             if (hasAsyncComputeQueue)
             {
-                ocean::DrawSubSectionDivider("PIPELINE EXECUTION", fonts, headerFontMode, ocean::AccentTone::Amber);
-                (void)ocean::DrawTelemetryToggle(
+                ocean::DrawSectionLabel("PIPELINE EXECUTION");
+                (void)ocean::DrawToggle(
                     "##async_compute",
                     "Async Compute queue",
                     "GRAPHICS QUEUE",
                     "ASYNC COMPUTE",
-                    &useAsyncCompute,
-                    fonts,
-                    ocean::AccentTone::Amber);
+                    &useAsyncCompute);
             }
 
-            ImGui::PushFont(fonts.BodyItalic);
-            ImGui::TextColored(ImVec4{ 0.48f, 0.60f, 0.72f, 1.0f }, "Left drag: orbit   |   Right/middle drag: pan   |   Wheel: zoom");
-            ImGui::PopFont();
+            ocean::DrawNote("Left drag: orbit   |   Right/middle drag: pan   |   Wheel: zoom");
             break;
         }
         case ocean::TelemetryTab::Debug:
         {
-            ocean::DrawSubSectionDivider("SURFACE & SHADING DEBUG", fonts, headerFontMode, ocean::AccentTone::Amber);
+            ocean::DrawSectionLabel("SURFACE & SHADING DEBUG");
             drawDebugModeCombo("Surface debug", SurfaceDebugModeNames(), surfaceDebugMode);
             if (surfaceDebugMode != 0)
             {
@@ -2698,21 +2825,19 @@ void OceanScene::drawPanel()
                 }
             }
 
-            (void)ocean::DrawTelemetryToggle(
+            (void)ocean::DrawToggle(
                 "##debug_wireframe",
                 "Wireframe mode",
                 "FILL",
                 "LINES",
-                &wireframe,
-                fonts,
-                ocean::AccentTone::Amber);
-            (void)ocean::DrawTelemetryToggle("##debug_spec_aa", "Specular AA", "OFF", "ON", &useSpecularAa, fonts, ocean::AccentTone::Cyan);
-            (void)ocean::DrawTelemetryToggle("##debug_taa", "Temporal AA", "OFF", "ON", &useTaa, fonts, ocean::AccentTone::Cyan);
+                &wireframe);
+            (void)ocean::DrawToggle("##debug_spec_aa", "Specular AA", "OFF", "ON", &useSpecularAa);
+            (void)ocean::DrawToggle("##debug_taa", "Temporal AA", "OFF", "ON", &useTaa);
 
-            ocean::DrawSubSectionDivider("CASCADE BANDS", fonts, headerFontMode, ocean::AccentTone::Cyan);
-            ocean::DrawCascadeBandStrip(fonts, simulationSettings.LengthScales, cascadeEnabled);
+            ocean::DrawSectionLabel("CASCADE BANDS");
+            ocean::DrawCascadeBandStrip(simulationSettings.LengthScales, cascadeEnabled);
 
-            ocean::DrawSubSectionDivider("DEFERRED PASS DEBUG", fonts, headerFontMode, ocean::AccentTone::Amber);
+            ocean::DrawSectionLabel("DEFERRED PASS DEBUG");
             drawDebugModeCombo("Atmosphere debug", AtmosphereDebugModeNames(), atmosphereDebugMode);
             drawDebugModeCombo("SSR debug", SsrDebugModeNames(), ssrDebugMode);
             break;
@@ -2730,18 +2855,14 @@ void OceanScene::drawPanel()
 
 void OceanScene::drawPersistentFoamControls()
 {
-    const ImGuiFontSet& fonts = imgui->Fonts();
-
-    (void)ocean::DrawTelemetryToggle(
+    (void)ocean::DrawToggle(
         "##persistent_foam",
         "Persistent foam",
         "OFF",
         "ON",
-        &foamSettings.Enabled,
-        fonts,
-        ocean::AccentTone::Ice);
+        &foamSettings.Enabled);
 
-    (void)ocean::DrawArtistSlider(
+    (void)ocean::DrawSlider(
         "##foam_threshold_raise",
         "Threshold raise",
         "how far old foam raises the breaking threshold",
@@ -2750,11 +2871,9 @@ void OceanScene::drawPersistentFoamControls()
         0.5f,
         std::format("{:.2f}", foamSettings.ThresholdRaise),
         "",
-        fonts,
-        ocean::AccentTone::Ice,
         false);
 
-    (void)ocean::DrawArtistSlider(
+    (void)ocean::DrawSlider(
         "##foam_decay",
         "Decay time",
         "seconds for foam to fall to 1/e",
@@ -2763,11 +2882,9 @@ void OceanScene::drawPersistentFoamControls()
         20.0f,
         std::format("{:.2f}", foamSettings.DecayTime),
         "s",
-        fonts,
-        ocean::AccentTone::Ice,
         false);
 
-    (void)ocean::DrawArtistSlider(
+    (void)ocean::DrawSlider(
         "##foam_gain",
         "Persistence gain",
         "1: stored foam is the coverage averaged over the decay time, higher saturates",
@@ -2776,11 +2893,9 @@ void OceanScene::drawPersistentFoamControls()
         8.0f,
         std::format("{:.2f}", foamSettings.PersistenceGain),
         "x",
-        fonts,
-        ocean::AccentTone::Ice,
         false);
 
-    (void)ocean::DrawArtistSlider(
+    (void)ocean::DrawSlider(
         "##foam_residual",
         "Residual amount",
         "area of old foam per unit of stored foam: 4 draws 40 % where 0.1 is stored",
@@ -2789,11 +2904,9 @@ void OceanScene::drawPersistentFoamControls()
         8.0f,
         std::format("{:.2f}", foamSettings.ResidualAmount),
         "x",
-        fonts,
-        ocean::AccentTone::Ice,
         false);
 
-    (void)ocean::DrawArtistSlider(
+    (void)ocean::DrawSlider(
         "##foam_residual_softness",
         "Dissolve softness",
         "edge width of the residual foam as it dissolves",
@@ -2802,11 +2915,9 @@ void OceanScene::drawPersistentFoamControls()
         1.0f,
         std::format("{:.2f}", foamSettings.ResidualSoftness),
         "",
-        fonts,
-        ocean::AccentTone::Ice,
         false);
 
-    (void)ocean::DrawArtistSlider(
+    (void)ocean::DrawSlider(
         "##foam_texture_scale",
         "Foam texture scale",
         "meters per tile of the foam texture",
@@ -2815,11 +2926,9 @@ void OceanScene::drawPersistentFoamControls()
         20.0f,
         std::format("{:.2f}", foamSettings.TextureTileSize),
         "m",
-        fonts,
-        ocean::AccentTone::Ice,
         false);
 
-    (void)ocean::DrawArtistSlider(
+    (void)ocean::DrawSlider(
         "##foam_wind_drift",
         "Wind drift",
         "foam speed as a fraction of wind speed",
@@ -2828,8 +2937,6 @@ void OceanScene::drawPersistentFoamControls()
         0.2f,
         std::format("{:.3f}", foamSettings.WindDrift),
         "",
-        fonts,
-        ocean::AccentTone::Ice,
         false);
 
     if (ImGui::Button("Rebuild foam"))
@@ -2907,7 +3014,7 @@ void OceanScene::collectGpuTimings()
 
 void OceanScene::drawTimingsPanel()
 {
-    ocean::DrawGpuTimingsSection(imgui->Fonts(), headerFontMode, *gpuTimers, gpuTimingAverages,
+    ocean::DrawGpuTimingsSection(*gpuTimers, gpuTimingAverages,
                                  asyncGpuTimers ? asyncGpuTimers.get() : nullptr,
                                  asyncGpuTimers ? &asyncGpuTimingAverages : nullptr);
 }
@@ -2931,17 +3038,36 @@ void OceanScene::update()
 
     collectGpuTimings();
 
+    snapshotThisFrame = false;
+
+    if (ImGui::IsKeyPressed(ImGuiKey_F12, false))
+    {
+        snapshotPending = true;
+    }
+
+    if (snapshotPending && !scriptCaptureDue())
+    {
+        snapshotPending = false;
+        beginSnapshot();
+    }
+
+    if (snapshotSavedFrames > 0)
+    {
+        --snapshotSavedFrames;
+    }
+
     toolCaptureThisFrame = frameCapture != nullptr && toolCaptureWaiting() && !scriptCaptureDue();
 
-    // a tool capture can ask for a frame that shows only the scene
-    const bool hideUiForCapture = toolCaptureThisFrame && toolCaptureHidesUi();
+    // a tool capture can ask for a frame that shows only the scene. A snapshot always does
+    const bool hideUiForCapture = (toolCaptureThisFrame && toolCaptureHidesUi()) || snapshotThisFrame;
 
     if (!hideUiForCapture && showUi)
     {
         drawPanel();
     }
-    else if (!hideUiForCapture)
+    else if (!hideUiForCapture && !scriptCaptureDue())
     {
+        // a scripted capture with the panel closed shows only the scene, without the restore control
         (void)ocean::DrawRestoreMenuButton(imgui->Fonts(), &showUi);
     }
 

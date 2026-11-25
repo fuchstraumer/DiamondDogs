@@ -116,6 +116,9 @@ internal static const uint SURF_DEBUG_CASCADE_WEIGHTS = 7u;
 internal static const uint SURF_DEBUG_REFLECT_DIR = 8u;
 internal static const uint SURF_DEBUG_FOAM_TERMS = 9u;
 internal static const uint SURF_DEBUG_SPECULAR_SPLIT = 10u;
+internal static const uint SURF_DEBUG_SLOPE_DIRECTION = 11u;
+internal static const uint SURF_DEBUG_COMPRESSION = 12u;
+internal static const uint SURF_DEBUG_FINE_ENERGY = 13u;
 
 internal uint GetSurfaceDebugMode()
 {
@@ -183,18 +186,7 @@ internal float3 CascadeTensorToWorld(float3 tensor, uint cascade)
 // below a pixel
 internal float CascadeDistanceWeight(uint cascade, float distance)
 {
-    const float fineScale = (cascade >= 2u) ? 0.65f : 1.0f;
-    const float fadeStart = View.LodParameters.x * ViewLengthScale(cascade) * fineScale;
-    return ViewCascadeWeight(cascade) * (1.0f - smoothstep(fadeStart, 2.0f * fadeStart, distance));
-}
-
-// Grazing-aware cascade distance weight for fragment slope evaluation. Foreshortening at low camera elevation
-// compresses vertical wave spacing by 1 / cosElevation, so fine cascades fade into LEAN roughness earlier.
-internal float CascadeGrazingDistanceWeight(uint cascade, float distance, float cosElevation)
-{
-    const float grazingScale = (cascade >= 2u) ? clamp(sqrt(max(0.04f, cosElevation)), 0.30f, 1.0f) : 1.0f;
-    const float fineScale = (cascade >= 2u) ? 0.55f : 1.0f;
-    const float fadeStart = View.LodParameters.x * ViewLengthScale(cascade) * fineScale * grazingScale;
+    const float fadeStart = View.LodParameters.x * ViewLengthScale(cascade);
     return ViewCascadeWeight(cascade) * (1.0f - smoothstep(fadeStart, 2.0f * fadeStart, distance));
 }
 

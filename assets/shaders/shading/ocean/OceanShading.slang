@@ -16,6 +16,12 @@ internal struct SurfaceSample
     float JacobianMuA;
     float FinestMipLevel;
     float3 CascadeWeightRgb;
+    // for the fine_energy debug view: the slope variance of the two finest cascades, drawn (in the normal) and hidden
+    // (LEAN roughness, which depends on the pixel footprint), and the horizontal stretch of the coarse cascades alone,
+    // which places the pixel on the long wave (crest or trough)
+    float FineDrawnEnergy;
+    float FineHiddenEnergy;
+    float2 CoarseStretch;
 };
 
 internal void SampleSurfaceAndWhitecaps(
@@ -30,10 +36,10 @@ internal void SampleSurfaceAndWhitecaps(
     float2 totalSlope = float2(0.0f);
     float2 totalStretch = float2(0.0f);
     float2 unresolvedVariance = float2(0.0f);
+    float fineDrawnEnergy = 0.0f;
+    float fineHiddenEnergy = 0.0f;
+    float2 coarseStretch = float2(0.0f);
     const float distance = length(surface_xz - View.CameraPositionTime.xz);
-    const float3 viewOffset = View.CameraPositionTime.xyz - float3(surface_xz.x, wave_height, surface_xz.y);
-    const float dist3D = max(0.1f, length(viewOffset));
-    const float cosElevation = saturate(abs(viewOffset.y) / dist3D);
 
     float muA = 0.0f;
     float varA = 0.0f;
@@ -45,7 +51,9 @@ internal void SampleSurfaceAndWhitecaps(
     for (uint cascade = 0; cascade < OCEAN_CASCADE_COUNT; ++cascade)
     {
         const float enabled = ViewCascadeWeight(cascade);
-        const float distWeight = CascadeGrazingDistanceWeight(cascade, distance, cosElevation);
+        // enabled is the A/B weight alone. weight adds the distance fade. SampleGrad and the mips already filter each
+        // cascade to the pixel footprint, so no second footprint fade is applied here
+        const float weight = CascadeDistanceWeight(cascade, distance);
         const float foamWeight = ViewFoamWeight(cascade);
 
         const float2 ddxUv = WorldToCascade(ddxXz, cascade) / ViewLengthScale(cascade);
@@ -58,9 +66,6 @@ internal void SampleSurfaceAndWhitecaps(
             finestMipLevel = max(0.0f, log2(max(1e-6f, rho)));
         }
 
-        const float nyquistFade = (cascade >= 1u) ? (1.0f - smoothstep(2.0f, 6.0f, rho)) : 1.0f;
-        const float weight = distWeight * nyquistFade;
-
         if (enabled > 0.0f || foamWeight > 0.0f)
         {
             const float3 uvw = float3(CascadeUv(surface_xz, cascade), float(cascade));
@@ -71,8 +76,19 @@ internal void SampleSurfaceAndWhitecaps(
             {
                 // the mips already average the slope over the footprint, so the normal takes it as sampled
                 const float4 scaledDeriv = derivatives * weight;
-                totalSlope += CascadeToWorld(scaledDeriv.xy, cascade);
-                totalStretch += CascadeStretchToWorld(scaledDeriv.zw, cascade);
+                const float2 cascadeSlope = CascadeToWorld(scaledDeriv.xy, cascade);
+                const float2 cascadeStretch = CascadeStretchToWorld(scaledDeriv.zw, cascade);
+                totalSlope += cascadeSlope;
+                totalStretch += cascadeStretch;
+
+                if (cascade + 2u >= OCEAN_CASCADE_COUNT)
+                {
+                    fineDrawnEnergy += dot(cascadeSlope, cascadeSlope);
+                }
+                else
+                {
+                    coarseStretch += cascadeStretch;
+                }
 
                 // LEAN mapping (Olano and Baker 2010): the mean of the squared slope minus the square of the mean slope
                 // is the variance that the footprint hides. The slope that the distance fade takes out of the normal
@@ -84,7 +100,13 @@ internal void SampleSurfaceAndWhitecaps(
                 const float2 cascadeVariance = (enabled * enabled) * hiddenVariance + (fadedPart * fadedPart) * (meanSlope * meanSlope);
                 // only the diagonal of the slope covariance is stored, so the rotation drops its off-diagonal term, as
                 // CascadeStretchToWorld does
-                unresolvedVariance += CascadeStretchToWorld(cascadeVariance, cascade);
+                const float2 cascadeHiddenVariance = CascadeStretchToWorld(cascadeVariance, cascade);
+                unresolvedVariance += cascadeHiddenVariance;
+
+                if (cascade + 2u >= OCEAN_CASCADE_COUNT)
+                {
+                    fineHiddenEnergy += cascadeHiddenVariance.x + cascadeHiddenVariance.y;
+                }
             }
 
             if (foamWeight > 0.0f)
@@ -124,9 +146,12 @@ internal void SampleSurfaceAndWhitecaps(
     surface.FwidthVariance = fwidthVariance;
     surface.FinestMipLevel = finestMipLevel;
     surface.CascadeWeightRgb = float3(
-        CascadeGrazingDistanceWeight(2u, distance, cosElevation),
-        CascadeGrazingDistanceWeight(3u, distance, cosElevation),
-        CascadeGrazingDistanceWeight(4u, distance, cosElevation));
+        CascadeDistanceWeight(2u, distance),
+        CascadeDistanceWeight(3u, distance),
+        CascadeDistanceWeight(4u, distance));
+    surface.FineDrawnEnergy = fineDrawnEnergy;
+    surface.FineHiddenEnergy = fineHiddenEnergy;
+    surface.CoarseStretch = coarseStretch;
 
     // Crest sharpness
     const float jxx = 1.0f + tensor.x;
@@ -153,7 +178,16 @@ internal bool IsGBufferSurfaceDebugMode(uint mode)
         || mode == SURF_DEBUG_STRETCH
         || mode == SURF_DEBUG_JACOBIAN
         || mode == SURF_DEBUG_MIP_LEVEL
-        || mode == SURF_DEBUG_CASCADE_WEIGHTS;
+        || mode == SURF_DEBUG_CASCADE_WEIGHTS
+        || mode == SURF_DEBUG_SLOPE_DIRECTION
+        || mode == SURF_DEBUG_COMPRESSION
+        || mode == SURF_DEBUG_FINE_ENERGY;
+}
+
+internal float3 HueToRgb(float hue)
+{
+    const float3 rgb = abs(frac(hue + float3(0.0f, 2.0f / 3.0f, 1.0f / 3.0f)) * 6.0f - 3.0f) - 1.0f;
+    return saturate(rgb);
 }
 
 internal float3 EvaluateGBufferSurfaceDebug(uint mode, SurfaceSample surface)
@@ -207,6 +241,32 @@ internal float3 EvaluateGBufferSurfaceDebug(uint mode, SurfaceSample surface)
     if (mode == SURF_DEBUG_CASCADE_WEIGHTS)
     {
         return surface.CascadeWeightRgb;
+    }
+    // hue: the direction the surface slopes towards, in world space (+x red, +z about blue-violet). Brightness: the
+    // steepness. Spreading models differ here: an aligned sea shows two hues, a confused sea every hue
+    if (mode == SURF_DEBUG_SLOPE_DIRECTION)
+    {
+        const float2 slope = -surface.Normal.xz / max(1e-4f, surface.Normal.y);
+        const float hue = atan2(slope.y, slope.x) * (0.5f / 3.14159265f) + 0.5f;
+        const float steepness = saturate(length(slope) * 2.5f);
+        return HueToRgb(hue) * steepness;
+    }
+    // red: compressed (the Jacobian of the horizontal displacement below 1, crests folding). Blue: stretched (flat
+    // troughs). Gray: neither
+    if (mode == SURF_DEBUG_COMPRESSION)
+    {
+        const float jacobian = (1.0f + surface.TotalStretch.x) * (1.0f + surface.TotalStretch.y);
+        const float change = jacobian - 1.0f;
+        return float3(0.15f) + float3(saturate(-change * 1.5f), 0.0f, saturate(change * 1.5f));
+    }
+    // red: the drawn slope variance of the two finest cascades / 0.1. Green: their hidden (LEAN) variance / 0.1, which
+    // grows with the pixel footprint. Blue: the long wave's phase, 1 - Jacobian / 2 of the coarse cascades, so crests
+    // are bright and troughs dark. All stay linear and unclamped, so a capture of the GBuffer target gives them back
+    if (mode == SURF_DEBUG_FINE_ENERGY)
+    {
+        const float coarseJacobian = (1.0f + surface.CoarseStretch.x) * (1.0f + surface.CoarseStretch.y);
+        const float phase = 1.0f - 0.5f * coarseJacobian;
+        return float3(surface.FineDrawnEnergy / 0.1f, surface.FineHiddenEnergy / 0.1f, phase);
     }
     return float3(0.0f);
 }

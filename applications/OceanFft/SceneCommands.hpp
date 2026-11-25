@@ -64,6 +64,10 @@ namespace ocean
  *    bloom intensity [scatter]             set bloom intensity and optional scatter
  *    cdlod on|off                          enable or disable CDLOD terrain tessellation
  *    cdlod_scale value                     set CDLOD LOD distance multiplier
+ *    lod_scale value                       set the cascade fade multiplier ("Detail distance", 1 to 60)
+ *    seed value                            set the spectrum noise seed (an integer, 0 or more)
+ *    time_scale value                      set the simulation speed multiplier (1 is real time)
+ *    snapshot                              capture the scene without the panel, and write its repro script beside it
  *    cdlod_morph value                     set CDLOD morph start ratio (0.1 to 0.95)
  *    cdlod_max_level value                 set CDLOD maximum subdivision level (1 to 14, 0 for auto)
  *    wireframe on|off                      enable or disable wireframe polygon mode
@@ -121,6 +125,10 @@ struct SceneCommand
         Bloom,
         Cdlod,
         CdlodScale,
+        LodScale,
+        Seed,
+        TimeScale,
+        Snapshot,
         CdlodMorph,
         CdlodMaxLevel,
         Wireframe,
@@ -167,7 +175,9 @@ struct SceneCommand
 /** @brief Returns the index of the SSR debug mode whose name matches, or -1 when no mode matches */
 [[nodiscard]] int32_t FindSsrDebugMode(std::string_view name);
 /** @brief Returns the surface debug mode names. The index of a name is the mode number that the shader reads */
-[[nodiscard]] const std::array<std::string_view, 11>& SurfaceDebugModeNames() noexcept;
+/** @brief The number of surface debug modes, "off" included. The shader's SURF_DEBUG_* indices match the names */
+inline constexpr size_t k_SurfaceDebugModeCount = 14u;
+[[nodiscard]] const std::array<std::string_view, k_SurfaceDebugModeCount>& SurfaceDebugModeNames() noexcept;
 /** @brief Returns the index of the surface debug mode whose name matches, or -1 when no mode matches */
 [[nodiscard]] int32_t FindSurfaceDebugMode(std::string_view name);
 

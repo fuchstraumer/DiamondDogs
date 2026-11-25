@@ -169,7 +169,9 @@ internal float ElfouhailyCurvatureB(
     // Long-wave curvature spectrum B_l (Eq. 31-37)
     const float alphaP = 6.0e-3f * sqrt(omegaC);
     const float gammaBase = (omegaC <= 1.0f) ? 1.7f : (1.7f + 6.0f * log10(omegaC));
-    const float gammaEff = max(1.0f, gammaBase * (gamma / 1.7f));
+    // the editor's gamma shapes the paper's gamma relative to the JONSWAP mean (3.3), within the measured range.
+    // SeaState.cpp ElfouhailyCurvatureB must match
+    const float gammaEff = clamp(gammaBase * (gamma / 3.3f), 1.0f, 7.0f);
     const float sigma = 0.08f * (1.0f + 4.0f / (omegaC * omegaC * omegaC));
     const float sqrtKOverKp = sqrt(kLength / kp);
     const float kpOverK = kp / kLength;

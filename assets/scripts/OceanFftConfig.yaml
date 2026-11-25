@@ -23,7 +23,9 @@ ocean_physical_parameter_ranges:
   # omega/peakOmega range seen in practice -- DB branches at 0.95 and 1.6; spectrum negligible outside this
   - name: omega_ratio
     min: 0.05
-    max: 8.0
+    # the finest cascade reaches omega / omega_peak of about 200. Only the bounds of the LUT axes come from this range
+    # (Donelan-Banner beta falls to about 0.40 there), so a wide range costs no resolution near the peak
+    max: 250.0
     unit: None
 
     # We use a log-space distribution for cascades based on the wavelength range, so that each cascade represents

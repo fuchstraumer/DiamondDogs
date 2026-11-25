@@ -630,6 +630,9 @@ internal static const uint SURF_DEBUG_CASCADE_WEIGHTS = 7u;
 internal static const uint SURF_DEBUG_REFLECT_DIR = 8u;
 internal static const uint SURF_DEBUG_FOAM_TERMS = 9u;
 internal static const uint SURF_DEBUG_SPECULAR_SPLIT = 10u;
+internal static const uint SURF_DEBUG_SLOPE_DIRECTION = 11u;
+internal static const uint SURF_DEBUG_COMPRESSION = 12u;
+internal static const uint SURF_DEBUG_FINE_ENERGY = 13u;
 
 internal uint GetSurfaceDebugMode()
 {
@@ -992,7 +995,10 @@ void OceanDeferredLightingCS(
               || surfDebugMode == SURF_DEBUG_STRETCH
               || surfDebugMode == SURF_DEBUG_JACOBIAN
               || surfDebugMode == SURF_DEBUG_MIP_LEVEL
-              || surfDebugMode == SURF_DEBUG_CASCADE_WEIGHTS)
+              || surfDebugMode == SURF_DEBUG_CASCADE_WEIGHTS
+              || surfDebugMode == SURF_DEBUG_SLOPE_DIRECTION
+              || surfDebugMode == SURF_DEBUG_COMPRESSION
+              || surfDebugMode == SURF_DEBUG_FINE_ENERGY)
         {
             debugColor = gFoamSss.xyz;
         }

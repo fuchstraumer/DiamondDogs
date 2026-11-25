@@ -2149,7 +2149,7 @@ void OceanScene::ToolSurface::DebugViewCommand::Run(const Params& params, agent:
     Scene.atmosphereDebugMode = atmosphere;
     Scene.ssrDebugMode = ssr;
 
-    const std::array<std::string_view, 11>& surfaceNames = SurfaceDebugModeNames();
+    const std::array<std::string_view, k_SurfaceDebugModeCount>& surfaceNames = SurfaceDebugModeNames();
     const std::array<std::string_view, 10>& atmosphereNames = AtmosphereDebugModeNames();
     const std::array<std::string_view, 6>& ssrNames = SsrDebugModeNames();
 

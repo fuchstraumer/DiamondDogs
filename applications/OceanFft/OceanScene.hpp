@@ -21,6 +21,7 @@
 #include <vulkan/vulkan_core.h>
 #include <array>
 #include <filesystem>
+#include <iosfwd>
 #include <memory>
 #include <optional>
 #include <string>
@@ -199,6 +200,10 @@ private:
     void advanceFoam(double delta_seconds);
     /** @brief Prints the camera, the time, the sea state and the enabled cascades, for the print command */
     void printState() const;
+    /** @brief Writes the scene state as a scene script: run it with --script to see the same view again */
+    void writeReproScript(std::ostream& out) const;
+    /** @brief Starts a snapshot in this frame: a capture of the scene without the panel, and its repro script */
+    void beginSnapshot();
     void writeViewParameters();
     void updateSurfaceDescriptors();
     void updateCdlodSettings() noexcept;
@@ -300,6 +305,11 @@ private:
     std::optional<std::string> captureRequest;
     // update() decides this, so that the panel can hide on the frame that a tool capture records
     bool toolCaptureThisFrame{ false };
+    // the panel's snapshot control or F12 sets this; the next frame captures without the panel and writes the script
+    bool snapshotPending{ false };
+    bool snapshotThisFrame{ false };
+    // frames left in which the snapshot control reads SAVED
+    int32_t snapshotSavedFrames{ 0 };
     // a capture_burst command: the frames left to capture, the index of the next one, and the name prefix
     int32_t captureBurstRemaining{ 0 };
     int32_t captureBurstIndex{ 0 };

@@ -67,10 +67,10 @@ struct foundation::reflect::Describe<ocean::SeaState>
             "Regularity",
             &SeaState::Regularity,
             {
-                .Range = FieldRange{ 0.0, 3.0 },
+                .Range = FieldRange{ 0.0, 1.0 },
                 .Doc =
-                    "0: a confused, broad-banded sea. 1: clean, regular wave groups (JONSWAP gamma 1 to 7, "
-                    "up to 19 at 3.0)",
+                    "0: a confused, broad-banded sea. 1: clean, regular wave groups (JONSWAP gamma 1 to 7, the "
+                    "measured range)",
             },
         },
         Field<SeaState, float>

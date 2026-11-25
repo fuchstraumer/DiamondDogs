@@ -163,7 +163,9 @@ namespace ocean
 
             const double alphaP = 6.0e-3 * std::sqrt(omega_c);
             const double gammaBase = (omega_c <= 1.0) ? 1.7 : (1.7 + 6.0 * std::log10(omega_c));
-            const double gammaEff = std::max(1.0, gammaBase * (gamma / 1.7));
+            // the editor's gamma shapes the paper's gamma relative to the JONSWAP mean (3.3), within the measured range.
+            // Spectra.slang ElfouhailyCurvatureB must match
+            const double gammaEff = std::clamp(gammaBase * (gamma / 3.3), 1.0, 7.0);
             const double sigma = 0.08 * (1.0 + 4.0 / (omega_c * omega_c * omega_c));
 
             const double sqrtKOverKp = std::sqrt(k / kp);
@@ -276,7 +278,7 @@ namespace ocean
         const float openness = std::clamp(state.Openness, 0.0f, 1.0f);
         wind.Fetch = std::exp(std::lerp(std::log(sheltered), std::log(fullyDeveloped), openness));
 
-        wind.PeakingFactor = 1.0f + 6.0f * std::clamp(state.Regularity, 0.0f, 3.0f);
+        wind.PeakingFactor = 1.0f + 6.0f * std::clamp(state.Regularity, 0.0f, 1.0f);
         const float fadeComplement = 1.0f - std::clamp(state.RippleDetail, 0.0f, 1.0f);
         wind.FadeLength = 0.08f * fadeComplement * fadeComplement * fadeComplement;
         return wind;

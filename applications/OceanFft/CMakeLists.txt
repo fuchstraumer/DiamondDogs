@@ -103,26 +103,25 @@ add_custom_command(
 add_custom_target(ocean_fft_seabed_textures DEPENDS ${OCEAN_FFT_SEABED_FILES})
 set_target_properties(ocean_fft_seabed_textures PROPERTIES FOLDER "Applications/OceanFft")
 
-lodestone_add_shader_cook(ocean_fft_shaders
+# One bundle: the ocean modules, and every module that registered its shaders (ColorPipe, GpuPyramid), through
+# diamond_dogs_add_shader_cook. The cook reads OceanFftGenerated.slang, so its generator runs first.
+diamond_dogs_add_shader_cook(ocean_fft_shaders
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
-    TARGETS spirv
-    POLICY_FILE "${OCEAN_FFT_SHADER_DIR}/OceanFftPolicy.toml"
+    OUTPUT_NAME OceanFft
+    HOST_TYPES "math/ShaderHostTypes.hpp"
+    POLICY_FILES "${OCEAN_FFT_SHADER_DIR}/OceanFftPolicy.toml"
     INCLUDE_DIRS "${OCEAN_FFT_GENERATED_SHADER_DIR}"
-                 "${PROJECT_SOURCE_DIR}/assets/shaders/common/Color"
                  "${PROJECT_SOURCE_DIR}/assets/shaders/common/Lighting"
-                 "${CMAKE_BINARY_DIR}/generated/shaders/Color"
                  "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean"
+    DEPENDS ocean_fft_support_data
     OPTIONS --O3 --g3
     MODULES "${OCEAN_FFT_SHADER_DIR}/OceanFft.slang"
             "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanRender.slang"
             "${PROJECT_SOURCE_DIR}/assets/shaders/compute/Quadtree/Quadtree.slang"
             "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanEnvironment.slang"
             "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanAtmosphere.slang"
-            "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanDeferred.slang"
-            "${GPU_PYRAMID_SHADER_MODULE}")
+            "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanDeferred.slang")
 set_target_properties(ocean_fft_shaders PROPERTIES FOLDER "Applications/OceanFft")
-# the cook reads OceanFftGenerated.slang and ddColorGenerated.slang, so the generators run first
-add_dependencies(ocean_fft_shaders ocean_fft_support_data color_pipe_shader_data)
 
 add_library(ocean_simulation STATIC
     "simulation/OceanSimulation.cpp"
@@ -278,3 +277,25 @@ add_custom_target(OceanFft_package
     VERBATIM)
 add_dependencies(OceanFft_package OceanFft ocean_fft_foam_textures ocean_fft_seabed_textures color_pipe_shaders)
 set_target_properties(OceanFft_package PROPERTIES FOLDER "Applications/OceanFft")
+
+# OceanFftLoom: the shell of the OceanFft port to Loom (loom/main.cpp). It shares the output folder, the bundle copies
+# and the libraries with OceanFft, and replaces it when the port is done.
+add_executable(OceanFftLoom
+    "loom/main.cpp"
+    "loom/OceanGraph.cpp"
+    "loom/OceanGraph.hpp"
+    "${DIAMOND_DOGS_TEST_FIXTURES}/FrameLimit.cpp"
+    "${DIAMOND_DOGS_TEST_FIXTURES}/FrameLimit.hpp"
+    "${DIAMOND_DOGS_TEST_FIXTURES}/WindowedBoot.cpp"
+    "${DIAMOND_DOGS_TEST_FIXTURES}/WindowedBoot.hpp")
+target_include_directories(OceanFftLoom PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/loom"
+    "${CMAKE_CURRENT_BINARY_DIR}/cooked"
+    "${DIAMOND_DOGS_TEST_FIXTURES}"
+    "${PROJECT_SOURCE_DIR}/modules/PlatformSystem/include")
+target_compile_definitions(OceanFftLoom PRIVATE
+    "OCEAN_FFT_FONT_DIR=\"${PROJECT_SOURCE_DIR}/assets/fonts\"")
+target_link_libraries(OceanFftLoom PRIVATE bootstrap_vulkan loom_vulkan loom_vulkan_platform ocean_simulation ocean_foam
+    color_pipe imgui_module platform_system ${Vulkan_LIBRARY})
+set_target_properties(OceanFftLoom PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+add_dependencies(OceanFftLoom ocean_fft_bundle_copy)
