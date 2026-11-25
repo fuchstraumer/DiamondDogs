@@ -4,6 +4,7 @@
 #include "OceanSimulation.hpp"
 #include "SeaState.hpp"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -20,191 +21,177 @@ namespace ocean
 {
     namespace
     {
-        [[maybe_unused]] constexpr float k_PanelWidth = 444.0f;
+        // Role tokens. A color belongs to a role, never to a widget. The surfaces are white at a low alpha, so that
+        // every step shows on the final image whatever the scene is under the scrim.
+        constexpr ImU32 k_SurfaceTop = IM_COL32(12, 16, 22, 255);
+        constexpr ImU32 k_SurfaceBottom = IM_COL32(7, 10, 14, 255);
+        constexpr ImU32 k_SurfacePopup = IM_COL32(10, 14, 20, 252);
+        constexpr ImU32 k_FieldRest = IM_COL32(255, 255, 255, 14);
+        constexpr ImU32 k_FieldHover = IM_COL32(255, 255, 255, 26);
+        constexpr ImU32 k_FieldActive = IM_COL32(255, 255, 255, 38);
+
+        constexpr ImU32 k_TextValue = IM_COL32(236, 241, 247, 255);
+        constexpr ImU32 k_TextLabel = IM_COL32(152, 163, 178, 255);
+        constexpr ImU32 k_TextHint = IM_COL32(108, 120, 136, 255);
+
+        constexpr ImU32 k_LineWeak = IM_COL32(255, 255, 255, 28);
+        constexpr ImU32 k_LineStrong = IM_COL32(255, 255, 255, 70);
+
+        constexpr ImU32 k_Accent = IM_COL32(72, 208, 232, 255);
+        constexpr ImU32 k_Warning = IM_COL32(242, 112, 82, 255);
+
+        constexpr ImU32 k_DataWind = IM_COL32(142, 176, 255, 255);
+        constexpr ImU32 k_DataSwell = IM_COL32(236, 186, 112, 255);
+        constexpr ImU32 k_DataGraphicsQueue = IM_COL32(104, 198, 168, 255);
+        constexpr ImU32 k_DataAsyncQueue = IM_COL32(196, 150, 232, 255);
+
+        // Type scale, in pixels at a DPI factor of 1.
+        constexpr float k_SizeCaption = 12.5f;
+        constexpr float k_SizeCaptionMichroma = 9.5f;
+        constexpr float k_SizeBody = 15.0f;
+        constexpr float k_SizeTitle = 19.0f;
+        constexpr float k_SizeTitleMichroma = 14.0f;
+        constexpr float k_SizeHero = 56.0f;
+        constexpr float k_SizeHeroMichroma = 40.0f;
+
+        // Spacing scale, in pixels at a DPI factor of 1.
+        constexpr float k_Space1 = 4.0f;
+        constexpr float k_Space2 = 8.0f;
+        constexpr float k_Space3 = 12.0f;
+        constexpr float k_Space4 = 16.0f;
+
         constexpr float k_PanelMargin = 16.0f;
-        [[maybe_unused]] constexpr float k_PanelChamfer = 14.0f;
-        constexpr float k_LabelColumnWidth = 154.0f;
+        constexpr float k_LabelColumnWidth = 150.0f;
+        constexpr float k_SliderRowHeight = 34.0f;
+        constexpr float k_SliderTrackOffset = 26.0f;
+        constexpr float k_SliderGrabSize = 12.0f;
+        constexpr float k_HandleRadius = 4.5f;
+        constexpr float k_HandleRadiusHot = 6.0f;
+        constexpr float k_OptionHeight = 28.0f;
+        constexpr float k_TabHeight = 32.0f;
+        constexpr float k_OptionPadding = 20.0f;
+        constexpr float k_KeyValueHeight = 22.0f;
+        constexpr float k_CompassRadius = 54.0f;
+        constexpr int32_t k_MaxOptions = 8;
+        constexpr float k_AngleSnapDegrees = 1.5f;
         constexpr float k_Pi = std::numbers::pi_v<float>;
         constexpr float k_DegreesToRadians = k_Pi / 180.0f;
 
-        // --- Telemetry Panel and Chassis Colors ---
-        constexpr ImU32 k_ColorPanelBg = IM_COL32(10, 12, 16, 252);
-        constexpr ImU32 k_ColorPanelBorder = IM_COL32(85, 105, 125, 110);
-        constexpr ImU32 k_ColorPanelReticle = IM_COL32(80, 95, 110, 60);
-        constexpr ImU32 k_ColorTopBarAccent = IM_COL32(110, 130, 150, 120);
-        constexpr ImU32 k_ColorHeaderGradientTop = IM_COL32(20, 24, 30, 0);
-        constexpr ImU32 k_ColorHeaderGradientMid = IM_COL32(20, 24, 30, 0);
-        constexpr ImU32 k_ColorHeaderGradientEnd = IM_COL32(10, 12, 16, 0);
-
-        // --- Cards and Group Enclosures ---
-        constexpr ImU32 k_ColorCardBg = IM_COL32(13, 16, 21, 248);
-        constexpr ImU32 k_ColorCardBorder = IM_COL32(50, 60, 70, 35);
-        constexpr ImU32 k_ColorCardAccentBar = IM_COL32(90, 115, 140, 100);
-        constexpr ImU32 k_ColorCardSubBg = IM_COL32(11, 14, 18, 248);
-        constexpr ImU32 k_ColorCardSubBorder = IM_COL32(45, 55, 65, 30);
-
-        // --- Dividers and Separator Hairlines ---
-        constexpr ImU32 k_ColorHairline = IM_COL32(55, 65, 75, 35);
-        constexpr ImU32 k_ColorHairlineSub = IM_COL32(55, 65, 75, 25);
-        constexpr ImU32 k_ColorHairlineBanner = IM_COL32(60, 70, 80, 40);
-
-        // --- Typography (ImU32 Direct DrawList Colors) ---
-        constexpr ImU32 k_ColorTextHeader = IM_COL32(235, 240, 245, 255);
-        constexpr ImU32 k_ColorTextHeaderHover = IM_COL32(250, 252, 255, 255);
-        constexpr ImU32 k_ColorTextSection = IM_COL32(180, 190, 200, 235);
-        constexpr ImU32 k_ColorTextSubHeader = IM_COL32(150, 160, 172, 225);
-        constexpr ImU32 k_ColorTextLabel = IM_COL32(130, 140, 150, 215);
-        constexpr ImU32 k_ColorTextLabelHover = IM_COL32(200, 210, 220, 245);
-        [[maybe_unused]] constexpr ImU32 k_ColorTextHint = IM_COL32(95, 105, 115, 200);
-        constexpr ImU32 k_ColorTextValue = IM_COL32(210, 220, 230, 240);
-        constexpr ImU32 k_ColorTextValueHover = IM_COL32(245, 250, 255, 255);
-        constexpr ImU32 k_ColorTextUnit = IM_COL32(100, 110, 120, 200);
-        constexpr ImU32 k_ColorTextCyanAccent = IM_COL32(165, 180, 195, 225);
-        constexpr ImU32 k_ColorTextBodyMuted = IM_COL32(135, 145, 155, 220);
-        constexpr ImU32 k_ColorTextSubMuted = IM_COL32(105, 115, 125, 205);
-
-        // --- Typography (ImVec4 TextColored Constants) ---
-        constexpr ImVec4 k_ColorVecTitle{ 0.90f, 0.93f, 0.96f, 0.98f };
-        constexpr ImVec4 k_ColorVecSubtitle{ 0.45f, 0.50f, 0.55f, 0.90f };
-        constexpr ImVec4 k_ColorVecNote{ 0.45f, 0.50f, 0.55f, 0.90f };
-        constexpr ImVec4 k_ColorVecMutedStatus{ 0.45f, 0.50f, 0.55f, 0.85f };
-        constexpr ImVec4 k_ColorVecTimingRoot{ 0.85f, 0.88f, 0.92f, 0.95f };
-        constexpr ImVec4 k_ColorVecTimingChild{ 0.55f, 0.60f, 0.65f, 0.90f };
-        constexpr ImVec4 k_ColorVecTimingAvg{ 0.75f, 0.80f, 0.85f, 0.95f };
-        constexpr ImVec4 k_ColorVecTimingLast{ 0.48f, 0.52f, 0.58f, 0.85f };
-        constexpr ImVec4 k_ColorVecTimingFooter{ 0.38f, 0.42f, 0.48f, 0.80f };
-
-        // --- Slider Tracks and Chunky Thumbs ---
-        constexpr ImU32 k_ColorTrackBg = IM_COL32(5, 7, 10, 255);
-        constexpr ImU32 k_ColorTrackTick = IM_COL32(80, 90, 100, 18);
-        constexpr ImU32 k_ColorCenterTick = IM_COL32(120, 135, 150, 60);
-        constexpr ImU32 k_ColorThumbBg = IM_COL32(20, 24, 30, 255);
-        constexpr ImU32 k_ColorThumbBgHover = IM_COL32(32, 38, 48, 255);
-        constexpr ImU32 k_ColorThumbBorder = IM_COL32(75, 90, 105, 80);
-        constexpr ImU32 k_ColorThumbNotch = IM_COL32(85, 100, 115, 100);
-
-        // --- Preset Buttons ---
-        constexpr ImU32 k_ColorButtonBg = IM_COL32(14, 18, 23, 240);
-        constexpr ImU32 k_ColorButtonBgHover = IM_COL32(24, 30, 38, 245);
-        constexpr ImU32 k_ColorButtonBgActive = IM_COL32(32, 40, 50, 255);
-        constexpr ImU32 k_ColorButtonBorderActive = IM_COL32(120, 140, 160, 150);
-        constexpr ImU32 k_ColorButtonIndicator = IM_COL32(140, 165, 190, 220);
-        constexpr ImU32 k_ColorButtonText = IM_COL32(135, 145, 155, 220);
-        constexpr ImU32 k_ColorButtonTextActive = IM_COL32(240, 245, 250, 255);
-
-        // --- Toggle Switches and Segmented Selectors ---
-        constexpr ImU32 k_ColorToggleOffBg = IM_COL32(10, 13, 17, 240);
-        constexpr ImU32 k_ColorToggleOffText = IM_COL32(105, 115, 125, 200);
-        constexpr ImU32 k_ColorChevronClosed = IM_COL32(100, 115, 130, 180);
-
-        // --- Cascade Bands ---
-        constexpr ImU32 k_ColorBandOffBg = IM_COL32(10, 13, 17, 240);
-        constexpr ImU32 k_ColorBandOnBg = IM_COL32(28, 36, 46, 255);
-        constexpr ImU32 k_ColorBandOffBorder = IM_COL32(50, 60, 70, 35);
-        constexpr ImU32 k_ColorBandOnBorder = IM_COL32(110, 130, 150, 140);
-        constexpr ImU32 k_ColorBandHoverBorder = IM_COL32(85, 105, 125, 80);
-        constexpr ImU32 k_ColorBandOffLed = IM_COL32(45, 55, 65, 80);
-        constexpr ImU32 k_ColorBandOnLed = IM_COL32(140, 165, 190, 220);
-        constexpr ImU32 k_ColorBandOffText = IM_COL32(100, 110, 120, 190);
-        constexpr ImU32 k_ColorBandOnText = IM_COL32(235, 242, 250, 255);
-
-        // --- Spectrum Model Segment Buttons ---
-        constexpr ImU32 k_ColorSegmentOffBg = IM_COL32(10, 13, 17, 240);
-        constexpr ImU32 k_ColorSegmentOnBg = IM_COL32(28, 36, 46, 255);
-        constexpr ImU32 k_ColorSegmentOnBorder = IM_COL32(110, 130, 150, 140);
-        constexpr ImU32 k_ColorSegmentOffText = IM_COL32(115, 125, 135, 195);
-
-        // --- Compass Reticle ---
-        constexpr ImU32 k_ColorCompassBg = IM_COL32(8, 10, 14, 255);
-        constexpr ImU32 k_ColorCompassRingOuter = IM_COL32(70, 85, 100, 50);
-        constexpr ImU32 k_ColorCompassRingInner = IM_COL32(70, 85, 100, 25);
-        constexpr ImU32 k_ColorCompassCrosshair = IM_COL32(80, 95, 110, 60);
-        constexpr ImU32 k_ColorCompassPivot = IM_COL32(160, 175, 190, 180);
-        constexpr ImU32 k_ColorCompassWind = IM_COL32(140, 170, 200, 220);
-        constexpr ImU32 k_ColorCompassSwell = IM_COL32(185, 155, 115, 210);
-
-        // --- Physics Inspection Row ---
-        constexpr ImU32 k_ColorPhysicsLabel = IM_COL32(115, 125, 135, 210);
-        constexpr ImU32 k_ColorPhysicsValueA = IM_COL32(205, 215, 225, 240);
-        constexpr ImU32 k_ColorPhysicsUnitA = IM_COL32(130, 145, 160, 190);
-        constexpr ImU32 k_ColorPhysicsValueB = IM_COL32(135, 145, 155, 205);
-
-        // --- Performance Badge ---
-        constexpr ImU32 k_ColorPerfBadgeBg = IM_COL32(12, 15, 20, 245);
-        constexpr ImU32 k_ColorPerfBadgeBorder = IM_COL32(70, 85, 100, 55);
-        constexpr ImU32 k_ColorPerfBadgeText = IM_COL32(150, 165, 180, 230);
-
-        // --- GPU Timings Scope Bars ---
-        constexpr ImU32 k_ColorTimingBarRoot = IM_COL32(75, 95, 115, 35);
-        constexpr ImU32 k_ColorTimingBarChild = IM_COL32(65, 80, 100, 22);
-        constexpr ImU32 k_ColorTimingBarUnderline = IM_COL32(90, 110, 130, 80);
-        constexpr ImU32 k_ColorTimingTreeTick = IM_COL32(70, 85, 100, 80);
-
-        // --- Primary Accent Palettes (Slate Cyan, Muted Amber, Slate Ice) ---
-        constexpr ImU32 k_ColorCyanPrimary = IM_COL32(140, 165, 190, 220);
-        constexpr ImU32 k_ColorCyanFillBright = IM_COL32(65, 80, 95, 160);
-        constexpr ImU32 k_ColorCyanFillMuted = IM_COL32(40, 50, 60, 120);
-        constexpr ImU32 k_ColorCyanGlow = IM_COL32(140, 165, 190, 20);
-
-        constexpr ImU32 k_ColorAmberPrimary = IM_COL32(185, 155, 115, 220);
-        constexpr ImU32 k_ColorAmberFillBright = IM_COL32(85, 75, 60, 160);
-        constexpr ImU32 k_ColorAmberFillMuted = IM_COL32(50, 45, 40, 120);
-        constexpr ImU32 k_ColorAmberGlow = IM_COL32(185, 155, 115, 20);
-
-        constexpr ImU32 k_ColorIcePrimary = IM_COL32(140, 165, 190, 220);
-        constexpr ImU32 k_ColorIceFillBright = IM_COL32(60, 75, 90, 160);
-        constexpr ImU32 k_ColorIceFillMuted = IM_COL32(38, 48, 58, 120);
-        constexpr ImU32 k_ColorIceGlow = IM_COL32(140, 165, 190, 20);
-
-        struct ToneColors
+        enum class Face : uint8_t
         {
-            ImU32 Primary{ 0u };
-            ImU32 FillBright{ 0u };
-            ImU32 FillMuted{ 0u };
-            ImU32 Glow{ 0u };
+            Invalid = 0,
+            Caps,
+            Title,
+            Hero,
+            Body,
+            Small,
+            Note,
         };
 
-        [[nodiscard]] ImFont* PickHeaderFont(const ImGuiFontSet& fonts, HeaderFontMode font_mode) noexcept;
-        [[nodiscard]] ImFont* PickSectionFont(const ImGuiFontSet& fonts, HeaderFontMode font_mode) noexcept;
-        [[nodiscard]] ToneColors ResolveTone(AccentTone tone) noexcept;
-        [[nodiscard]] float SmoothHoverState(ImGuiID id, bool active_or_hovered) noexcept;
-        [[nodiscard]] ImU32 DynamicBorderColor(uint8_t alpha) noexcept;
-        [[nodiscard]] ImU32 DynamicTrackBorderColor(uint8_t alpha) noexcept;
-        void DrawChamferedRect(ImDrawList* draw_list, const ImVec2& min_pos, const ImVec2& max_pos, float chamfer,
-                               ImU32 fill_color, ImU32 border_color, float border_thickness);
-        void DrawCornerReticles(ImDrawList* draw_list, const ImVec2& min_pos, const ImVec2& max_pos, float arm_length,
-                                ImU32 color);
-        void DrawCompassReticle(ImDrawList* draw_list, const ImVec2& center, float radius, const SeaState& state,
-                                const ImGuiFontSet& fonts);
+        enum class CellKind : uint8_t
+        {
+            Invalid = 0,
+            Option,
+            Tab,
+        };
+
+        struct FaceSpec
+        {
+            ImFont* Font{ nullptr };
+            float Size{ 0.0f };
+        };
+
+        // The fonts and the header typeface of the panel that is open. The UI thread alone reads and writes this,
+        // between BeginTelemetryPanel and EndTelemetryPanel, so that no widget needs the fonts as a parameter.
+        struct FrameContext
+        {
+            const ImGuiFontSet* Fonts{ nullptr };
+            HeaderFontMode Mode{ HeaderFontMode::Blinker };
+        };
+
+        struct OptionRowSpec
+        {
+            const char* Id{ nullptr };
+            std::string_view Label{};
+            std::span<const std::string_view> Options{};
+            std::span<const bool> On{};
+            int32_t Columns{ 1 };
+            ImU32 SelectedColor{ 0u };
+            CellKind Kind{ CellKind::Option };
+        };
+
+        struct SliderRowSpec
+        {
+            const char* Id{ nullptr };
+            std::string_view Label{};
+            std::string_view Hint{};
+            std::string_view ValueText{};
+            std::string_view UnitText{};
+            float Min{ 0.0f };
+            float Max{ 1.0f };
+            bool Logarithmic{ false };
+            bool Centered{ false };
+        };
+
+        struct KeyValueSpec
+        {
+            std::string_view Label{};
+            std::string_view Value{};
+            std::string_view Unit{};
+            ImU32 DotColor{ 0u };
+        };
+
+        FrameContext activeFrame;
+
+        [[nodiscard]] float Scale() noexcept;
+        [[nodiscard]] float Px(float pixels) noexcept;
+        [[nodiscard]] ImU32 WithAlpha(ImU32 color, float alpha_scale) noexcept;
+        [[nodiscard]] FaceSpec ResolveFace(Face face) noexcept;
+        [[nodiscard]] float TextWidth(Face face, std::string_view text);
+        [[nodiscard]] float LineHeight(Face face);
+        void PutText(ImDrawList* draw_list, Face face, const ImVec2& position, ImU32 color, std::string_view text);
+        void PutTextRight(ImDrawList* draw_list, Face face, const ImVec2& right_position, ImU32 color,
+                          std::string_view text);
+        void TextItem(Face face, ImU32 color, std::string_view text);
+        void TextItemRight(Face face, ImU32 color, std::string_view text);
+        void ApplyTelemetryStyle() noexcept;
+        void DrawPanelSurface(const ImVec2& min_pos, const ImVec2& max_pos);
+        void DrawCloseCross(ImDrawList* draw_list, const ImVec2& min_pos, float size, ImU32 color);
+        void DrawCompass(ImDrawList* draw_list, const ImVec2& center, float radius, const SeaState& state);
         void DrawCompassArrow(ImDrawList* draw_list, const ImVec2& center, float angle_radians, float length,
-                              ImU32 color, float thickness);
+                              ImU32 color);
+        void DrawKeyValueAt(ImDrawList* draw_list, const ImVec2& position, float width, const KeyValueSpec& spec);
+        void DrawSectionLabelWithDot(std::string_view label, ImU32 dot_color);
+        [[nodiscard]] int32_t DrawOptionRow(const OptionRowSpec& spec);
+        void FillSelection(std::span<bool> on, int32_t selected) noexcept;
+        [[nodiscard]] bool DrawSliderRow(const SliderRowSpec& spec, float* value);
+        void DrawSliderTooltip(std::string_view label, std::string_view hint);
         [[nodiscard]] bool MatchesPreset(const SeaState& current, const SeaState& preset) noexcept;
-        [[nodiscard]] float NormalizeSliderValue(float value, float min_value, float max_value, bool logarithmic) noexcept;
-        [[nodiscard]] float DenormalizeSliderValue(float normalized, float min_value, float max_value, bool logarithmic) noexcept;
-        void DrawChunkyThumb(ImDrawList* draw_list, const ImVec2& center, float half_width, float half_height,
-                             const ToneColors& tone, float highlight);
-        void DrawPhysicsRow(const ImGuiFontSet& fonts, std::string_view label, std::string_view value_a,
-                            std::string_view unit_a, std::string_view value_b, std::string_view unit_b);
+        void DrawTimingTable(const char* table_id, const rhi::GpuTimers& gpu_timers,
+                             const std::unordered_map<uint64_t, double>& timing_averages, ImU32 queue_color);
     }
 
     bool BeginTelemetryPanel(const char* name, const ImGuiFontSet& fonts, HeaderFontMode font_mode, bool* p_open)
     {
-        (void)fonts;
-        (void)font_mode;
-
         if (p_open != nullptr && !(*p_open))
         {
             return false;
         }
 
-        const ImGuiViewport* viewport = ImGui::GetMainViewport();
-        const float maxHeight = std::max(viewport->WorkSize.y - 2.0f * k_PanelMargin, 320.0f);
-        const float minWidth = 440.0f;
-        const float maxWidth = std::max(viewport->WorkSize.x - 2.0f * k_PanelMargin, 850.0f);
+        activeFrame.Fonts = &fonts;
+        activeFrame.Mode = font_mode;
+        ApplyTelemetryStyle();
 
-        ImGui::SetNextWindowPos(ImVec2{ viewport->WorkPos.x + k_PanelMargin, viewport->WorkPos.y + k_PanelMargin }, ImGuiCond_FirstUseEver);
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        const float margin = Px(k_PanelMargin);
+        const float maxHeight = std::max(viewport->WorkSize.y - 2.0f * margin, 320.0f);
+        const float minWidth = Px(440.0f);
+        const float maxWidth = std::max(viewport->WorkSize.x - 2.0f * margin, Px(850.0f));
+
+        ImGui::SetNextWindowPos(ImVec2{ viewport->WorkPos.x + margin, viewport->WorkPos.y + margin },
+                                ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSizeConstraints(ImVec2{ minWidth, 300.0f }, ImVec2{ maxWidth, maxHeight });
-        ImGui::SetNextWindowSize(ImVec2{ 480.0f, maxHeight }, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2{ Px(480.0f), maxHeight }, ImGuiCond_FirstUseEver);
 
         constexpr ImGuiWindowFlags k_Flags =
             ImGuiWindowFlags_NoTitleBar |
@@ -214,38 +201,16 @@ namespace ocean
 
         const bool open = ImGui::Begin(name, p_open, k_Flags);
 
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const ImVec2 winMin = ImGui::GetWindowPos();
-        const ImVec2 winMax = ImVec2{ winMin.x + ImGui::GetWindowWidth(), winMin.y + ImGui::GetWindowHeight() };
-
-        constexpr float k_PanelCornerRounding = 6.0f;
-        drawList->AddRectFilled(winMin, winMax, k_ColorPanelBg, k_PanelCornerRounding);
-        drawList->AddRect(winMin, winMax, k_ColorPanelBorder, k_PanelCornerRounding, 0, 1.5f);
-
-        // subtle top atmospheric header band
-        drawList->AddRectFilledMultiColor(
-            ImVec2{ winMin.x + 1.0f, winMin.y + 1.0f },
-            ImVec2{ winMax.x - 1.0f, winMin.y + 48.0f },
-            k_ColorHeaderGradientTop,
-            k_ColorHeaderGradientMid,
-            k_ColorHeaderGradientEnd,
-            k_ColorHeaderGradientEnd);
-
-        // top-left structural accent bar
-        drawList->AddLine(
-            ImVec2{ winMin.x + k_PanelCornerRounding, winMin.y },
-            ImVec2{ winMin.x + 88.0f, winMin.y },
-            k_ColorTopBarAccent,
-            2.0f);
-
-        DrawCornerReticles(
-            drawList,
-            ImVec2{ winMin.x + 4.0f, winMin.y + 4.0f },
-            ImVec2{ winMax.x - 4.0f, winMax.y - 4.0f },
-            6.0f,
-            k_ColorPanelReticle);
+        const ImVec2 windowMin = ImGui::GetWindowPos();
+        const ImVec2 windowMax{ windowMin.x + ImGui::GetWindowWidth(), windowMin.y + ImGui::GetWindowHeight() };
+        DrawPanelSurface(windowMin, windowMax);
 
         return open;
+    }
+
+    void EndTelemetryPanel()
+    {
+        ImGui::End();
     }
 
     bool DrawRestoreMenuButton(const ImGuiFontSet& fonts, bool* p_open)
@@ -255,10 +220,13 @@ namespace ocean
             return false;
         }
 
+        activeFrame.Fonts = &fonts;
+        ApplyTelemetryStyle();
+
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
-        ImGui::SetNextWindowPos(
-            ImVec2{ viewport->WorkPos.x + 16.0f, viewport->WorkPos.y + 16.0f },
-            ImGuiCond_Always);
+        const float margin = Px(k_PanelMargin);
+        ImGui::SetNextWindowPos(ImVec2{ viewport->WorkPos.x + margin, viewport->WorkPos.y + margin }, ImGuiCond_Always);
+
         constexpr ImGuiWindowFlags k_Flags =
             ImGuiWindowFlags_NoDecoration |
             ImGuiWindowFlags_AlwaysAutoResize |
@@ -268,213 +236,162 @@ namespace ocean
             ImGuiWindowFlags_NoBackground;
 
         bool clicked = false;
+
         if (ImGui::Begin("##RestoreTelemetryPanel", nullptr, k_Flags))
         {
             ImDrawList* drawList = ImGui::GetWindowDrawList();
-            const ImVec2 pos = ImGui::GetCursorScreenPos();
-            constexpr ImVec2 btnSize{ 86.0f, 26.0f };
+            const ImVec2 position = ImGui::GetCursorScreenPos();
+            const ImVec2 buttonSize{ Px(88.0f), Px(28.0f) };
 
-            if (ImGui::InvisibleButton("##restore_menu_btn", btnSize))
+            if (ImGui::InvisibleButton("##restore_menu_btn", buttonSize))
             {
                 if (p_open != nullptr)
                 {
                     *p_open = true;
                 }
+
                 clicked = true;
             }
 
             const bool hovered = ImGui::IsItemHovered();
-            const float highlight = SmoothHoverState(ImGui::GetItemID(), hovered);
-            const ImU32 fillCol = hovered ? IM_COL32(20, 26, 34, 245) : IM_COL32(10, 13, 17, 235);
-            const ImU32 borderCol = DynamicBorderColor(static_cast<uint8_t>(60 + 80 * highlight));
+            const ImVec2 maxPosition{ position.x + buttonSize.x, position.y + buttonSize.y };
+            drawList->AddRectFilled(position, maxPosition, hovered ? k_SurfacePopup : k_SurfaceTop);
+            drawList->AddRect(position, maxPosition, hovered ? k_LineStrong : k_LineWeak);
 
-            drawList->AddRectFilled(pos, ImVec2{ pos.x + btnSize.x, pos.y + btnSize.y }, fillCol, 4.0f);
-            drawList->AddRect(pos, ImVec2{ pos.x + btnSize.x, pos.y + btnSize.y }, borderCol, 4.0f, 0, 1.0f);
+            const float lineLeft = position.x + Px(k_Space3);
+            const float lineRight = lineLeft + Px(12.0f);
+            const float lineCenter = position.y + 0.5f * buttonSize.y;
+            const ImU32 iconColor = hovered ? k_TextValue : k_TextLabel;
 
-            // subtle arrow indicator
-            const std::array<ImVec2, 3> arrow
+            for (int32_t line = -1; line <= 1; ++line)
             {
-                ImVec2{ pos.x + 12.0f, pos.y + 8.0f },
-                ImVec2{ pos.x + 18.0f, pos.y + 13.0f },
-                ImVec2{ pos.x + 12.0f, pos.y + 18.0f },
-            };
-            drawList->AddConvexPolyFilled(arrow.data(), 3, hovered ? k_ColorTextHeaderHover : k_ColorTextLabel);
+                const float lineY = lineCenter + static_cast<float>(line) * Px(4.0f);
+                drawList->AddLine(ImVec2{ lineLeft, lineY }, ImVec2{ lineRight, lineY }, iconColor, 1.0f);
+            }
 
-            ImGui::PushFont(fonts.SectionBlinker);
-            drawList->AddText(
-                ImVec2{ pos.x + 26.0f, pos.y + 5.0f },
-                hovered ? k_ColorTextHeaderHover : k_ColorTextHeader,
-                "MENU");
-            ImGui::PopFont();
+            const float textY = position.y + 0.5f * (buttonSize.y - LineHeight(Face::Caps));
+            PutText(drawList, Face::Caps, ImVec2{ lineRight + Px(k_Space2), textY }, iconColor, "MENU");
         }
+
         ImGui::End();
         return clicked;
     }
 
-    void EndTelemetryPanel()
-    {
-        ImGui::End();
-    }
-
-    void DrawTelemetryBanner(const ImGuiFontSet& fonts, HeaderFontMode font_mode, const OceanSimulationSettings& settings,
-                             bool* p_open)
+    void DrawTelemetryBanner(const OceanSimulationSettings& settings, bool* p_open)
     {
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const ImVec2 startPos = ImGui::GetCursorScreenPos();
+        const ImVec2 startPosition = ImGui::GetCursorScreenPos();
         const float availWidth = ImGui::GetContentRegionAvail().x;
+        const float titleHeight = LineHeight(Face::Title);
 
-        ImGui::PushFont(PickHeaderFont(fonts, font_mode));
-        ImGui::TextColored(k_ColorVecTitle, "OCEAN SIMULATION");
-        ImGui::PopFont();
+        PutText(drawList, Face::Title, startPosition, k_TextValue, "OCEAN SIMULATION");
 
-        float rightOffset = 0.0f;
+        float rightEdge = startPosition.x + availWidth;
+
         if (p_open != nullptr)
         {
-            const ImVec2 closeBtnMin{ startPos.x + availWidth - 18.0f, startPos.y + 2.0f };
-            const ImVec2 closeBtnMax{ startPos.x + availWidth, startPos.y + 20.0f };
-            ImGui::SetCursorScreenPos(closeBtnMin);
-            if (ImGui::InvisibleButton("##close_panel_banner_btn", ImVec2{ 18.0f, 18.0f }))
+            const float closeSize = Px(16.0f);
+            const ImVec2 closeMin{ rightEdge - closeSize, startPosition.y + 0.5f * (titleHeight - closeSize) };
+            ImGui::SetCursorScreenPos(closeMin);
+
+            if (ImGui::InvisibleButton("##close_panel_banner_btn", ImVec2{ closeSize, closeSize }))
             {
                 *p_open = false;
             }
-            const bool closeHovered = ImGui::IsItemHovered();
-            const ImU32 closeCol = closeHovered ? IM_COL32(245, 250, 255, 255) : IM_COL32(130, 145, 160, 200);
-            drawList->AddLine(
-                ImVec2{ closeBtnMin.x + 4.0f, closeBtnMin.y + 4.0f },
-                ImVec2{ closeBtnMax.x - 4.0f, closeBtnMax.y - 4.0f },
-                closeCol, 1.5f);
-            drawList->AddLine(
-                ImVec2{ closeBtnMax.x - 4.0f, closeBtnMin.y + 4.0f },
-                ImVec2{ closeBtnMin.x + 4.0f, closeBtnMax.y - 4.0f },
-                closeCol, 1.5f);
-            rightOffset = 26.0f;
+
+            DrawCloseCross(drawList, closeMin, closeSize, ImGui::IsItemHovered() ? k_TextValue : k_TextHint);
+            rightEdge = closeMin.x - Px(k_Space3);
         }
 
-        const float fps = ImGui::GetIO().Framerate;
-        const float frameMs = fps > 0.0f ? 1000.0f / fps : 0.0f;
-        const std::string perfText = std::format("{:.2f} ms  //  {:.0f} FPS", frameMs, fps);
+        const float framesPerSecond = ImGui::GetIO().Framerate;
+        const float frameMs = framesPerSecond > 0.0f ? 1000.0f / framesPerSecond : 0.0f;
+        const std::string performanceText = std::format("{:.2f} ms  {:.0f} FPS", frameMs, framesPerSecond);
+        const float performanceY = startPosition.y + 0.5f * (titleHeight - LineHeight(Face::Small));
+        PutTextRight(drawList, Face::Small, ImVec2{ rightEdge, performanceY }, k_TextHint, performanceText);
 
-        ImGui::PushFont(fonts.SectionBlinker);
-        const ImVec2 perfSize = ImGui::CalcTextSize(perfText.c_str());
-        const ImVec2 badgeMin{ startPos.x + availWidth - rightOffset - perfSize.x - 14.0f, startPos.y + 2.0f };
-        const ImVec2 badgeMax{ startPos.x + availWidth - rightOffset, startPos.y + perfSize.y + 8.0f };
-        DrawChamferedRect(
-            drawList,
-            badgeMin,
-            badgeMax,
-            5.0f,
-            k_ColorPerfBadgeBg,
-            k_ColorPerfBadgeBorder,
-            1.0f);
-        drawList->AddText(
-            ImVec2{ badgeMin.x + 7.0f, badgeMin.y + 3.0f },
-            k_ColorPerfBadgeText,
-            perfText.c_str());
-
-        const std::string kernelTag = "RADIX-4";
         const std::string waveTag = settings.WaveSize == 0u ?
-            std::string{ "NO WAVE OPS" } :
-            std::format("WAVE {}", settings.WaveSize);
-        const std::string specLine = std::format("IFFT {}  //  {}x{}  //  {} CASCADES  //  {}",
-            kernelTag, settings.Size, settings.Size, k_CascadeCount, waveTag);
+            std::string{ "no wave ops" } :
+            std::format("wave {}", settings.WaveSize);
+        const std::string specLine = std::format("IFFT radix-4  /  {}x{}  /  {} cascades  /  {}",
+            settings.Size, settings.Size, k_CascadeCount, waveTag);
 
-        ImGui::TextColored(k_ColorVecSubtitle, "%s", specLine.c_str());
-        ImGui::PopFont();
-
-        const ImVec2 linePos = ImGui::GetCursorScreenPos();
-        drawList->AddLine(
-            ImVec2{ linePos.x, linePos.y + 2.0f },
-            ImVec2{ linePos.x + availWidth, linePos.y + 2.0f },
-            k_ColorHairlineBanner,
-            1.0f);
-        ImGui::Dummy(ImVec2{ 0.0f, 6.0f });
+        ImGui::SetCursorScreenPos(ImVec2{ startPosition.x, startPosition.y + titleHeight + Px(k_Space1) });
+        TextItem(Face::Small, k_TextHint, specLine);
+        ImGui::Dummy(ImVec2{ 0.0f, Px(k_Space2) });
     }
 
-    void DrawSeaReadoutCard(const ImGuiFontSet& fonts, const SeaState& state, const SeaStateReadout& readout)
+    void DrawSeaReadout(const SeaState& state, const SeaStateReadout& readout)
     {
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const ImVec2 cardMin = ImGui::GetCursorScreenPos();
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
         const float availWidth = ImGui::GetContentRegionAvail().x;
-        constexpr float k_CardHeight = 82.0f;
-        const ImVec2 cardMax{ cardMin.x + availWidth, cardMin.y + k_CardHeight };
 
-        DrawChamferedRect(
-            drawList,
-            cardMin,
-            cardMax,
-            8.0f,
-            k_ColorCardBg,
-            k_ColorCardBorder,
-            1.0f);
+        const float captionHeight = LineHeight(Face::Caps);
+        const float heroHeight = LineHeight(Face::Hero);
+        const float titleHeight = LineHeight(Face::Title);
+        const float bodyHeight = LineHeight(Face::Body);
 
-        // left vertical cyan telemetry bar
-        drawList->AddRectFilled(
-            cardMin,
-            ImVec2{ cardMin.x + 2.0f, cardMax.y },
-            k_ColorCardAccentBar);
+        float cursorY = origin.y;
+        PutText(drawList, Face::Caps, ImVec2{ origin.x, cursorY }, k_TextHint, "SIGNIFICANT WAVE HEIGHT");
+        cursorY += captionHeight + Px(k_Space1);
 
-        // left side: measured significant height and wave metrics
-        const float textLeft = cardMin.x + 12.0f;
-        drawList->AddText(
-            fonts.SectionBlinker,
-            13.0f,
-            ImVec2{ textLeft, cardMin.y + 7.0f },
-            k_ColorTextSubMuted,
-            "MEASURED SEA STATE  (4 sqrt(m0))");
+        const std::string heightText = std::format("{:.2f}", readout.SignificantHeight);
+        PutText(drawList, Face::Hero, ImVec2{ origin.x, cursorY }, k_TextValue, heightText);
 
-        const std::string hsValue = std::format("Hs {:.2f} m", readout.SignificantHeight);
-        drawList->AddText(
-            fonts.HeaderBlinker,
-            22.0f,
-            ImVec2{ textLeft, cardMin.y + 23.0f },
-            k_ColorTextHeader,
-            hsValue.c_str());
+        const float heightWidth = TextWidth(Face::Hero, heightText);
+        const float unitY = cursorY + heroHeight - titleHeight - Px(10.0f);
+        PutText(drawList, Face::Title, ImVec2{ origin.x + heightWidth + Px(k_Space2), unitY }, k_TextHint, "m");
+        cursorY += heroHeight;
 
-        const std::string beaufortTag = std::format("Bft {:.1f}  //  {} ({:.1f} m/s)",
+        const std::string forceText = std::format("Bft {:.1f}  /  {}  /  {:.1f} m/s",
             state.WindForce, readout.BeaufortName, readout.WindSpeed);
-        drawList->AddText(
-            fonts.BodyItalic,
-            14.0f,
-            ImVec2{ textLeft + 104.0f, cardMin.y + 29.0f },
-            k_ColorTextCyanAccent,
-            beaufortTag.c_str());
+        PutText(drawList, Face::Body, ImVec2{ origin.x, cursorY }, k_TextLabel, forceText);
+        cursorY += bodyHeight;
 
-        const std::string detailLine = std::format("Wind sea {:.2f} m   |   Swell {:.2f} m   |   Peak {:.1f} s ({:.0f} m)",
-            readout.WindSeaHeight, readout.SwellHeight, readout.PeakPeriod, readout.PeakWavelength);
-        drawList->AddText(
-            fonts.Body,
-            15.0f,
-            ImVec2{ textLeft, cardMin.y + 53.0f },
-            k_ColorTextBodyMuted,
-            detailLine.c_str());
+        const float compassRadius = Px(k_CompassRadius);
+        const ImVec2 compassCenter{ origin.x + availWidth - compassRadius - Px(k_Space1), origin.y + compassRadius + Px(k_Space1) };
+        DrawCompass(drawList, compassCenter, compassRadius, state);
 
-        // right side: circular wind vs. swell vector compass reticle
-        constexpr float k_CompassRadius = 30.0f;
-        const ImVec2 compassCenter{ cardMax.x - k_CompassRadius - 12.0f, cardMin.y + 0.5f * k_CardHeight };
-        DrawCompassReticle(drawList, compassCenter, k_CompassRadius, state, fonts);
+        const float blockBottom = std::max(cursorY, compassCenter.y + compassRadius + Px(k_Space1));
+        const float columnWidth = 0.5f * (availWidth - Px(k_Space4));
+        const float rowStep = Px(k_KeyValueHeight);
+        float rowY = blockBottom + Px(k_Space3);
 
-        ImGui::Dummy(ImVec2{ availWidth, k_CardHeight + 4.0f });
+        const std::string windSea = std::format("{:.2f}", readout.WindSeaHeight);
+        const std::string swell = std::format("{:.2f}", readout.SwellHeight);
+        const std::string peakPeriod = std::format("{:.1f}", readout.PeakPeriod);
+        const std::string peakLength = std::format("{:.0f}", readout.PeakWavelength);
+
+        const KeyValueSpec windSeaRow{ "Wind sea", windSea, "m", k_DataWind };
+        const KeyValueSpec swellRow{ "Swell", swell, "m", k_DataSwell };
+        const KeyValueSpec periodRow{ "Peak period", peakPeriod, "s", 0u };
+        const KeyValueSpec lengthRow{ "Peak wavelength", peakLength, "m", 0u };
+
+        DrawKeyValueAt(drawList, ImVec2{ origin.x, rowY }, columnWidth, windSeaRow);
+        DrawKeyValueAt(drawList, ImVec2{ origin.x + columnWidth + Px(k_Space4), rowY }, columnWidth, swellRow);
+        rowY += rowStep;
+        DrawKeyValueAt(drawList, ImVec2{ origin.x, rowY }, columnWidth, periodRow);
+        DrawKeyValueAt(drawList, ImVec2{ origin.x + columnWidth + Px(k_Space4), rowY }, columnWidth, lengthRow);
+        rowY += rowStep;
+
+        ImGui::SetCursorScreenPos(ImVec2{ origin.x, rowY });
+        ImGui::Dummy(ImVec2{ availWidth, Px(k_Space2) });
     }
 
-    bool DrawSimulationTransportBar(const ImGuiFontSet& fonts, bool* paused, float* time_scale, AccentTone tone)
+    bool DrawSimulationTransportBar(bool* paused, float* time_scale, bool* snapshot_requested, bool snapshot_saved)
     {
-        (void)tone;
         bool changed = false;
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         const ImVec2 barMin = ImGui::GetCursorScreenPos();
         const float availWidth = ImGui::GetContentRegionAvail().x;
-        constexpr float k_BarHeight = 30.0f;
-        const ImVec2 barMax{ barMin.x + availWidth, barMin.y + k_BarHeight };
+        const float barHeight = Px(28.0f);
+        const float centerY = barMin.y + 0.5f * barHeight;
+        const float captionHeight = LineHeight(Face::Caps);
 
-        DrawChamferedRect(drawList, barMin, barMax, 5.0f, k_ColorCardBg, k_ColorCardBorder, 1.0f);
+        const bool isPaused = paused != nullptr && *paused;
+        const float toggleWidth = Px(110.0f);
 
-        // Left side: RUNNING / PAUSED toggle button
-        constexpr float k_PlayBtnWidth = 124.0f;
-        const ImVec2 btnMin{ barMin.x + 3.0f, barMin.y + 3.0f };
-        const ImVec2 btnMax{ btnMin.x + k_PlayBtnWidth, barMax.y - 3.0f };
-
-        ImGui::SetCursorScreenPos(btnMin);
-        if (ImGui::InvisibleButton("##sim_transport_toggle", ImVec2{ k_PlayBtnWidth, k_BarHeight - 6.0f }))
+        if (ImGui::InvisibleButton("##sim_transport_toggle", ImVec2{ toggleWidth, barHeight }))
         {
             if (paused != nullptr)
             {
@@ -482,1220 +399,1129 @@ namespace ocean
                 changed = true;
             }
         }
-        const bool isPaused = paused != nullptr && *paused;
-        const bool btnHovered = ImGui::IsItemHovered();
-        const ImU32 fillCol = isPaused ?
-            (btnHovered ? IM_COL32(70, 42, 16, 230) : IM_COL32(48, 28, 12, 210)) :
-            (btnHovered ? IM_COL32(24, 34, 46, 230) : IM_COL32(16, 22, 30, 210));
-        const ImU32 borderCol = isPaused ?
-            IM_COL32(220, 140, 28, 180) :
-            IM_COL32(110, 135, 160, 140);
 
-        DrawChamferedRect(drawList, btnMin, btnMax, 4.0f, fillCol, borderCol, 1.0f);
+        // a ring with the action's glyph: pause bars while running, a play triangle while paused
+        const bool toggleHovered = ImGui::IsItemHovered();
+        const ImU32 stateColor = isPaused ? k_Warning : k_Accent;
+        const ImU32 ringColor = toggleHovered ? stateColor : k_TextLabel;
+        const float ringRadius = Px(11.0f);
+        const ImVec2 ringCenter{ barMin.x + ringRadius + Px(1.0f), centerY };
+        drawList->AddCircle(ringCenter, ringRadius, ringColor, 32, Px(1.25f));
 
-        ImGui::PushFont(fonts.SectionBlinker);
-        const char* statusText = isPaused ? "||  PAUSED" : ">  RUNNING";
-        const ImVec2 textSize = ImGui::CalcTextSize(statusText);
-        drawList->AddText(
-            ImVec2{ btnMin.x + 0.5f * (k_PlayBtnWidth - textSize.x), btnMin.y + 0.5f * (btnMax.y - btnMin.y - textSize.y) },
-            isPaused ? IM_COL32(245, 180, 70, 255) : IM_COL32(205, 225, 240, 255),
-            statusText);
-        ImGui::PopFont();
+        if (isPaused)
+        {
+            const std::array<ImVec2, 3> play
+            {
+                ImVec2{ ringCenter.x - Px(3.0f), ringCenter.y - Px(5.0f) },
+                ImVec2{ ringCenter.x + Px(5.0f), ringCenter.y },
+                ImVec2{ ringCenter.x - Px(3.0f), ringCenter.y + Px(5.0f) },
+            };
+            drawList->AddConvexPolyFilled(play.data(), static_cast<int>(play.size()), stateColor);
+        }
+        else
+        {
+            const float barHalfHeight = Px(5.0f);
+            const float barWidth = Px(2.5f);
+            const float barGap = Px(2.0f);
+            drawList->AddRectFilled(
+                ImVec2{ ringCenter.x - barGap - barWidth, ringCenter.y - barHalfHeight },
+                ImVec2{ ringCenter.x - barGap, ringCenter.y + barHalfHeight },
+                stateColor);
+            drawList->AddRectFilled(
+                ImVec2{ ringCenter.x + barGap, ringCenter.y - barHalfHeight },
+                ImVec2{ ringCenter.x + barGap + barWidth, ringCenter.y + barHalfHeight },
+                stateColor);
+        }
 
-        // Right side: interactive or display time scale
+        const char* statusText = isPaused ? "PAUSED" : "RUNNING";
+        const ImU32 statusColor = isPaused ? k_Warning : (toggleHovered ? k_TextValue : k_TextLabel);
+        const float statusX = ringCenter.x + ringRadius + Px(k_Space2);
+        PutText(drawList, Face::Caps, ImVec2{ statusX, centerY - 0.5f * captionHeight }, statusColor, statusText);
+
+        // the snapshot control: a ring with an aperture, the same shape language as the run and pause ring
+        if (snapshot_requested != nullptr)
+        {
+            const float statusWidth = std::max(TextWidth(Face::Caps, "RUNNING"), TextWidth(Face::Caps, "PAUSED"));
+            const float snapLeft = statusX + statusWidth + Px(k_Space4);
+            const float snapLabelWidth = TextWidth(Face::Caps, "SNAPSHOT");
+            const float snapWidth = 2.0f * ringRadius + Px(k_Space2) + snapLabelWidth;
+            ImGui::SetCursorScreenPos(ImVec2{ snapLeft, barMin.y });
+
+            if (ImGui::InvisibleButton("##snapshot", ImVec2{ snapWidth, barHeight }))
+            {
+                *snapshot_requested = true;
+            }
+
+            const bool snapHovered = ImGui::IsItemHovered();
+            const ImU32 snapColor = (snapHovered || snapshot_saved) ? k_Accent : k_TextLabel;
+            const ImVec2 snapCenter{ snapLeft + ringRadius, centerY };
+            drawList->AddCircle(snapCenter, ringRadius, snapColor, 32, Px(1.25f));
+            drawList->AddCircle(snapCenter, Px(4.0f), snapColor, 16, Px(1.25f));
+
+            const float snapLabelX = snapCenter.x + ringRadius + Px(k_Space2);
+            const ImU32 snapLabelColor = snapshot_saved ? k_Accent : (snapHovered ? k_TextValue : k_TextLabel);
+            const char* snapLabel = snapshot_saved ? "SAVED" : "SNAPSHOT";
+            PutText(drawList, Face::Caps, ImVec2{ snapLabelX, centerY - 0.5f * captionHeight }, snapLabelColor, snapLabel);
+        }
+
         if (time_scale != nullptr)
         {
-            const float sliderLeft = btnMax.x + 12.0f;
-            const float sliderRight = barMax.x - 8.0f;
-            const float sliderWidth = sliderRight - sliderLeft;
-            if (sliderWidth > 80.0f)
-            {
-                const std::string rateText = std::format("SPEED {:.2f}x", *time_scale);
-                ImGui::PushFont(fonts.SectionBlinker);
-                const ImVec2 rateSize = ImGui::CalcTextSize(rateText.c_str());
-                drawList->AddText(
-                    ImVec2{ sliderLeft, barMin.y + 0.5f * (k_BarHeight - rateSize.y) },
-                    k_ColorTextLabel,
-                    rateText.c_str());
-                ImGui::PopFont();
+            float rightEdge = barMin.x + availWidth;
+            const bool deviates = std::abs(*time_scale - 1.0f) > 0.01f;
 
-                // Mini reset button to 1.0x if deviated
-                if (std::abs(*time_scale - 1.0f) > 0.01f)
+            if (deviates)
+            {
+                const float resetWidth = TextWidth(Face::Caps, "RESET");
+                ImGui::SetCursorScreenPos(ImVec2{ rightEdge - resetWidth - Px(k_Space2), barMin.y });
+
+                if (ImGui::InvisibleButton("##time_scale_reset_1x", ImVec2{ resetWidth + Px(k_Space2), barHeight }))
                 {
-                    constexpr float k_ResetBtnW = 46.0f;
-                    const ImVec2 rBtnMin{ sliderRight - k_ResetBtnW, barMin.y + 4.0f };
-                    const ImVec2 rBtnMax{ sliderRight, barMax.y - 4.0f };
-                    ImGui::SetCursorScreenPos(rBtnMin);
-                    if (ImGui::InvisibleButton("##time_scale_reset_1x", ImVec2{ k_ResetBtnW, k_BarHeight - 8.0f }))
-                    {
-                        *time_scale = 1.0f;
-                        changed = true;
-                    }
-                    const bool rHovered = ImGui::IsItemHovered();
-                    DrawChamferedRect(drawList, rBtnMin, rBtnMax, 3.0f,
-                        rHovered ? k_ColorButtonBgHover : k_ColorButtonBg,
-                        rHovered ? k_ColorButtonBorderActive : k_ColorCardBorder, 1.0f);
-                    ImGui::PushFont(fonts.SectionBlinker);
-                    drawList->AddText(ImVec2{ rBtnMin.x + 8.0f, rBtnMin.y + 3.0f }, k_ColorTextSubHeader, "1.0x");
-                    ImGui::PopFont();
+                    *time_scale = 1.0f;
+                    changed = true;
                 }
+
+                const ImU32 resetColor = ImGui::IsItemHovered() ? k_Accent : k_TextHint;
+                PutTextRight(drawList, Face::Caps, ImVec2{ rightEdge, centerY - 0.5f * captionHeight }, resetColor, "RESET");
+                rightEdge -= resetWidth + Px(k_Space4);
             }
+
+            const std::string rateText = std::format("{:.2f}x", *time_scale);
+            PutTextRight(drawList, Face::Body, ImVec2{ rightEdge, centerY - 0.5f * LineHeight(Face::Body) }, k_TextValue, rateText);
+
+            const float rateWidth = TextWidth(Face::Body, rateText);
+            const float speedX = rightEdge - rateWidth - Px(k_Space2);
+            PutTextRight(drawList, Face::Caps, ImVec2{ speedX, centerY - 0.5f * captionHeight }, k_TextHint, "SPEED");
         }
 
-        ImGui::SetCursorScreenPos(ImVec2{ barMin.x, barMax.y + 6.0f });
+        ImGui::SetCursorScreenPos(ImVec2{ barMin.x, barMin.y + barHeight });
+        ImGui::Dummy(ImVec2{ availWidth, Px(k_Space1) });
         return changed;
     }
 
-    bool DrawTelemetryTabBar(const ImGuiFontSet& fonts, TelemetryTab& active_tab, AccentTone tone)
+    bool DrawTelemetryTabs(TelemetryTab& active_tab)
     {
-        bool changed = false;
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const ImVec2 barMin = ImGui::GetCursorScreenPos();
-        const float availWidth = ImGui::GetContentRegionAvail().x;
-        constexpr float k_TabHeight = 24.0f;
-        constexpr float k_Gap = 4.0f;
-
-        struct TabItem
+        constexpr std::array<std::string_view, 7> k_TabNames
         {
-            TelemetryTab Tab;
-            std::string_view Label;
+            "SEA STATE", "SURFACE", "FOAM", "PHYSICS", "TIMINGS", "SCENE", "DEBUG",
         };
 
-        constexpr std::array<TabItem, 4> k_Row0Tabs
-        {{
-            { TelemetryTab::SeaState, "SEA STATE" },
-            { TelemetryTab::Surface, "SURFACE" },
-            { TelemetryTab::Foam, "FOAM" },
-            { TelemetryTab::Physics, "PHYSICS" },
-        }};
+        std::array<bool, 7> on{};
+        const int32_t activeIndex = static_cast<int32_t>(active_tab);
+        FillSelection(on, activeIndex);
 
-        constexpr std::array<TabItem, 3> k_Row1Tabs
-        {{
-            { TelemetryTab::Timings, "TIMINGS" },
-            { TelemetryTab::Scene, "SCENE" },
-            { TelemetryTab::Debug, "DEBUG" },
-        }};
-
-        const ToneColors toneColors = ResolveTone(tone);
-
-        ImGui::PushFont(fonts.SectionBlinker);
-
-        // Row 0
-        const float tabWidth0 = (availWidth - static_cast<float>(k_Row0Tabs.size() - 1) * k_Gap) / static_cast<float>(k_Row0Tabs.size());
-        for (size_t i = 0; i < k_Row0Tabs.size(); ++i)
+        const OptionRowSpec spec
         {
-            const ImVec2 tabPosMin{ barMin.x + static_cast<float>(i) * (tabWidth0 + k_Gap), barMin.y };
-            const ImVec2 tabPosMax{ tabPosMin.x + tabWidth0, barMin.y + k_TabHeight };
+            .Id = "##tabs",
+            .Options = k_TabNames,
+            .On = on,
+            .Columns = static_cast<int32_t>(k_TabNames.size()),
+            .SelectedColor = k_Accent,
+            .Kind = CellKind::Tab,
+        };
 
-            ImGui::SetCursorScreenPos(tabPosMin);
-            const std::string tabBtnId = std::format("##hud_tab_0_{}", i);
-            if (ImGui::InvisibleButton(tabBtnId.c_str(), ImVec2{ tabWidth0, k_TabHeight }))
-            {
-                if (active_tab != k_Row0Tabs[i].Tab)
-                {
-                    active_tab = k_Row0Tabs[i].Tab;
-                    changed = true;
-                }
-            }
+        const int32_t clicked = DrawOptionRow(spec);
 
-            const bool isActive = (active_tab == k_Row0Tabs[i].Tab);
-            const bool isHovered = ImGui::IsItemHovered();
-            const float highlight = SmoothHoverState(ImGui::GetItemID(), isActive || isHovered);
-
-            const ImU32 fillCol = isActive ?
-                IM_COL32(28, 36, 46, 255) :
-                (isHovered ? IM_COL32(20, 26, 34, 240) : IM_COL32(11, 14, 18, 230));
-
-            const ImU32 borderCol = isActive ?
-                IM_COL32(110, 135, 160, 160) :
-                DynamicBorderColor(static_cast<uint8_t>(20 + 40 * highlight));
-
-            DrawChamferedRect(drawList, tabPosMin, tabPosMax, 3.0f, fillCol, borderCol, 1.0f);
-
-            if (isActive)
-            {
-                drawList->AddLine(
-                    ImVec2{ tabPosMin.x + 2.0f, tabPosMax.y - 1.0f },
-                    ImVec2{ tabPosMax.x - 2.0f, tabPosMax.y - 1.0f },
-                    toneColors.Primary,
-                    2.0f);
-            }
-
-            const ImVec2 labelSize = ImGui::CalcTextSize(k_Row0Tabs[i].Label.data(), k_Row0Tabs[i].Label.data() + k_Row0Tabs[i].Label.size());
-            const ImVec2 textPos
-            {
-                tabPosMin.x + (0.5f * (tabWidth0 - labelSize.x)),
-                tabPosMin.y + (0.5f * (k_TabHeight - labelSize.y)) - 1.0f
-            };
-            drawList->AddText(
-                textPos,
-                isActive ? k_ColorTextHeader : (isHovered ? k_ColorTextHeaderHover : k_ColorTextLabel),
-                k_Row0Tabs[i].Label.data(),
-                k_Row0Tabs[i].Label.data() + k_Row0Tabs[i].Label.size());
+        if (clicked < 0 || clicked == activeIndex)
+        {
+            return false;
         }
 
-        // Row 1
-        const float row1Y = barMin.y + k_TabHeight + k_Gap;
-        const float tabWidth1 = (availWidth - static_cast<float>(k_Row1Tabs.size() - 1) * k_Gap) / static_cast<float>(k_Row1Tabs.size());
-        for (size_t i = 0; i < k_Row1Tabs.size(); ++i)
+        active_tab = static_cast<TelemetryTab>(clicked);
+        return true;
+    }
+
+    void DrawSectionLabel(std::string_view label)
+    {
+        DrawSectionLabelWithDot(label, 0u);
+    }
+
+    void DrawKeyValue(std::string_view label, std::string_view value, std::string_view unit)
+    {
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const ImVec2 position = ImGui::GetCursorScreenPos();
+        const float availWidth = ImGui::GetContentRegionAvail().x;
+
+        const KeyValueSpec spec{ label, value, unit, 0u };
+        DrawKeyValueAt(drawList, position, availWidth, spec);
+        ImGui::Dummy(ImVec2{ availWidth, Px(k_KeyValueHeight) - ImGui::GetStyle().ItemSpacing.y });
+    }
+
+    void BeginFieldRow(std::string_view label)
+    {
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const ImVec2 position = ImGui::GetCursorScreenPos();
+        const float availWidth = ImGui::GetContentRegionAvail().x;
+        const float labelColumn = Px(k_LabelColumnWidth);
+        const float labelY = position.y + 0.5f * (ImGui::GetFrameHeight() - LineHeight(Face::Body));
+
+        PutText(drawList, Face::Body, ImVec2{ position.x, labelY }, k_TextLabel, label);
+        ImGui::SetCursorScreenPos(ImVec2{ position.x + labelColumn, position.y });
+        ImGui::SetNextItemWidth(availWidth - labelColumn);
+    }
+
+    bool DrawSelector(const char* id, std::span<const std::string_view> options, int32_t& selected, int32_t columns)
+    {
+        std::array<bool, k_MaxOptions> on{};
+        FillSelection(on, selected);
+
+        const OptionRowSpec spec
         {
-            const ImVec2 tabPosMin{ barMin.x + static_cast<float>(i) * (tabWidth1 + k_Gap), row1Y };
-            const ImVec2 tabPosMax{ tabPosMin.x + tabWidth1, row1Y + k_TabHeight };
+            .Id = id,
+            .Options = options,
+            .On = on,
+            .Columns = columns,
+            .SelectedColor = k_Accent,
+        };
 
-            ImGui::SetCursorScreenPos(tabPosMin);
-            const std::string tabBtnId = std::format("##hud_tab_1_{}", i);
-            if (ImGui::InvisibleButton(tabBtnId.c_str(), ImVec2{ tabWidth1, k_TabHeight }))
-            {
-                if (active_tab != k_Row1Tabs[i].Tab)
-                {
-                    active_tab = k_Row1Tabs[i].Tab;
-                    changed = true;
-                }
-            }
+        const int32_t clicked = DrawOptionRow(spec);
 
-            const bool isActive = (active_tab == k_Row1Tabs[i].Tab);
-            const bool isHovered = ImGui::IsItemHovered();
-            const float highlight = SmoothHoverState(ImGui::GetItemID(), isActive || isHovered);
-
-            const ImU32 fillCol = isActive ?
-                IM_COL32(28, 36, 46, 255) :
-                (isHovered ? IM_COL32(20, 26, 34, 240) : IM_COL32(11, 14, 18, 230));
-
-            const ImU32 borderCol = isActive ?
-                IM_COL32(110, 135, 160, 160) :
-                DynamicBorderColor(static_cast<uint8_t>(20 + 40 * highlight));
-
-            DrawChamferedRect(drawList, tabPosMin, tabPosMax, 3.0f, fillCol, borderCol, 1.0f);
-
-            if (isActive)
-            {
-                drawList->AddLine(
-                    ImVec2{ tabPosMin.x + 2.0f, tabPosMax.y - 1.0f },
-                    ImVec2{ tabPosMax.x - 2.0f, tabPosMax.y - 1.0f },
-                    toneColors.Primary,
-                    2.0f);
-            }
-
-            const ImVec2 labelSize = ImGui::CalcTextSize(k_Row1Tabs[i].Label.data(), k_Row1Tabs[i].Label.data() + k_Row1Tabs[i].Label.size());
-            const ImVec2 textPos
-            {
-                tabPosMin.x + (0.5f * (tabWidth1 - labelSize.x)),
-                tabPosMin.y + (0.5f * (k_TabHeight - labelSize.y)) - 1.0f
-            };
-            drawList->AddText(
-                textPos,
-                isActive ? k_ColorTextHeader : (isHovered ? k_ColorTextHeaderHover : k_ColorTextLabel),
-                k_Row1Tabs[i].Label.data(),
-                k_Row1Tabs[i].Label.data() + k_Row1Tabs[i].Label.size());
+        if (clicked < 0)
+        {
+            return false;
         }
 
-        ImGui::PopFont();
+        selected = clicked;
+        return true;
+    }
 
-        // Separation hairline under tabs
-        const float lineY = row1Y + k_TabHeight + 4.0f;
-        drawList->AddLine(
-            ImVec2{ barMin.x, lineY },
-            ImVec2{ barMin.x + availWidth, lineY },
-            k_ColorHairline,
-            1.0f);
+    bool DrawSelectorRow(const char* id, std::string_view label, std::span<const std::string_view> options,
+                         int32_t& selected, int32_t columns)
+    {
+        std::array<bool, k_MaxOptions> on{};
+        FillSelection(on, selected);
 
-        ImGui::SetCursorScreenPos(ImVec2{ barMin.x, lineY + 6.0f });
+        const OptionRowSpec spec
+        {
+            .Id = id,
+            .Label = label,
+            .Options = options,
+            .On = on,
+            .Columns = columns,
+            .SelectedColor = k_Accent,
+        };
+
+        const int32_t clicked = DrawOptionRow(spec);
+
+        if (clicked < 0)
+        {
+            return false;
+        }
+
+        selected = clicked;
+        return true;
+    }
+
+    bool DrawToggle(const char* id, std::string_view label, std::string_view state_off, std::string_view state_on,
+                    bool* value)
+    {
+        const std::array<std::string_view, 2> options{ state_off, state_on };
+        const std::array<bool, 2> on{ !(*value), *value };
+
+        const OptionRowSpec spec
+        {
+            .Id = id,
+            .Label = label,
+            .Options = options,
+            .On = on,
+            .Columns = 2,
+            .SelectedColor = *value ? k_Accent : k_TextValue,
+        };
+
+        const int32_t clicked = DrawOptionRow(spec);
+
+        if (clicked < 0)
+        {
+            return false;
+        }
+
+        const bool newValue = clicked == 1;
+        const bool changed = newValue != *value;
+        *value = newValue;
         return changed;
     }
 
-    bool DrawSectionHeader(const char* label, const ImGuiFontSet& fonts, HeaderFontMode font_mode,
-                           AccentTone accent_tone, bool default_open)
+    bool DrawPresetSelector(SeaState& state)
     {
-        const ImGuiID id = ImGui::GetID(label);
-        ImGuiStorage* storage = ImGui::GetStateStorage();
-        const int32_t defaultState = default_open ? 1 : 0;
-        bool isOpen = storage->GetInt(id, defaultState) != 0;
-
-        const ImVec2 pos = ImGui::GetCursorScreenPos();
-        const float availWidth = ImGui::GetContentRegionAvail().x;
-        constexpr float k_HeaderHeight = 26.0f;
-
-        ImGui::InvisibleButton(label, ImVec2{ availWidth, k_HeaderHeight });
-        if (ImGui::IsItemClicked())
-        {
-            isOpen = !isOpen;
-            storage->SetInt(id, isOpen ? 1 : 0);
-        }
-
-        const bool hovered = ImGui::IsItemHovered();
-        const float hoverT = SmoothHoverState(id + 0x9E3779B9u, hovered);
-        const ToneColors tone = ResolveTone(accent_tone);
-
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        if (hoverT > 0.01f)
-        {
-            const uint8_t bgAlpha = static_cast<uint8_t>(std::lround(14.0f * hoverT));
-            drawList->AddRectFilledMultiColor(
-                pos,
-                ImVec2{ pos.x + availWidth, pos.y + k_HeaderHeight },
-                IM_COL32(0, 155, 195, bgAlpha),
-                IM_COL32(0, 155, 195, 0),
-                IM_COL32(0, 155, 195, 0),
-                IM_COL32(0, 155, 195, bgAlpha));
-        }
-
-        ImFont* sectionFont = PickSectionFont(fonts, font_mode);
-        ImGui::PushFont(sectionFont);
-        const ImVec2 textSize = ImGui::CalcTextSize(label);
-        const float textY = pos.y + 0.5f * (k_HeaderHeight - textSize.y) - 1.0f;
-        const ImU32 textColor = hovered ? k_ColorTextHeaderHover : k_ColorTextSection;
-        drawList->AddText(ImVec2{ pos.x + 10.0f, textY }, textColor, label);
-        ImGui::PopFont();
-
-        // small geometric indicator triangle on the right
-        const ImVec2 chevronCenter{ pos.x + availWidth - 10.0f, pos.y + 0.5f * k_HeaderHeight - 1.0f };
-        if (isOpen)
-        {
-            const std::array<ImVec2, 3> tri
-            {
-                ImVec2{ chevronCenter.x - 4.5f, chevronCenter.y - 2.0f },
-                ImVec2{ chevronCenter.x + 4.5f, chevronCenter.y - 2.0f },
-                ImVec2{ chevronCenter.x, chevronCenter.y + 3.5f },
-            };
-            drawList->AddConvexPolyFilled(tri.data(), 3, tone.Primary);
-        }
-        else
-        {
-            const std::array<ImVec2, 3> tri
-            {
-                ImVec2{ chevronCenter.x - 2.0f, chevronCenter.y - 4.5f },
-                ImVec2{ chevronCenter.x + 3.5f, chevronCenter.y },
-                ImVec2{ chevronCenter.x - 2.0f, chevronCenter.y + 4.5f },
-            };
-            drawList->AddConvexPolyFilled(tri.data(), 3, k_ColorChevronClosed);
-        }
-
-        // full-width 1px hairline + subtle left accent bar
-        const float lineY = pos.y + k_HeaderHeight - 1.0f;
-        drawList->AddLine(
-            ImVec2{ pos.x, lineY },
-            ImVec2{ pos.x + availWidth, lineY },
-            k_ColorHairline,
-            1.0f);
-
-        const float accentWidth = isOpen ? (32.0f + 20.0f * hoverT) : (14.0f + 12.0f * hoverT);
-        drawList->AddLine(
-            ImVec2{ pos.x, lineY },
-            ImVec2{ pos.x + accentWidth, lineY },
-            tone.Primary,
-            1.5f);
-
-        ImGui::Dummy(ImVec2{ 0.0f, 2.0f });
-        return isOpen;
-    }
-
-    void DrawSubSectionDivider(const char* label, const ImGuiFontSet& fonts, HeaderFontMode font_mode, AccentTone accent_tone)
-    {
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const ImVec2 pos = ImGui::GetCursorScreenPos();
-        const float availWidth = ImGui::GetContentRegionAvail().x;
-        const ToneColors tone = ResolveTone(accent_tone);
-
-        ImFont* sectionFont = PickSectionFont(fonts, font_mode);
-        ImGui::PushFont(sectionFont);
-        const ImVec2 textSize = ImGui::CalcTextSize(label);
-        drawList->AddRectFilled(
-            ImVec2{ pos.x, pos.y + 3.0f },
-            ImVec2{ pos.x + 2.0f, pos.y + 3.0f + textSize.y },
-            tone.Primary);
-        drawList->AddText(ImVec2{ pos.x + 9.0f, pos.y + 2.0f }, k_ColorTextSubHeader, label);
-        ImGui::PopFont();
-
-        const float lineX = pos.x + textSize.x + 18.0f;
-        const float lineY = pos.y + 3.0f + 0.5f * textSize.y;
-        if (lineX < pos.x + availWidth)
-        {
-            drawList->AddLine(
-                ImVec2{ lineX, lineY },
-                ImVec2{ pos.x + availWidth, lineY },
-                k_ColorHairlineSub,
-                1.0f);
-        }
-
-        ImGui::Dummy(ImVec2{ availWidth, textSize.y + 6.0f });
-    }
-
-    bool DrawPresetGrid(const ImGuiFontSet& fonts, SeaState& state)
-    {
-        bool changed = false;
         const std::array<SeaStatePreset, 6>& presets = SeaStatePresets();
-        const float availWidth = ImGui::GetContentRegionAvail().x;
-        constexpr int32_t k_Columns = 6;
-        constexpr float k_Gap = 5.0f;
-        constexpr float k_ButtonHeight = 24.0f;
+        std::array<std::string_view, 6> names{};
+        int32_t selected = -1;
 
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        ImGui::PushFont(fonts.SectionBlinker);
-
-        std::array<float, k_Columns> textWidths{};
-        float totalTextWidth = 0.0f;
-        for (int32_t i = 0; i < k_Columns; ++i)
+        for (int32_t index = 0; index < static_cast<int32_t>(presets.size()); ++index)
         {
-            const std::string_view name = presets[static_cast<size_t>(i)].Name;
-            textWidths[static_cast<size_t>(i)] = ImGui::CalcTextSize(name.data(), name.data() + name.size()).x;
-            totalTextWidth += textWidths[static_cast<size_t>(i)];
+            const SeaStatePreset& preset = presets[static_cast<size_t>(index)];
+            names[static_cast<size_t>(index)] = preset.Name;
+
+            if (MatchesPreset(state, preset.State))
+            {
+                selected = index;
+            }
         }
 
-        const float totalGap = k_Gap * static_cast<float>(k_Columns - 1);
-        const float extraPerButton = std::max((availWidth - totalGap - totalTextWidth) / static_cast<float>(k_Columns), 8.0f);
-
-        for (int32_t i = 0; i < k_Columns; ++i)
+        if (!DrawSelector("##sea_presets", names, selected, 6))
         {
-            if (i > 0)
-            {
-                ImGui::SameLine(0.0f, k_Gap);
-            }
-
-            const SeaStatePreset& preset = presets[static_cast<size_t>(i)];
-            const float buttonWidth = textWidths[static_cast<size_t>(i)] + extraPerButton;
-            const bool active = MatchesPreset(state, preset.State);
-            const std::string buttonId = std::format("##preset_{}", i);
-            const ImVec2 minPos = ImGui::GetCursorScreenPos();
-            const ImVec2 maxPos{ minPos.x + buttonWidth, minPos.y + k_ButtonHeight };
-
-            if (ImGui::InvisibleButton(buttonId.c_str(), ImVec2{ buttonWidth, k_ButtonHeight }))
-            {
-                state = preset.State;
-                changed = true;
-            }
-
-            const bool hovered = ImGui::IsItemHovered();
-            const float hoverT = SmoothHoverState(ImGui::GetItemID(), hovered || active);
-
-            const ImU32 fillCol = active ?
-                k_ColorButtonBgActive :
-                (hovered ? k_ColorButtonBgHover : k_ColorButtonBg);
-            const ImU32 borderCol = active ?
-                k_ColorButtonBorderActive :
-                DynamicBorderColor(static_cast<uint8_t>(18 + 40 * hoverT));
-
-            DrawChamferedRect(drawList, minPos, maxPos, 5.0f, fillCol, borderCol, 1.0f);
-
-            if (active)
-            {
-                drawList->AddLine(
-                    ImVec2{ minPos.x + 1.0f, maxPos.y - 1.0f },
-                    ImVec2{ maxPos.x - 5.0f, maxPos.y - 1.0f },
-                    k_ColorButtonIndicator,
-                    1.5f);
-            }
-
-            const std::string labelStr{ preset.Name };
-            const ImVec2 textSize = ImGui::CalcTextSize(labelStr.c_str());
-            const ImVec2 textPos
-            {
-                minPos.x + 0.5f * (buttonWidth - textSize.x),
-                minPos.y + 0.5f * (k_ButtonHeight - textSize.y) - 0.5f
-            };
-            const ImU32 textCol = active ? k_ColorButtonTextActive : k_ColorButtonText;
-            drawList->AddText(textPos, textCol, labelStr.c_str());
+            return false;
         }
 
-        ImGui::PopFont();
-        ImGui::Dummy(ImVec2{ 0.0f, 2.0f });
-        return changed;
+        state = presets[static_cast<size_t>(selected)].State;
+        return true;
     }
 
-    bool DrawSkyPresetGrid(const ImGuiFontSet& fonts, OceanSkyPreset& active_preset)
+    bool DrawSkyPresetSelector(OceanSkyPreset& active_preset)
     {
-        bool changed = false;
-        struct SkyPresetInfo
+        constexpr std::array<OceanSkyPreset, 6> k_Presets
         {
-            OceanSkyPreset Preset;
-            std::string_view Name;
+            OceanSkyPreset::AnalyticPreetham,
+            OceanSkyPreset::BrightDay,
+            OceanSkyPreset::Twilight,
+            OceanSkyPreset::OvercastEvening,
+            OceanSkyPreset::StarryNight,
+            OceanSkyPreset::AuroralNight,
         };
-        constexpr std::array<SkyPresetInfo, 6> k_Presets
-        {{
-            { OceanSkyPreset::AnalyticPreetham, "Preetham" },
-            { OceanSkyPreset::BrightDay, "Bright Day" },
-            { OceanSkyPreset::Twilight, "Twilight" },
-            { OceanSkyPreset::OvercastEvening, "Overcast" },
-            { OceanSkyPreset::StarryNight, "Starry Night" },
-            { OceanSkyPreset::AuroralNight, "Auroral" }
-        }};
 
-        const float availWidth = ImGui::GetContentRegionAvail().x;
-        constexpr int32_t k_Cols = 3;
-        constexpr float k_Gap = 5.0f;
-        constexpr float k_ButtonHeight = 24.0f;
-        const float buttonWidth = (availWidth - k_Gap * static_cast<float>(k_Cols - 1)) / static_cast<float>(k_Cols);
-
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        ImGui::PushFont(fonts.SectionBlinker);
-
-        for (size_t i = 0; i < k_Presets.size(); ++i)
+        constexpr std::array<std::string_view, 6> k_Names
         {
-            if (i % k_Cols != 0)
-            {
-                ImGui::SameLine(0.0f, k_Gap);
-            }
-
-            const auto& item = k_Presets[i];
-            const bool active = active_preset == item.Preset;
-            const std::string buttonId = std::format("##sky_preset_{}", i);
-            const ImVec2 minPos = ImGui::GetCursorScreenPos();
-            const ImVec2 maxPos{ minPos.x + buttonWidth, minPos.y + k_ButtonHeight };
-
-            if (ImGui::InvisibleButton(buttonId.c_str(), ImVec2{ buttonWidth, k_ButtonHeight }))
-            {
-                active_preset = item.Preset;
-                changed = true;
-            }
-
-            const bool hovered = ImGui::IsItemHovered();
-            const float hoverT = SmoothHoverState(ImGui::GetItemID(), hovered || active);
-
-            const ImU32 fillCol = active ?
-                k_ColorButtonBgActive :
-                (hovered ? k_ColorButtonBgHover : k_ColorButtonBg);
-            const ImU32 borderCol = active ?
-                k_ColorButtonBorderActive :
-                DynamicBorderColor(static_cast<uint8_t>(18 + 40 * hoverT));
-
-            DrawChamferedRect(drawList, minPos, maxPos, 5.0f, fillCol, borderCol, 1.0f);
-
-            if (active)
-            {
-                drawList->AddLine(
-                    ImVec2{ minPos.x + 1.0f, maxPos.y - 1.0f },
-                    ImVec2{ maxPos.x - 5.0f, maxPos.y - 1.0f },
-                    k_ColorButtonIndicator,
-                    1.5f);
-            }
-
-            const ImVec2 textSize = ImGui::CalcTextSize(item.Name.data(), item.Name.data() + item.Name.size());
-            const ImVec2 textPos{ minPos.x + (buttonWidth - textSize.x) * 0.5f, minPos.y + (k_ButtonHeight - textSize.y) * 0.5f };
-            drawList->AddText(textPos, active ? k_ColorButtonTextActive : k_ColorButtonText, item.Name.data(), item.Name.data() + item.Name.size());
-        }
-
-        ImGui::PopFont();
-        ImGui::Dummy(ImVec2{ 0.0f, 2.0f });
-        return changed;
-    }
-
-    bool DrawTonemapperGrid(const ImGuiFontSet& fonts, color::TonemapperKind& active_tonemapper)
-    {
-        bool changed = false;
-        struct TonemapperInfo
-        {
-            color::TonemapperKind Kind;
-            std::string_view Name;
+            "Preetham", "Bright Day", "Twilight", "Overcast", "Starry Night", "Auroral",
         };
-        constexpr std::array<TonemapperInfo, 4> k_Tonemappers
-        {{
-            { color::TonemapperKind::AgX, "AgX" },
-            { color::TonemapperKind::KhronosNeutral, "Khronos" },
-            { color::TonemapperKind::Passthrough, "Pass" },
-            { color::TonemapperKind::FalseColorEv, "False Color" }
-        }};
 
-        const float availWidth = ImGui::GetContentRegionAvail().x;
-        constexpr int32_t k_Cols = 4;
-        constexpr float k_Gap = 5.0f;
-        constexpr float k_ButtonHeight = 24.0f;
-        const float buttonWidth = (availWidth - k_Gap * static_cast<float>(k_Cols - 1)) / static_cast<float>(k_Cols);
+        int32_t selected = -1;
 
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        ImGui::PushFont(fonts.SectionBlinker);
-
-        for (size_t i = 0; i < k_Tonemappers.size(); ++i)
+        for (int32_t index = 0; index < static_cast<int32_t>(k_Presets.size()); ++index)
         {
-            if (i > 0)
+            if (k_Presets[static_cast<size_t>(index)] == active_preset)
             {
-                ImGui::SameLine(0.0f, k_Gap);
+                selected = index;
             }
-
-            const auto& item = k_Tonemappers[i];
-            const bool active = active_tonemapper == item.Kind;
-            const std::string buttonId = std::format("##tonemapper_{}", i);
-            const ImVec2 minPos = ImGui::GetCursorScreenPos();
-            const ImVec2 maxPos{ minPos.x + buttonWidth, minPos.y + k_ButtonHeight };
-
-            if (ImGui::InvisibleButton(buttonId.c_str(), ImVec2{ buttonWidth, k_ButtonHeight }))
-            {
-                active_tonemapper = item.Kind;
-                changed = true;
-            }
-
-            const bool hovered = ImGui::IsItemHovered();
-            const float hoverT = SmoothHoverState(ImGui::GetItemID(), hovered || active);
-
-            const ImU32 fillCol = active ?
-                k_ColorButtonBgActive :
-                (hovered ? k_ColorButtonBgHover : k_ColorButtonBg);
-            const ImU32 borderCol = active ?
-                k_ColorButtonBorderActive :
-                DynamicBorderColor(static_cast<uint8_t>(18 + 40 * hoverT));
-
-            DrawChamferedRect(drawList, minPos, maxPos, 5.0f, fillCol, borderCol, 1.0f);
-
-            if (active)
-            {
-                drawList->AddLine(
-                    ImVec2{ minPos.x + 1.0f, maxPos.y - 1.0f },
-                    ImVec2{ maxPos.x - 5.0f, maxPos.y - 1.0f },
-                    k_ColorButtonIndicator,
-                    1.5f);
-            }
-
-            const ImVec2 textSize = ImGui::CalcTextSize(item.Name.data(), item.Name.data() + item.Name.size());
-            const ImVec2 textPos{ minPos.x + (buttonWidth - textSize.x) * 0.5f, minPos.y + (k_ButtonHeight - textSize.y) * 0.5f };
-            drawList->AddText(textPos, active ? k_ColorButtonTextActive : k_ColorButtonText, item.Name.data(), item.Name.data() + item.Name.size());
         }
 
-        ImGui::PopFont();
-        ImGui::Dummy(ImVec2{ 0.0f, 2.0f });
-        return changed;
+        if (!DrawSelector("##sky_presets", k_Names, selected, 3))
+        {
+            return false;
+        }
+
+        active_preset = k_Presets[static_cast<size_t>(selected)];
+        return true;
     }
 
-    bool DrawArtistSlider(const char* id, std::string_view label, std::string_view hint, float* value,
-                          float min_value, float max_value, std::string_view value_text,
-                          std::string_view unit_text, const ImGuiFontSet& fonts, AccentTone accent_tone,
-                          bool logarithmic)
+    bool DrawTonemapperSelector(color::TonemapperKind& active_tonemapper)
     {
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const ImVec2 rowMin = ImGui::GetCursorScreenPos();
-        const float availWidth = ImGui::GetContentRegionAvail().x;
-        constexpr float rowHeight = 28.0f;
-
-        ImGui::InvisibleButton(id, ImVec2{ availWidth, rowHeight });
-        const bool hovered = ImGui::IsItemHovered();
-        const bool active = ImGui::IsItemActive();
-        const float highlight = SmoothHoverState(ImGui::GetItemID(), hovered || active);
-        const ToneColors tone = ResolveTone(accent_tone);
-
-        if (hovered && !active && !hint.empty())
+        constexpr std::array<color::TonemapperKind, 5> k_Kinds
         {
-            ImGui::BeginTooltip();
-            ImGui::PushFont(fonts.SectionBlinker);
-            ImGui::TextColored(k_ColorVecTitle, "%.*s", static_cast<int>(label.size()), label.data());
-            ImGui::PopFont();
-            ImGui::PushFont(fonts.Body);
-            ImGui::TextColored(k_ColorVecSubtitle, "%.*s", static_cast<int>(hint.size()), hint.data());
-            ImGui::PopFont();
-            ImGui::EndTooltip();
-        }
+            color::TonemapperKind::AgX,
+            color::TonemapperKind::AgXPunchy,
+            color::TonemapperKind::KhronosNeutral,
+            color::TonemapperKind::Passthrough,
+            color::TonemapperKind::FalseColorEv,
+        };
 
-        const float trackLeft = rowMin.x + 4.0f;
-        const float trackRight = rowMin.x + availWidth - 8.0f;
-        const float trackWidth = std::max(trackRight - trackLeft, 40.0f);
+        constexpr std::array<std::string_view, 5> k_Names{ "AgX", "Punchy", "Khronos", "None", "False Color" };
+        int32_t selected = -1;
 
-        bool changed = false;
-        if (active)
+        for (int32_t index = 0; index < static_cast<int32_t>(k_Kinds.size()); ++index)
         {
-            const float mouseX = ImGui::GetIO().MousePos.x;
-            const float normalized = std::clamp((mouseX - trackLeft) / trackWidth, 0.0f, 1.0f);
-            const float newValue = DenormalizeSliderValue(normalized, min_value, max_value, logarithmic);
-            if (std::fabs(newValue - *value) > 1e-6f)
+            if (k_Kinds[static_cast<size_t>(index)] == active_tonemapper)
             {
-                *value = newValue;
-                changed = true;
+                selected = index;
             }
         }
 
-        // top line: label on left, value + unit on right
-        const ImU32 labelColor = (hovered || active) ? k_ColorTextLabelHover : k_ColorTextLabel;
-        drawList->AddText(
-            fonts.Body,
-            15.5f,
-            ImVec2{ rowMin.x + 2.0f, rowMin.y + 0.0f },
-            labelColor,
-            label.data(),
-            label.data() + label.size());
-
-        ImGui::PushFont(fonts.BodyItalic);
-        const ImVec2 unitSize = unit_text.empty() ?
-            ImVec2{ 0.0f, 0.0f } :
-            ImGui::CalcTextSize(unit_text.data(), unit_text.data() + unit_text.size());
-        ImGui::PopFont();
-
-        ImGui::PushFont(fonts.BodyBold);
-        const ImVec2 valSize = ImGui::CalcTextSize(value_text.data(), value_text.data() + value_text.size());
-        ImGui::PopFont();
-
-        const float unitX = trackRight - unitSize.x;
-        const float valX = unit_text.empty() ? (trackRight - valSize.x) : (unitX - valSize.x - 4.0f);
-
-        drawList->AddText(
-            fonts.BodyBold,
-            14.5f,
-            ImVec2{ valX, rowMin.y + 0.0f },
-            (hovered || active) ? k_ColorTextValueHover : k_ColorTextValue,
-            value_text.data(),
-            value_text.data() + value_text.size());
-
-        if (!unit_text.empty())
+        if (!DrawSelector("##tonemappers", k_Names, selected, static_cast<int32_t>(k_Names.size())))
         {
-            drawList->AddText(
-                fonts.BodyItalic,
-                13.0f,
-                ImVec2{ unitX, rowMin.y + 1.0f },
-                k_ColorTextUnit,
-                unit_text.data(),
-                unit_text.data() + unit_text.size());
+            return false;
         }
 
-        // bottom line: full width recessed slider channel
-        const float channelCenterY = rowMin.y + 19.0f;
-        constexpr float k_ChannelHalfHeight = 3.5f;
-        const ImVec2 chanMin{ trackLeft, channelCenterY - k_ChannelHalfHeight };
-        const ImVec2 chanMax{ trackRight, channelCenterY + k_ChannelHalfHeight };
-
-        DrawChamferedRect(
-            drawList,
-            chanMin,
-            chanMax,
-            3.0f,
-            k_ColorTrackBg,
-            DynamicTrackBorderColor(static_cast<uint8_t>(16 + 24 * highlight)),
-            1.0f);
-
-        for (int32_t tick = 1; tick < 4; ++tick)
-        {
-            const float tickX = trackLeft + trackWidth * (static_cast<float>(tick) * 0.25f);
-            drawList->AddLine(
-                ImVec2{ tickX, chanMin.y + 1.0f },
-                ImVec2{ tickX, chanMax.y - 1.0f },
-                k_ColorTrackTick,
-                1.0f);
-        }
-
-        const float norm = NormalizeSliderValue(*value, min_value, max_value, logarithmic);
-        const float thumbX = trackLeft + norm * trackWidth;
-
-        if (thumbX > chanMin.x + 2.0f)
-        {
-            drawList->AddRectFilledMultiColor(
-                ImVec2{ chanMin.x + 1.0f, chanMin.y + 1.0f },
-                ImVec2{ thumbX, chanMax.y - 1.0f },
-                tone.FillMuted,
-                tone.FillBright,
-                tone.FillBright,
-                tone.FillMuted);
-        }
-
-        DrawChunkyThumb(drawList, ImVec2{ thumbX, channelCenterY }, 8.0f, 6.0f, tone, highlight);
-        return changed;
+        active_tonemapper = k_Kinds[static_cast<size_t>(selected)];
+        return true;
     }
 
-    bool DrawCenteredAngleSlider(const char* id, std::string_view label, std::string_view hint,
-                                 float* degrees, float min_degrees, float max_degrees,
-                                 const ImGuiFontSet& fonts, AccentTone accent_tone)
+    bool DrawSlider(const char* id, std::string_view label, std::string_view hint, float* value, float min_value,
+                    float max_value, std::string_view value_text, std::string_view unit_text, bool logarithmic)
     {
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const ImVec2 rowMin = ImGui::GetCursorScreenPos();
-        const float availWidth = ImGui::GetContentRegionAvail().x;
-        constexpr float rowHeight = 28.0f;
-
-        ImGui::InvisibleButton(id, ImVec2{ availWidth, rowHeight });
-        const bool hovered = ImGui::IsItemHovered();
-        const bool active = ImGui::IsItemActive();
-        const float highlight = SmoothHoverState(ImGui::GetItemID(), hovered || active);
-        const ToneColors tone = ResolveTone(accent_tone);
-
-        if (hovered && !active && !hint.empty())
+        const SliderRowSpec spec
         {
-            ImGui::BeginTooltip();
-            ImGui::PushFont(fonts.SectionBlinker);
-            ImGui::TextColored(k_ColorVecTitle, "%.*s", static_cast<int>(label.size()), label.data());
-            ImGui::PopFont();
-            ImGui::PushFont(fonts.Body);
-            ImGui::TextColored(k_ColorVecSubtitle, "%.*s", static_cast<int>(hint.size()), hint.data());
-            ImGui::PopFont();
-            ImGui::EndTooltip();
-        }
+            .Id = id,
+            .Label = label,
+            .Hint = hint,
+            .ValueText = value_text,
+            .UnitText = unit_text,
+            .Min = min_value,
+            .Max = max_value,
+            .Logarithmic = logarithmic,
+        };
 
-        const float trackLeft = rowMin.x + 4.0f;
-        const float trackRight = rowMin.x + availWidth - 8.0f;
-        const float trackWidth = std::max(trackRight - trackLeft, 40.0f);
+        return DrawSliderRow(spec, value);
+    }
 
-        bool changed = false;
-        if (active)
-        {
-            const float mouseX = ImGui::GetIO().MousePos.x;
-            const float normalized = std::clamp((mouseX - trackLeft) / trackWidth, 0.0f, 1.0f);
-            float newDegrees = std::lerp(min_degrees, max_degrees, normalized);
-            if (std::fabs(newDegrees) < 1.5f)
-            {
-                newDegrees = 0.0f;
-            }
-            if (std::fabs(newDegrees - *degrees) > 1e-4f)
-            {
-                *degrees = newDegrees;
-                changed = true;
-            }
-        }
-
-        const ImU32 labelColor = (hovered || active) ? k_ColorTextLabelHover : k_ColorTextLabel;
-        drawList->AddText(
-            fonts.Body,
-            15.5f,
-            ImVec2{ rowMin.x + 2.0f, rowMin.y + 0.0f },
-            labelColor,
-            label.data(),
-            label.data() + label.size());
-
+    bool DrawAngleSlider(const char* id, std::string_view label, std::string_view hint, float* degrees,
+                         float min_degrees, float max_degrees)
+    {
         const std::string valueText = std::format("{:+.0f}", *degrees);
-        constexpr std::string_view k_UnitText{ "deg" };
 
-        ImGui::PushFont(fonts.BodyItalic);
-        const ImVec2 unitSize = ImGui::CalcTextSize(k_UnitText.data(), k_UnitText.data() + k_UnitText.size());
-        ImGui::PopFont();
-
-        ImGui::PushFont(fonts.BodyBold);
-        const ImVec2 valSize = ImGui::CalcTextSize(valueText.c_str());
-        ImGui::PopFont();
-
-        const float unitX = trackRight - unitSize.x;
-        const float valX = unitX - valSize.x - 4.0f;
-        drawList->AddText(fonts.BodyBold, 14.5f, ImVec2{ valX, rowMin.y + 0.0f }, (hovered || active) ? k_ColorTextValueHover : k_ColorTextValue, valueText.c_str());
-        drawList->AddText(
-            fonts.BodyItalic,
-            13.0f,
-            ImVec2{ unitX, rowMin.y + 1.0f },
-            k_ColorTextUnit,
-            k_UnitText.data(),
-            k_UnitText.data() + k_UnitText.size());
-
-        const float channelCenterY = rowMin.y + 19.0f;
-        constexpr float k_ChannelHalfHeight = 3.5f;
-        const ImVec2 chanMin{ trackLeft, channelCenterY - k_ChannelHalfHeight };
-        const ImVec2 chanMax{ trackRight, channelCenterY + k_ChannelHalfHeight };
-
-        DrawChamferedRect(
-            drawList,
-            chanMin,
-            chanMax,
-            3.0f,
-            k_ColorTrackBg,
-            DynamicTrackBorderColor(static_cast<uint8_t>(16 + 24 * highlight)),
-            1.0f);
-
-        const float zeroNorm = NormalizeSliderValue(0.0f, min_degrees, max_degrees, false);
-        const float zeroX = trackLeft + zeroNorm * trackWidth;
-        const float norm = NormalizeSliderValue(*degrees, min_degrees, max_degrees, false);
-        const float thumbX = trackLeft + norm * trackWidth;
-
-        // fill from the 0-degree center mark out to the thumb
-        const float fillMinX = std::min(zeroX, thumbX);
-        const float fillMaxX = std::max(zeroX, thumbX);
-        if (fillMaxX - fillMinX > 1.0f)
+        const SliderRowSpec spec
         {
-            drawList->AddRectFilled(
-                ImVec2{ fillMinX, chanMin.y + 1.0f },
-                ImVec2{ fillMaxX, chanMax.y - 1.0f },
-                tone.FillBright);
+            .Id = id,
+            .Label = label,
+            .Hint = hint,
+            .ValueText = valueText,
+            .UnitText = "deg",
+            .Min = min_degrees,
+            .Max = max_degrees,
+            .Centered = true,
+        };
+
+        const bool changed = DrawSliderRow(spec, degrees);
+
+        if (changed && std::abs(*degrees) < k_AngleSnapDegrees && ImGui::IsItemActive())
+        {
+            *degrees = 0.0f;
         }
 
-        // center 0-degree datum tick
-        drawList->AddLine(
-            ImVec2{ zeroX, chanMin.y - 2.0f },
-            ImVec2{ zeroX, chanMax.y + 2.0f },
-            k_ColorCenterTick,
-            1.0f);
-
-        DrawChunkyThumb(drawList, ImVec2{ thumbX, channelCenterY }, 8.0f, 6.0f, tone, highlight);
         return changed;
     }
 
-    bool DrawTelemetryToggle(const char* id, std::string_view label, std::string_view state_off,
-                             std::string_view state_on, bool* value, const ImGuiFontSet& fonts,
-                             AccentTone accent_tone)
-    {
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const ImVec2 rowMin = ImGui::GetCursorScreenPos();
-        const float availWidth = ImGui::GetContentRegionAvail().x;
-
-        ImGui::PushFont(fonts.Body);
-        const ImVec2 labelSize = ImGui::CalcTextSize(label.data(), label.data() + label.size());
-        ImGui::PopFont();
-
-        const float minBtnWidth = 60.0f;
-        const float neededWidth = 2.0f * minBtnWidth + 8.0f;
-        const bool stackButtons = (availWidth - (labelSize.x + 14.0f)) < neededWidth;
-        const float rowHeight = stackButtons ? 46.0f : 24.0f;
-
-        const bool clicked = ImGui::InvisibleButton(id, ImVec2{ availWidth, rowHeight });
-        if (clicked && value != nullptr)
-        {
-            *value = !(*value);
-        }
-
-        const bool hovered = ImGui::IsItemHovered();
-        const float highlight = SmoothHoverState(ImGui::GetItemID(), hovered || (value != nullptr && *value));
-        const ToneColors tone = ResolveTone(accent_tone);
-
-        drawList->AddText(
-            fonts.Body,
-            15.5f,
-            ImVec2{ rowMin.x + 2.0f, rowMin.y + 3.0f },
-            hovered ? k_ColorTextLabelHover : k_ColorTextLabel,
-            label.data(),
-            label.data() + label.size());
-
-        float switchLeft = 0.0f;
-        float switchRight = rowMin.x + availWidth - 8.0f;
-        float switchTop = 0.0f;
-        float switchBottom = 0.0f;
-
-        if (stackButtons)
-        {
-            switchLeft = rowMin.x + 2.0f;
-            switchTop = rowMin.y + 22.0f;
-            switchBottom = rowMin.y + 44.0f;
-        }
-        else
-        {
-            switchLeft = std::max(rowMin.x + k_LabelColumnWidth, rowMin.x + labelSize.x + 12.0f);
-            switchTop = rowMin.y + 1.0f;
-            switchBottom = rowMin.y + 23.0f;
-        }
-        const float halfSwitch = 0.5f * (switchRight - switchLeft - 4.0f);
-
-        ImGui::PushFont(fonts.SectionBlinker);
-        for (int32_t side = 0; side < 2; ++side)
-        {
-            const bool sideActive = (value != nullptr) && ((side == 0) ? !(*value) : *value);
-            const std::string_view sideText = (side == 0) ? state_off : state_on;
-            const float boxMinX = switchLeft + static_cast<float>(side) * (halfSwitch + 4.0f);
-            const ImVec2 boxMin{ boxMinX, switchTop };
-            const ImVec2 boxMax{ boxMinX + halfSwitch, switchBottom };
-
-            const ImU32 fillCol = sideActive ?
-                tone.FillMuted :
-                k_ColorToggleOffBg;
-            const ImU32 borderCol = sideActive ?
-                tone.Primary :
-                DynamicBorderColor(static_cast<uint8_t>(18 + 32 * highlight));
-
-            DrawChamferedRect(drawList, boxMin, boxMax, 4.0f, fillCol, borderCol, 1.0f);
-
-            const ImVec2 textSize = ImGui::CalcTextSize(sideText.data(), sideText.data() + sideText.size());
-            const ImVec2 textPos
-            {
-                boxMin.x + 0.5f * (halfSwitch - textSize.x),
-                boxMin.y + 0.5f * (switchBottom - switchTop - textSize.y) - 0.5f
-            };
-            drawList->AddText(
-                textPos,
-                sideActive ? k_ColorButtonTextActive : k_ColorToggleOffText,
-                sideText.data(),
-                sideText.data() + sideText.size());
-        }
-        ImGui::PopFont();
-
-        return clicked;
-    }
-
-    void DrawCascadeBandStrip(const ImGuiFontSet& fonts, const std::array<float, k_CascadeCount>& length_scales,
+    void DrawCascadeBandStrip(const std::array<float, k_CascadeCount>& length_scales,
                               std::array<bool, k_CascadeCount>& cascade_enabled)
     {
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const ImVec2 startPos = ImGui::GetCursorScreenPos();
-        const float availWidth = ImGui::GetContentRegionAvail().x;
+        std::array<std::string, k_CascadeCount> labelStorage;
+        std::array<std::string_view, k_CascadeCount> labels{};
 
-        drawList->AddText(
-            fonts.Body,
-            16.0f,
-            ImVec2{ startPos.x + 2.0f, startPos.y + 5.0f },
-            k_ColorTextLabel,
-            "Active cascades");
-
-        const float stripLeft = startPos.x + k_LabelColumnWidth;
-        const float stripWidth = availWidth - k_LabelColumnWidth - 8.0f;
-        constexpr float k_Gap = 5.0f;
-        const float cellWidth = (stripWidth - k_Gap * static_cast<float>(k_CascadeCount - 1u)) / static_cast<float>(k_CascadeCount);
-        constexpr float k_CellHeight = 28.0f;
-
-        ImGui::SetCursorScreenPos(ImVec2{ stripLeft, startPos.y });
-        ImGui::PushFont(fonts.SectionBlinker);
-
-        for (int32_t cascade = 0; cascade < static_cast<int32_t>(k_CascadeCount); ++cascade)
+        for (size_t cascade = 0; cascade < k_CascadeCount; ++cascade)
         {
-            if (cascade > 0)
-            {
-                ImGui::SameLine(0.0f, k_Gap);
-            }
-
-            const std::string btnId = std::format("##cascade_band_{}", cascade);
-            const ImVec2 cellMin = ImGui::GetCursorScreenPos();
-            const ImVec2 cellMax{ cellMin.x + cellWidth, cellMin.y + k_CellHeight };
-
-            if (ImGui::InvisibleButton(btnId.c_str(), ImVec2{ cellWidth, k_CellHeight }))
-            {
-                cascade_enabled[static_cast<size_t>(cascade)] = !cascade_enabled[static_cast<size_t>(cascade)];
-            }
-
-            const bool enabled = cascade_enabled[static_cast<size_t>(cascade)];
-            const bool hovered = ImGui::IsItemHovered();
-
-            const ImU32 fillCol = enabled ?
-                k_ColorBandOnBg :
-                k_ColorBandOffBg;
-            const ImU32 borderCol = enabled ?
-                k_ColorBandOnBorder :
-                (hovered ? k_ColorBandHoverBorder : k_ColorBandOffBorder);
-
-            DrawChamferedRect(drawList, cellMin, cellMax, 5.0f, fillCol, borderCol, 1.0f);
-
-            // top LED status bar
-            const ImU32 ledCol = enabled ? k_ColorBandOnLed : k_ColorBandOffLed;
-            drawList->AddLine(
-                ImVec2{ cellMin.x + 4.0f, cellMin.y + 2.0f },
-                ImVec2{ cellMax.x - 4.0f, cellMin.y + 2.0f },
-                ledCol,
-                2.0f);
-
-            const float scale = length_scales[static_cast<size_t>(cascade)];
-            const std::string bandLabel = (scale < 1.0f) ?
+            const float scale = length_scales[cascade];
+            labelStorage[cascade] = scale < 1.0f ?
                 std::format("{:.2f} m", scale) :
-                ((scale < 10.0f) ? std::format("{:.1f} m", scale) : std::format("{:.0f} m", scale));
-            const ImVec2 textSize = ImGui::CalcTextSize(bandLabel.c_str());
-            drawList->AddText(
-                ImVec2{ cellMin.x + 0.5f * (cellWidth - textSize.x), cellMin.y + 8.0f },
-                enabled ? k_ColorBandOnText : k_ColorBandOffText,
-                bandLabel.c_str());
+                (scale < 10.0f ? std::format("{:.1f} m", scale) : std::format("{:.0f} m", scale));
+            labels[cascade] = labelStorage[cascade];
         }
 
-        ImGui::PopFont();
-        ImGui::Dummy(ImVec2{ 0.0f, 2.0f });
+        const OptionRowSpec spec
+        {
+            .Id = "##cascade_bands",
+            .Label = "Active cascades",
+            .Options = labels,
+            .On = cascade_enabled,
+            .Columns = static_cast<int32_t>(k_CascadeCount),
+            .SelectedColor = k_Accent,
+        };
+
+        const int32_t clicked = DrawOptionRow(spec);
+
+        if (clicked >= 0)
+        {
+            cascade_enabled[static_cast<size_t>(clicked)] = !cascade_enabled[static_cast<size_t>(clicked)];
+        }
     }
 
-    bool DrawSpectrumPhysicsInspector(const ImGuiFontSet& fonts, SpectrumParameters& spectrum)
+    bool DrawSpectrumPhysicsInspector(SpectrumParameters& spectrum)
     {
         bool changed = false;
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-        // energy spectrum model 3-way selector
-        const ImVec2 energyRowMin = ImGui::GetCursorScreenPos();
-        const float energyAvailWidth = ImGui::GetContentRegionAvail().x;
-        drawList->AddText(
-            fonts.Body,
-            16.0f,
-            ImVec2{ energyRowMin.x + 2.0f, energyRowMin.y + 4.0f },
-            k_ColorTextLabel,
-            "Energy spectrum");
 
         constexpr std::array<std::string_view, 3> k_EnergyModels{ "JONSWAP", "ELFOUHAILY", "BRINGER" };
-        const float energySegLeft = energyRowMin.x + k_LabelColumnWidth;
-        const float energySegWidth = energyAvailWidth - k_LabelColumnWidth - 8.0f;
-        constexpr float k_EnergyGap = 4.0f;
-        const float energyCellW = (energySegWidth - 2.0f * k_EnergyGap) / 3.0f;
-        constexpr float k_EnergyCellH = 24.0f;
+        int32_t energyModel = static_cast<int32_t>(spectrum.EnergySpectrumModel);
 
-        ImGui::SetCursorScreenPos(ImVec2{ energySegLeft, energyRowMin.y });
-        ImGui::PushFont(fonts.SectionBlinker);
-
-        for (int32_t m = 0; m < 3; ++m)
+        if (DrawSelectorRow("##energy_model", "Energy spectrum", k_EnergyModels, energyModel, 3))
         {
-            if (m > 0)
-            {
-                ImGui::SameLine(0.0f, k_EnergyGap);
-            }
-
-            const std::string btnId = std::format("##energy_model_{}", m);
-            const ImVec2 cMin = ImGui::GetCursorScreenPos();
-            const ImVec2 cMax{ cMin.x + energyCellW, cMin.y + k_EnergyCellH };
-
-            if (ImGui::InvisibleButton(btnId.c_str(), ImVec2{ energyCellW, k_EnergyCellH }))
-            {
-                spectrum.EnergySpectrumModel = static_cast<uint32_t>(m);
-                changed = true;
-            }
-
-            const bool selected = spectrum.EnergySpectrumModel == static_cast<uint32_t>(m);
-            const bool hovered = ImGui::IsItemHovered();
-            DrawChamferedRect(
-                drawList,
-                cMin,
-                cMax,
-                4.0f,
-                selected ? k_ColorSegmentOnBg : k_ColorSegmentOffBg,
-                selected ? k_ColorSegmentOnBorder : (hovered ? k_ColorBandHoverBorder : k_ColorBandOffBorder),
-                1.0f);
-
-            const std::string_view modelName = k_EnergyModels[static_cast<size_t>(m)];
-            const ImVec2 tSize = ImGui::CalcTextSize(modelName.data(), modelName.data() + modelName.size());
-            drawList->AddText(
-                ImVec2{ cMin.x + 0.5f * (energyCellW - tSize.x), cMin.y + 0.5f * (k_EnergyCellH - tSize.y) - 0.5f },
-                selected ? k_ColorButtonTextActive : k_ColorSegmentOffText,
-                modelName.data(),
-                modelName.data() + modelName.size());
+            spectrum.EnergySpectrumModel = static_cast<uint32_t>(energyModel);
+            changed = true;
         }
 
-        ImGui::PopFont();
-        ImGui::Dummy(ImVec2{ 0.0f, 2.0f });
-
-        // directional spreading model 6-way selector (2 rows x 3 columns)
-        const ImVec2 rowMin = ImGui::GetCursorScreenPos();
-        const float availWidth = ImGui::GetContentRegionAvail().x;
-        drawList->AddText(
-            fonts.Body,
-            16.0f,
-            ImVec2{ rowMin.x + 2.0f, rowMin.y + 4.0f },
-            k_ColorTextLabel,
-            "Spreading model");
-
-        constexpr std::array<std::string_view, 6> k_Models
+        constexpr std::array<std::string_view, 6> k_SpreadingModels
         {
-            "MITSUYASU", "HASSELMANN", "DONELAN",
-            "ELFOUHAILY", "HYBRID", "EWANS"
+            "MITSUYASU", "HASSELMANN", "DONELAN", "ELFOUHAILY", "HYBRID", "EWANS",
         };
-        const float segLeft = rowMin.x + k_LabelColumnWidth;
-        const float segWidth = availWidth - k_LabelColumnWidth - 8.0f;
-        constexpr float k_Gap = 4.0f;
-        const float cellW = (segWidth - 2.0f * k_Gap) / 3.0f;
-        constexpr float k_CellH = 24.0f;
 
-        ImGui::PushFont(fonts.SectionBlinker);
+        int32_t spreadingModel = static_cast<int32_t>(spectrum.DirectionalSpreadingMode);
 
-        for (int32_t m = 0; m < 6; ++m)
+        if (DrawSelectorRow("##spreading_model", "Spreading model", k_SpreadingModels, spreadingModel, 3))
         {
-            const int32_t row = m / 3;
-            const int32_t col = m % 3;
-            const ImVec2 cMin
-            {
-                segLeft + static_cast<float>(col) * (cellW + k_Gap),
-                rowMin.y + static_cast<float>(row) * (k_CellH + k_Gap)
-            };
-            const ImVec2 cMax{ cMin.x + cellW, cMin.y + k_CellH };
-            ImGui::SetCursorScreenPos(cMin);
-
-            const std::string btnId = std::format("##spread_mode_{}", m);
-
-            if (ImGui::InvisibleButton(btnId.c_str(), ImVec2{ cellW, k_CellH }))
-            {
-                spectrum.DirectionalSpreadingMode = static_cast<uint32_t>(m);
-                changed = true;
-            }
-
-            const bool selected = spectrum.DirectionalSpreadingMode == static_cast<uint32_t>(m);
-            const bool hovered = ImGui::IsItemHovered();
-            DrawChamferedRect(
-                drawList,
-                cMin,
-                cMax,
-                4.0f,
-                selected ? k_ColorSegmentOnBg : k_ColorSegmentOffBg,
-                selected ? k_ColorSegmentOnBorder : (hovered ? k_ColorBandHoverBorder : k_ColorBandOffBorder),
-                1.0f);
-
-            const std::string_view modelName = k_Models[static_cast<size_t>(m)];
-            const ImVec2 tSize = ImGui::CalcTextSize(modelName.data(), modelName.data() + modelName.size());
-            drawList->AddText(
-                ImVec2{ cMin.x + 0.5f * (cellW - tSize.x), cMin.y + 0.5f * (k_CellH - tSize.y) - 0.5f },
-                selected ? k_ColorButtonTextActive : k_ColorSegmentOffText,
-                modelName.data(),
-                modelName.data() + modelName.size());
+            spectrum.DirectionalSpreadingMode = static_cast<uint32_t>(spreadingModel);
+            changed = true;
         }
 
-        ImGui::PopFont();
-        ImGui::SetCursorScreenPos(ImVec2{ rowMin.x, rowMin.y + 2.0f * k_CellH + k_Gap + 4.0f });
-
-        // seed input row
-        const ImVec2 seedMin = ImGui::GetCursorScreenPos();
-        drawList->AddText(
-            fonts.Body,
-            16.0f,
-            ImVec2{ seedMin.x + 2.0f, seedMin.y + 3.0f },
-            k_ColorTextLabel,
-            "Spectrum seed");
-
-        ImGui::SetCursorScreenPos(ImVec2{ seedMin.x + k_LabelColumnWidth, seedMin.y });
-        ImGui::SetNextItemWidth(availWidth - k_LabelColumnWidth - 8.0f);
+        BeginFieldRow("Spectrum seed");
         int32_t seedValue = static_cast<int32_t>(spectrum.NoiseSeed);
+
         if (ImGui::InputInt("##spectrum_seed", &seedValue, 1, 10))
         {
             spectrum.NoiseSeed = static_cast<uint32_t>(std::max(seedValue, 0));
             changed = true;
         }
 
-        ImGui::Dummy(ImVec2{ 0.0f, 3.0f });
+        DrawSectionLabel("WIND SEA");
+        DrawKeyValue("Wind speed", std::format("{:.1f}", spectrum.WindSpeed), "m/s");
+        DrawKeyValue("Fetch", std::format("{:.0f}", spectrum.Fetch), "km");
+        DrawKeyValue("Peaking factor", std::format("{:.1f}", spectrum.PeakingFactor), "gamma");
+        DrawKeyValue("Fade length", std::format("{:.3f}", spectrum.FadeLength), "m");
 
-        // read-only resolved physical parameters card
-        const ImVec2 cardMin = ImGui::GetCursorScreenPos();
-        constexpr float k_CardHeight = 88.0f;
-        const ImVec2 cardMax{ cardMin.x + availWidth - 4.0f, cardMin.y + k_CardHeight };
+        DrawSectionLabel("SPREADING");
+        DrawKeyValue("Alignment", std::format("{:.2f}", spectrum.Alignment), "");
+        DrawKeyValue("Narrowness", std::format("{:.2f}", spectrum.SwellAmount), "");
 
-        DrawChamferedRect(
-            drawList,
-            cardMin,
-            cardMax,
-            6.0f,
-            k_ColorCardSubBg,
-            k_ColorCardSubBorder,
-            1.0f);
+        DrawSectionLabel("SWELL JONSWAP");
+        DrawKeyValue("Wind speed", std::format("{:.1f}", spectrum.SwellWindSpeed), "m/s");
+        DrawKeyValue("Fetch", std::format("{:.0f}", spectrum.SwellFetch), "km");
+        DrawKeyValue("Peaking factor", std::format("{:.1f}", spectrum.SwellPeakingFactor), "gamma");
+        DrawKeyValue("Energy scale", std::format("{:.3f}", spectrum.SwellScale), "x");
 
-        ImGui::SetCursorScreenPos(ImVec2{ cardMin.x + 10.0f, cardMin.y + 6.0f });
-        ImGui::PushFont(fonts.BodyItalic);
-        ImGui::TextColored(k_ColorVecNote, "Resolved physical spectrum (SeaState -> SpectrumParameters)");
-        ImGui::PopFont();
-
-        DrawPhysicsRow(
-            fonts,
-            "Wind sea",
-            std::format("{:.1f}", spectrum.WindSpeed), "m/s",
-            std::format("fetch {:.0f} km   |   gamma {:.1f}   |   fade {:.3f} m",
-                spectrum.Fetch, spectrum.PeakingFactor, spectrum.FadeLength), "");
-
-        DrawPhysicsRow(
-            fonts,
-            "Spreading",
-            std::format("{:.2f}", spectrum.Alignment), "align",
-            std::format("narrowness {:.2f}", spectrum.SwellAmount), "");
-
-        DrawPhysicsRow(
-            fonts,
-            "Swell JONSWAP",
-            std::format("{:.1f}", spectrum.SwellWindSpeed), "m/s",
-            std::format("fetch {:.0f} km   |   gamma {:.1f}   |   energy x{:.3f}",
-                spectrum.SwellFetch, spectrum.SwellPeakingFactor, spectrum.SwellScale), "");
-
-        ImGui::SetCursorScreenPos(ImVec2{ cardMin.x, cardMax.y + 4.0f });
         return changed;
+    }
+
+    void DrawGpuTimingsSection(const rhi::GpuTimers& gpu_timers,
+                               const std::unordered_map<uint64_t, double>& timing_averages,
+                               const rhi::GpuTimers* async_timers,
+                               const std::unordered_map<uint64_t, double>* async_timing_averages)
+    {
+        const bool showAsync = async_timers != nullptr && async_timers->Active() && async_timing_averages != nullptr;
+
+        if (!showAsync)
+        {
+            DrawSectionLabel("GPU TIMINGS");
+            DrawTimingTable("GpuTimingsTelemetry", gpu_timers, timing_averages, k_DataGraphicsQueue);
+            return;
+        }
+
+        DrawSectionLabelWithDot("GRAPHICS QUEUE", k_DataGraphicsQueue);
+        DrawTimingTable("GpuTimingsGraphics", gpu_timers, timing_averages, k_DataGraphicsQueue);
+        DrawSectionLabelWithDot("ASYNC COMPUTE QUEUE", k_DataAsyncQueue);
+        DrawTimingTable("GpuTimingsAsyncCompute", *async_timers, *async_timing_averages, k_DataAsyncQueue);
+    }
+
+    void DrawNote(std::string_view text)
+    {
+        ImGui::Dummy(ImVec2{ 0.0f, Px(k_Space1) });
+        TextItem(Face::Note, k_TextHint, text);
     }
 
     namespace
     {
-        void DrawTimingTableInternal(const char* table_id, const ImGuiFontSet& fonts, const rhi::GpuTimers& gpu_timers,
-                                     const std::unordered_map<uint64_t, double>& timing_averages)
+        float Scale() noexcept
+        {
+            const ImGuiStyle& style = ImGui::GetStyle();
+            return style.FontScaleMain * style.FontScaleDpi;
+        }
+
+        float Px(float pixels) noexcept
+        {
+            return pixels * Scale();
+        }
+
+        ImU32 WithAlpha(ImU32 color, float alpha_scale) noexcept
+        {
+            const float alpha = static_cast<float>((color >> IM_COL32_A_SHIFT) & 0xFFu) * alpha_scale;
+            const uint32_t alphaByte = static_cast<uint32_t>(std::clamp(alpha, 0.0f, 255.0f));
+            return (color & ~IM_COL32_A_MASK) | (alphaByte << IM_COL32_A_SHIFT);
+        }
+
+        FaceSpec ResolveFace(Face face) noexcept
+        {
+            const ImGuiFontSet& fonts = *activeFrame.Fonts;
+            const bool michroma = activeFrame.Mode == HeaderFontMode::Michroma;
+            const float scale = Scale();
+
+            switch (face)
+            {
+            case Face::Caps:
+                return FaceSpec{ michroma ? fonts.SectionMichroma : fonts.SectionBlinker,
+                                 (michroma ? k_SizeCaptionMichroma : k_SizeCaption) * scale };
+            case Face::Title:
+                return FaceSpec{ michroma ? fonts.HeaderMichroma : fonts.HeaderBlinker,
+                                 (michroma ? k_SizeTitleMichroma : k_SizeTitle) * scale };
+            case Face::Hero:
+                return FaceSpec{ michroma ? fonts.HeaderMichroma : fonts.HeaderBlinker,
+                                 (michroma ? k_SizeHeroMichroma : k_SizeHero) * scale };
+            case Face::Body:
+                return FaceSpec{ fonts.Body, k_SizeBody * scale };
+            case Face::Small:
+                return FaceSpec{ fonts.Body, k_SizeCaption * scale };
+            case Face::Note:
+                return FaceSpec{ fonts.BodyItalic, k_SizeCaption * scale };
+            case Face::Invalid:
+                break;
+            }
+
+            return FaceSpec{ fonts.Body, k_SizeBody * scale };
+        }
+
+        float TextWidth(Face face, std::string_view text)
+        {
+            const FaceSpec spec = ResolveFace(face);
+            ImGui::PushFont(spec.Font, spec.Size);
+            const ImVec2 size = ImGui::CalcTextSize(text.data(), text.data() + text.size());
+            ImGui::PopFont();
+            return size.x;
+        }
+
+        float LineHeight(Face face)
+        {
+            const FaceSpec spec = ResolveFace(face);
+            ImGui::PushFont(spec.Font, spec.Size);
+            const float height = ImGui::GetTextLineHeight();
+            ImGui::PopFont();
+            return height;
+        }
+
+        void PutText(ImDrawList* draw_list, Face face, const ImVec2& position, ImU32 color, std::string_view text)
+        {
+            const FaceSpec spec = ResolveFace(face);
+            ImGui::PushFont(spec.Font, spec.Size);
+            draw_list->AddText(ImGui::GetFont(), ImGui::GetFontSize(), position, color, text.data(),
+                               text.data() + text.size());
+            ImGui::PopFont();
+        }
+
+        void PutTextRight(ImDrawList* draw_list, Face face, const ImVec2& right_position, ImU32 color,
+                          std::string_view text)
+        {
+            const float width = TextWidth(face, text);
+            PutText(draw_list, face, ImVec2{ right_position.x - width, right_position.y }, color, text);
+        }
+
+        void TextItem(Face face, ImU32 color, std::string_view text)
+        {
+            const FaceSpec spec = ResolveFace(face);
+            ImGui::PushFont(spec.Font, spec.Size);
+            ImGui::PushStyleColor(ImGuiCol_Text, color);
+            ImGui::TextUnformatted(text.data(), text.data() + text.size());
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+        }
+
+        void TextItemRight(Face face, ImU32 color, std::string_view text)
+        {
+            const float width = TextWidth(face, text);
+            const float freeWidth = ImGui::GetContentRegionAvail().x - width;
+
+            if (freeWidth > 0.0f)
+            {
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + freeWidth);
+            }
+
+            TextItem(face, color, text);
+        }
+
+        void ApplyTelemetryStyle() noexcept
+        {
+            ImGuiStyle& style = ImGui::GetStyle();
+
+            style.WindowPadding = ImVec2{ Px(k_Space4), Px(k_Space4) };
+            style.FramePadding = ImVec2{ Px(k_Space2), Px(5.0f) };
+            style.ItemSpacing = ImVec2{ Px(k_Space2), Px(k_Space1) };
+            style.ItemInnerSpacing = ImVec2{ Px(k_Space2), Px(k_Space1) };
+            style.CellPadding = ImVec2{ Px(k_Space2), Px(3.0f) };
+            style.ScrollbarSize = Px(4.0f);
+            style.GrabMinSize = Px(k_SliderGrabSize);
+
+            style.WindowRounding = 0.0f;
+            style.ChildRounding = 0.0f;
+            style.FrameRounding = Px(2.0f);
+            style.PopupRounding = Px(2.0f);
+            style.ScrollbarRounding = Px(2.0f);
+            style.GrabRounding = Px(2.0f);
+            style.WindowBorderSize = 0.0f;
+            style.FrameBorderSize = 0.0f;
+            style.PopupBorderSize = 1.0f;
+
+            ImVec4* colors = style.Colors;
+            colors[ImGuiCol_Text] = ImGui::ColorConvertU32ToFloat4(k_TextValue);
+            colors[ImGuiCol_TextDisabled] = ImGui::ColorConvertU32ToFloat4(k_TextHint);
+            colors[ImGuiCol_TextSelectedBg] = ImGui::ColorConvertU32ToFloat4(WithAlpha(k_Accent, 0.3f));
+            colors[ImGuiCol_WindowBg] = ImVec4{ 0.0f, 0.0f, 0.0f, 0.0f };
+            colors[ImGuiCol_ChildBg] = ImVec4{ 0.0f, 0.0f, 0.0f, 0.0f };
+            colors[ImGuiCol_PopupBg] = ImGui::ColorConvertU32ToFloat4(k_SurfacePopup);
+            colors[ImGuiCol_Border] = ImGui::ColorConvertU32ToFloat4(k_LineWeak);
+            colors[ImGuiCol_FrameBg] = ImGui::ColorConvertU32ToFloat4(k_FieldRest);
+            colors[ImGuiCol_FrameBgHovered] = ImGui::ColorConvertU32ToFloat4(k_FieldHover);
+            colors[ImGuiCol_FrameBgActive] = ImGui::ColorConvertU32ToFloat4(k_FieldActive);
+            colors[ImGuiCol_Button] = ImGui::ColorConvertU32ToFloat4(k_FieldRest);
+            colors[ImGuiCol_ButtonHovered] = ImGui::ColorConvertU32ToFloat4(k_FieldHover);
+            colors[ImGuiCol_ButtonActive] = ImGui::ColorConvertU32ToFloat4(k_FieldActive);
+            colors[ImGuiCol_Header] = ImGui::ColorConvertU32ToFloat4(k_FieldRest);
+            colors[ImGuiCol_HeaderHovered] = ImGui::ColorConvertU32ToFloat4(k_FieldHover);
+            colors[ImGuiCol_HeaderActive] = ImGui::ColorConvertU32ToFloat4(k_FieldActive);
+            colors[ImGuiCol_CheckMark] = ImGui::ColorConvertU32ToFloat4(k_Accent);
+            colors[ImGuiCol_SliderGrab] = ImGui::ColorConvertU32ToFloat4(k_TextValue);
+            colors[ImGuiCol_SliderGrabActive] = ImGui::ColorConvertU32ToFloat4(k_Accent);
+            colors[ImGuiCol_ScrollbarBg] = ImVec4{ 0.0f, 0.0f, 0.0f, 0.0f };
+            colors[ImGuiCol_ScrollbarGrab] = ImGui::ColorConvertU32ToFloat4(k_LineStrong);
+            colors[ImGuiCol_ScrollbarGrabHovered] = ImGui::ColorConvertU32ToFloat4(k_TextLabel);
+            colors[ImGuiCol_ScrollbarGrabActive] = ImGui::ColorConvertU32ToFloat4(k_Accent);
+            colors[ImGuiCol_Separator] = ImGui::ColorConvertU32ToFloat4(k_LineWeak);
+            colors[ImGuiCol_TableHeaderBg] = ImVec4{ 0.0f, 0.0f, 0.0f, 0.0f };
+            colors[ImGuiCol_TableBorderStrong] = ImGui::ColorConvertU32ToFloat4(k_LineStrong);
+            colors[ImGuiCol_TableBorderLight] = ImGui::ColorConvertU32ToFloat4(k_LineWeak);
+            colors[ImGuiCol_TableRowBg] = ImVec4{ 0.0f, 0.0f, 0.0f, 0.0f };
+            colors[ImGuiCol_TableRowBgAlt] = ImVec4{ 0.0f, 0.0f, 0.0f, 0.0f };
+            colors[ImGuiCol_ResizeGrip] = ImGui::ColorConvertU32ToFloat4(k_LineWeak);
+            colors[ImGuiCol_ResizeGripHovered] = ImGui::ColorConvertU32ToFloat4(k_LineStrong);
+            colors[ImGuiCol_ResizeGripActive] = ImGui::ColorConvertU32ToFloat4(k_Accent);
+            colors[ImGuiCol_NavCursor] = ImGui::ColorConvertU32ToFloat4(k_Accent);
+        }
+
+        void DrawPanelSurface(const ImVec2& min_pos, const ImVec2& max_pos)
+        {
+            ImDrawList* drawList = ImGui::GetBackgroundDrawList();
+            drawList->AddRectFilledMultiColor(min_pos, max_pos, k_SurfaceTop, k_SurfaceTop, k_SurfaceBottom, k_SurfaceBottom);
+            drawList->AddRect(min_pos, max_pos, k_LineWeak, 0.0f, 0, 1.0f);
+        }
+
+        void DrawCloseCross(ImDrawList* draw_list, const ImVec2& min_pos, float size, ImU32 color)
+        {
+            const float inset = 0.25f * size;
+            const ImVec2 topLeft{ min_pos.x + inset, min_pos.y + inset };
+            const ImVec2 bottomRight{ min_pos.x + size - inset, min_pos.y + size - inset };
+            const ImVec2 topRight{ bottomRight.x, topLeft.y };
+            const ImVec2 bottomLeft{ topLeft.x, bottomRight.y };
+
+            draw_list->AddLine(topLeft, bottomRight, color, 1.0f);
+            draw_list->AddLine(topRight, bottomLeft, color, 1.0f);
+        }
+
+        void DrawCompass(ImDrawList* draw_list, const ImVec2& center, float radius, const SeaState& state)
+        {
+            draw_list->AddCircle(center, radius, k_LineStrong, 64, 1.0f);
+            draw_list->AddCircle(center, radius * 0.66f, k_LineWeak, 48, 1.0f);
+            draw_list->AddCircle(center, radius * 0.33f, k_LineWeak, 32, 1.0f);
+
+            const float tickLength = Px(5.0f);
+
+            for (int32_t index = 0; index < 4; ++index)
+            {
+                const float angle = static_cast<float>(index) * 0.5f * k_Pi;
+                const float cosine = std::cos(angle);
+                const float sine = std::sin(angle);
+                draw_list->AddLine(
+                    ImVec2{ center.x + cosine * (radius - tickLength), center.y + sine * (radius - tickLength) },
+                    ImVec2{ center.x + cosine * radius, center.y + sine * radius },
+                    k_LineStrong,
+                    1.0f);
+            }
+
+            const float arrowReach = radius - Px(6.0f);
+
+            // zero degrees points up in the compass
+            const float swellFraction = std::clamp(state.SwellHeight / 6.0f, 0.0f, 1.0f);
+
+            if (swellFraction > 0.02f)
+            {
+                const float swellAngle = (state.SwellDirection - 90.0f) * k_DegreesToRadians;
+                const float swellLength = (0.30f + 0.70f * swellFraction) * arrowReach;
+                DrawCompassArrow(draw_list, center, swellAngle, swellLength, k_DataSwell);
+            }
+
+            const float windFraction = std::clamp(state.WindForce / 12.0f, 0.15f, 1.0f);
+            const float windAngle = (state.WindDirection - 90.0f) * k_DegreesToRadians;
+            const float windLength = (0.30f + 0.70f * windFraction) * arrowReach;
+            DrawCompassArrow(draw_list, center, windAngle, windLength, k_DataWind);
+
+            draw_list->AddCircleFilled(center, Px(2.0f), k_TextValue, 12);
+        }
+
+        void DrawCompassArrow(ImDrawList* draw_list, const ImVec2& center, float angle_radians, float length,
+                              ImU32 color)
+        {
+            const float directionX = std::cos(angle_radians);
+            const float directionY = std::sin(angle_radians);
+            const ImVec2 tip{ center.x + directionX * length, center.y + directionY * length };
+            draw_list->AddLine(center, tip, color, 1.5f);
+
+            const float headLength = Px(7.0f);
+            const float headSpread = 0.42f;
+            const ImVec2 leftWing
+            {
+                tip.x - headLength * std::cos(angle_radians - headSpread),
+                tip.y - headLength * std::sin(angle_radians - headSpread),
+            };
+            const ImVec2 rightWing
+            {
+                tip.x - headLength * std::cos(angle_radians + headSpread),
+                tip.y - headLength * std::sin(angle_radians + headSpread),
+            };
+
+            draw_list->AddTriangleFilled(tip, leftWing, rightWing, color);
+        }
+
+        void DrawKeyValueAt(ImDrawList* draw_list, const ImVec2& position, float width, const KeyValueSpec& spec)
+        {
+            const float rowHeight = Px(k_KeyValueHeight);
+            const float centerY = position.y + 0.5f * rowHeight;
+            float labelX = position.x;
+
+            if (spec.DotColor != 0u)
+            {
+                const float radius = Px(3.0f);
+                draw_list->AddCircleFilled(ImVec2{ position.x + radius, centerY }, radius, spec.DotColor);
+                labelX += 2.0f * radius + Px(k_Space2);
+            }
+
+            const float bodyHeight = LineHeight(Face::Body);
+            PutText(draw_list, Face::Body, ImVec2{ labelX, centerY - 0.5f * bodyHeight }, k_TextLabel, spec.Label);
+
+            float rightEdge = position.x + width;
+
+            if (!spec.Unit.empty())
+            {
+                const float smallHeight = LineHeight(Face::Small);
+                const ImVec2 unitPosition{ rightEdge, centerY - 0.5f * smallHeight };
+                PutTextRight(draw_list, Face::Small, unitPosition, k_TextHint, spec.Unit);
+                rightEdge -= TextWidth(Face::Small, spec.Unit) + Px(k_Space1);
+            }
+
+            PutTextRight(draw_list, Face::Body, ImVec2{ rightEdge, centerY - 0.5f * bodyHeight }, k_TextValue, spec.Value);
+        }
+
+        void DrawSectionLabelWithDot(std::string_view label, ImU32 dot_color)
+        {
+            ImGui::Dummy(ImVec2{ 0.0f, Px(k_Space2) });
+
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            const ImVec2 position = ImGui::GetCursorScreenPos();
+            const float availWidth = ImGui::GetContentRegionAvail().x;
+            const float labelHeight = LineHeight(Face::Caps);
+            float textX = position.x;
+
+            if (dot_color != 0u)
+            {
+                const float radius = Px(3.0f);
+                drawList->AddCircleFilled(ImVec2{ position.x + radius, position.y + 0.5f * labelHeight }, radius, dot_color);
+                textX += 2.0f * radius + Px(k_Space2);
+            }
+
+            PutText(drawList, Face::Caps, ImVec2{ textX, position.y }, k_TextLabel, label);
+
+            const float lineStart = textX + TextWidth(Face::Caps, label) + Px(k_Space2);
+            const float lineY = position.y + 0.5f * labelHeight;
+            const float lineEnd = position.x + availWidth;
+
+            if (lineStart < lineEnd)
+            {
+                drawList->AddLine(ImVec2{ lineStart, lineY }, ImVec2{ lineEnd, lineY }, k_LineWeak, 1.0f);
+            }
+
+            ImGui::Dummy(ImVec2{ availWidth, labelHeight + Px(k_Space1) });
+        }
+
+        int32_t DrawOptionRow(const OptionRowSpec& spec)
+        {
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            const ImVec2 start = ImGui::GetCursorScreenPos();
+            const float availWidth = ImGui::GetContentRegionAvail().x;
+            const int32_t count = static_cast<int32_t>(spec.Options.size());
+            const int32_t columns = std::min(spec.Columns, count);
+            const int32_t rows = (count + columns - 1) / columns;
+            const bool isTab = spec.Kind == CellKind::Tab;
+            const float cellHeight = Px(isTab ? k_TabHeight : k_OptionHeight);
+
+            std::array<float, k_MaxOptions> textWidths{};
+            float textTotal = 0.0f;
+
+            for (int32_t index = 0; index < count; ++index)
+            {
+                const float width = TextWidth(Face::Caps, spec.Options[static_cast<size_t>(index)]);
+                textWidths[static_cast<size_t>(index)] = width;
+                textTotal += width;
+            }
+
+            float left = start.x;
+            float width = availWidth;
+            float cellsTop = start.y;
+
+            if (!spec.Label.empty())
+            {
+                const float labelWidth = TextWidth(Face::Body, spec.Label);
+                const float besideOffset = std::max(Px(k_LabelColumnWidth), labelWidth + Px(k_Space3));
+                const float besideWidth = availWidth - besideOffset;
+                const float neededWidth = textTotal + static_cast<float>(count) * Px(k_OptionPadding);
+                const bool stacked = rows == 1 && neededWidth > besideWidth;
+                const float bodyHeight = LineHeight(Face::Body);
+
+                if (stacked)
+                {
+                    PutText(drawList, Face::Body, start, k_TextLabel, spec.Label);
+                    cellsTop = start.y + bodyHeight + Px(k_Space1);
+                }
+                else
+                {
+                    const float labelY = start.y + 0.5f * (cellHeight - bodyHeight);
+                    PutText(drawList, Face::Body, ImVec2{ start.x, labelY }, k_TextLabel, spec.Label);
+                    left = start.x + besideOffset;
+                    width = besideWidth;
+                }
+            }
+
+            const float rowsBottom = cellsTop + static_cast<float>(rows) * cellHeight;
+
+            if (isTab)
+            {
+                drawList->AddLine(ImVec2{ left, rowsBottom - 0.5f }, ImVec2{ left + width, rowsBottom - 0.5f }, k_LineWeak, 1.0f);
+            }
+
+            const float captionHeight = LineHeight(Face::Caps);
+            int32_t clicked = -1;
+
+            ImGui::PushID(spec.Id);
+
+            for (int32_t row = 0; row < rows; ++row)
+            {
+                const int32_t first = row * columns;
+                const int32_t last = std::min(first + columns, count);
+                const int32_t cellCount = last - first;
+                float rowTextTotal = 0.0f;
+
+                for (int32_t index = first; index < last; ++index)
+                {
+                    rowTextTotal += textWidths[static_cast<size_t>(index)];
+                }
+
+                const float extraPerCell = std::max((width - rowTextTotal) / static_cast<float>(cellCount), 0.0f);
+                const float equalWidth = width / static_cast<float>(columns);
+                float cellLeft = left;
+
+                for (int32_t index = first; index < last; ++index)
+                {
+                    const float textWidth = textWidths[static_cast<size_t>(index)];
+                    const float cellWidth = rows == 1 ? textWidth + extraPerCell : equalWidth;
+                    const float cellTop = cellsTop + static_cast<float>(row) * cellHeight;
+
+                    ImGui::SetCursorScreenPos(ImVec2{ cellLeft, cellTop });
+                    ImGui::PushID(index);
+
+                    if (ImGui::InvisibleButton("##option", ImVec2{ cellWidth, cellHeight }))
+                    {
+                        clicked = index;
+                    }
+
+                    ImGui::PopID();
+
+                    const bool hovered = ImGui::IsItemHovered();
+                    const bool selected = spec.On[static_cast<size_t>(index)];
+                    ImU32 textColor = hovered ? k_TextValue : k_TextHint;
+
+                    if (selected)
+                    {
+                        textColor = spec.SelectedColor;
+                    }
+                    else if (!isTab)
+                    {
+                        textColor = hovered ? k_TextValue : k_TextLabel;
+                    }
+
+                    const float textX = cellLeft + 0.5f * (cellWidth - textWidth);
+                    const float textY = cellTop + 0.5f * (cellHeight - captionHeight) - (isTab ? Px(1.0f) : 0.0f);
+                    PutText(drawList, Face::Caps, ImVec2{ textX, textY }, textColor, spec.Options[static_cast<size_t>(index)]);
+
+                    if (selected)
+                    {
+                        const float underlineY = cellTop + cellHeight - Px(1.0f);
+                        const float underlineLeft = isTab ? cellLeft + Px(2.0f) : textX;
+                        const float underlineRight = isTab ? cellLeft + cellWidth - Px(2.0f) : textX + textWidth;
+                        const float underlineThickness = isTab ? 2.0f : 1.0f;
+                        drawList->AddLine(ImVec2{ underlineLeft, underlineY }, ImVec2{ underlineRight, underlineY },
+                                          spec.SelectedColor, underlineThickness);
+                    }
+
+                    cellLeft += cellWidth;
+                }
+            }
+
+            ImGui::PopID();
+
+            const bool needsTrailingGap = isTab || spec.Label.empty();
+            ImGui::SetCursorScreenPos(ImVec2{ start.x, rowsBottom });
+            ImGui::Dummy(ImVec2{ 1.0f, needsTrailingGap ? Px(k_Space2) : 0.0f });
+            return clicked;
+        }
+
+        void FillSelection(std::span<bool> on, int32_t selected) noexcept
+        {
+            for (size_t index = 0; index < on.size(); ++index)
+            {
+                on[index] = static_cast<int32_t>(index) == selected;
+            }
+        }
+
+        bool DrawSliderRow(const SliderRowSpec& spec, float* value)
+        {
+            ImGuiWindow* window = ImGui::GetCurrentWindow();
+
+            if (window->SkipItems)
+            {
+                return false;
+            }
+
+            ImGuiContext& context = *GImGui;
+            const ImGuiID id = window->GetID(spec.Id);
+            const ImVec2 origin = window->DC.CursorPos;
+            const float width = ImGui::GetContentRegionAvail().x;
+            const float rowHeight = Px(k_SliderRowHeight);
+            const ImRect rowBounds{ origin, ImVec2{ origin.x + width, origin.y + rowHeight } };
+
+            ImGui::ItemSize(rowBounds);
+
+            if (!ImGui::ItemAdd(rowBounds, id, &rowBounds, ImGuiItemFlags_Inputable))
+            {
+                return false;
+            }
+
+            const bool hovered = ImGui::ItemHoverable(rowBounds, id, context.LastItemData.ItemFlags);
+            bool typing = ImGui::TempInputIsActive(id);
+
+            if (!typing)
+            {
+                const bool clicked = hovered && ImGui::IsMouseClicked(0, ImGuiInputFlags_None, id);
+                const bool navActivated = context.NavActivateId == id;
+                const bool makeActive = clicked || navActivated;
+
+                if (makeActive && clicked)
+                {
+                    ImGui::SetKeyOwner(ImGuiKey_MouseLeft, id);
+                }
+
+                const bool navWantsInput = navActivated && (context.NavActivateFlags & ImGuiActivateFlags_PreferInput) != 0;
+
+                if (makeActive && ((clicked && context.IO.KeyCtrl) || navWantsInput))
+                {
+                    typing = true;
+                }
+
+                if (makeActive && !typing)
+                {
+                    ImGui::SetActiveID(id, window);
+                    ImGui::SetFocusID(id, window);
+                    ImGui::FocusWindow(window);
+                    context.ActiveIdUsingNavDirMask |= (1 << ImGuiDir_Left) | (1 << ImGuiDir_Right);
+                }
+            }
+
+            const bool active = context.ActiveId == id;
+            ImDrawList* drawList = window->DrawList;
+            const ImU32 labelColor = (hovered || active || typing) ? k_TextValue : k_TextLabel;
+            PutText(drawList, Face::Body, origin, labelColor, spec.Label);
+
+            float minValue = spec.Min;
+            float maxValue = spec.Max;
+
+            if (typing)
+            {
+                const float entryWidth = Px(110.0f);
+                const ImVec2 entryMax{ origin.x + width, origin.y + Px(24.0f) };
+                const ImRect entryBounds{ ImVec2{ entryMax.x - entryWidth, origin.y - Px(2.0f) }, entryMax };
+                return ImGui::TempInputScalar(entryBounds, id, spec.Id, ImGuiDataType_Float, value, "%.4g",
+                                              &minValue, &maxValue);
+            }
+
+            constexpr ImGuiSliderFlags k_BaseFlags = ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat;
+            const ImGuiSliderFlags flags = k_BaseFlags | (spec.Logarithmic ? ImGuiSliderFlags_Logarithmic : 0);
+
+            ImRect grabBounds;
+            const bool changed = ImGui::SliderBehavior(rowBounds, id, ImGuiDataType_Float, value, &minValue, &maxValue,
+                                                       "%.4g", flags, &grabBounds);
+
+            if (changed)
+            {
+                ImGui::MarkItemEdited(id);
+            }
+
+            float unitWidth = 0.0f;
+            float valueRight = origin.x + width;
+
+            if (!spec.UnitText.empty())
+            {
+                unitWidth = TextWidth(Face::Small, spec.UnitText);
+                const float unitY = origin.y + 0.5f * (LineHeight(Face::Body) - LineHeight(Face::Small));
+                PutTextRight(drawList, Face::Small, ImVec2{ valueRight, unitY }, k_TextHint, spec.UnitText);
+                valueRight -= unitWidth + Px(k_Space1);
+            }
+
+            PutTextRight(drawList, Face::Body, ImVec2{ valueRight, origin.y }, k_TextValue, spec.ValueText);
+
+            const float trackY = origin.y + Px(k_SliderTrackOffset);
+            const float handleX = 0.5f * (grabBounds.Min.x + grabBounds.Max.x);
+            const float grabSize = ImGui::GetStyle().GrabMinSize;
+            const float usableWidth = std::max(width - grabSize, 1.0f);
+            const float zeroFraction = std::clamp((0.0f - spec.Min) / (spec.Max - spec.Min), 0.0f, 1.0f);
+            const float zeroX = origin.x + 0.5f * grabSize + zeroFraction * usableWidth;
+            const float fillStartX = spec.Centered ? zeroX : origin.x;
+
+            drawList->AddLine(ImVec2{ origin.x, trackY }, ImVec2{ origin.x + width, trackY }, k_LineStrong, 1.0f);
+            drawList->AddLine(ImVec2{ fillStartX, trackY }, ImVec2{ handleX, trackY }, k_Accent, 2.0f);
+
+            if (spec.Centered)
+            {
+                drawList->AddLine(ImVec2{ zeroX, trackY - Px(4.0f) }, ImVec2{ zeroX, trackY + Px(4.0f) }, k_LineStrong, 1.0f);
+            }
+
+            const bool hot = hovered || active;
+            const float handleRadius = Px(hot ? k_HandleRadiusHot : k_HandleRadius);
+            drawList->AddCircleFilled(ImVec2{ handleX, trackY }, handleRadius, active ? k_Accent : k_TextValue, 20);
+
+            if (hovered && !active && !spec.Hint.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            {
+                DrawSliderTooltip(spec.Label, spec.Hint);
+            }
+
+            return changed;
+        }
+
+        void DrawSliderTooltip(std::string_view label, std::string_view hint)
+        {
+            ImGui::BeginTooltip();
+            TextItem(Face::Caps, k_TextValue, label);
+            TextItem(Face::Small, k_TextLabel, hint);
+            ImGui::EndTooltip();
+        }
+
+        bool MatchesPreset(const SeaState& current, const SeaState& preset) noexcept
+        {
+            constexpr float k_Epsilon = 1e-3f;
+            return std::abs(current.WindForce - preset.WindForce) < k_Epsilon &&
+                   std::abs(current.Openness - preset.Openness) < k_Epsilon &&
+                   std::abs(current.WindDirection - preset.WindDirection) < k_Epsilon &&
+                   std::abs(current.Spread - preset.Spread) < k_Epsilon &&
+                   std::abs(current.Regularity - preset.Regularity) < k_Epsilon &&
+                   std::abs(current.RippleDetail - preset.RippleDetail) < k_Epsilon &&
+                   std::abs(current.Depth - preset.Depth) < k_Epsilon &&
+                   std::abs(current.SwellHeight - preset.SwellHeight) < k_Epsilon &&
+                   std::abs(current.SwellPeriod - preset.SwellPeriod) < k_Epsilon &&
+                   std::abs(current.SwellDirection - preset.SwellDirection) < k_Epsilon &&
+                   std::abs(current.SwellOrder - preset.SwellOrder) < k_Epsilon &&
+                   std::abs(current.HeightScale - preset.HeightScale) < k_Epsilon;
+        }
+
+        void DrawTimingTable(const char* table_id, const rhi::GpuTimers& gpu_timers,
+                             const std::unordered_map<uint64_t, double>& timing_averages, ImU32 queue_color)
         {
             if (!gpu_timers.Active())
             {
-                ImGui::PushFont(fonts.BodyItalic);
-                ImGui::TextColored(k_ColorVecMutedStatus, "%s", std::string{ gpu_timers.InactiveReason() }.c_str());
-                ImGui::PopFont();
+                TextItem(Face::Note, k_TextHint, gpu_timers.InactiveReason());
                 return;
             }
 
             const std::optional<rhi::GpuTimingBlock> latest = gpu_timers.Latest();
+
             if (!latest.has_value())
             {
-                ImGui::PushFont(fonts.BodyItalic);
-                ImGui::TextColored(k_ColorVecMutedStatus, "Waiting for first completed frame...");
-                ImGui::PopFont();
+                TextItem(Face::Note, k_TextHint, "Waiting for first completed frame...");
                 return;
             }
 
             const double topLevelMs = std::max(latest->TopLevelNanoseconds * 1e-6, 0.001);
-            constexpr ImGuiTableFlags k_TableFlags = ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX;
+            constexpr ImGuiTableFlags k_TableFlags = ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerH;
 
             if (ImGui::BeginTable(table_id, 3, k_TableFlags))
             {
                 ImGui::TableSetupColumn("SCOPE", ImGuiTableColumnFlags_WidthStretch, 2.2f);
-                ImGui::TableSetupColumn("AVG (ms)", ImGuiTableColumnFlags_WidthStretch, 0.9f);
-                ImGui::TableSetupColumn("LAST (ms)", ImGuiTableColumnFlags_WidthStretch, 0.9f);
+                ImGui::TableSetupColumn("AVG ms", ImGuiTableColumnFlags_WidthStretch, 0.9f);
+                ImGui::TableSetupColumn("LAST ms", ImGuiTableColumnFlags_WidthStretch, 0.9f);
 
-                ImGui::PushFont(fonts.SectionBlinker);
-                ImGui::TableHeadersRow();
-                ImGui::PopFont();
+                ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
+                ImGui::TableSetColumnIndex(0);
+                TextItem(Face::Caps, k_TextHint, "SCOPE");
+                ImGui::TableSetColumnIndex(1);
+                TextItemRight(Face::Caps, k_TextHint, "AVG ms");
+                ImGui::TableSetColumnIndex(2);
+                TextItemRight(Face::Caps, k_TextHint, "LAST ms");
 
                 ImDrawList* drawList = ImGui::GetWindowDrawList();
+                const float rowBarHeight = LineHeight(Face::Body) + 2.0f * ImGui::GetStyle().CellPadding.y;
 
                 for (const rhi::GpuTiming& timing : latest->Timings)
                 {
@@ -1711,395 +1537,45 @@ namespace ocean
                     const ImVec2 cellMin = ImGui::GetCursorScreenPos();
                     const float rowWidth = ImGui::GetContentRegionAvail().x;
                     const float barWidth = rowWidth * ratio;
+                    const bool isRoot = timing.Depth == 0u;
 
                     if (barWidth > 1.0f)
                     {
-                        const ImU32 barCol = timing.Depth == 0u ?
-                            k_ColorTimingBarRoot :
-                            k_ColorTimingBarChild;
-                        drawList->AddRectFilled(
-                            ImVec2{ cellMin.x, cellMin.y + 1.0f },
-                            ImVec2{ cellMin.x + barWidth, cellMin.y + 19.0f },
-                            barCol);
-                        drawList->AddLine(
-                            ImVec2{ cellMin.x, cellMin.y + 19.0f },
-                            ImVec2{ cellMin.x + barWidth, cellMin.y + 19.0f },
-                            k_ColorTimingBarUnderline,
-                            1.0f);
+                        const float barTop = cellMin.y - ImGui::GetStyle().CellPadding.y;
+                        const ImU32 barColor = WithAlpha(queue_color, isRoot ? 0.22f : 0.12f);
+                        drawList->AddRectFilled(ImVec2{ cellMin.x, barTop }, ImVec2{ cellMin.x + barWidth, barTop + rowBarHeight }, barColor);
                     }
 
-                    const float indentPx = static_cast<float>(timing.Depth) * 14.0f;
+                    const float indentPixels = static_cast<float>(timing.Depth) * Px(14.0f);
+
                     if (timing.Depth > 0u)
                     {
-                        const float tickX = cellMin.x + indentPx - 9.0f;
-                        const float tickY = cellMin.y + 9.0f;
-                        drawList->AddLine(
-                            ImVec2{ tickX, tickY - 5.0f },
-                            ImVec2{ tickX, tickY },
-                            k_ColorTimingTreeTick,
-                            1.0f);
-                        drawList->AddLine(
-                            ImVec2{ tickX, tickY },
-                            ImVec2{ tickX + 5.0f, tickY },
-                            k_ColorTimingTreeTick,
-                            1.0f);
+                        const float tickX = cellMin.x + indentPixels - Px(9.0f);
+                        const float tickY = cellMin.y + 0.5f * LineHeight(Face::Body);
+                        drawList->AddLine(ImVec2{ tickX, tickY - Px(5.0f) }, ImVec2{ tickX, tickY }, k_LineStrong, 1.0f);
+                        drawList->AddLine(ImVec2{ tickX, tickY }, ImVec2{ tickX + Px(5.0f), tickY }, k_LineStrong, 1.0f);
                     }
 
-                    ImGui::SetCursorScreenPos(ImVec2{ cellMin.x + indentPx, cellMin.y });
-                    const ImVec4 scopeColor = timing.Depth == 0u ?
-                        k_ColorVecTimingRoot :
-                        k_ColorVecTimingChild;
-                    ImGui::TextColored(scopeColor, "%.*s", static_cast<int>(name.size()), name.data());
+                    ImGui::SetCursorScreenPos(ImVec2{ cellMin.x + indentPixels, cellMin.y });
+                    TextItem(Face::Body, isRoot ? k_TextValue : k_TextLabel, name);
 
                     ImGui::TableNextColumn();
-                    ImGui::PushFont(fonts.BodyBold);
-                    ImGui::TextColored(k_ColorVecTimingAvg, "%.3f", avgMs);
-                    ImGui::PopFont();
+                    TextItemRight(Face::Body, k_TextValue, std::format("{:.3f}", avgMs));
 
                     ImGui::TableNextColumn();
-                    ImGui::TextColored(k_ColorVecTimingLast, "%.3f", lastMs);
+                    TextItemRight(Face::Body, k_TextLabel, std::format("{:.3f}", lastMs));
                 }
 
                 ImGui::EndTable();
             }
 
-            ImGui::PushFont(fonts.BodyItalic);
-            ImGui::TextColored(
-                k_ColorVecTimingFooter,
-                "Scoped GPU total: %.3f ms   |   Dropped: %u scopes, %llu frames   |   Lost: %llu",
+            const std::string footer = std::format(
+                "Scoped GPU total {:.3f} ms  /  dropped {} scopes, {} frames  /  lost {}",
                 topLevelMs,
                 latest->DroppedScopes,
                 static_cast<unsigned long long>(gpu_timers.DroppedBlocks()),
                 static_cast<unsigned long long>(gpu_timers.LostBlocks()));
-            ImGui::PopFont();
-        }
-    }
-
-    void DrawGpuTimingsSection(const ImGuiFontSet& fonts, HeaderFontMode font_mode, const rhi::GpuTimers& gpu_timers,
-                               const std::unordered_map<uint64_t, double>& timing_averages,
-                               const rhi::GpuTimers* async_timers,
-                               const std::unordered_map<uint64_t, double>* async_timing_averages)
-    {
-        if (!DrawSectionHeader("GPU TIMINGS", fonts, font_mode, AccentTone::Ice, true))
-        {
-            return;
-        }
-
-        if (async_timers != nullptr && async_timers->Active() && async_timing_averages != nullptr)
-        {
-            DrawSubSectionDivider("GRAPHICS QUEUE", fonts, font_mode, AccentTone::Cyan);
-            DrawTimingTableInternal("GpuTimingsGraphics", fonts, gpu_timers, timing_averages);
-            DrawSubSectionDivider("ASYNC COMPUTE QUEUE", fonts, font_mode, AccentTone::Amber);
-            DrawTimingTableInternal("GpuTimingsAsyncCompute", fonts, *async_timers, *async_timing_averages);
-        }
-        else
-        {
-            DrawTimingTableInternal("GpuTimingsTelemetry", fonts, gpu_timers, timing_averages);
-        }
-    }
-
-    namespace
-    {
-        ImFont* PickHeaderFont(const ImGuiFontSet& fonts, HeaderFontMode font_mode) noexcept
-        {
-            if (font_mode == HeaderFontMode::Michroma && fonts.HeaderMichroma != nullptr)
-            {
-                return fonts.HeaderMichroma;
-            }
-
-            return fonts.HeaderBlinker;
-        }
-
-        ImFont* PickSectionFont(const ImGuiFontSet& fonts, HeaderFontMode font_mode) noexcept
-        {
-            if (font_mode == HeaderFontMode::Michroma && fonts.SectionMichroma != nullptr)
-            {
-                return fonts.SectionMichroma;
-            }
-
-            return fonts.SectionBlinker;
-        }
-
-        ToneColors ResolveTone(AccentTone tone) noexcept
-        {
-            switch (tone)
-            {
-            case AccentTone::Amber:
-                return ToneColors
-                {
-                    k_ColorAmberPrimary,
-                    k_ColorAmberFillBright,
-                    k_ColorAmberFillMuted,
-                    k_ColorAmberGlow,
-                };
-            case AccentTone::Ice:
-                return ToneColors
-                {
-                    k_ColorIcePrimary,
-                    k_ColorIceFillBright,
-                    k_ColorIceFillMuted,
-                    k_ColorIceGlow,
-                };
-            case AccentTone::Cyan:
-            case AccentTone::Invalid:
-            default:
-                return ToneColors
-                {
-                    k_ColorCyanPrimary,
-                    k_ColorCyanFillBright,
-                    k_ColorCyanFillMuted,
-                    k_ColorCyanGlow,
-                };
-            }
-        }
-
-        float SmoothHoverState(ImGuiID id, bool active_or_hovered) noexcept
-        {
-            ImGuiStorage* storage = ImGui::GetStateStorage();
-            const float current = storage->GetFloat(id, 0.0f);
-            const float target = active_or_hovered ? 1.0f : 0.0f;
-            const float dt = std::clamp(ImGui::GetIO().DeltaTime, 0.0f, 0.1f);
-            const float step = 1.0f - std::exp(-20.0f * dt);
-            const float next = current + (target - current) * step;
-            storage->SetFloat(id, next);
-            return next;
-        }
-
-        ImU32 DynamicBorderColor(uint8_t alpha) noexcept
-        {
-            return IM_COL32(75, 88, 100, alpha);
-        }
-
-        ImU32 DynamicTrackBorderColor(uint8_t alpha) noexcept
-        {
-            return IM_COL32(75, 90, 105, alpha);
-        }
-
-        void DrawChamferedRect(ImDrawList* draw_list, const ImVec2& min_pos, const ImVec2& max_pos, float chamfer,
-                               ImU32 fill_color, ImU32 border_color, float border_thickness)
-        {
-            const float cut = std::min({ chamfer, 0.45f * (max_pos.x - min_pos.x), 0.45f * (max_pos.y - min_pos.y) });
-            const std::array<ImVec2, 5> points
-            {
-                min_pos,
-                ImVec2{ max_pos.x, min_pos.y },
-                ImVec2{ max_pos.x, max_pos.y - cut },
-                ImVec2{ max_pos.x - cut, max_pos.y },
-                ImVec2{ min_pos.x, max_pos.y },
-            };
-
-            if ((fill_color & IM_COL32_A_MASK) != 0u)
-            {
-                draw_list->AddConvexPolyFilled(points.data(), static_cast<int>(points.size()), fill_color);
-            }
-
-            if ((border_color & IM_COL32_A_MASK) != 0u)
-            {
-                draw_list->AddPolyline(points.data(), static_cast<int>(points.size()), border_color, ImDrawFlags_Closed, border_thickness);
-            }
-        }
-
-        void DrawCornerReticles(ImDrawList* draw_list, const ImVec2& min_pos, const ImVec2& max_pos, float arm_length,
-                                ImU32 color)
-        {
-            // top-left L-bracket
-            draw_list->AddLine(min_pos, ImVec2{ min_pos.x + arm_length, min_pos.y }, color, 1.0f);
-            draw_list->AddLine(min_pos, ImVec2{ min_pos.x, min_pos.y + arm_length }, color, 1.0f);
-
-            // bottom-left L-bracket
-            draw_list->AddLine(ImVec2{ min_pos.x, max_pos.y }, ImVec2{ min_pos.x + arm_length, max_pos.y }, color, 1.0f);
-            draw_list->AddLine(ImVec2{ min_pos.x, max_pos.y - arm_length }, ImVec2{ min_pos.x, max_pos.y }, color, 1.0f);
-
-            // top-right L-bracket
-            draw_list->AddLine(ImVec2{ max_pos.x - arm_length, min_pos.y }, ImVec2{ max_pos.x, min_pos.y }, color, 1.0f);
-            draw_list->AddLine(ImVec2{ max_pos.x, min_pos.y }, ImVec2{ max_pos.x, min_pos.y + arm_length }, color, 1.0f);
-        }
-
-        void DrawCompassReticle(ImDrawList* draw_list, const ImVec2& center, float radius, const SeaState& state,
-                                const ImGuiFontSet& fonts)
-        {
-            draw_list->AddCircleFilled(center, radius, k_ColorCompassBg, 32);
-            draw_list->AddCircle(center, radius, k_ColorCompassRingOuter, 32, 1.0f);
-            draw_list->AddCircle(center, radius * 0.5f, k_ColorCompassRingInner, 24, 1.0f);
-
-            // cardinal crosshair ticks
-            for (int32_t i = 0; i < 4; ++i)
-            {
-                const float angle = static_cast<float>(i) * 0.5f * k_Pi;
-                const float c = std::cos(angle);
-                const float s = std::sin(angle);
-                draw_list->AddLine(
-                    ImVec2{ center.x + c * (radius - 4.0f), center.y + s * (radius - 4.0f) },
-                    ImVec2{ center.x + c * radius, center.y + s * radius },
-                    k_ColorCompassCrosshair,
-                    1.0f);
-            }
-
-            // swell vector in amber (0 deg points up in the reticle)
-            const float swellFraction = std::clamp(state.SwellHeight / 6.0f, 0.0f, 1.0f);
-            if (swellFraction > 0.02f)
-            {
-                const float swellAngle = (state.SwellDirection - 90.0f) * k_DegreesToRadians;
-                const float swellLen = (0.30f + 0.62f * swellFraction) * (radius - 4.0f);
-                DrawCompassArrow(draw_list, center, swellAngle, swellLen, k_ColorCompassSwell, 2.0f);
-            }
-
-            // wind vector in cyan
-            const float windFraction = std::clamp(state.WindForce / 12.0f, 0.15f, 1.0f);
-            const float windAngle = (state.WindDirection - 90.0f) * k_DegreesToRadians;
-            const float windLen = (0.30f + 0.62f * windFraction) * (radius - 4.0f);
-            DrawCompassArrow(draw_list, center, windAngle, windLen, k_ColorCompassWind, 2.0f);
-
-            draw_list->AddCircleFilled(center, 2.0f, k_ColorCompassPivot, 8);
-            (void)fonts;
-        }
-
-        void DrawCompassArrow(ImDrawList* draw_list, const ImVec2& center, float angle_radians, float length,
-                              ImU32 color, float thickness)
-        {
-            const float dirX = std::cos(angle_radians);
-            const float dirY = std::sin(angle_radians);
-            const ImVec2 tip{ center.x + dirX * length, center.y + dirY * length };
-            draw_list->AddLine(center, tip, color, thickness);
-
-            const float headLen = 5.5f;
-            const float headSpread = 0.48f;
-            const ImVec2 leftWing
-            {
-                tip.x - headLen * std::cos(angle_radians - headSpread),
-                tip.y - headLen * std::sin(angle_radians - headSpread)
-            };
-            const ImVec2 rightWing
-            {
-                tip.x - headLen * std::cos(angle_radians + headSpread),
-                tip.y - headLen * std::sin(angle_radians + headSpread)
-            };
-            const std::array<ImVec2, 3> head{ tip, leftWing, rightWing };
-            draw_list->AddConvexPolyFilled(head.data(), 3, color);
-        }
-
-        bool MatchesPreset(const SeaState& current, const SeaState& preset) noexcept
-        {
-            constexpr float k_Eps = 1e-3f;
-            return std::fabs(current.WindForce - preset.WindForce) < k_Eps &&
-                   std::fabs(current.Openness - preset.Openness) < k_Eps &&
-                   std::fabs(current.WindDirection - preset.WindDirection) < k_Eps &&
-                   std::fabs(current.Spread - preset.Spread) < k_Eps &&
-                   std::fabs(current.Regularity - preset.Regularity) < k_Eps &&
-                   std::fabs(current.RippleDetail - preset.RippleDetail) < k_Eps &&
-                   std::fabs(current.Depth - preset.Depth) < k_Eps &&
-                   std::fabs(current.SwellHeight - preset.SwellHeight) < k_Eps &&
-                   std::fabs(current.SwellPeriod - preset.SwellPeriod) < k_Eps &&
-                   std::fabs(current.SwellDirection - preset.SwellDirection) < k_Eps &&
-                   std::fabs(current.SwellOrder - preset.SwellOrder) < k_Eps &&
-                   std::fabs(current.HeightScale - preset.HeightScale) < k_Eps;
-        }
-
-        float NormalizeSliderValue(float value, float min_value, float max_value, bool logarithmic) noexcept
-        {
-            const float clamped = std::clamp(value, min_value, max_value);
-            if (logarithmic && min_value > 0.0f && max_value > min_value)
-            {
-                const float logMin = std::log(min_value);
-                const float logMax = std::log(max_value);
-                return std::clamp((std::log(clamped) - logMin) / (logMax - logMin), 0.0f, 1.0f);
-            }
-
-            return std::clamp((clamped - min_value) / (max_value - min_value), 0.0f, 1.0f);
-        }
-
-        float DenormalizeSliderValue(float normalized, float min_value, float max_value, bool logarithmic) noexcept
-        {
-            const float t = std::clamp(normalized, 0.0f, 1.0f);
-            if (logarithmic && min_value > 0.0f && max_value > min_value)
-            {
-                const float logMin = std::log(min_value);
-                const float logMax = std::log(max_value);
-                return std::exp(std::lerp(logMin, logMax, t));
-            }
-
-            return std::lerp(min_value, max_value, t);
-        }
-
-        void DrawChunkyThumb(ImDrawList* draw_list, const ImVec2& center, float half_width, float half_height,
-                             const ToneColors& tone, float highlight)
-        {
-            const float expand = 1.0f * highlight;
-            const ImVec2 minPos{ center.x - half_width - expand, center.y - half_height - expand };
-            const ImVec2 maxPos{ center.x + half_width + expand, center.y + half_height + expand };
-
-            if (highlight > 0.05f)
-            {
-                DrawChamferedRect(
-                    draw_list,
-                    ImVec2{ minPos.x - 2.0f, minPos.y - 2.0f },
-                    ImVec2{ maxPos.x + 2.0f, maxPos.y + 2.0f },
-                    3.5f,
-                    tone.Glow,
-                    0u,
-                    0.0f);
-            }
-
-            const ImU32 bodyFill = highlight > 0.3f ?
-                k_ColorThumbBgHover :
-                k_ColorThumbBg;
-
-            const ImU32 thumbBorder = highlight > 0.2f ? tone.Primary : k_ColorThumbBorder;
-            DrawChamferedRect(draw_list, minPos, maxPos, 3.0f, bodyFill, thumbBorder, 1.0f);
-
-            // subtle vertical grip notch inside the chunky slider thumb
-            const ImU32 notchColor = highlight > 0.2f ? tone.Primary : k_ColorThumbNotch;
-            draw_list->AddLine(
-                ImVec2{ center.x, minPos.y + 3.0f },
-                ImVec2{ center.x, maxPos.y - 3.0f },
-                notchColor,
-                1.0f);
-        }
-
-        void DrawPhysicsRow(const ImGuiFontSet& fonts, std::string_view label, std::string_view value_a,
-                            std::string_view unit_a, std::string_view value_b, std::string_view unit_b)
-        {
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            const ImVec2 rowPos = ImGui::GetCursorScreenPos();
-            drawList->AddText(
-                fonts.Body,
-                15.0f,
-                ImVec2{ rowPos.x + 10.0f, rowPos.y },
-                k_ColorPhysicsLabel,
-                label.data(),
-                label.data() + label.size());
-
-            drawList->AddText(
-                fonts.BodyBold,
-                14.5f,
-                ImVec2{ rowPos.x + 108.0f, rowPos.y },
-                k_ColorPhysicsValueA,
-                value_a.data(),
-                value_a.data() + value_a.size());
-
-            ImGui::PushFont(fonts.BodyBold);
-            const ImVec2 valASize = ImGui::CalcTextSize(value_a.data(), value_a.data() + value_a.size());
-            ImGui::PopFont();
-
-            const float unitAX = rowPos.x + 108.0f + valASize.x + 4.0f;
-            drawList->AddText(
-                fonts.BodyItalic,
-                13.5f,
-                ImVec2{ unitAX, rowPos.y + 1.0f },
-                k_ColorPhysicsUnitA,
-                unit_a.data(),
-                unit_a.data() + unit_a.size());
-
-            drawList->AddText(
-                fonts.Body,
-                14.0f,
-                ImVec2{ rowPos.x + 178.0f, rowPos.y + 0.5f },
-                k_ColorPhysicsValueB,
-                value_b.data(),
-                value_b.data() + value_b.size());
-
-            (void)unit_b;
-            ImGui::Dummy(ImVec2{ 0.0f, 18.0f });
+            TextItem(Face::Note, k_TextHint, footer);
         }
     }
 }
