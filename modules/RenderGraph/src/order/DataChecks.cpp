@@ -224,6 +224,77 @@ namespace loom::order
         }
     }
 
+    // The contents at frame start exist only when something outside this frame's writes made them: the persistence
+    // rule of LM503. A Frame lifetime resource keeps nothing across frames (aliasing may reuse its memory), so it never
+    // has contents at frame start, even with a persistent writer.
+    void CheckFrameStartSources(OrderContext& context, const CollatedAccesses& collated)
+    {
+        for (int32_t slotIdx = 0; slotIdx < context.SlotCount; ++slotIdx)
+        {
+            const auto& readers = collated.FrameStartReaders[slotIdx];
+
+            if (readers.empty())
+            {
+                continue;
+            }
+
+            const ResourceSlot slot{ slotIdx };
+            const bool hasContents = !IsFrameLifetime(context, slot) &&
+                                     (HasSource(context, slot) || HasPersistentWriter(context, collated, slot));
+
+            if (hasContents)
+            {
+                continue;
+            }
+
+            for (const CollatedAccesses::AccessRef& reader : readers)
+            {
+                const Diagnostic diagnostic
+                {
+                    .Code = DiagnosticCode::LM506,
+                    .Severity = DiagnosticSeverity::Error,
+                    .Where = context.PassAccesses[reader.PassIdx][reader.AccessIdx].Where,
+                    .Pass = context.Frozen.Passes[reader.PassIdx].Key,
+                    .Resource = ResourceOfSlot(context, slot)
+                };
+
+                context.Sink.Report(diagnostic);
+            }
+        }
+    }
+
+    bool IsFrameLifetime(const OrderContext& context, ResourceSlot slot)
+    {
+        const int32_t resourceCount = static_cast<int32_t>(context.Frozen.Resources.size());
+
+        if (slot.Value >= resourceCount)
+        {
+            return false;
+        }
+
+        const FrozenResource& resource = context.Frozen.Resources[slot.Value];
+
+        // Before the Kind switch: an import's DeclarationIndex points into the imports
+        if (resource.Origin == ResourceOrigin::Imported)
+        {
+            return false;
+        }
+
+        switch (resource.Kind)
+        {
+        case ResourceKind::Buffer:
+            return context.Frozen.Buffers[resource.DeclarationIndex].Lifetime == ResourceLifetime::Frame;
+        case ResourceKind::Image:
+            return context.Frozen.Images[resource.DeclarationIndex].Declaration.Lifetime == ResourceLifetime::Frame;
+        case ResourceKind::Sampler:
+            return false;
+        case ResourceKind::Invalid:
+            std::unreachable();
+        }
+
+        return false;
+    }
+
     bool HasPersistentWriter(const OrderContext& context, const CollatedAccesses& collated, ResourceSlot slot)
     {
         const auto persists = [&context](const CollatedAccesses::AccessRef& writer)

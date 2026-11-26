@@ -33,6 +33,7 @@ namespace loom::order
                 .Slot = slot,
                 .Access = access,
                 .Previous = binding.Previous,
+                .FrameStart = binding.FrameStart,
                 .Where = binding.Where
             };
             results.emplace_back(result);
@@ -178,6 +179,7 @@ namespace loom::order
         CollatedAccesses collated;
         collated.Readers.resize(context.SlotCount);
         collated.Writers.resize(context.SlotCount);
+        collated.FrameStartReaders.resize(context.SlotCount);
 
         for (int32_t passIdx = 0; passIdx < context.PassCount; ++passIdx)
         {
@@ -189,6 +191,13 @@ namespace loom::order
 
                 if (access.Previous)
                 {
+                    continue;
+                }
+
+                // Bind gives a frame-start read the access Read, by its ReadOnly narrowing
+                if (access.FrameStart)
+                {
+                    collated.FrameStartReaders[slotIdx].push_back({ .PassIdx = passIdx, .AccessIdx = static_cast<int32_t>(accessIdx) });
                     continue;
                 }
 

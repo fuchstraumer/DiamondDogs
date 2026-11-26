@@ -360,6 +360,15 @@ namespace
             return;
         }
 
+        // the merged use is a frame-start read only when each of its reads is one
+        const bool existingReads = existing->Access == ResourceAccess::Read || existing->Access == ResourceAccess::ReadWrite;
+        const bool useReads = use.Access == ResourceAccess::Read || use.Access == ResourceAccess::ReadWrite;
+
+        if (useReads)
+        {
+            existing->FrameStart = existingReads ? (existing->FrameStart && use.FrameStart) : use.FrameStart;
+        }
+
         existing->Access = Combine(existing->Access, use.Access);
         existing->Layout = CombineLayouts(existing->Layout, use.Layout);
         existing->Scope.Stages |= use.Scope.Stages;
@@ -481,12 +490,15 @@ namespace
 
             if (color || depth)
             {
+                // Keep reads the target, so a Write-only use loads DontCare: its barrier grants no read
+                const AttachmentLoad load = statement.Access == ResourceAccess::Write ? AttachmentLoad::DontCare : AttachmentLoad::Keep;
+
                 const CompiledAttachment attachment
                 {
                     .Role = color ? AttachmentRole::Color : AttachmentRole::Depth,
                     .Row = row,
                     .Slot = color ? colorSlot : -1,
-                    .Load = AttachmentLoad::Keep,
+                    .Load = load,
                     .Store = AttachmentStore::Store,
                 };
 
@@ -640,6 +652,7 @@ namespace
                     .Scope = SyncScope{ .Stages = ToPipelineStages(slot.Stages), .Accesses = AccessesOf(slot) },
                     .Layout = LayoutOf(slot),
                     .Previous = slot.Previous,
+                    .FrameStart = slot.FrameStart,
                 };
 
                 // last frame's copy is only read: a write through it would change the history

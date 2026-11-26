@@ -17,8 +17,8 @@ namespace rhi
 // keys that the pass declared in Uses statements; any other key gives a null resource, because Loom planned no
 // barrier for it. There is no barrier call: Loom records every barrier from the declared uses.
 //
-// When the pass declared a ColorTarget or DepthTarget use, Loom has begun rendering into those targets (load Keep,
-// store Store) and set the viewport and scissor to RenderExtent(), and ends rendering after the callback.
+// When the pass declared a ColorTarget or DepthTarget use, Loom has begun rendering into those targets (load Keep for
+// Read and ReadWrite, DontCare for Write; store Store) and set the viewport and scissor to RenderExtent(), and ends rendering after the callback.
 //
 // After the callback, Loom treats all command buffer state as unknown (step 7, round 2 Q5): it binds shaders,
 // descriptor sets and dynamic state again before the next pass. The callback may change any of them.

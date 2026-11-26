@@ -40,6 +40,7 @@ namespace loom
         uint32_t ArrayCount{ 0u };                              // 0: unbounded
         ResourceIndex Resource;                                 // the bound key's row in FrozenGraph::Resources
         bool Previous{ false };                                 // BindPrevious: the history ring's last-frame copy
+        bool FrameStart{ false };                               // BindFrameStart: the contents before this frame's writers
         BuiltInBinding BuiltIn{ BuiltInBinding::None };         // LoomFrame: Resource is invalid
     };
 

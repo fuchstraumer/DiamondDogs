@@ -4,7 +4,7 @@
 #include "order/OrderContext.hpp"
 #include <source_location>
 
-// Edges.cpp: the ordering edges, from anchors, frame bounds, sequences and data flow (Q3h).
+// Edges.cpp: the ordering edges, from anchors, frame bounds, sequences, data flow (Q3h) and frame-start reads.
 namespace loom::order
 {
 
@@ -18,6 +18,7 @@ namespace loom::order
     void AddFrameBoundEdges(OrderContext& context);
     void AddSequenceEdges(OrderContext& context);
     void AddDataFlowEdges(OrderContext& context, const CollatedAccesses& collated);
+    void AddFrameStartEdges(OrderContext& context, const CollatedAccesses& collated);
 
 }
 

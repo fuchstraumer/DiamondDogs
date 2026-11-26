@@ -202,6 +202,7 @@ namespace loom
             case EdgeReason::SequenceChain: return "SequenceChain";
             case EdgeReason::ExposedAnchor: return "ExposedAnchor";
             case EdgeReason::DataFlow:      return "DataFlow";
+            case EdgeReason::FrameStart:    return "FrameStart";
             }
 
             return "Invalid";

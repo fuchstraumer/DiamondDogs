@@ -102,6 +102,7 @@ namespace loom
         ResourceKind Kind;
         BindNarrowing Narrowing;
         bool Previous{ false };             // BindPrevious: reads the history slot (R4)
+        bool FrameStart{ false };           // BindFrameStart: reads the contents before this frame's writers
         std::source_location Where;
     };
 

@@ -25,6 +25,7 @@ namespace loom
             ResourceSlot Slot;
             ResourceAccess Access{ ResourceAccess::Invalid };
             bool Previous{ false };
+            bool FrameStart{ false };
             std::source_location Where;
         };
 
@@ -131,6 +132,8 @@ namespace loom
             using AccessRefVec = foundation::SmallVector<AccessRef, 8>;
             std::vector<AccessRefVec> Writers;
             std::vector<AccessRefVec> Readers;
+            // BindFrameStart reads: they read the contents from before every writer, so they are not in Readers
+            std::vector<AccessRefVec> FrameStartReaders;
         };
 
     }

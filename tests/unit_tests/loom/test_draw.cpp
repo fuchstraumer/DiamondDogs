@@ -125,7 +125,7 @@ namespace
             .Format = format,
             .Extent = loom::ExtentSource::OfTarget(k_Screen, 1.0f),
             .Mips = loom::MipSource::One(),
-            .Layers = 1,
+            .Layers = loom::LayerSource::Fixed(1),
             .Cpu = loom::CpuAccess::None,
             .HistoryDepth = 0,
             .NoHistoryAction = loom::OnNoHistory::Invalid,
@@ -734,6 +734,35 @@ TEST(Draw, RecordTargetUsesBecomeKeepAndStoreAttachments)
     ASSERT_NE(screen, nullptr);
     EXPECT_EQ(screen->Layout, rhi::ImageLayout::ColorAttachment);
     EXPECT_EQ(screen->Scope.Accesses, rhi::Access::ColorAttachmentRead | rhi::Access::ColorAttachmentWrite);
+}
+
+// Keep reads the target, and a Write use's barrier grants no read: OceanFftLoom's UI pass found the hazard
+TEST(Draw, RecordWriteOnlyTargetUseLoadsDontCare)
+{
+    loom::GraphBuilder graph{ "Draw.RecordWrite", "Draw.Library" };
+    graph.Import(k_Screen);
+    graph.Output(loom::OutputDeclaration{ .Target = k_Screen, .OnSkip = loom::OutputFallback::KeepLast() });
+
+    const auto overlay = [](loom::RecordBuilder& pass)
+    {
+        pass.Uses(k_Screen, loom::ResourceAccess::Write, loom::ImageUse::ColorTarget);
+        pass.Record(Delegate<void(loom::RecordContext&)>::Create<&RecordNothing>());
+    };
+
+    graph.AddRecord(k_Light, k_EveryFrame, k_Graphics, overlay);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::CompiledGraph> compiled = loom::Compile(graph, Inputs(), sink);
+    ASSERT_TRUE(compiled.has_value()) << FirstDiagnostic(sink);
+    const loom::CompiledData& data = compiled->Data();
+    ASSERT_EQ(data.Passes[0].AttachmentCount, 1);
+    const loom::CompiledAttachment& attachment = data.Attachments[data.Passes[0].FirstAttachment];
+    EXPECT_EQ(attachment.Load, loom::AttachmentLoad::DontCare);
+    EXPECT_EQ(attachment.Store, loom::AttachmentStore::Store);
+
+    const loom::PassUse* screen = UseOf(data, 0, ScreenRow(*compiled));
+    ASSERT_NE(screen, nullptr);
+    EXPECT_EQ(screen->Scope.Accesses, rhi::Access::ColorAttachmentWrite);
 }
 
 // The three target extents (step 7, round 2 Q1)

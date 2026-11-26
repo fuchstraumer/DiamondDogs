@@ -58,6 +58,46 @@ TEST(LoomDiagnosticSink, CountsBySeverity)
     EXPECT_TRUE(sink.Diagnostics().empty());
 }
 
+TEST(LoomDiagnosticSink, CollectingSinkOwnsReportedStrings)
+{
+    loom::CollectingSink sink;
+
+    {
+        std::string passName = "Planet.RenderMap";
+        std::string resourceName = "Planet.MapOutput";
+        std::string bindingName = "MapOutput";
+        std::string expectedText = "RGBA8Unorm";
+        std::string actualText = "RGBA32Float";
+        std::string suggestion = "MapOutputSrgb";
+
+        loom::Diagnostic diagnostic = MakeDiagnostic(loom::DiagnosticCode::LM403, loom::DiagnosticSeverity::Error);
+        diagnostic.Pass = loom::KeyRef{ .Name = passName, .Hash = 1u };
+        diagnostic.Resource = loom::KeyRef{ .Name = resourceName, .Hash = 2u };
+        diagnostic.Binding = bindingName;
+        diagnostic.Expected = loom::DiagnosticValue{ .FieldName = "Format", .Kind = loom::DiagnosticValueKind::Text, .Text = expectedText };
+        diagnostic.Actual = loom::DiagnosticValue{ .FieldName = "Format", .Kind = loom::DiagnosticValueKind::Text, .Text = actualText };
+        diagnostic.Suggestion = suggestion;
+
+        sink.Report(diagnostic);
+
+        passName.assign(passName.size(), 'x');
+        resourceName.assign(resourceName.size(), 'y');
+        bindingName.assign(bindingName.size(), 'z');
+        expectedText.assign(expectedText.size(), 'e');
+        actualText.assign(actualText.size(), 'a');
+        suggestion.assign(suggestion.size(), 's');
+    }
+
+    ASSERT_EQ(sink.Diagnostics().size(), 1u);
+    const loom::Diagnostic& stored = sink.Diagnostics()[0];
+    EXPECT_EQ(stored.Pass.Name, "Planet.RenderMap");
+    EXPECT_EQ(stored.Resource.Name, "Planet.MapOutput");
+    EXPECT_EQ(stored.Binding, "MapOutput");
+    EXPECT_EQ(stored.Expected.Text, "RGBA8Unorm");
+    EXPECT_EQ(stored.Actual.Text, "RGBA32Float");
+    EXPECT_EQ(stored.Suggestion, "MapOutputSrgb");
+}
+
 TEST(LoomDiagnosticText, FirstLineHasCompilerShape)
 {
     loom::Diagnostic diagnostic = MakeDiagnostic(loom::DiagnosticCode::LM101, loom::DiagnosticSeverity::Error);

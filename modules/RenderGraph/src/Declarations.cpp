@@ -97,6 +97,21 @@ namespace loom
         return source;
     }
 
+    LayerSource LayerSource::Derived() noexcept
+    {
+        LayerSource source{};
+        source.Kind = Kind::Derived;
+        return source;
+    }
+
+    LayerSource LayerSource::Fixed(int32_t count) noexcept
+    {
+        LayerSource source{};
+        source.Kind = Kind::Fixed;
+        source.Count = count;
+        return source;
+    }
+
     ImageExpectation ImageExpectation::Exact(lodestone::TextureFormat format, int32_t width, int32_t height, int32_t depth,
         int32_t mip_levels, int32_t layers) noexcept
     {

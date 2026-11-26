@@ -68,7 +68,7 @@ namespace loom
 
         // Size
         LM401 = 401, // A binding needs a byte size that the resource does not have
-        LM402 = 402, // A derived size or extent has no source
+        LM402 = 402, // A derived size, extent or layer count has no source
         LM403 = 403, // The format does not fit the binding
 
         // Order
@@ -77,6 +77,7 @@ namespace loom
         LM503 = 503, // A read before any write in the frame
         LM504 = 504, // Dead write
         LM505 = 505, // Orphan pass
+        LM506 = 506, // A BindFrameStart read of a resource with no contents at frame start
 
         // Layout
         LM601 = 601, // A device limit is exceeded

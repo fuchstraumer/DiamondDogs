@@ -39,6 +39,10 @@ namespace loom::order
 
     // True when resource at the given slot has a source (for it's contents) from outside the frame/graph
     bool HasSource(const OrderContext& context, ResourceSlot slot);
+    // LM506: a BindFrameStart read of a resource that has no contents when the frame starts
+    void CheckFrameStartSources(OrderContext& context, const CollatedAccesses& collated);
+    // A declared resource with ResourceLifetime::Frame. Imports and frame targets are not.
+    bool IsFrameLifetime(const OrderContext& context, ResourceSlot slot);
     // A writer whose run policy is not EveryFrame keeps its contents across frames, so they exist at frame start.
     bool HasPersistentWriter(const OrderContext& context, const CollatedAccesses& collated, ResourceSlot slot);
 

@@ -372,7 +372,7 @@ namespace
 
         if (frozen.Origin == ResourceOrigin::Declared)
         {
-            return std::max(data.Frozen.Images[frozen.DeclarationIndex].Declaration.Layers, 1);
+            return std::max(data.Sized.Resources[row].Layers, 1);
         }
 
         return std::max(data.Frozen.Imports[frozen.DeclarationIndex].Expectation.Layers, 1);
@@ -434,7 +434,7 @@ namespace
         const ImageDeclaration& declaration = data.Frozen.Images[frozen.DeclarationIndex].Declaration;
         const SizedResource& sized = data.Sized.Resources[row];
         const bool volume = sized.Dimension == lodestone::TextureDimension::Texture3D;
-        const int32_t layers = std::max(declaration.Layers, 1);
+        const int32_t layers = std::max(sized.Layers, 1);
         const int32_t mips = MipCountOf(declaration.Mips, sized.Extent);
 
         ImageCreateInfo info{};
@@ -495,7 +495,7 @@ namespace
         }
 
         const SizedResource& sized = data.Sized.Resources[row];
-        const bool arrayed = (sized.Arrayed || std::max(declaration.Layers, 1) > 1) &&
+        const bool arrayed = (sized.Arrayed || std::max(sized.Layers, 1) > 1) &&
                              sized.Dimension != lodestone::TextureDimension::Texture3D;
 
         // WebGPU has no 1D array and no 3D array texture

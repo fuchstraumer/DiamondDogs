@@ -72,6 +72,14 @@ namespace loom
         void BindPrevious(std::string_view binding_name, ResourceKey<Image> resource,
                           std::source_location where = std::source_location::current());
 
+        // Reads the contents the resource has when the frame starts, before any pass of this frame writes it: the
+        // read of an in-place update. Order puts this pass before every writer of the resource. The resource must
+        // have contents at frame start: an import, an upload, or a writer whose run policy is not EveryFrame (LM506).
+        void BindFrameStart(std::string_view binding_name, ResourceKey<Buffer> resource,
+                            std::source_location where = std::source_location::current());
+        void BindFrameStart(std::string_view binding_name, ResourceKey<Image> resource,
+                            std::source_location where = std::source_location::current());
+
         // The entry point constants (G8). T's size and alignment go into the record for the LM305 and LM704 checks.
         template<typename T>
         void Params(ParamsKey<T> params, std::source_location where = std::source_location::current())

@@ -104,9 +104,13 @@ namespace loom::freeze
             ReportMissing(context, "Mips", decl.Where);
         }
 
-        if (image.Layers <= 0)
+        if (image.Layers.Kind == LayerSource::Kind::Invalid)
         {
-            ReportOutOfRange(context, "Layers", image.Layers, decl.Where);
+            ReportMissing(context, "Layers", decl.Where);
+        }
+        else if (image.Layers.Kind == LayerSource::Kind::Fixed && image.Layers.Count <= 0)
+        {
+            ReportOutOfRange(context, "Layers", image.Layers.Count, decl.Where);
         }
 
         if (image.Cpu == CpuAccess::Invalid)

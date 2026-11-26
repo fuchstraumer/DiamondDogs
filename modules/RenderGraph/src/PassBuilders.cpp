@@ -17,15 +17,25 @@ namespace loom
     namespace
     {
 
+        // Which contents a bind reads: this frame's, last frame's copy (BindPrevious), or the contents at frame start
+        // (BindFrameStart). One value, so that a bind can never be both.
+        enum class BindTime : uint8_t
+        {
+            Current,
+            Previous,
+            FrameStart
+        };
+
         BindRecord MakeBind(std::string_view binding_name, KeyRef resource, ResourceKind kind, BindNarrowing narrowing,
-            bool previous, std::source_location where)
+            BindTime time, std::source_location where)
         {
             BindRecord bind{};
             bind.BindingName = std::string{ binding_name };
             bind.Resource = resource;
             bind.Kind = kind;
             bind.Narrowing = narrowing;
-            bind.Previous = previous;
+            bind.Previous = time == BindTime::Previous;
+            bind.FrameStart = time == BindTime::FrameStart;
             bind.Where = where;
             return bind;
         }
@@ -99,40 +109,51 @@ namespace loom
 
     void ShaderPassBuilder::Bind(std::string_view binding_name, ResourceKey<Buffer> resource, std::source_location where)
     {
-        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Buffer, BindNarrowing::Reflected, false, where));
+        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Buffer, BindNarrowing::Reflected, BindTime::Current, where));
     }
 
     void ShaderPassBuilder::Bind(std::string_view binding_name, ResourceKey<Buffer> resource, AccessModifier access,
         std::source_location where)
     {
-        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Buffer, ToBindNarrowing(access), false, where));
+        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Buffer, ToBindNarrowing(access), BindTime::Current, where));
     }
 
     void ShaderPassBuilder::Bind(std::string_view binding_name, ResourceKey<Image> resource, std::source_location where)
     {
-        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Image, BindNarrowing::Reflected, false, where));
+        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Image, BindNarrowing::Reflected, BindTime::Current, where));
     }
 
     void ShaderPassBuilder::Bind(std::string_view binding_name, ResourceKey<Image> resource, AccessModifier access,
         std::source_location where)
     {
-        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Image, ToBindNarrowing(access), false, where));
+        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Image, ToBindNarrowing(access), BindTime::Current, where));
     }
 
     void ShaderPassBuilder::Bind(std::string_view binding_name, ResourceKey<Sampler> resource, std::source_location where)
     {
-        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Sampler, BindNarrowing::Reflected, false, where));
+        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Sampler, BindNarrowing::Reflected, BindTime::Current, where));
     }
 
     // A history read never writes, so its narrowing is ReadOnly by construction.
     void ShaderPassBuilder::BindPrevious(std::string_view binding_name, ResourceKey<Buffer> resource, std::source_location where)
     {
-        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Buffer, BindNarrowing::ReadOnly, true, where));
+        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Buffer, BindNarrowing::ReadOnly, BindTime::Previous, where));
     }
 
     void ShaderPassBuilder::BindPrevious(std::string_view binding_name, ResourceKey<Image> resource, std::source_location where)
     {
-        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Image, BindNarrowing::ReadOnly, true, where));
+        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Image, BindNarrowing::ReadOnly, BindTime::Previous, where));
+    }
+
+    // A frame-start read only reads, so its narrowing is ReadOnly by construction, as for BindPrevious.
+    void ShaderPassBuilder::BindFrameStart(std::string_view binding_name, ResourceKey<Buffer> resource, std::source_location where)
+    {
+        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Buffer, BindNarrowing::ReadOnly, BindTime::FrameStart, where));
+    }
+
+    void ShaderPassBuilder::BindFrameStart(std::string_view binding_name, ResourceKey<Image> resource, std::source_location where)
+    {
+        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Image, BindNarrowing::ReadOnly, BindTime::FrameStart, where));
     }
 
     void ShaderPassBuilder::addParams(KeyRef params, uint32_t byte_size, uint32_t alignment, std::source_location where)

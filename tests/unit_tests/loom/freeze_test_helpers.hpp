@@ -43,7 +43,7 @@ namespace freeze_tests
             .Format = lodestone::TextureFormat::R8Unorm,
             .Extent = loom::ExtentSource::OfTarget(target, 0.5f),
             .Mips = loom::MipSource::One(),
-            .Layers = 1,
+            .Layers = loom::LayerSource::Fixed(1),
             .Cpu = loom::CpuAccess::None,
             .HistoryDepth = 0,
             .NoHistoryAction = loom::OnNoHistory::Invalid

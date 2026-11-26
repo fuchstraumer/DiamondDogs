@@ -246,3 +246,195 @@ TEST(Levels, ImportedBufferNeedsNoWriter)
     ASSERT_TRUE(ordered.has_value()) << sink.Diagnostics().size() << " diagnostics";
     EXPECT_FALSE(HasCode(sink, loom::DiagnosticCode::LM503));
 }
+
+// BindFrameStart: the read of an in-place update. The reader sees the contents from before this frame's writes.
+namespace
+{
+
+    constexpr loom::SequenceKey k_Step{ "Levels.Step" };
+
+    void ReadSuppliedAtFrameStart(loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        pass.BindFrameStart("Supplied", k_Supplied);
+    }
+
+    void ReadSupplied(loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        pass.Bind("Supplied", k_Supplied);
+    }
+
+    void WriteSupplied(loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        pass.Bind("Supplied", k_Supplied, loom::AccessModifier::WriteOnly);
+    }
+
+    void ReadDataAtFrameStart(loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        pass.BindFrameStart("Data", k_Data);
+    }
+
+    loom::BufferDeclaration PersistentData()
+    {
+        loom::BufferDeclaration declaration = MakeBuffer();
+        declaration.Lifetime = loom::ResourceLifetime::Persistent;
+        return declaration;
+    }
+
+    bool HasEdge(const loom::OrderedGraph& ordered, int32_t from_pass, int32_t to_pass, loom::EdgeReason reason)
+    {
+        const auto matches = [from_pass, to_pass, reason](const loom::OrderEdge& edge)
+        {
+            return edge.From.Value == from_pass && edge.To.Value == to_pass && edge.Reason == reason;
+        };
+
+        return std::ranges::any_of(ordered.Edges, matches);
+    }
+
+    // PlanetGen's step: a sequence reads the imported state first and writes the next state last
+    void BuildInPlaceStep(loom::GraphBuilder& graph, bool frame_start)
+    {
+        graph.Import(loom::BufferImportDeclaration{ .Key = k_Supplied, .ByteSize = 256 });
+
+        const auto step = [frame_start](loom::SequenceBuilder& sequence)
+        {
+            if (frame_start)
+            {
+                sequence.AddDispatch(k_First, k_EveryFrame, k_Graphics, ReadSuppliedAtFrameStart);
+            }
+            else
+            {
+                sequence.AddDispatch(k_First, k_EveryFrame, k_Graphics, ReadSupplied);
+            }
+
+            sequence.AddDispatch(k_Second, k_EveryFrame, k_Graphics, WriteSupplied);
+        };
+
+        graph.AddSequence(k_Step, step);
+    }
+
+}
+
+// The writer is declared first, and nothing else orders the two passes: the FrameStart edge puts the reader first.
+TEST(FrameStart, ReaderRunsBeforeTheWriter)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Import(loom::BufferImportDeclaration{ .Key = k_Supplied, .ByteSize = 256 });
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, WriteSupplied);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, ReadSuppliedAtFrameStart);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrder(graph, sink, { { k_Write }, { k_Read } });
+
+    ASSERT_TRUE(ordered.has_value()) << sink.Diagnostics().size() << " diagnostics";
+    EXPECT_EQ(PassOrder(*ordered), (std::vector<int32_t>{ 1, 0 }));
+    EXPECT_TRUE(HasEdge(*ordered, 1, 0, loom::EdgeReason::FrameStart));
+    EXPECT_FALSE(HasEdge(*ordered, 0, 1, loom::EdgeReason::DataFlow));
+}
+
+// Two writers get no DataFlow edge (Q3h). The reader goes before each writer, but that does not order the writers
+// against each other, so LM502 still reports them, and there is no cycle.
+TEST(FrameStart, ReaderEdgesDoNotOrderTheWriters)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Import(loom::BufferImportDeclaration{ .Key = k_Supplied, .ByteSize = 256 });
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, WriteSupplied);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, WriteSupplied);
+    graph.AddDispatch(k_Third, k_EveryFrame, k_Graphics, ReadSuppliedAtFrameStart);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrder(graph, sink, { { k_Write }, { k_Write }, { k_Read } });
+
+    EXPECT_FALSE(ordered.has_value());
+    EXPECT_TRUE(HasCode(sink, loom::DiagnosticCode::LM502));
+    EXPECT_FALSE(HasCode(sink, loom::DiagnosticCode::LM501));
+}
+
+// The PlanetGen shape. A plain Bind reads this frame's write, so the sequence (reader first) and the data flow
+// (writer first) contradict each other: LM501. BindFrameStart states the old contents, and the graph orders.
+TEST(FrameStart, InPlaceStepWithPlainBindIsLM501)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    BuildInPlaceStep(graph, false);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrder(graph, sink, { { k_Read }, { k_Write } });
+
+    EXPECT_FALSE(ordered.has_value());
+    EXPECT_TRUE(HasCode(sink, loom::DiagnosticCode::LM501));
+}
+
+TEST(FrameStart, InPlaceStepWithFrameStartOrders)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    BuildInPlaceStep(graph, true);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrder(graph, sink, { { k_Read }, { k_Write } });
+
+    ASSERT_TRUE(ordered.has_value()) << sink.Diagnostics().size() << " diagnostics";
+    EXPECT_EQ(PassOrder(*ordered), (std::vector<int32_t>{ 0, 1 }));
+    EXPECT_EQ(sink.ErrorCount(), 0);
+}
+
+// A Persistent buffer with only EveryFrame writers has nothing at frame start on the first frame (the LM503 rule)
+TEST(FrameStart, EveryFrameWritersOnlyIsLM506)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(PersistentData());
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, ReadDataAtFrameStart);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindData);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrder(graph, sink, { { k_Read }, { k_Write } });
+
+    EXPECT_FALSE(ordered.has_value());
+    EXPECT_TRUE(HasCode(sink, loom::DiagnosticCode::LM506));
+}
+
+TEST(FrameStart, PersistentWriterIsASource)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(PersistentData());
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, ReadDataAtFrameStart);
+    graph.AddDispatch(k_Second, loom::RunPolicy::Once, k_Graphics, BindData);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrder(graph, sink, { { k_Read }, { k_Write } });
+
+    ASSERT_TRUE(ordered.has_value()) << sink.Diagnostics().size() << " diagnostics";
+    EXPECT_FALSE(HasCode(sink, loom::DiagnosticCode::LM506));
+    // the write is next frame's frame-start contents, so it is not a dead write
+    EXPECT_FALSE(HasCode(sink, loom::DiagnosticCode::LM504));
+}
+
+// A Frame lifetime resource keeps nothing across frames, even with a writer that is not EveryFrame
+TEST(FrameStart, FrameLifetimeIsLM506)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, ReadDataAtFrameStart);
+    graph.AddDispatch(k_Second, loom::RunPolicy::Once, k_Graphics, BindData);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrder(graph, sink, { { k_Read }, { k_Write } });
+
+    EXPECT_FALSE(ordered.has_value());
+    EXPECT_TRUE(HasCode(sink, loom::DiagnosticCode::LM506));
+}
+
+// The builder records the form, and its narrowing is ReadOnly
+TEST(FrameStart, BuilderRecordsAReadOnlyFrameStartBind)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Import(loom::BufferImportDeclaration{ .Key = k_Supplied, .ByteSize = 256 });
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, ReadSuppliedAtFrameStart);
+
+    const loom::BindRecord& bind = graph.Record().Passes[0].Binds[0];
+    EXPECT_TRUE(bind.FrameStart);
+    EXPECT_FALSE(bind.Previous);
+    EXPECT_EQ(bind.Narrowing, loom::BindNarrowing::ReadOnly);
+}

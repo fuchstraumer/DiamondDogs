@@ -139,6 +139,24 @@ namespace loom
         static MipSource Levels(int32_t count) noexcept;
     };
 
+    // The array layer count of an image. Derived reads the count that a binding states (ls_extent_3d on an array
+    // texture); Fixed states it, and Size checks it against every stated count (LM401).
+    struct LayerSource
+    {
+        enum class Kind : uint8_t
+        {
+            Invalid = 0,
+            Derived = 1,
+            Fixed = 2
+        };
+
+        Kind Kind{ Kind::Invalid };
+        int32_t Count{ -1 };
+
+        static LayerSource Derived() noexcept;
+        static LayerSource Fixed(int32_t count) noexcept;
+    };
+
     struct BufferDeclaration
     {
         ResourceKey<Buffer> Key;
@@ -156,7 +174,7 @@ namespace loom
         lodestone::TextureFormat Format{ k_NoTextureFormat };   // ToTextureFormat converts foundation's ImageFormat
         ExtentSource Extent;
         MipSource Mips;
-        int32_t Layers{ -1 }; // -1 default means not setting this can be checked exactly as an error
+        LayerSource Layers;
         CpuAccess Cpu{ CpuAccess::Invalid };
         int32_t HistoryDepth{ 0 };
         OnNoHistory NoHistoryAction{ OnNoHistory::Invalid };

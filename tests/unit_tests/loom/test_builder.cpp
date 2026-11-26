@@ -220,6 +220,6 @@ TEST(LoomBuilder, MissingFieldsKeepTheirUnsetValues)
     EXPECT_EQ(image.Lifetime, loom::ResourceLifetime::Invalid);
     EXPECT_EQ(image.Extent.Kind, loom::ExtentSource::Kind::Invalid);
     EXPECT_EQ(image.Mips.Kind, loom::MipSource::Kind::Invalid);
-    EXPECT_EQ(image.Layers, -1);
+    EXPECT_EQ(image.Layers.Kind, loom::LayerSource::Kind::Invalid);
     EXPECT_EQ(image.Cpu, loom::CpuAccess::Invalid);
 }

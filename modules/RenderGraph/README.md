@@ -178,6 +178,13 @@ vertex and index buffers, and a Record pass's uses. CPU access (maps, upload cop
   A `Derived` image takes the first stated extent, and every other one must equal it (LM401); none is LM402. An
   `OfTarget` image and an `AnyExtent` import get no extent here: Realize knows it and checks it (LM701). LM401 reports
   the first axis that differs, so each side is one number.
+- **Layers.** On an array texture, the third value of `[ls_extent_3d]` is the layer count, not a depth (Lodestone
+  C31), so the stated extent of an array has depth 1. `ImageDeclaration::Layers` is a `LayerSource`, with the same
+  rules as the extent: `LayerSource::Fixed(n)` must equal every stated count (LM401, field `Layers`), and
+  `LayerSource::Derived()` takes the first stated count, and every other one must equal it (LM401); none is LM402,
+  with `Layers` as its expected field. An import's count is its expectation's `Layers`, and Size checks the stated
+  counts against it. Only an array shape states a count. Realize creates the image with Size's count
+  (`SizedResource::Layers`).
 - **Format (LM403).** A storage binding reads and writes raw texels, so its format must equal the image's. A sampled
   binding must read the scalar class of the format: a float binding reads float and depth formats, a depth binding
   depth formats, a uint binding uint formats. Filterability and component count are not checked. A color target needs
@@ -194,7 +201,8 @@ In every LM403, `Expected` is the image's side (its format or first dimension), 
 
 Order builds the edges (anchors, sequences, single-writer data flow), sorts with Kahn's algorithm and a
 declaration-order tie-break, and checks the data: LM501 (cycle), LM502 (a hazard with no ordering path), LM503 (a
-read before any write), LM504 (dead write) and LM505 (orphan pass). `Explain` and `ExplainPass` print the order and
+read before any write), LM504 (dead write), LM505 (orphan pass) and LM506 (a frame-start read with no contents at
+frame start). `Explain` and `ExplainPass` print the order and
 the reason for each edge.
 
 - **Levels.** Each pass gets a Kahn level: the longest path to it, counted in passes. An anchor orders passes but
@@ -205,7 +213,39 @@ the reason for each edge.
   at a level boundary (see "Barriers" below).
 - **Persistence (LM503).** A writer whose run policy is not `EveryFrame` keeps its contents across frames, so it is a
   source for reads that come before it in the frame. An imported buffer has its contents at frame start, so a read
-  of it needs no writer.
+  of it needs no writer. This rule only stops LM503. It adds no edge and removes none: a plain `Bind` read of a
+  resource with one writer always gets the DataFlow edge writer -> reader, and reads this frame's write.
+- **Three times a bind can read.** A plain `Bind` reads this frame's contents: after the writers, by the DataFlow
+  edge. `BindPrevious` reads last frame's copy of a history ring: no edge, separate memory. `BindFrameStart` reads the
+  contents the resource has when the frame starts, before any writer of this frame: Order adds a `FrameStart` edge
+  from the reader to every writer of the slot. It is the read of an in-place update, where a step reads the state and
+  a later pass writes the next state into the same resource:
+
+  ```cpp
+  // Step: read the state, then write the next state in place. A plain Bind on Advect would be LM501: the sequence
+  // puts Advect first, and the data flow puts the writer first.
+  graph.AddSequence(k_Step, [](loom::SequenceBuilder& step)
+  {
+      step.AddDispatch(k_Advect, k_EveryFrame, k_Graphics, [](loom::DispatchBuilder& pass)
+      {
+          pass.BindFrameStart("StateIn", k_State);                  // the state as the frame found it
+          pass.Bind("Velocity", k_Velocity, loom::AccessModifier::WriteOnly);
+      });
+      step.AddDispatch(k_Commit, k_EveryFrame, k_Graphics, [](loom::DispatchBuilder& pass)
+      {
+          pass.Bind("Velocity", k_Velocity, loom::AccessModifier::ReadOnly);
+          pass.Bind("State", k_State, loom::AccessModifier::WriteOnly);  // next frame's frame-start contents
+      });
+  });
+  ```
+
+  A frame-start read needs contents at frame start (LM506): the resource is an import, an upload, or has a writer
+  whose run policy is not `EveryFrame`, and it is not a `Frame` lifetime resource (aliasing may reuse that memory).
+  The narrowing of `BindFrameStart` is `ReadOnly`, as for `BindPrevious`. One resource is one copy, so the barriers
+  are the plain write-after-read ones. The last write of the frame feeds next frame's frame-start readers, so it is
+  not LM504. Choose `BindFrameStart` when the reader and writer share one memory; choose a history ring and
+  `BindPrevious` when the writer must not overwrite what the reader still uses (async compute, or a pass that reads
+  and writes the same texels).
 
 ### Layout
 
@@ -262,8 +302,9 @@ still holds Compile's diagnostics, because their binding names are views into it
   its `Output` declaration; with none it is `KeepLast`.
 - `Uses` (`compile/Uses.cpp`): per pass, one entry per row it touches, merged over its slots and statements: the
   access, the `SyncScope` (stages and accesses), the image layout the use needs, `Initializes` (a write with no read,
-  for Q3g), and `Previous` (a `BindPrevious` read, which reads last frame's copy: a separate use from a write of the
-  same row in that pass). Storage images use `General` and sampled reads `ShaderReadOnly`. Every use of one image in
+  for Q3g), `Previous` (a `BindPrevious` read, which reads last frame's copy: a separate use from a write of the
+  same row in that pass), and `FrameStart` (every read of the use is a `BindFrameStart`; one copy, so it merges with
+  a write of the same row). Storage images use `General` and sampled reads `ShaderReadOnly`. Every use of one image in
   one level must see one layout, because one barrier batch goes before the level, so uses that disagree all take
   `General`. `SlotLayouts` gives each descriptor its use's layout. Besides the shader slots: indirect arguments and a
   draw count (`DrawIndirect` stage, indirect-command read), index and vertex buffers, attachments, and a Record pass's
@@ -274,7 +315,7 @@ still holds Compile's diagnostics, because their binding names are views into it
   clear value. One table (`AttachmentShape`) gives each role its scope and layout: a color target is
   `ColorAttachmentOutput` in `ColorAttachment` (with the read bit when it keeps or blends); a depth target is the
   fragment tests, in `DepthAttachment` when the pass writes it (a depth write or a load Clear) and in `DepthReadOnly`
-  when it only tests. A Record pass's targets load Keep and store Store: Loom begins rendering around its callback.
+  when it only tests. A Record pass's targets store Store, and load Keep for a `Read` or `ReadWrite` use and DontCare for `Write` (Keep reads the target, and a `Write` barrier grants no read): Loom begins rendering around its callback.
   Each backend maps the roles to its API in one switch.
 - History copies: a row with `HistoryDepth` D has D + 1 copies (spec R3). Copy `row` is each row's first copy, so a
   row with no history is its own copy; a ring's other copies follow the rows (`ExtraCopyBase`, `CopyRows`).
@@ -307,8 +348,8 @@ Each pass, in run order:
      Tick wrote a row it reads. A change that it could not run for (a pending row, say) is kept for the next Tick.
    - `OnTrigger` runs after `Graph::Trigger(pass)`. The trigger waits until the pass can run, and several triggers
      before one run count as one.
-   `CommitRuns` updates these flags after the submit. A `BindPrevious` read is not an input change of this Tick: the
-   row written this Tick is next Tick's change.
+   `CommitRuns` updates these flags after the submit. A `BindPrevious` or `BindFrameStart` read is not an input change
+   of this Tick: the row written this Tick is next Tick's change.
 3. **Readiness:** a `Failed` row stops the pass for good (`Failed`). A `Pending` row stops it this Tick
    (`NotCreated`). `Created` is enough to run: the submit waits for the transfer.
 4. **History:** a `BindPrevious` read of a copy with no contents yet (`ResourceSync::HasContents`): `OnNoHistory::Skip`
@@ -316,7 +357,8 @@ Each pass, in run order:
    `FramePlan::Clears`.
 5. **Propagation (Q3g):** if an initializing writer of a row skipped earlier in this Tick, a pass that reads the row
    skips too (`Propagated`, with the writer as `Cause`). A `Policy` skip does not propagate: the pass left valid
-   contents behind. A `BindPrevious` read does not propagate either: it reads last frame.
+   contents behind. A `BindPrevious` or `BindFrameStart` read does not propagate either: it reads what was there
+   before this Tick's writers.
 
 `FramePlan::Decisions[pass]` holds each reason and its cause, and `Runs` holds the passes that run.
 
@@ -670,7 +712,7 @@ When Loom needs something from Lodestone, it stubs it here and adds a row to Lod
 | `test_layout.cpp` (`LoomLayoutTest.slang`) | Layout: group counts, LM601-LM604, and pipeline sharing. |
 | `test_order.cpp`, `test_explain.cpp` | Order and `Explain`, from hand-made access tables. |
 | `test_diagnostics.cpp` | The catalog and the sinks. |
-| `test_levels.cpp` | Kahn levels, the level-major run order, the persistence rule for LM503, and buffer imports. |
+| `test_levels.cpp` | Kahn levels, the level-major run order, the persistence rule for LM503, buffer imports, and `BindFrameStart` (the `FrameStart` edges, the in-place step that is LM501 with a plain `Bind`, LM506, and LM504 with a frame-start reader). |
 | `test_runtime.cpp` (`LoomHashFill.slang`, `LoomImages.slang`) | `Compile`, `DecideRuns` (pending and failed rows, `Once`, `WhenInputsChange`, `OnTrigger`, `NoHistory`, Q3g), `PlanBarriers` (level and frame-start batches, write after reads, epochs, image layout changes, history copies, the clear batch), `ParamsStore` (LM703, LM704, the byte compare), and `ExplainLastTick`, from readiness values written by hand. |
 | `test_draw.cpp` (`LoomDraw.slang`, shared with the step 7 GPU test) | Step 7a: frame-target rows, attachments and their uses (depth read-only, color, Record targets as Keep and Store), indirect draw reads, `DrawIndirectCount` checks (LM109, LM401), `g_LoomFrame` with no `Bind` and its C++ mirror against the cooked layout, the target actions and fallbacks, the frame-end batch, the target clear, and the three target extents. |
 

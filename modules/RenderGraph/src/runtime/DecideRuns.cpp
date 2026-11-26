@@ -54,7 +54,7 @@ namespace
             const bool reads = use.Access == ResourceAccess::Read || use.Access == ResourceAccess::ReadWrite;
             const int32_t writer = plan.SkippedWriter[use.Resource];
 
-            if (reads && writer >= 0 && !use.Previous)
+            if (reads && writer >= 0 && !use.Previous && !use.FrameStart)
             {
                 return PassDecision{ .Reason = SkipReason::Propagated, .Cause = writer };
             }
@@ -80,7 +80,7 @@ namespace
         {
             const PassUse& use = data.Uses[useIndex];
 
-            if (Reads(use) && !use.Previous && plan.WrittenThisTick[use.Resource] != 0u)
+            if (Reads(use) && !use.Previous && !use.FrameStart && plan.WrittenThisTick[use.Resource] != 0u)
             {
                 return true;
             }
@@ -400,7 +400,8 @@ namespace
             return;
         }
 
-        // a row written this Tick is next frame's history: its BindPrevious readers see a change on the next Tick
+        // a row written this Tick is next frame's history, and next frame's frame-start contents: its BindPrevious and
+        // BindFrameStart readers see a change on the next Tick
         for (int32_t passIndex = 0; passIndex < static_cast<int32_t>(data.Passes.size()); ++passIndex)
         {
             const CompiledPass& pass = data.Passes[passIndex];
@@ -409,7 +410,7 @@ namespace
             {
                 const PassUse& use = data.Uses[useIndex];
 
-                if (use.Previous && plan.WrittenThisTick[use.Resource] != 0u)
+                if ((use.Previous || use.FrameStart) && plan.WrittenThisTick[use.Resource] != 0u)
                 {
                     controls[passIndex].InputsChanged = true;
                     break;

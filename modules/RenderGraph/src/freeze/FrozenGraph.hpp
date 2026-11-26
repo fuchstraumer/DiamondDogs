@@ -133,6 +133,7 @@ namespace loom
         ResourceKind Kind;
         BindNarrowing Narrowing;
         bool Previous{ false };
+        bool FrameStart{ false };
         std::source_location Where;
     };
 

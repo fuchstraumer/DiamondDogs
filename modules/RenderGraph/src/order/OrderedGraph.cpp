@@ -54,6 +54,7 @@ namespace loom
         // data indexed by pass -> data indexed by slot
         CollatedAccesses collated = CollateAccessesBySlot(context);
         AddDataFlowEdges(context, collated);
+        AddFrameStartEdges(context, collated);
         BuildSuccessors(context);
         auto sortNodesResult = SortNodes(context);
         if (!sortNodesResult.has_value())
@@ -73,6 +74,7 @@ namespace loom
             const std::vector<NodeIndex> runOrder = LevelMajorOrder(context, levels);
             const std::vector<int32_t> positions = PositionsOf(context, runOrder);
             CheckReadsBeforeWrites(context, collated, positions, hazardSlots);
+            CheckFrameStartSources(context, collated);
 
             // if we found hazards, then we can't return a valid ordered graph
             if (context.Sink.ErrorCount() != errorsBefore)

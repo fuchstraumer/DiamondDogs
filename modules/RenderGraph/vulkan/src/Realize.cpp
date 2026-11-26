@@ -256,7 +256,7 @@ namespace
         const ImageDeclaration& declaration = data.Frozen.Images[frozen.DeclarationIndex].Declaration;
         const SizedResource& sized = data.Sized.Resources[row];
         const bool volume = sized.Dimension == lodestone::TextureDimension::Texture3D;
-        const int32_t layers = std::max(declaration.Layers, 1);
+        const int32_t layers = std::max(sized.Layers, 1);
         const int32_t mips = MipCountOf(declaration.Mips, extent);
 
         ImageCreateInfo info{};

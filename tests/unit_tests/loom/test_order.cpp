@@ -466,6 +466,24 @@ TEST(Order, PreviousReadGetsNoEdge)
     EXPECT_EQ(PassOrder(*ordered), (std::vector<int32_t>{ 0, 1 }));
 }
 
+// When no explicit Sequence or anchor orders them, an imported buffer with one writer still orders writer -> reader via DataFlow.
+TEST(Order, ImportedSingleWriterUnorderedStillOrdersWriterFirst)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Import(loom::BufferImportDeclaration{ .Key = k_Data, .ByteSize = 64 });
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindData);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { { k_Read }, { k_Write } });
+
+    ASSERT_TRUE(ordered.has_value()) << sink.Diagnostics().size() << " diagnostics";
+    EXPECT_EQ(sink.ErrorCount(), 0);
+    EXPECT_EQ(DataFlowEdges(*ordered).size(), 1u);
+    EXPECT_EQ(PassOrder(*ordered), (std::vector<int32_t>{ 1, 0 }));
+}
+
 // The anchors put the reader before the writer, and the data puts it after. The graph never picks one in silence (Q3b):
 // LM501, with a DataFlow note at the reader's Bind.
 TEST(Order, DataEdgeAgainstAnchorsIsLM501)

@@ -180,6 +180,32 @@ namespace loom::order
         }
     }
 
+    void AddFrameStartEdges(OrderContext& context, const CollatedAccesses& collated)
+    {
+        // A BindFrameStart reader reads the contents from before this frame's writes, so it runs before every writer
+        // of the slot, however many writers there are. A pass that also writes the slot needs no edge to itself.
+        for (int32_t slotIdx = 0; slotIdx < context.SlotCount; ++slotIdx)
+        {
+            for (const CollatedAccesses::AccessRef& reader : collated.FrameStartReaders[slotIdx])
+            {
+                const std::source_location& where = context.PassAccesses[reader.PassIdx][reader.AccessIdx].Where;
+
+                for (const CollatedAccesses::AccessRef& writer : collated.Writers[slotIdx])
+                {
+                    if (writer.PassIdx == reader.PassIdx)
+                    {
+                        continue;
+                    }
+
+                    AddEdge(context,
+                            NodeOfPass(PassIndex{ reader.PassIdx }),
+                            NodeOfPass(PassIndex{ writer.PassIdx }),
+                            EdgeReason::FrameStart,
+                            where,
+                            ResourceSlot{ slotIdx });
+                }
+            }
+        }
+    }
+
 }
-
-

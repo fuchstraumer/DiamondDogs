@@ -4,6 +4,7 @@
 #include "LoomError.hpp"
 #include "LoomKeys.hpp"
 #include <cstdint>
+#include <deque>
 #include <source_location>
 #include <span>
 #include <string>
@@ -80,6 +81,11 @@ namespace loom
         void onReport(const Diagnostic& diagnostic) override;
 
     private:
+        [[nodiscard]] std::string_view internString(std::string_view text);
+
+        // A Diagnostic's views can point into Compile's stage data, which is gone when Compile returns. The records
+        // view these copies instead. A deque never moves its elements, so the views stay valid as it grows.
+        std::deque<std::string> ownedStrings;
         std::vector<Diagnostic> diagnostics;
     };
 

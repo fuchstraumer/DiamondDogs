@@ -158,11 +158,32 @@ namespace loom
     void CollectingSink::Clear() noexcept
     {
         diagnostics.clear();
+        ownedStrings.clear();
+    }
+
+    std::string_view CollectingSink::internString(std::string_view text)
+    {
+        if (text.empty())
+        {
+            return text;
+        }
+
+        ownedStrings.emplace_back(text);
+        return ownedStrings.back();
     }
 
     void CollectingSink::onReport(const Diagnostic& diagnostic)
     {
-        diagnostics.push_back(diagnostic);
+        Diagnostic copy = diagnostic;
+        copy.Pass.Name = internString(copy.Pass.Name);
+        copy.Resource.Name = internString(copy.Resource.Name);
+        copy.Binding = internString(copy.Binding);
+        copy.Expected.FieldName = internString(copy.Expected.FieldName);
+        copy.Expected.Text = internString(copy.Expected.Text);
+        copy.Actual.FieldName = internString(copy.Actual.FieldName);
+        copy.Actual.Text = internString(copy.Actual.Text);
+        copy.Suggestion = internString(copy.Suggestion);
+        diagnostics.push_back(copy);
     }
 
     std::string_view TextSink::Text() const noexcept

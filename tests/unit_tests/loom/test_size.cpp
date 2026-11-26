@@ -691,6 +691,130 @@ TEST(SizeImages, DerivedExtentWithNoSourceIsLM402)
     EXPECT_EQ(run.Sink.Diagnostics().front().Resource, k_Ids.ToRef());
 }
 
+// Layered states 16x16 with 3 layers. A derived image takes both: the extent's depth is 1, and the count is 3.
+TEST(SizeImages, DerivedLayersComeFromTheBinding)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    loom::ImageDeclaration image = ImageOf(k_Image, lodestone::TextureFormat::RGBA8Unorm, loom::ExtentSource::Derived());
+    image.Layers = loom::LayerSource::Derived();
+    graph.Declare(image);
+    graph.Declare(ImageOf(k_Lit, lodestone::TextureFormat::RGBA32Float, loom::ExtentSource::Fixed(64, 32, 1)));
+
+    const auto layered = [](loom::DispatchBuilder& pass)
+    {
+        ReadImageWith(pass, "LayeredCS", "Layered", k_Image);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, layered);
+
+    SizeRun run;
+    RunSize(graph, run);
+
+    ASSERT_TRUE(run.Sized.has_value());
+    EXPECT_TRUE(run.Sink.Diagnostics().empty());
+
+    const loom::SizedResource& sized = SizedOf(run, k_Image.ToRef());
+    EXPECT_EQ(sized.Extent.Width, 16);
+    EXPECT_EQ(sized.Extent.Height, 16);
+    EXPECT_EQ(sized.Extent.Depth, 1);
+    EXPECT_EQ(sized.Layers, 3);
+    EXPECT_TRUE(sized.Arrayed);
+}
+
+// LM401: Layered states 3 layers and Layered4 states 4 for one derived image. The first binding sets the count.
+TEST(SizeImages, StatedLayersThatDisagreeAreLM401)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    loom::ImageDeclaration image = ImageOf(k_Image, lodestone::TextureFormat::RGBA8Unorm, loom::ExtentSource::Derived());
+    image.Layers = loom::LayerSource::Derived();
+    graph.Declare(image);
+    graph.Declare(ImageOf(k_Lit, lodestone::TextureFormat::RGBA32Float, loom::ExtentSource::Fixed(64, 32, 1)));
+
+    const auto layered = [](loom::DispatchBuilder& pass)
+    {
+        ReadImageWith(pass, "LayeredCS", "Layered", k_Image);
+    };
+
+    const auto layered4 = [](loom::DispatchBuilder& pass)
+    {
+        ReadImageWith(pass, "Layered4CS", "Layered4", k_Image);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, layered);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, layered4);
+
+    SizeRun run;
+    RunSize(graph, run);
+
+    EXPECT_FALSE(run.Sized.has_value());
+    ASSERT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM401);
+
+    const loom::Diagnostic& diagnostic = run.Sink.Diagnostics().front();
+    EXPECT_EQ(diagnostic.Binding, "Layered4");
+    EXPECT_EQ(diagnostic.Pass.Hash, k_Second.Hash);
+    EXPECT_EQ(diagnostic.Expected.FieldName, "Layers");
+    EXPECT_EQ(diagnostic.Expected.Integer, 3);
+    EXPECT_EQ(diagnostic.Actual.Integer, 4);
+}
+
+// LM401: a fixed count of 5 under Layered's stated 3. The fixed 16x16x1 extent fits, because the stated third value
+// is the layer count and not a depth. OtherWhere is the declaration.
+TEST(SizeImages, FixedLayersThatDoNotFitAreLM401)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    loom::ImageDeclaration image = ImageOf(k_Image, lodestone::TextureFormat::RGBA8Unorm,
+                                           loom::ExtentSource::Fixed(16, 16, 1));
+    image.Layers = loom::LayerSource::Fixed(5);
+    const uint32_t declarationLine = std::source_location::current().line() + 1u;
+    graph.Declare(image);
+    graph.Declare(ImageOf(k_Lit, lodestone::TextureFormat::RGBA32Float, loom::ExtentSource::Fixed(64, 32, 1)));
+
+    const auto layered = [](loom::DispatchBuilder& pass)
+    {
+        ReadImageWith(pass, "LayeredCS", "Layered", k_Image);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, layered);
+
+    SizeRun run;
+    RunSize(graph, run);
+
+    EXPECT_FALSE(run.Sized.has_value());
+    ASSERT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM401);
+
+    const loom::Diagnostic& diagnostic = run.Sink.Diagnostics().front();
+    EXPECT_EQ(diagnostic.Expected.FieldName, "Layers");
+    EXPECT_EQ(diagnostic.Expected.Integer, 5);
+    EXPECT_EQ(diagnostic.Actual.Integer, 3);
+    EXPECT_EQ(diagnostic.OtherWhere.line(), declarationLine);
+}
+
+// LM402: a derived count that no binding states. Albedo is a 2D texture, so it states an extent and no layer count.
+TEST(SizeImages, DerivedLayersWithNoSourceIsLM402)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    loom::ImageDeclaration image = ImageOf(k_Image, lodestone::TextureFormat::RGBA8Unorm, loom::ExtentSource::Derived());
+    image.Layers = loom::LayerSource::Derived();
+    DeclareShadeImages(graph, image);
+
+    const auto shade = [](loom::DispatchBuilder& pass)
+    {
+        ShadeWith(pass, k_Image);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, shade);
+
+    SizeRun run;
+    RunSize(graph, run);
+
+    EXPECT_FALSE(run.Sized.has_value());
+    ASSERT_EQ(OnlyCode(run.Sink), loom::DiagnosticCode::LM402);
+
+    const loom::Diagnostic& diagnostic = run.Sink.Diagnostics().front();
+    EXPECT_EQ(diagnostic.Resource, k_Image.ToRef());
+    EXPECT_EQ(diagnostic.Expected.FieldName, "Layers");
+}
+
 // LM403: Albedo sees the image as 2D and Volume as 3D. The first binding sets the dimension.
 TEST(SizeImages, DimensionsThatDisagreeAreLM403)
 {

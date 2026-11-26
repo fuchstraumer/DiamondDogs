@@ -69,6 +69,7 @@ namespace
                 slot.Access = bind::NarrowedAccess(slot.Access, frozenBind.Narrowing);
                 slot.Resource = frozenBind.Resource;
                 slot.Previous = frozenBind.Previous;
+                slot.FrameStart = frozenBind.FrameStart;
                 accesses[bindIndex] = slot.Access;
             }
             else if (bind::IsLoomFrameBinding(resource))

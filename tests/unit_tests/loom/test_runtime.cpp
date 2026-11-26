@@ -227,7 +227,7 @@ namespace
             .Format = lodestone::TextureFormat::RGBA32Float,
             .Extent = loom::ExtentSource::Fixed(k_Size, k_Size, 1),
             .Mips = loom::MipSource::One(),
-            .Layers = 1,
+            .Layers = loom::LayerSource::Fixed(1),
             .Cpu = loom::CpuAccess::None,
             .HistoryDepth = 0,
             .NoHistoryAction = loom::OnNoHistory::Invalid,

@@ -24,7 +24,8 @@ namespace loom
         FrameBounds = 4, // BeginFrame, EndFrame
         SequenceChain = 5, // pass[i] -> pass[i+1] chain
         ExposedAnchor = 6, 
-        DataFlow = 7
+        DataFlow = 7,
+        FrameStart = 8 // a BindFrameStart reader before each writer of the slot
     };
 
     using NodeIndex = FrozenIndex<struct NodeIndexTag>;

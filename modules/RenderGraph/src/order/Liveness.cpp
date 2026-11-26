@@ -164,6 +164,16 @@ namespace loom::order
                     isLive = true;
                 }
 
+                // The last write is next frame's frame-start contents: its BindFrameStart readers read it then
+                if (isLast)
+                {
+                    for (const AccessRef& frameStartReader : collated.FrameStartReaders[slot])
+                    {
+                        liveness.Feeders[frameStartReader.PassIdx].push_back(writer.PassIdx);
+                        isLive = true;
+                    }
+                }
+
                 if (!isLive)
                 {
                     static constexpr AccessRef k_NoWriter{ -1, -1 };

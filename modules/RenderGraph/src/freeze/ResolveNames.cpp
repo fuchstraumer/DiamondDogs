@@ -46,6 +46,7 @@ namespace loom::freeze
                 .Kind = bind.Kind,
                 .Narrowing = bind.Narrowing,
                 .Previous = bind.Previous,
+                .FrameStart = bind.FrameStart,
                 .Where = bind.Where
             };
         };

@@ -21,9 +21,10 @@
 #include <string_view>
 #include <vector>
 
-// LM401: a stated extent that the image does not have. LM402: a derived extent that no binding states. LM403: a format
-// that does not fit a binding or a target, or two bindings that see the image in different dimensions. A stated
-// extent is [ls_extent_1d/2d/3d] on the binding; the axes that the attribute leaves out are 1.
+// LM401: a stated extent or layer count that the image does not have. LM402: a derived extent or layer count that no
+// binding states. LM403: a format that does not fit a binding or a target, or two bindings that see the image in
+// different dimensions. A stated extent is [ls_extent_1d/2d/3d] on the binding; the axes that the attribute leaves out
+// are 1. On an array texture the third value is the layer count (Lodestone C31), so its stated depth is 1.
 namespace loom
 {
 
@@ -37,9 +38,18 @@ namespace
         std::source_location Where;
     };
 
+    struct StatedLayers
+    {
+        int32_t Count{ 0 };
+        KeyRef Pass;
+        std::string_view Binding;
+        std::source_location Where;
+    };
+
     struct ImageFacts
     {
         std::vector<StatedExtent> Extents;
+        std::vector<StatedLayers> Layers;
         lodestone::TextureDimension Dimension{ lodestone::TextureDimension::Invalid };
         // the bind that set Dimension, for the OtherWhere of a dimension LM403
         std::source_location DimensionWhere;
@@ -311,12 +321,37 @@ namespace
             return std::nullopt;
         }
 
+        // the third value of an array texture is its layer count, not a depth
+        const bool arrayed = lodestone::ResourceShapeIsArray(resource.Shape());
+
         return ImageExtent
         {
             .Width = static_cast<int32_t>(resource.ExtentX()),
             .Height = static_cast<int32_t>(resource.ExtentY()),
-            .Depth = static_cast<int32_t>(resource.ExtentZ()),
+            .Depth = arrayed ? 1 : static_cast<int32_t>(resource.ExtentZ()),
         };
+    }
+
+    // The layer count that a binding states, when the shader states one (Lodestone C31: an array texture whose third
+    // extent value is above 1)
+    std::optional<int32_t> StatedLayersOf(const lodestone::manifest::ResolvedResource& resource)
+    {
+        // a texture that is not an array has no layer count to state, whatever DescribeCreation reports for it
+        if (!lodestone::ResourceShapeIsArray(resource.Shape()))
+        {
+            return std::nullopt;
+        }
+
+        const lodestone::manifest::CreationFields fields = lodestone::manifest::DescribeCreation(resource);
+        const bool fromShader = fields.ArrayLayers == lodestone::manifest::CreationSource::Shader ||
+                                fields.ArrayLayers == lodestone::manifest::CreationSource::ShaderPerVariant;
+
+        if (!fromShader)
+        {
+            return std::nullopt;
+        }
+
+        return static_cast<int32_t>(resource.ExtentZ());
     }
 
     // Each shader binding of an image: its usage, its dimension, its stated extent, and the LM403 format checks
@@ -359,6 +394,15 @@ namespace
                                                       .Pass = pass.Key,
                                                       .Binding = bind.BindingName,
                                                       .Where = bind.Where });
+            }
+
+            const std::optional<int32_t> statedLayers = StatedLayersOf(source.Reflection);
+            if (statedLayers.has_value())
+            {
+                image.Layers.push_back(StatedLayers{ .Count = *statedLayers,
+                                                     .Pass = pass.Key,
+                                                     .Binding = bind.BindingName,
+                                                     .Where = bind.Where });
             }
         }
     }
@@ -543,6 +587,96 @@ namespace
         return ImageExtent{};
     }
 
+    void ReportLayersMismatch(DiagnosticSink& sink, const FrozenResource& row, const StatedLayers& stated,
+                              int32_t count, std::source_location count_where)
+    {
+        Diagnostic diag
+        {
+            .Code = DiagnosticCode::LM401,
+            .Severity = DefaultSeverityOf(DiagnosticCode::LM401),
+            .Where = stated.Where,
+            .OtherWhere = count_where,
+            .Pass = stated.Pass,
+            .Resource = row.Key,
+            .Binding = stated.Binding,
+            .Expected = IntegerValue("Layers", count),
+            .Actual = IntegerValue("Layers", stated.Count),
+        };
+
+        sink.Report(diag);
+    }
+
+    // A known count (Fixed, or an import's expectation): every stated count must equal it. OtherWhere is the
+    // declaration.
+    int32_t CheckKnownLayers(DiagnosticSink& sink, const FrozenResource& row, int32_t count, const ImageFacts& image)
+    {
+        for (const StatedLayers& stated : image.Layers)
+        {
+            if (stated.Count != count)
+            {
+                ReportLayersMismatch(sink, row, stated, count, row.Where);
+            }
+        }
+
+        return count;
+    }
+
+    // A Derived count: the first stated count sets it, and every other one must equal it. OtherWhere is the binding
+    // that set it. No stated count at all is LM402.
+    int32_t DeriveLayers(DiagnosticSink& sink, const FrozenResource& row, const ImageFacts& image)
+    {
+        if (image.Layers.empty())
+        {
+            Diagnostic diag
+            {
+                .Code = DiagnosticCode::LM402,
+                .Severity = DefaultSeverityOf(DiagnosticCode::LM402),
+                .Where = row.Where,
+                .Resource = row.Key,
+                .Expected = DiagnosticValue{ .FieldName = "Layers" },
+            };
+
+            sink.Report(diag);
+            return k_UnknownExtent;
+        }
+
+        const StatedLayers& source = image.Layers.front();
+
+        for (const StatedLayers& stated : image.Layers)
+        {
+            if (stated.Count != source.Count)
+            {
+                ReportLayersMismatch(sink, row, stated, source.Count, source.Where);
+            }
+        }
+
+        return source.Count;
+    }
+
+    int32_t LayersOf(DiagnosticSink& sink, const FrozenGraph& frozen, const FrozenResource& row,
+                     const ImageFacts& image)
+    {
+        if (row.Origin == ResourceOrigin::Imported)
+        {
+            const ImageExpectation& expectation = frozen.Imports[row.DeclarationIndex].Expectation;
+            return CheckKnownLayers(sink, row, expectation.Layers, image);
+        }
+
+        const LayerSource& source = frozen.Images[row.DeclarationIndex].Declaration.Layers;
+
+        switch (source.Kind)
+        {
+        case LayerSource::Kind::Fixed:
+            return CheckKnownLayers(sink, row, source.Count, image);
+        case LayerSource::Kind::Derived:
+            return DeriveLayers(sink, row, image);
+        case LayerSource::Kind::Invalid:
+            break;
+        }
+
+        return k_UnknownExtent;
+    }
+
 }
 
 void SizeImages(const FrozenGraph& frozen, const BoundGraph& bound, DiagnosticSink& sink, SizedGraph& sized)
@@ -564,6 +698,7 @@ void SizeImages(const FrozenGraph& frozen, const BoundGraph& bound, DiagnosticSi
         SizedResource& result = sized.Resources[rowIndex];
         result.TextureUsage = image.Usage;
         result.Extent = ExtentOf(sink, frozen, row, image);
+        result.Layers = LayersOf(sink, frozen, row, image);
 
         // an image that only targets and copies see is a 2D image
         const bool noShaderBinding = image.Dimension == lodestone::TextureDimension::Invalid;

@@ -61,6 +61,7 @@ namespace loom
         rhi::ImageLayout Layout{ rhi::ImageLayout::Undefined };   // images: the layout this use needs; buffers: Undefined
         bool Initializes{ false };
         bool Previous{ false };     // BindPrevious: reads last frame's copy, never this frame's
+        bool FrameStart{ false };   // BindFrameStart: every read of this use runs before this frame's writers
     };
 
     // A Params statement's key, with the size and alignment of its type (LM704), and the bytes the shader takes.

@@ -83,9 +83,9 @@ namespace loom
                                "A view and its root are bound to different keys in one pass." },
 
             CatalogEntry{ LM401, "LM401", k_Error,
-                               "A binding needs a byte size or an extent that the resource does not have." },
+                               "A binding needs a byte size, an extent or a layer count that the resource does not have." },
             CatalogEntry{ LM402, "LM402", k_Error,
-                               "A derived size or extent has no source. No binding states it." },
+                               "A derived size, extent or layer count has no source. No binding states it." },
             CatalogEntry{ LM403, "LM403", k_Error,
                                "The format or the dimension does not fit a binding or a target." },
 
@@ -94,11 +94,13 @@ namespace loom
             CatalogEntry{ LM502, "LM502", k_Error,
                                "A hazard has no ordering path between its passes." },
             CatalogEntry{ LM503, "LM503", k_Error,
-                               "A read comes before any write in the frame, with no BindPrevious and no initial data." },
+                               "A read comes before any write in the frame, with no BindPrevious, no BindFrameStart and no initial data." },
             CatalogEntry{ LM504, "LM504", k_Warning,
                                "A write is never read." },
             CatalogEntry{ LM505, "LM505", k_Warning,
                                "A pass has no path to a root output." },
+            CatalogEntry{ LM506, "LM506", k_Error,
+                               "BindFrameStart reads a resource that has no contents at frame start: it needs an import, an upload, or a writer that is not EveryFrame, and not a Frame lifetime." },
 
             CatalogEntry{ LM601, "LM601", k_Error,
                                "A device limit is exceeded." },

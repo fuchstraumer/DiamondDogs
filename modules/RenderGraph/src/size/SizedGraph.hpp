@@ -5,8 +5,8 @@
 #include <cstdint>
 #include <vector>
 
-// The Size stage's output: the creation facts that the shaders and the pass statements give each resource. The format,
-// the mip count and the layer count come from the declaration, so Size does not copy them.
+// The Size stage's output: the creation facts that the shaders and the pass statements give each resource. The format
+// and the mip count come from the declaration, so Size does not copy them.
 namespace loom
 {
 
@@ -33,6 +33,9 @@ namespace loom
 
         // images
         ImageExtent Extent;
+        // the array layer count: Fixed, Derived from the stated counts, or an import's expectation. k_UnknownExtent
+        // after an LM402.
+        int32_t Layers{ k_UnknownExtent };
         // from the binding shapes: 1D, 3D, or 2D for every other shape and for an image that no shader binds
         lodestone::TextureDimension Dimension{ lodestone::TextureDimension::Invalid };
         // every GPU use of an image. A copy for an upload belongs to Realize.
