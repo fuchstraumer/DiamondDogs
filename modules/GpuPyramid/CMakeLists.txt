@@ -13,3 +13,4 @@ target_link_libraries(gpu_pyramid PUBLIC rhi_resources rhi_system)
 # one ShaderLibrary serves the consumer's shaders and the pyramid
 set(GPU_PYRAMID_SHADER_MODULE "${PROJECT_SOURCE_DIR}/assets/shaders/compute/Pyramid/NvproPyramid.slang"
     CACHE INTERNAL "The NvproPyramid Slang module, for consumers to cook into their bundles")
+diamond_dogs_register_shader_modules(MODULES "${GPU_PYRAMID_SHADER_MODULE}")
