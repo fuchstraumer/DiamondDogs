@@ -387,8 +387,9 @@ run ended as one supercontinent on one plate. Three passes run after `ApplyMantl
    supercontinent cap (`SUPERCONTINENT_RADIUS` mantle depths). A plate from the start state gets a random head start of
    up to 100 My, as `tectonics.Start` does. A plate can rift when it is warm (100 My), larger than 4 % of the sphere,
    has continental crust, and passes a trial with probability `dt / 40 My`. At most one plate rifts in a step. The new
-   half needs a **free slot**: a plate with no live cells. Lane 0 picks two continental cells from the plate's live
-   list, and the cut line passes between them. The halves get opposite poles about `first × second` at 5 km/My, and
+   half needs a **free slot**: a plate with no live cells. Lane 0 picks two continental cells by hashing cell indices of
+   the plate's own grid (not slots of the live list, whose order comes from atomic cursors and would make runs differ),
+   and the cut line passes between them. The halves get opposite poles about `first × second` at 5 km/My, and
    `PlateRift` gets the axis and time, so `MovePlatesAndClearCountersCS` applies the rift push (5 km/My for 20 My, then
    20 km/My until 100 My).
 2. **`SplitPlateCS`** (indirect, zero groups when no plate rifts) moves every live cell on the far side of the warped
@@ -475,3 +476,85 @@ removes it.
 Next: a stream power law on a flow network (`DocParse/results`: Jain 2024 FastFlow, Barnes 2019 parallel FastScape,
 Tzathas 2024 analytical erosion, Schott 2023), Airy isostasy (Braun 2018: the surface falls only about 17 % of the
 eroded thickness), sediment on the shelves, and a continental sink (subduction erosion).
+
+### Hypsometry against Earth (2026-11-26)
+
+`--mode=raw` (mode 8) writes the simulated elevation into the red and green bytes:
+`km = 22 * (R * 256 + G) / 65535 - 11`. Scripts decode it and weight each row by cos(latitude). Share of **land** area
+in each band, earth preset (seed 42, order 7, dt 0.5, rifting and erosion on). Earth is approximate, from the standard
+hypsographic curve (ETOPO1):
+
+| | Land % of sphere | Mean land (km) | Mean sea (km) | 0–0.5 km | 0.5–1 | 1–2 | 2–3 | > 3 |
+|---|---|---|---|---|---|---|---|---|
+| Earth | 29 | 0.84 | −3.7 | 52 | 19 | 18 | 7 | 4 |
+| Old values, 400 My | 35.3 | 2.43 | −4.08 | 7 | 10 | 26 | 24 | 34 |
+| Calibrated, legacy shaping, 400 My | 37.2 | 1.00 | −3.91 | 13 | 53 | 27 | 4 | 3 |
+| Earth shaping preset, 200 My | 30.0 | 1.04 | −4.07 | 13 | 49 | 29 | 6 | 3 |
+| Earth shaping preset, 400 My | 35.3 | 1.00 | −3.96 | 11 | 46 | 39 | 4 | 0.2 |
+
+The calibrated values (`ContinentErosion` 0.25, `ContinentalReachKm` 800, `CollisionReachKm` 500; now in the earth
+and atoll shaping presets) bring mean land elevation from 2.4 km to about 1.0 km (Earth 0.84). Two gaps remain:
+
+- **Too little low land** (11–13 % below 0.5 km, Earth 52 %). Continental crust has a fixed base elevation of 0.5 km,
+  so land can only sit at 0.5 km or above, except at coasts that erosion has worn down. A thickness field with basins
+  and thermal subsidence is the fix.
+- **Too much land over time** (30 % at 200 My, 35 % at 400 My). Arc accretion adds continent and nothing removes it.
+
+## Loom baseline: time and memory (2026-11-26)
+
+Nsight GPU Trace of `PlanetGenLoom --preset=earth --shaping=earth --dt=0.5 --plumes=default --timestamps`, one submit
+after 400, with rifting and erosion on, 28 plate slots (20 plates + 8 rift slots). Runs 9 (order 7) and 10 (order 8)
+in `build/profiler_captures/planetgen_diag.db`. The trace locks the GPU clocks to base, so these times are higher
+than bench times; compare traces with traces. Runs 1 to 8 traced `PlanetGenBench` (the PlanetStep path, no plumes,
+rifting, erosion or map), so they are not the same workload.
+
+| | Order 7 (196,608 cells) | Order 8 (786,432 cells) |
+|---|---|---|
+| Simulation, 38 dispatches | 300 µs | 902 µs |
+| `FrontDistanceAndUpliftCS` | 116 µs (39 %) | 519 µs (58 %) |
+| `OwnersCS` | 23 µs | 66 µs |
+| `ApplyMantlePlumesCS` | 19 µs | 63 µs |
+| Collision phase, 16 dispatches, no collision in the step | 29 µs | 34 µs |
+| Dispatches under 3 µs | 20, 31 µs in all | 19, 29 µs in all |
+| `RenderMapCS` (earth shaping noise, 1024 × 512) | 507 µs | 506 µs |
+
+Findings, largest first:
+
+1. **`RenderMapCS` runs every step and costs more than the simulation at order 7.** With the earth shaping noise it
+   is 507 µs at any order. A bake loop needs the map only on the steps it captures.
+2. **`FrontDistanceAndUpliftCS` grows 4.5× for 4× the cells.** The group cull reads
+   `max(ContinentalReachKm * 1.45 + 50, 1850)` and `max(IslandArcReachKm * 1.45 + 50, 500)`, so the fixed floors
+   (1850 km, 500 km) win since the presets use an 800 km reach, and every group searches further than any uplift
+   reaches. The hot lines (run 10) are the `Nearest` compare (`FrontPoints.slang:30`, 12.7 % of the samples: WAIT,
+   NOTSEL, MATHTH), so the kernel is bound on instruction issue: fewer candidates is the lever, not latency.
+3. **About 30 µs of fixed cost each step.** An empty dispatch with its barrier costs about 1.25 µs. The 16 collision
+   dispatches cost 29 to 34 µs in a step with no collision, through zero-group indirect dispatches.
+4. **Memory: the plate-cell buffers are sized for the worst case.** Each world point has one top plate plus a few
+   buried cells, so live cells are near N, about 1/28 of P × N:
+
+| Buffer | Lifetime | Order 7 | Order 8 |
+|---|---|---|---|
+| `CrustState` (P × N × 16 B) | imported | 84 MiB | 336 MiB |
+| `CrustFlags` (P × N × 1 B) | imported | 5 MiB | 21 MiB |
+| `CellFronts` (P × N × 8 B) | frame, live in interactive mode | 42 MiB | 168 MiB |
+| `LiveCell` (P × N × 4 B) | frame | 21 MiB | 84 MiB |
+| `ErodedRelief` (P × N × 4 B) | frame | 21 MiB | 84 MiB |
+| Per-point buffers (Owners, FrontData, FrontPoints, suture, BKE, PreviousPlate) | mixed | 15 MiB | 59 MiB |
+| **Total** | | **188 MiB** | **752 MiB** |
+
+`CellFronts`, `LiveCell` and `ErodedRelief` are indexed by the live list or written only for live cells, so a
+capacity of about 1.5 N with an overflow check would take 392 MiB to about 45 MiB at order 8, with no paging. Sparse
+pages are the answer for `CrustState` and `CrustFlags`. Loom aliasing has less to win after that resize: the
+collision buffers (BKE, suture) and `ErodedRelief` never live at the same time, about 20 MiB at order 8.
+
+**After the first two fixes (same day).** The bake loop (`RunLoomSimulation`) now renders the map only on its last
+step (`RenderOnTrigger`), which removes 507 µs from every other step. The group cull now uses the largest reach the
+uplift can use (slab-dip clamp, and `CollisionReachKm` for continents) in place of the 1850 / 500 km floors; it is
+bit-exact with the legacy shaping, and gave 0 differing pixels over 200 My on the earth preset. On the same world
+(runs 13 and 14 with the old floors, 11 and 12 with the new), `FrontDistanceAndUpliftCS` went from 110 to 111 µs at
+order 7 (no change) and from 713 to 652 µs at order 8 (−9 %). Most of its cost is candidates inside the group's own
+plate, not tiles beyond reach; the `Nearest` compare is still the lever.
+
+**Repeatability.** The first `DecideRiftCS` picked cells from live-list slots, and the live list's order comes from
+atomic cursors, so two runs of one build diverged by 200 My. It now hashes cell indices of the plate's own grid; two
+runs agree to the pixel at 100 and 200 My. Any new pass must not depend on the order of `LiveCell` or `FrontPoints`.

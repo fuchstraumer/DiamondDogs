@@ -61,7 +61,10 @@ namespace capture
         return Count == 0u ? First : First + std::max<uint64_t>(Every, 1u) * (Count - 1u);
     }
 
-    FrameCapture::FrameCapture(ResourceContext& resources, uint32_t slot_count, std::filesystem::path directory) :
+    FrameCapture::FrameCapture(ResourceContext& resources,
+                               uint32_t slot_count,
+                               std::filesystem::path directory,
+                               uint32_t writer_count) :
         resources{ resources },
         directory{ std::move(directory) },
         slots(std::max(slot_count, 1u))
@@ -74,7 +77,15 @@ namespace capture
             std::cerr << "FrameCapture: could not create " << this->directory.string() << ": " << error.message() << "\n";
         }
 
-        writer = std::thread([this] { writerLoop(); });
+        // Level 1 keeps lossless PNG encoding ~3-4x faster than stb's default level 8 with minimal size overhead.
+        stbi_write_png_compression_level = 1;
+
+        const uint32_t workerCount = std::max(writer_count, 1u);
+        writers.reserve(workerCount);
+        for (uint32_t index = 0u; index < workerCount; ++index)
+        {
+            writers.emplace_back([this] { writerLoop(); });
+        }
     }
 
     FrameCapture::~FrameCapture()
@@ -82,9 +93,19 @@ namespace capture
         // the owner calls Flush with the device idle; pending slots that were never flushed are dropped here
         waitForOutstandingBelow(1u);
 
-        // an empty path is the stop sentinel: the writer returns when it pops one
-        jobs.push(Job{});
-        writer.join();
+        {
+            std::lock_guard<std::mutex> lock(jobMutex);
+            stopping = true;
+        }
+        jobAvailable.notify_all();
+
+        for (std::thread& worker : writers)
+        {
+            if (worker.joinable())
+            {
+                worker.join();
+            }
+        }
 
         for (Slot& slot : slots)
         {
@@ -371,12 +392,17 @@ namespace capture
         job.Pixels.assign(data, data + bytes);
         (void)resources.Wait(resources.UnmapBuffer(slot.Buffer, bytes, 0u), k_TimeoutNs);
 
-        // each job holds a whole frame (about 20 MB at 3440x1440), so at most one job per slot waits for the writer
-        const uint32_t cap = static_cast<uint32_t>(slots.size());
+        // Keep enough in-flight jobs to saturate the writer pool while bounding host RAM.
+        const uint32_t cap = std::max<uint32_t>(static_cast<uint32_t>(slots.size()),
+                                                static_cast<uint32_t>(writers.size()) * 2u);
         waitForOutstandingBelow(cap);
 
         outstanding.fetch_add(1u);
-        jobs.push(std::move(job));
+        {
+            std::lock_guard<std::mutex> lock(jobMutex);
+            jobs.push_back(std::move(job));
+        }
+        jobAvailable.notify_one();
     }
 
     bool FrameCapture::ensureBuffer(Slot& slot, uint64_t bytes)
@@ -422,10 +448,16 @@ namespace capture
     {
         while (true)
         {
-            Job job = jobs.pop();
-            if (job.Path.empty())
+            Job job{};
             {
-                return;
+                std::unique_lock<std::mutex> lock(jobMutex);
+                jobAvailable.wait(lock, [this] { return stopping || !jobs.empty(); });
+                if (stopping && jobs.empty())
+                {
+                    return;
+                }
+                job = std::move(jobs.front());
+                jobs.pop_front();
             }
 
             writeJob(job);

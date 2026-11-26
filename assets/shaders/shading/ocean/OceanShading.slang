@@ -74,8 +74,20 @@ internal void SampleSurfaceAndWhitecaps(
 
             if (enabled > 0.0f)
             {
+                // crest/trough modulation of the two finest cascades: short waves are steeper on long-wave crests and
+                // flatter in troughs. Field MTF magnitude 2 to 4, in phase with the crest (Hara et al. 2003). Its input
+                // is 1 - J of the coarse cascades, which the loop finishes before the fine cascades. The gain scales
+                // the slope variance, so the slopes take its square root
+                float crestGain = 1.0f;
+
+                if (cascade + 2u >= OCEAN_CASCADE_COUNT && Frame.UseCrestModulation != 0u)
+                {
+                    const float coarseJacobian = (1.0f + coarseStretch.x) * (1.0f + coarseStretch.y);
+                    crestGain = clamp(1.0f + Frame.CrestModulationStrength * (1.0f - coarseJacobian), 0.4f, 2.5f);
+                }
+
                 // the mips already average the slope over the footprint, so the normal takes it as sampled
-                const float4 scaledDeriv = derivatives * weight;
+                const float4 scaledDeriv = derivatives * (weight * sqrt(crestGain));
                 const float2 cascadeSlope = CascadeToWorld(scaledDeriv.xy, cascade);
                 const float2 cascadeStretch = CascadeStretchToWorld(scaledDeriv.zw, cascade);
                 totalSlope += cascadeSlope;
@@ -100,7 +112,7 @@ internal void SampleSurfaceAndWhitecaps(
                 const float2 cascadeVariance = (enabled * enabled) * hiddenVariance + (fadedPart * fadedPart) * (meanSlope * meanSlope);
                 // only the diagonal of the slope covariance is stored, so the rotation drops its off-diagonal term, as
                 // CascadeStretchToWorld does
-                const float2 cascadeHiddenVariance = CascadeStretchToWorld(cascadeVariance, cascade);
+                const float2 cascadeHiddenVariance = crestGain * CascadeStretchToWorld(cascadeVariance, cascade);
                 unresolvedVariance += cascadeHiddenVariance;
 
                 if (cascade + 2u >= OCEAN_CASCADE_COUNT)

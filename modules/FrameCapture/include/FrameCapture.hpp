@@ -8,9 +8,12 @@
 #include "containers/mwsrQueue.hpp"
 #include <array>
 #include <atomic>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -138,7 +141,10 @@ namespace capture
     class FrameCapture
     {
     public:
-        FrameCapture(ResourceContext& resources, uint32_t slot_count, std::filesystem::path directory);
+        FrameCapture(ResourceContext& resources,
+                     uint32_t slot_count,
+                     std::filesystem::path directory,
+                     uint32_t writer_count = 1u);
         ~FrameCapture();
         FrameCapture(const FrameCapture&) = delete;
         FrameCapture& operator=(const FrameCapture&) = delete;
@@ -233,15 +239,18 @@ namespace capture
         std::filesystem::path directory;
         std::vector<Slot> slots;
 
-        mwsrQueue<Job> jobs;
-        // the writer and the frame thread push, and the caller of TakeResults pops. Only tracked captures push, and the
+        std::mutex jobMutex;
+        std::condition_variable jobAvailable;
+        std::deque<Job> jobs;
+        bool stopping{ false };
+        // the writers and the frame thread push, and the caller of TakeResults pops. Only tracked captures push, and the
         // caller takes them each frame, so the blocking push never waits in practice
         mwsrQueue<CaptureResult> results;
         uint64_t nextTicket{ 1u };
         std::atomic<uint32_t> outstanding{ 0u };
         std::atomic<uint32_t> written{ 0u };
         std::atomic<uint32_t> failed{ 0u };
-        std::thread writer;
+        std::vector<std::thread> writers;
     };
 }
 

@@ -60,6 +60,9 @@ public struct FrameConstants
     public float AutoExposureSpeed;
     public float3 WaterLeavingReflectanceAp1;
     public float BodyReflectanceScale;
+    public uint UseCrestModulation;
+    public float CrestModulationStrength;
+    public float2 CrestModulationPadding;
     public property float3 FoamAlbedoTint
     {
         get

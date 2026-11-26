@@ -104,6 +104,10 @@ namespace planet_loom
         state.SlabDipEnabled = true;
         state.CoastalNoiseEnabled = true;
         state.AtollShapingEnabled = false;
+        // the landscape budget, checked against Earth's hypsometry (README, "The landscape budget")
+        state.ContinentErosion = 0.25f;
+        state.ContinentalReachKm = 800.0f;
+        state.CollisionReachKm = 500.0f;
         state.SlabDipAgeWeight = 0.85f;
         state.SlabDipSpeedWeight = 0.65f;
         state.TrenchDepthKm = 1.4f;
@@ -123,13 +127,13 @@ namespace planet_loom
         state.CoastalNoiseEnabled = true;
         state.AtollShapingEnabled = true;
         state.BaseUplift = 0.55f;
-        state.ContinentErosion = 0.075f;
+        state.ContinentErosion = 0.25f;
         state.AccretionRelief = 1.35f;
         state.AccretionStartRelief = 0.25f;
-        state.ContinentalReachKm = 1350.0f;
+        state.ContinentalReachKm = 800.0f;
         state.IslandArcReachKm = 420.0f;
         state.ArcDistanceKm = 210.0f;
-        state.CollisionReachKm = 700.0f;
+        state.CollisionReachKm = 500.0f;
         state.CollisionUpliftScale = 0.50f;
         state.SlabDipAgeWeight = 1.0f;
         state.SlabDipSpeedWeight = 0.85f;

@@ -295,6 +295,10 @@ public struct FrameConstants
     public float AutoExposureSpeed;
     public float3 WaterLeavingReflectanceAp1;
     public float BodyReflectanceScale;
+    // the crest/trough modulation of the fine cascades: on or off (for A/B), and its strength M
+    public uint UseCrestModulation;
+    public float CrestModulationStrength;
+    public float2 CrestModulationPadding;
     public property float3 FoamAlbedoTint
     {
         get

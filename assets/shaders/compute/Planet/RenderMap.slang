@@ -14,6 +14,7 @@ __include HEALPix;
 //   5 = Voronoi   (world & plate Fibonacci cell hash to inspect sampling / stair-stepping)
 //   6 = Plumes    (mantle hotspot conduits, thermal swell, and volcanic island/seamount track age)
 //   7 = Atlas     (for people: one continuous elevation ramp, hillshade, coastline, contours, scale bar)
+//   8 = Raw       (for scripts: elevation in R (high byte) and G (low byte), km = 22 * (R*256+G)/65535 - 11)
 
 struct RenderMapParams
 {
@@ -38,6 +39,7 @@ static const uint RenderModeFronts    = 4u;
 static const uint RenderModeVoronoi   = 5u;
 static const uint RenderModePlumes    = 6u;
 static const uint RenderModeAtlas     = 7u;
+static const uint RenderModeRaw       = 8u;
 
 float3 HsvToRgb(float h, float s, float v)
 {
@@ -621,6 +623,16 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
     const float3 worldPoint = float3(cosLat * cosLon, cosLat * sinLon, sinLat);
 
     const uint mode = RenderMapConstants.Mode;
+    if (mode == RenderModeRaw)
+    {
+        float dEdU, dEdV;
+        float3 tU, tV;
+        const float elevKm = SampleBilinearElevationAtPoint(worldPoint, dEdU, dEdV, tU, tV).x;
+        const uint code = uint(round(saturate((elevKm + 11.0f) / 22.0f) * 65535.0f));
+        MapOutput[threadId.xy] = float4(float(code >> 8u) / 255.0f, float(code & 0xffu) / 255.0f, 0.0f, 1.0f);
+        return;
+    }
+
     if (mode == RenderModeAtlas)
     {
         MapOutput[threadId.xy] = float4(RenderAtlas(threadId.xy, worldPoint, lat, lon), 1.0f);

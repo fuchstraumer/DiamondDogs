@@ -1061,12 +1061,10 @@ namespace planet_loom
                 pass.Bind(ep::MovePlatesConstants, k_MovePlatesConstants);
                 pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
                 pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
-                pass.Bind(ep::LiveCell, k_LiveCell, loom::AccessModifier::ReadOnly);
                 pass.Bind(ep::PlateCapCenters, k_PlateCapCenters);
                 pass.Bind(ep::PlateContinentalCount, k_PlateContinentalCount);
                 pass.Bind(ep::PlateCountersIn, k_PlateCounters);
                 pass.Bind(ep::PlateIncubation, k_PlateIncubation);
-                pass.Bind(ep::PlateLiveOffset, k_PlateLiveOffset, loom::AccessModifier::ReadOnly);
                 pass.Bind(ep::PlateRiftRW, k_PlateRift);
                 pass.Bind(ep::PoleRatesRW, k_PoleRates);
                 pass.Bind(ep::RiftDispatch, k_RiftDispatch, loom::AccessModifier::WriteOnly);

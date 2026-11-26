@@ -143,7 +143,7 @@ namespace
 
     [[nodiscard]] bool ParseMode(std::string_view text, uint32_t& mode)
     {
-        if (ParseUint(text, mode) && mode <= 7u)
+        if (ParseUint(text, mode) && mode <= 8u)
         {
             return true;
         }
@@ -155,6 +155,7 @@ namespace
         if (text == "voronoi")   { mode = 5u; return true; }
         if (text == "plumes")    { mode = 6u; return true; }
         if (text == "atlas")     { mode = 7u; return true; }
+        if (text == "raw")       { mode = 8u; return true; }
         return false;
     }
 
@@ -353,7 +354,7 @@ namespace
             std::println(stderr,
                          "usage: PlanetGenLoom (--reference=<dir> | --preset=earth|atoll) [--shaping=legacy|earth|atoll] "
                          "[--seed=N] [--plates=4..32] [--rift=on|off] [--erosion=on|off] [--order=4..9] [--steps=N] [--dt=F] "
-                         "[--width=N] [--height=N] [--mode=0..7|name] [--plumes=default|none] [--words] "
+                         "[--width=N] [--height=N] [--mode=0..8|name] [--plumes=default|none] [--words] "
                          "[--verify] [--self-verify] [--timestamps] [--explain] [--capture-dir=<dir>] "
                          "[--live] [--paused] [--frames=N] [--tool-port=0..65535] [--validation=full|none]");
             return std::nullopt;
@@ -528,7 +529,8 @@ namespace
             .MapWidth = options.Width,
             .MapHeight = options.Height,
             .UseByteCrustFlags = useBytes,
-            .RenderOnTrigger = false,
+            // only the last step's map is read (the capture), so the map renders on that step alone
+            .RenderOnTrigger = true,
             .InteractiveControl = false,
             .LiveMode = false,
             .EnableCapturePass = false,
@@ -620,6 +622,11 @@ namespace
             }
 
             const float stepTime = initial.InitialTime + static_cast<float>(step + 1u) * options.Dt;
+
+            if (step + 1u == options.Steps)
+            {
+                graph->Trigger(planet_loom::k_RenderMapPass);
+            }
 
             if (!imports.UpdateUniforms(resources, stepTime, options.Width, options.Height, options.Mode, plumeState, shapingState))
             {

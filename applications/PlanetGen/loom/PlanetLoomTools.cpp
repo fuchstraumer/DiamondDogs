@@ -191,7 +191,7 @@ struct foundation::reflect::Describe<planet_loom::PlanetSimState>
     {
         Field<State, bool>{ "Paused", &State::Paused, { .Doc = "Pause or resume continuous live stepping." } },
         Field<State, float>{ "TimeStepMy", &State::TimeStepMy, { .Unit = "My", .Range = FieldRange{ 1.0e-4, 20.0 } } },
-        Field<State, int32_t>{ "RenderMode", &State::RenderMode, { .Range = FieldRange{ 0.0, 7.0 }, .Doc = "0=elevation, 1=plates, 2=age, 3=relief, 4=fronts, 5=voronoi, 6=plumes, 7=atlas." } },
+        Field<State, int32_t>{ "RenderMode", &State::RenderMode, { .Range = FieldRange{ 0.0, 8.0 }, .Doc = "0=elevation, 1=plates, 2=age, 3=relief, 4=fronts, 5=voronoi, 6=plumes, 7=atlas, 8=raw." } },
         Field<State, float>{ "Time", &State::Time, { .Unit = "My", .ReadOnly = true } },
         Field<State, int32_t>{ "Step", &State::Step, { .ReadOnly = true } },
         Field<State, int32_t>{ "Width", &State::Width, { .Unit = "px", .ReadOnly = true } },
@@ -392,7 +392,7 @@ struct foundation::reflect::Describe<planet_loom::CaptureParams>
     static constexpr std::tuple Fields
     {
         Field<Params, int32_t>{ "Downsample", &Params::Downsample, { .Range = FieldRange{ 1.0, 64.0 } } },
-        Field<Params, int32_t>{ "Mode", &Params::Mode, { .Range = FieldRange{ -1.0, 7.0 } } },
+        Field<Params, int32_t>{ "Mode", &Params::Mode, { .Range = FieldRange{ -1.0, 8.0 } } },
         Field<Params, std::string>{ "Name", &Params::Name },
     };
 };
@@ -408,7 +408,7 @@ struct foundation::reflect::Describe<planet_loom::CaptureRegionParams>
         Field<Params, int32_t>{ "Y", &Params::Y, { .Unit = "px" } },
         Field<Params, int32_t>{ "Width", &Params::Width, { .Unit = "px" } },
         Field<Params, int32_t>{ "Height", &Params::Height, { .Unit = "px" } },
-        Field<Params, int32_t>{ "Mode", &Params::Mode, { .Range = FieldRange{ -1.0, 7.0 } } },
+        Field<Params, int32_t>{ "Mode", &Params::Mode, { .Range = FieldRange{ -1.0, 8.0 } } },
         Field<Params, std::string>{ "Name", &Params::Name },
     };
 };
@@ -522,9 +522,9 @@ namespace
 {
     constexpr size_t k_MaxCaptureNameLength = 64u;
     constexpr int32_t k_MaxToolRequestsPerPump = 16;
-    constexpr std::string_view k_LayerChoices{ "elevation, plates, age, relief, fronts, voronoi, plumes, atlas" };
+    constexpr std::string_view k_LayerChoices{ "elevation, plates, age, relief, fronts, voronoi, plumes, atlas, raw" };
 
-    constexpr std::array<std::string_view, 8> k_LayerNames
+    constexpr std::array<std::string_view, 9> k_LayerNames
     {
         "elevation",
         "plates",
@@ -534,6 +534,7 @@ namespace
         "voronoi",
         "plumes",
         "atlas",
+        "raw",
     };
 
     [[nodiscard]] bool IsSafeCaptureName(std::string_view name) noexcept;
@@ -695,7 +696,7 @@ namespace
     struct SetLayerCommand
     {
         static constexpr std::string_view Name{ "planet.set_layer" };
-        static constexpr std::string_view Doc{ "Selects debug visualization layer by name (elevation..atlas) or index (0..7)." };
+        static constexpr std::string_view Doc{ "Selects debug visualization layer by name (elevation..raw) or index (0..8)." };
         using Params = planet_loom::SetLayerParams;
         using Reply = planet_loom::LayerReply;
 
@@ -705,7 +706,7 @@ namespace
 
             if (!parsed.has_value())
             {
-                token.Fail(std::format("unknown layer '{}'; valid choices: {} (or 0..7)", params.Layer, k_LayerChoices));
+                token.Fail(std::format("unknown layer '{}'; valid choices: {} (or 0..8)", params.Layer, k_LayerChoices));
                 return;
             }
 
@@ -1133,7 +1134,7 @@ namespace planet_loom
         int32_t numeric = -1;
         const std::from_chars_result parsed = std::from_chars(text.data(), text.data() + text.size(), numeric);
 
-        if (parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() && numeric >= 0 && numeric <= 7)
+        if (parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() && numeric >= 0 && numeric <= 8)
         {
             return numeric;
         }

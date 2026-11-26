@@ -856,7 +856,7 @@ namespace planet_loom
             }
 
             const int32_t savedMode = Sim.RenderMode;
-            const bool overrideMode = mode >= 0 && mode <= 7 && mode != savedMode;
+            const bool overrideMode = mode >= 0 && mode <= 8 && mode != savedMode;
 
             if (overrideMode)
             {

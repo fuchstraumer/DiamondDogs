@@ -19,7 +19,8 @@ static const float RiftWarp = 0.075f;               // how irregular the cut lin
 static const float RiftSlowSpeedKmPerMy = 5.0f;     // speed of each half in the slow phase (Brune 2016)
 // 0.5 * (1 - cos(1.42 * 0.4537)): the cap of a supercontinent, as a fraction of the sphere (tectonics.SupercontinentArea)
 static const float SupercontinentArea = 0.10018f;
-static const uint RiftPickAttempts = 64u;
+// a plate rifts only with continental crust, but that crust can be a few percent of its grid: 512 tries
+static const uint RiftPickAttempts = 512u;
 static const uint RiftGroupSize = 32u;
 
 static const uint RiftJobActive = 0u;
@@ -165,21 +166,19 @@ void DecideRiftCS(uint3 threadId : SV_DispatchThreadID)
 
     if (plate == 0u && sourcePlate != NoPlate)
     {
-        const uint begin = PlateLiveOffset.Load(sourcePlate);
-        const uint end = PlateLiveOffset.Load(sourcePlate + 1u);
-        const uint liveCount = end - begin;
-
-        for (uint attempt = 0u; attempt < RiftPickAttempts && picked < 2u && liveCount > 0u; ++attempt)
+        // sample cell indices of the plate's own grid, not slots of the live list: the order of the live list comes
+        // from atomic cursors and changes from run to run, and a run must repeat exactly
+        for (uint attempt = 0u; attempt < RiftPickAttempts && picked < 2u; ++attempt)
         {
-            const uint slot = begin + RiftHash(timeSeed + attempt * 0x9e3779b9u + sourcePlate) % liveCount;
-            const uint flattened = LiveCell.Load(slot);
+            const uint cell = RiftHash(timeSeed + attempt * 0x9e3779b9u + sourcePlate) % pointCount;
+            const CrustFlagBits flags = LoadCrustFlagsIn(sourcePlate * pointCount + cell);
 
-            if (!LoadCrustFlagsIn(flattened).IsContinental())
+            if (!flags.IsAlive() || !flags.IsContinental())
             {
                 continue;
             }
 
-            const float3 direction = HealpixPixToVec(flattened - sourcePlate * pointCount, StepParams.HealpixOrder);
+            const float3 direction = HealpixPixToVec(cell, StepParams.HealpixOrder);
 
             if (picked == 0u)
             {

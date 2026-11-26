@@ -574,9 +574,16 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
     GroupMemoryBarrierWithGroupSync();
 
     const float groupAngle = SharedGroupAngle;
-    const float reachMarginMult = ((ShapingConstants.Flags & ShapingFlagSlabDipEnabled) != 0u) ? 1.45f : 1.0f;
-    const float maxGroupContKm = max(ShapingConstants.ContinentalReachKm * reachMarginMult + 50.0f, 1850.0f);
-    const float maxGroupArcKm = max(ShapingConstants.IslandArcReachKm * reachMarginMult + 50.0f, 500.0f);
+    // the farthest a front can lift a cell: ComputeEffectiveSubductionReach scales the reach by at most 1.45 and
+    // clamps it to [180, 2200] km when the slab dip is on, and a collision lifts continents out to CollisionReachKm.
+    // The old fixed floors (1850 and 500 km) kept every group searching that far even with a shorter reach
+    const bool slabDip = (ShapingConstants.Flags & ShapingFlagSlabDipEnabled) != 0u;
+    const float contReachKm = slabDip ? clamp(ShapingConstants.ContinentalReachKm * 1.45f, 180.0f, 2200.0f)
+                                      : ShapingConstants.ContinentalReachKm;
+    const float arcReachKm = slabDip ? clamp(ShapingConstants.IslandArcReachKm * 1.45f, 180.0f, 2200.0f)
+                                     : ShapingConstants.IslandArcReachKm;
+    const float maxGroupContKm = max(contReachKm, ShapingConstants.CollisionReachKm) + 50.0f;
+    const float maxGroupArcKm = arcReachKm + 50.0f;
     const float groupReachRad = groupHasContinent ? (maxGroupContKm / 6370.0f) : (maxGroupArcKm / 6370.0f);
 
     NearestCandidate nearest0 = NoCandidate();

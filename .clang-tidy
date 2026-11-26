@@ -82,3 +82,10 @@ CheckOptions:
   readability-identifier-naming.ConstexprVariablePrefix: k_
   readability-identifier-naming.GlobalConstexprVariableCase: CamelCase
   readability-identifier-naming.GlobalConstexprVariablePrefix: k_
+  # A key or name that identifies something (loom::ResourceKey, PassKey, ParamsKey, the generated binding names) has no
+  # prefix; k_ marks a constant value only. clang-tidy cannot tell the two apart by type, so a PascalCase constexpr name
+  # with no prefix is not checked here. The style file states the rule for agents and reviewers.
+  readability-identifier-naming.StaticConstexprVariableIgnoredRegexp: '^[A-Z][a-zA-Z0-9]*$'
+  readability-identifier-naming.LocalConstexprVariableIgnoredRegexp: '^[A-Z][a-zA-Z0-9]*$'
+  readability-identifier-naming.ConstexprVariableIgnoredRegexp: '^[A-Z][a-zA-Z0-9]*$'
+  readability-identifier-naming.GlobalConstexprVariableIgnoredRegexp: '^[A-Z][a-zA-Z0-9]*$'

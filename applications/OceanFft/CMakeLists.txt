@@ -287,12 +287,15 @@ add_executable(OceanFftLoom
     "${DIAMOND_DOGS_TEST_FIXTURES}/FrameLimit.cpp"
     "${DIAMOND_DOGS_TEST_FIXTURES}/FrameLimit.hpp"
     "${DIAMOND_DOGS_TEST_FIXTURES}/WindowedBoot.cpp"
-    "${DIAMOND_DOGS_TEST_FIXTURES}/WindowedBoot.hpp")
+    "${DIAMOND_DOGS_TEST_FIXTURES}/WindowedBoot.hpp"
+    "${CMAKE_BINARY_DIR}/include"
+    "${OCEAN_FFT_GENERATED_SOURCES}")
 target_include_directories(OceanFftLoom PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/loom"
     "${CMAKE_CURRENT_BINARY_DIR}/cooked"
     "${DIAMOND_DOGS_TEST_FIXTURES}"
-    "${PROJECT_SOURCE_DIR}/modules/PlatformSystem/include")
+    "${PROJECT_SOURCE_DIR}/modules/PlatformSystem/include"
+    "${OCEAN_FFT_GENERATED_DIR}")
 target_compile_definitions(OceanFftLoom PRIVATE
     "OCEAN_FFT_FONT_DIR=\"${PROJECT_SOURCE_DIR}/assets/fonts\"")
 target_link_libraries(OceanFftLoom PRIVATE bootstrap_vulkan loom_vulkan loom_vulkan_platform ocean_simulation ocean_foam
