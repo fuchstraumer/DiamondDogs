@@ -31,6 +31,7 @@ namespace planet_loom
         int32_t FrameLimit{ -1 };
         bool Explain{ false };
         bool RiftEnabled{ false };
+        bool ErosionEnabled{ false };
     };
 
     /** Returns the readable pass name for a Loom GPU timer hash, or "<unknown>". */

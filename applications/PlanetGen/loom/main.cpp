@@ -100,6 +100,7 @@ namespace
         bool PlumesEnabled{ false };
         bool PlumesExplicit{ false };
         bool Rift{ true };
+        bool Erosion{ true };
         bool Live{ false };
         bool Paused{ false };
         int32_t ToolPort{ -1 };
@@ -274,6 +275,14 @@ namespace
             {
                 options.Rift = false;
             }
+            else if (text == "--erosion=on")
+            {
+                options.Erosion = true;
+            }
+            else if (text == "--erosion=off")
+            {
+                options.Erosion = false;
+            }
             else if (text == "--live")
             {
                 options.Live = true;
@@ -343,7 +352,7 @@ namespace
         {
             std::println(stderr,
                          "usage: PlanetGenLoom (--reference=<dir> | --preset=earth|atoll) [--shaping=legacy|earth|atoll] "
-                         "[--seed=N] [--plates=4..32] [--rift=on|off] [--order=4..9] [--steps=N] [--dt=F] "
+                         "[--seed=N] [--plates=4..32] [--rift=on|off] [--erosion=on|off] [--order=4..9] [--steps=N] [--dt=F] "
                          "[--width=N] [--height=N] [--mode=0..7|name] [--plumes=default|none] [--words] "
                          "[--verify] [--self-verify] [--timestamps] [--explain] [--capture-dir=<dir>] "
                          "[--live] [--paused] [--frames=N] [--tool-port=0..65535] [--validation=full|none]");
@@ -357,6 +366,11 @@ namespace
     [[nodiscard]] bool RiftWanted(const LoomOptions& options) noexcept
     {
         return options.Rift && !options.Verify && !options.SelfVerify;
+    }
+
+    [[nodiscard]] bool ErosionWanted(const LoomOptions& options) noexcept
+    {
+        return options.Erosion && !options.Verify && !options.SelfVerify;
     }
 
     [[nodiscard]] planet_loom::PlanetLiveOptions ToLiveOptions(const LoomOptions& options)
@@ -390,6 +404,7 @@ namespace
             .FrameLimit = options.FrameLimit,
             .Explain = options.Explain,
             .RiftEnabled = RiftWanted(options),
+            .ErosionEnabled = ErosionWanted(options),
         };
     }
 
@@ -573,9 +588,10 @@ namespace
         const planet_loom::PlumeSystemState plumeState = options.PlumesEnabled
             ? planet_loom::PresetPlumes(options.Preset, initial.InitialTime, options.Seed)
             : planet_loom::EmptyPlumeSystem();
-        const planet_loom::ShapingState shapingState = planet_loom::ShapingStateForPreset(
+        planet_loom::ShapingState shapingState = planet_loom::ShapingStateForPreset(
             options.Shaping.value_or(planet_loom::ShapingPreset::Legacy),
             static_cast<uint32_t>(options.Seed));
+        shapingState.ErosionEnabled = ErosionWanted(options);
 
         imports.RiftEnabled = RiftWanted(options);
 

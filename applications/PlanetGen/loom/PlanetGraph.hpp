@@ -96,6 +96,7 @@ namespace planet_loom
     inline constexpr loom::ResourceKey<loom::Buffer> k_FrontTileCaps{ "Planet.FrontTileCaps" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_CellFronts{ "Planet.CellFronts" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_RiftJob{ "Planet.RiftJob" };
+    inline constexpr loom::ResourceKey<loom::Buffer> k_ErodedRelief{ "Planet.ErodedRelief" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_RiftDispatch{ "Planet.RiftDispatch" };
 
     // Output map image, sampler, and swapchain frame target
@@ -113,7 +114,7 @@ namespace planet_loom
     inline constexpr loom::PassKey k_UiPass{ "Planet.Ui" };
 
     /** Returns all pass keys registered by RegisterPlanetGraph, for GPU timer hash lookup. */
-    [[nodiscard]] const std::array<loom::PassKey, 41>& AllPlanetPassKeys() noexcept;
+    [[nodiscard]] const std::array<loom::PassKey, 43>& AllPlanetPassKeys() noexcept;
 
     /** Records vkCmdFillBuffer(0) on all 12 persistent counter buffers (and live display buffers when configured). */
     class ZeroCountersRecorder
@@ -139,7 +140,7 @@ namespace planet_loom
                              const PlanetGraphConfig& config,
                              const PlanetGraphCallbacks& callbacks);
 
-    /** Triggers all 36 simulation passes (OwnersCS .. MovePlatesAndClearCountersCS) for a single OnTrigger live step. */
+    /** Triggers all 38 simulation passes (OwnersCS .. MovePlatesAndClearCountersCS) for a single OnTrigger live step. */
     void TriggerSimulationStep(loom::Graph& graph);
 
     /** Triggers zeroing of live display/counter buffers and initial OwnersCS evaluation for step-0 live view. */

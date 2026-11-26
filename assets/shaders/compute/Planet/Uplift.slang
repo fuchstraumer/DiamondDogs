@@ -38,6 +38,12 @@ struct ShapingParams
     float AtollLandBias;
     float Pad0;
 
+    // Erosion.slang: diffusion of land height (km^2/My), and the orogenic collapse above an elevation
+    float ErosionDiffusivity;
+    float CollapseElevationKm;
+    float CollapseTimeMy;
+    float ErosionPad;
+
     float4 ProfileLut[4];
 };
 

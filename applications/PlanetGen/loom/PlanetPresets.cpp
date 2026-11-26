@@ -178,10 +178,15 @@ namespace planet_loom
         packed.Flags = (state.SlabDipEnabled ? k_ShapingFlagSlabDipEnabled : 0u) |
                        (state.CoastalNoiseEnabled ? k_ShapingFlagCoastalNoiseEnabled : 0u) |
                        (state.AtollShapingEnabled ? k_ShapingFlagAtollShapingEnabled : 0u) |
-                       (state.CustomProfileLut ? k_ShapingFlagCustomProfileLut : 0u);
+                       (state.CustomProfileLut ? k_ShapingFlagCustomProfileLut : 0u) |
+                       (state.ErosionEnabled ? k_ShapingFlagErosionEnabled : 0u);
         packed.NoiseSeed = state.NoiseSeed;
         packed.AtollLandBias = state.AtollLandBias;
         packed.Pad0 = 0.0f;
+        packed.ErosionDiffusivity = state.ErosionDiffusivity;
+        packed.CollapseElevationKm = state.CollapseElevationKm;
+        packed.CollapseTimeMy = state.CollapseTimeMy;
+        packed.ErosionPad = 0.0f;
 
         for (uint32_t i = 0u; i < 4u; ++i)
         {

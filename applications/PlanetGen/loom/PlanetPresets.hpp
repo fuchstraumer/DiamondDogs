@@ -17,6 +17,7 @@ namespace planet_loom
     inline constexpr uint32_t k_ShapingFlagCoastalNoiseEnabled = 1u << 1u;
     inline constexpr uint32_t k_ShapingFlagAtollShapingEnabled = 1u << 2u;
     inline constexpr uint32_t k_ShapingFlagCustomProfileLut    = 1u << 3u;
+    inline constexpr uint32_t k_ShapingFlagErosionEnabled      = 1u << 4u;
 
     using ShapingParamsHost = planet_gen_shaders::ShapingParams<
         planet_gen_shaders::CookProfile::Spirv,
@@ -62,6 +63,11 @@ namespace planet_loom
         float NoiseFrequency{ 6.0f };
         uint32_t NoiseSeed{ 1337u };
         float AtollLandBias{ 0.0f };
+        // Erosion.slang: off in every preset; the app turns it on (--erosion), and the parity checks keep it off
+        bool ErosionEnabled{ false };
+        float ErosionDiffusivity{ 500.0f };
+        float CollapseElevationKm{ 5.0f };
+        float CollapseTimeMy{ 2.0f };
         std::array<float, 16> ProfileLut{};
     };
 

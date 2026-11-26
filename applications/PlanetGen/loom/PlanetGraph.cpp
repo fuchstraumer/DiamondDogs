@@ -94,12 +94,14 @@ namespace planet_loom
         inline constexpr loom::PassKey k_SumPullPass{ "Planet.Pass.SumPull" };
         inline constexpr loom::PassKey k_FrontDistanceAndUpliftPass{ "Planet.Pass.FrontDistanceAndUplift" };
         inline constexpr loom::PassKey k_ApplyMantlePlumesPass{ "Planet.Pass.ApplyMantlePlumes" };
+        inline constexpr loom::PassKey k_ErodeReliefPass{ "Planet.Pass.ErodeRelief" };
+        inline constexpr loom::PassKey k_ApplyErosionPass{ "Planet.Pass.ApplyErosion" };
         inline constexpr loom::PassKey k_DecideRiftPass{ "Planet.Pass.DecideRift" };
         inline constexpr loom::PassKey k_SplitPlatePass{ "Planet.Pass.SplitPlate" };
         inline constexpr loom::PassKey k_RefreshOwnersAfterRiftPass{ "Planet.Pass.RefreshOwnersAfterRift" };
         inline constexpr loom::PassKey k_MovePlatesAndClearCountersPass{ "Planet.Pass.MovePlatesAndClearCounters" };
 
-        inline constexpr std::array<loom::PassKey, 36> k_SimulationPassKeys
+        inline constexpr std::array<loom::PassKey, 38> k_SimulationPassKeys
         {
             k_OwnersPass,
             k_CountVotesPass,
@@ -133,13 +135,15 @@ namespace planet_loom
             k_SumPullPass,
             k_FrontDistanceAndUpliftPass,
             k_ApplyMantlePlumesPass,
+            k_ErodeReliefPass,
+            k_ApplyErosionPass,
             k_DecideRiftPass,
             k_SplitPlatePass,
             k_RefreshOwnersAfterRiftPass,
             k_MovePlatesAndClearCountersPass,
         };
 
-        inline constexpr std::array<loom::PassKey, 41> k_AllPassKeys
+        inline constexpr std::array<loom::PassKey, 43> k_AllPassKeys
         {
             k_InitZeroCountersPass,
             k_OwnersPass,
@@ -174,6 +178,8 @@ namespace planet_loom
             k_SumPullPass,
             k_FrontDistanceAndUpliftPass,
             k_ApplyMantlePlumesPass,
+            k_ErodeReliefPass,
+            k_ApplyErosionPass,
             k_DecideRiftPass,
             k_SplitPlatePass,
             k_RefreshOwnersAfterRiftPass,
@@ -355,7 +361,7 @@ namespace planet_loom
         }
     }
 
-    const std::array<loom::PassKey, 41>& AllPlanetPassKeys() noexcept
+    const std::array<loom::PassKey, 43>& AllPlanetPassKeys() noexcept
     {
         return k_AllPassKeys;
     }
@@ -482,6 +488,7 @@ namespace planet_loom
         DeclareBuffer(graph, k_FrontTileCaps, loom::ResourceLifetime::Frame, planet::BufferExtent::FrontTilesTimes4, size);
         DeclareBuffer(graph, k_CellFronts, displayLifetime, planet::BufferExtent::CellsTimes2, size);
         DeclareBuffer(graph, k_RiftJob, loom::ResourceLifetime::Frame, planet::BufferExtent::CollideJob, size);
+        DeclareBuffer(graph, k_ErodedRelief, loom::ResourceLifetime::Frame, planet::BufferExtent::Cells, size);
         DeclareBuffer(graph, k_RiftDispatch, loom::ResourceLifetime::Frame, planet::BufferExtent::IndirectDispatch, size);
 
         // RenderMap output image
@@ -1015,7 +1022,37 @@ namespace planet_loom
                 pass.DispatchIndirect(k_LiveDispatch, 0);
             });
 
-            // 33. DecideRiftCS: one wave picks at most one plate to split, and a free slot for its new half
+            // 33. ErodeReliefCS: diffusion of land height and orogenic collapse, into ErodedRelief (Erosion.slang)
+            seq.AddDispatch(k_ErodeReliefPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+            {
+                namespace ep = pl::ErodeReliefCS;
+                pass.Shader(k_Module, "ErodeReliefCS");
+                pass.Bind(ep::StepParams, k_StepParams);
+                pass.Bind(ep::UpliftConstants, k_UpliftConstants);
+                pass.Bind(ep::ShapingConstants, k_ShapingConstants);
+                pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
+                pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
+                pass.Bind(ep::CrustStateIn, k_CrustState);
+                pass.Bind(ep::ErodedRelief, k_ErodedRelief, loom::AccessModifier::WriteOnly);
+                pass.Bind(ep::LiveCell, k_LiveCell, loom::AccessModifier::ReadOnly);
+                pass.Bind(ep::PlateLiveOffset, k_PlateLiveOffset, loom::AccessModifier::ReadOnly);
+                pass.DispatchIndirect(k_LiveDispatch, 0);
+            });
+
+            // 34. ApplyErosionCS: copies ErodedRelief into CrustState
+            seq.AddDispatch(k_ApplyErosionPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+            {
+                namespace ep = pl::ApplyErosionCS;
+                pass.Shader(k_Module, "ApplyErosionCS");
+                pass.Bind(ep::StepParams, k_StepParams);
+                pass.Bind(ep::CrustState, k_CrustState);
+                pass.Bind(ep::ErodedReliefIn, k_ErodedRelief);
+                pass.Bind(ep::LiveCell, k_LiveCell, loom::AccessModifier::ReadOnly);
+                pass.Bind(ep::PlateLiveOffset, k_PlateLiveOffset, loom::AccessModifier::ReadOnly);
+                pass.DispatchIndirect(k_LiveDispatch, 0);
+            });
+
+            // 35. DecideRiftCS: one wave picks at most one plate to split, and a free slot for its new half
             seq.AddDispatch(k_DecideRiftPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::DecideRiftCS;
@@ -1038,7 +1075,7 @@ namespace planet_loom
                 pass.DispatchThreads(1, 1, 1);
             });
 
-            // 34. SplitPlateCS: moves one side of the cut line to the new plate (zero groups when no plate rifts)
+            // 36. SplitPlateCS: moves one side of the cut line to the new plate (zero groups when no plate rifts)
             seq.AddDispatch(k_SplitPlatePass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::SplitPlateCS;
@@ -1051,7 +1088,7 @@ namespace planet_loom
                 pass.DispatchIndirect(k_RiftDispatch, 0);
             });
 
-            // 35. RefreshOwnersAfterRiftCS: points that showed a moved cell show the new plate
+            // 37. RefreshOwnersAfterRiftCS: points that showed a moved cell show the new plate
             seq.AddDispatch(k_RefreshOwnersAfterRiftPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::RefreshOwnersAfterRiftCS;
@@ -1065,7 +1102,7 @@ namespace planet_loom
                 pass.DispatchIndirect(k_RiftDispatch, 0);
             });
 
-            // 36. MovePlatesAndClearCountersCS
+            // 38. MovePlatesAndClearCountersCS
             seq.AddDispatch(k_MovePlatesAndClearCountersPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::MovePlatesAndClearCountersCS;

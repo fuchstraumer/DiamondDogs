@@ -591,6 +591,7 @@ namespace planet_loom
         bool LiveSessionController::SupplyGraphResources(const PlanetLiveOptions& opts)
         {
             Imports.RiftEnabled = opts.RiftEnabled;
+            Shaping.ErosionEnabled = opts.ErosionEnabled;
 
             if (!Imports.SupplyAll(*Graph, Resources, Initial, opts.Dt, opts.Order,
                                    opts.Width, opts.Height, opts.Mode, UseBytes, Plumes, Shaping))
@@ -758,7 +759,9 @@ namespace planet_loom
 
         std::optional<std::string> LiveSessionController::ApplyShapingPreset(ShapingPreset preset)
         {
+            const bool erosionEnabled = Shaping.ErosionEnabled;
             Shaping = ShapingStateForPreset(preset, static_cast<uint32_t>(Seed));
+            Shaping.ErosionEnabled = erosionEnabled;
             OnShapingChanged("");
             return std::nullopt;
         }

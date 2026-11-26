@@ -471,6 +471,10 @@ struct foundation::reflect::Describe<planet_loom::ShapingState>
         Field<State, float>{ "NoiseFrequency", &State::NoiseFrequency, { .Range = FieldRange{ 0.5, 40.0 } } },
         Field<State, uint32_t>{ "NoiseSeed", &State::NoiseSeed },
         Field<State, float>{ "AtollLandBias", &State::AtollLandBias, { .Unit = "km", .Range = FieldRange{ -3.0, 3.0 } } },
+        Field<State, bool>{ "ErosionEnabled", &State::ErosionEnabled },
+        Field<State, float>{ "ErosionDiffusivity", &State::ErosionDiffusivity, { .Unit = "km^2/My", .Range = FieldRange{ 0.0, 5000.0 } } },
+        Field<State, float>{ "CollapseElevationKm", &State::CollapseElevationKm, { .Unit = "km", .Range = FieldRange{ 1.0, 10.0 } } },
+        Field<State, float>{ "CollapseTimeMy", &State::CollapseTimeMy, { .Unit = "My", .Range = FieldRange{ 0.0, 100.0 } } },
     };
 };
 
@@ -993,7 +997,9 @@ namespace
             }
             else
             {
+                const bool erosionEnabled = Bridge.Host.Shaping.ErosionEnabled;
                 Bridge.Host.Shaping = planet_loom::ShapingStateForPreset(*preset, Bridge.Host.Shaping.NoiseSeed);
+                Bridge.Host.Shaping.ErosionEnabled = erosionEnabled;
                 Bridge.OnShapingChanged("");
             }
 

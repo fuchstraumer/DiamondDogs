@@ -424,3 +424,54 @@ Modes 0 to 6 are for agents and debugging: `planet_diagnostics.py` classifies th
   tick at sea level.
 
 It shows the raw simulation (no ShapingParams noise), so what you see is what the crust arrays hold.
+
+## The landscape budget: diffusion and orogenic collapse (2026-11-26)
+
+Before this pass the only sink for relief was `ContinentErosion` (relief × (1 − 0.06 dt / 10 km) each step, Cortial
+2019), and uplift outran it: on the earth preset the snow area (above about 6 km) grew to 8.3 % of the sphere by
+400 My, and most continental interiors became plateaus. `Erosion.slang` adds two terms on land (the crust above sea
+level). They are the first, cheap stand-in for real erosion:
+
+- **Diffusion of land height.** `h' = h + κ Σ (h_n − h)` over the 4 edge neighbours in the plate's own HEALPix grid,
+  with `h = max(elevation, 0)` and `κ = D dt / dx²`. Mountains widen into foothills and lose height. Land at the coast
+  wears down toward sea level, and that sediment leaves the model (no shelf deposit yet). A neighbour that is dead in
+  the plate frame is the plate edge: no flux crosses it. `D` is `ErosionDiffusivity`, 500 km²/My by default
+  (`√(D t)` is about 220 km after 100 My).
+- **Orogenic collapse.** Elevation above `CollapseElevationKm` (5 km) relaxes toward it with time constant
+  `CollapseTimeMy` (2 My). Thick crust flows sideways under its own weight, which is why real plateaus stall near
+  5 km (Tibet, the Altiplano).
+
+`ErodeReliefCS` computes the new relief of every live cell from the relief of the step before, into `ErodedRelief`
+(by live-list slot), and `ApplyErosionCS` copies it back, so no cell reads a neighbour that this step already changed.
+Volcanic cells (`OrogenyVolcanic`) keep the erosion of `Plumes.slang`. The passes run after `ApplyMantlePlumesCS`
+and before the rift passes.
+
+The four values are in `ShapingParams` (and the reflected `planet.shaping` object). `ErosionEnabled` is false in every
+shaping preset, so `LegacyShapingState` and the check harness are unchanged; PlanetGenLoom turns it on
+(`--erosion=on|off`, on by default), and `--verify` and `--self-verify` force it off.
+
+**Limit:** explicit diffusion needs `κ ≤ 0.25`, so the pass clamps it at 0.24. At order 7 (dx ≈ 51 km, dt 0.5 My)
+κ is 0.096. At order 8 (dx ≈ 25 km) the nominal κ is 0.39, so the clamp cuts the effective `D` to about 62 %. Two
+substeps would fix it.
+
+Cost (RTX 4080, GPU idle): `ErodeReliefCS` 8.2 µs and `ApplyErosionCS` 5.1 µs at order 7; 15.4 and 9.2 µs at order 8.
+
+Measured on the earth preset, seed 42, order 7, dt 0.5, rifting on (`planet_diagnostics.py`, percent of the sphere):
+
+| Run, 400 My | Land | Highland | Snow | Largest landmass |
+|---|---|---|---|---|
+| No erosion | 37.3 | 26.0 | 8.30 | 28.9 |
+| Diffusion, collapse τ 5 My | 37.0 | 28.6 | 0.73 | 33.3 |
+| Collapse τ 2 My | 37.3 | 26.3 | 0.00 | 23.3 |
+| τ 2, reach 800 / 500 km | 36.1 | 23.5 | 0.04 | 19.2 |
+| τ 2, reach 800 / 500 km, `ContinentErosion` 0.25 | 34.8 | 8.9 | 0.00 | 17.4 |
+
+Collapse removes the snow plateaus. The broad highlands come from the uplift reach (`ContinentalReachKm` 1800 and
+`CollisionReachKm` 900 put most continental area inside some uplift zone) and from a weak `ContinentErosion` (0.06 is
+an e-folding of about 170 My). With the last row the mountains read as belts on low continents. Those three values
+are not changed in any preset yet. Land still grows (27 % to 35–37 %): arc accretion adds continent and nothing
+removes it.
+
+Next: a stream power law on a flow network (`DocParse/results`: Jain 2024 FastFlow, Barnes 2019 parallel FastScape,
+Tzathas 2024 analytical erosion, Schott 2023), Airy isostasy (Braun 2018: the surface falls only about 17 % of the
+eroded thickness), sediment on the shelves, and a continental sink (subduction erosion).
