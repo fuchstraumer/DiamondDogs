@@ -22,7 +22,17 @@ NearestCandidate MakeCandidate(float3 worldPoint, float4 frontPoint)
 
 NearestCandidate Nearest(NearestCandidate lhs, NearestCandidate rhs)
 {
-    return (rhs.Cosine > lhs.Cosine) ? rhs : lhs;
+    if (rhs.Cosine > lhs.Cosine)
+    {
+        return rhs;
+    }
+
+    if (rhs.Cosine == lhs.Cosine && rhs.Index >= 0 && (lhs.Index < 0 || rhs.Index < lhs.Index))
+    {
+        return rhs;
+    }
+
+    return lhs;
 }
 
 void StoreFrontPointData(uint where, float3 position, uint point)
@@ -58,6 +68,11 @@ void CountFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
 
     const OwnersData owners = LoadOwnersIn(point);
     const int plate = owners.GetBestPlate();
+    if (plate < 0)
+    {
+        return;
+    }
+
     PlateFrontPointCount.Add(uint(plate), 1u);
     if (frontType == FrontTypeCollision && owners.GetSecondPlate() >= 0)
     {
@@ -111,7 +126,13 @@ void ScatterFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
     // integral slot in the lattice to an actual 3D point in space: write that out, along
     // with it's point index into a dense array of front points for further processing.
     const OwnersData owners = LoadOwnersIn(point);
-    const uint plate = uint(owners.GetBestPlate());
+    const int bestPlate = owners.GetBestPlate();
+    if (bestPlate < 0)
+    {
+        return;
+    }
+
+    const uint plate = uint(bestPlate);
     // `PlateFrontPointCursor` is an atomic counter, so multiple threads can increment it concurrently
     // to write to the same plate's front point slots without causing race conditions.
     const uint slot = PlateFrontPointOffset.Load(plate) + PlateFrontPointCursor.Add(plate, 1u);
@@ -143,7 +164,7 @@ void SortFrontPointsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupT
     const uint end = PlateFrontPointOffset.Load(plate + 1u);
     const uint count = end - begin;
 
-    if (count <= 64u || count > MaxSortableFrontsPerPlate)
+    if (count <= 1u || count > MaxSortableFrontsPerPlate)
     {
         return;
     }
@@ -566,7 +587,7 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
         for (uint sharedStart = alignedSharedBegin; sharedStart < sharedEnd; sharedStart += SearchBlockSize)
         {
             const float4 tileCap = FrontTileCaps.Load(sharedStart >> 6u);
-            const float maxAllowed = min(3.14159265f, groupReachRad + groupAngle + tileCap.w);
+            const float maxAllowed = min(3.14159265f, groupReachRad + groupAngle + tileCap.w + 1.0e-3f);
             if (clamp(dot(groupCenter, tileCap.xyz), -1.0f, 1.0f) < cos(maxAllowed))
             {
                 continue;

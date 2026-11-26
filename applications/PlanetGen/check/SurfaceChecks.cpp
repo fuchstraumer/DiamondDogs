@@ -10,6 +10,7 @@
 #include "PlanetStep.hpp"
 #include "ReferenceSet.hpp"
 #include "RhiHandle.hpp"
+#include "ShaderLibrary.host.hpp"
 #include "StepState.hpp"
 #include "math/MathStorage.hpp"
 #include <algorithm>
@@ -293,10 +294,9 @@ namespace planet
         {
             ReferenceBufferSpec{ "PreviousPlate", "previous_plate", ReferenceArrayForm::Int, false },
         };
-        const std::array<ZeroBufferSpec, 2> zeroed
+        const std::array<ZeroBufferSpec, 1> zeroed
         {
             ZeroBufferSpec{ "FrontData", static_cast<size_t>(pointCount) * 4u * sizeof(float), true },
-            ZeroBufferSpec{ "PlateFrontPointCount", static_cast<size_t>(plateCount) * sizeof(uint32_t), false },
         };
         GpuBuffers buffers(context.Session.Resources());
 
@@ -986,5 +986,260 @@ namespace planet
     bool RunCollideCheck(CheckContext& context)
     {
         return RunCollideSubtestA(context) && RunCollideSubtestB(context);
+    }
+
+    bool RunPlumesCheck(CheckContext& context)
+    {
+        constexpr uint32_t k_Order = 5u;
+        constexpr uint32_t k_PointCount = 12288u;
+        constexpr uint32_t k_PlateCount = 1u;
+        constexpr float k_Dt = 1.0f;
+        constexpr uint32_t k_Steps = 45u;
+        constexpr float k_RadToDeg = 57.2957795f;
+        constexpr std::array<std::string_view, 2> k_EntryPoints{ "ApplyMantlePlumesCS", "MovePlatesAndClearCountersCS" };
+
+        const PlanetGpuResult<std::unique_ptr<PlanetShaders>> shaders =
+            context.Session.CreateShaders(context.CrustFlags, k_EntryPoints);
+
+        if (!shaders.has_value())
+        {
+            return false;
+        }
+
+        const CrustFlagStorage storage = (*shaders)->CrustFlags();
+        const size_t flagBytes = storage == CrustFlagStorage::Bytes ? k_PointCount : (k_PointCount * sizeof(uint32_t));
+        std::vector<uint8_t> packedFlags(flagBytes, 0u);
+
+        if (storage == CrustFlagStorage::Bytes)
+        {
+            std::ranges::fill(packedFlags, uint8_t{ 1u });
+        }
+        else
+        {
+            for (uint32_t i = 0u; i < k_PointCount; ++i)
+            {
+                packedFlags[static_cast<size_t>(i) * 4u] = 1u;
+            }
+        }
+
+        std::vector<uint32_t> liveCells(k_PointCount);
+        for (uint32_t i = 0u; i < k_PointCount; ++i)
+        {
+            liveCells[i] = i;
+        }
+
+        const std::array<uint32_t, 2> liveOffset{ 0u, k_PointCount };
+        const std::array<math::Float4, 3> rotations
+        {
+            math::Float4{ 1.0f, 0.0f, 0.0f, 0.0f },
+            math::Float4{ 0.0f, 1.0f, 0.0f, 0.0f },
+            math::Float4{ 0.0f, 0.0f, 1.0f, 0.0f },
+        };
+        const std::array<math::Float4, 1> poleRates{ math::Float4{ 0.0f, 0.0f, 1.0f, 80.0f / 6370.0f } };
+        const std::array<math::Float4, 1> plateRift{ math::Float4{ 0.0f, 0.0f, 1.0f, 0.0f } };
+        const std::array<math::Int4, 1> plateCounters{ math::Int4{ 0, 0, 0, static_cast<int32_t>(k_PointCount) } };
+        const std::array<UniformValue, 4> paramsValues
+        {
+            UniformUint("PointCount", k_PointCount),
+            UniformUint("PlateCount", k_PlateCount),
+            UniformFloat("TimeStepMy", k_Dt),
+            UniformUint("HealpixOrder", k_Order),
+        };
+        const std::array<UniformValue, 1> movePlatesValues{ UniformFloat("Time", 25.0f) };
+
+        using PlumeParamsHost = planet_gen_shaders::PlumeParams<
+            planet_gen_shaders::CookProfile::Spirv,
+            ::lodestone::LayoutRule::Std140>;
+        PlumeParamsHost plumes{};
+        plumes.PlumeCount = 1u;
+        plumes.Time = 25.0f;
+        plumes.GlobalStrength = 1.0f;
+        plumes.OceanicErosionRate = 0.015f;
+        plumes.SwellScale = 1.0f;
+        plumes.AccretionThresholdKm = 0.0f;
+        plumes.Flags = 1u;
+        plumes.Plumes[0].PositionAndRadius = math::Float4{ 1.0f, 0.0f, 0.0f, 115.0f };
+        plumes.Plumes[0].DriftAndSpeed = math::Float4{ 0.0f, 0.0f, 1.0f, 0.0f };
+        plumes.Plumes[0].SwellAndFlux = math::Float4{ 400.0f, 1.2f, 5.0f, 2.5f };
+        plumes.Plumes[0].TimingAndPulse = math::Float4{ 0.0f, 0.0f, 15.0f, 0.35f };
+
+        GpuBuffers buffers(context.Session.Resources());
+        const std::string_view flagBuffer = CrustFlagBufferNames(storage);
+
+        if (buffers.AddUniformFrom(**shaders, "ApplyMantlePlumesCS", "StepParams", paramsValues) != PlanetGpuError::Success ||
+            buffers.AddUniformFrom(**shaders, "MovePlatesAndClearCountersCS", "MovePlatesConstants", movePlatesValues) != PlanetGpuError::Success ||
+            buffers.AddUniform("PlumeConstants", std::as_bytes(std::span{ &plumes, 1u })) != PlanetGpuError::Success ||
+            buffers.AddStorage(flagBuffer, std::as_bytes(std::span{ packedFlags }), false) != PlanetGpuError::Success ||
+            buffers.AddZeroedStorage("CrustState", static_cast<size_t>(k_PointCount) * sizeof(math::Float4), true) != PlanetGpuError::Success ||
+            buffers.AddStorage("LiveCell", std::as_bytes(std::span{ liveCells }), false) != PlanetGpuError::Success ||
+            buffers.AddStorage("PlateLiveOffset", std::as_bytes(std::span{ liveOffset }), false) != PlanetGpuError::Success ||
+            buffers.AddStorage("Rotations", std::as_bytes(std::span{ rotations }), true) != PlanetGpuError::Success ||
+            buffers.AddStorage("PoleRatesIn", std::as_bytes(std::span{ poleRates }), false) != PlanetGpuError::Success ||
+            buffers.AddStorage("PlateRiftIn", std::as_bytes(std::span{ plateRift }), false) != PlanetGpuError::Success ||
+            buffers.AddStorage("PlateCounters", std::as_bytes(std::span{ plateCounters }), false) != PlanetGpuError::Success ||
+            buffers.AddZeroedStorage("PlateContinentalCount", sizeof(uint32_t), false) != PlanetGpuError::Success ||
+            buffers.AddZeroedStorage("PlatePull", 3u * sizeof(int32_t), false) != PlanetGpuError::Success ||
+            buffers.AddZeroedStorage("PlateLiveCursor", sizeof(uint32_t), false) != PlanetGpuError::Success ||
+            buffers.AddZeroedStorage("PlateFrontPointCount", sizeof(uint32_t), false) != PlanetGpuError::Success ||
+            buffers.AddZeroedStorage("PlateFrontPointCursor", sizeof(uint32_t), false) != PlanetGpuError::Success ||
+            buffers.AddZeroedStorage("PairVotes", sizeof(uint32_t), false) != PlanetGpuError::Success ||
+            buffers.AddZeroedStorage("LowVotes", sizeof(uint32_t), false) != PlanetGpuError::Success ||
+            buffers.AddZeroedStorage("CollisionPairCount", sizeof(uint32_t), false) != PlanetGpuError::Success ||
+            buffers.AddZeroedStorage("CollisionPairSpeedSum", sizeof(uint32_t), false) != PlanetGpuError::Success ||
+            buffers.AddZeroedStorage("CollisionPairDeepCount", sizeof(uint32_t), false) != PlanetGpuError::Success)
+        {
+            return false;
+        }
+
+        const PlanetGpuResult<std::unique_ptr<PassBindings>> bindings = (*shaders)->Bind(buffers.Bound());
+        if (!bindings.has_value())
+        {
+            return false;
+        }
+
+        for (uint32_t step = 0u; step < k_Steps; ++step)
+        {
+            const float time = 25.0f + static_cast<float>(step + 1u) * k_Dt;
+            plumes.Time = time;
+            const std::array<UniformValue, 1> timeVal{ UniformFloat("Time", time) };
+
+            if (buffers.UpdateUniform("PlumeConstants", std::as_bytes(std::span{ &plumes, 1u })) != PlanetGpuError::Success ||
+                buffers.UpdateUniformFrom(**shaders, "MovePlatesAndClearCountersCS", "MovePlatesConstants", timeVal) != PlanetGpuError::Success)
+            {
+                return false;
+            }
+
+            rhi::CommandBuffer cmd = context.Session.BeginCommands();
+            (*shaders)->RecordDispatch(cmd, **bindings, "ApplyMantlePlumesCS", k_PointCount);
+            RecordComputeBarrier(cmd);
+            (*shaders)->RecordDispatch(cmd, **bindings, "MovePlatesAndClearCountersCS", 1u);
+
+            if (step + 1u == k_Steps)
+            {
+                buffers.RecordReadbackCopies(cmd);
+            }
+
+            if (!context.Session.SubmitAndWait(cmd))
+            {
+                return false;
+            }
+        }
+
+        const PlanetGpuResult<std::vector<math::Float4>> statesAfterChain = buffers.ReadFloat4s("CrustState");
+        const PlanetGpuResult<std::vector<math::Float4>> finalRot = buffers.ReadFloat4s("Rotations");
+
+        if (!statesAfterChain.has_value() || !finalRot.has_value() ||
+            statesAfterChain->size() != k_PointCount || finalRot->size() < 3u)
+        {
+            return false;
+        }
+
+        const math::Float4& r0 = (*finalRot)[0];
+        const math::Float4& r1 = (*finalRot)[1];
+        const math::Float4& r2 = (*finalRot)[2];
+
+        float hotspotMaxRelief = 0.0f;
+        float hotspotMaxTime = 0.0f;
+        int32_t upstreamVolcanic = 0;
+        std::array<int32_t, 3> binCount{ 0, 0, 0 };
+        std::array<double, 3> binTimeSum{ 0.0, 0.0, 0.0 };
+
+        for (uint32_t cell = 0u; cell < k_PointCount; ++cell)
+        {
+            const math::Float4& cs = (*statesAfterChain)[cell];
+            const int32_t orogenyType = std::bit_cast<int32_t>(cs.w);
+            if (orogenyType != 4)
+            {
+                continue;
+            }
+
+            const std::array<double, 3> lp = HealpixPixToVec(cell, k_Order);
+            const double wx = r0.x * lp[0] + r0.y * lp[1] + r0.z * lp[2];
+            const double wy = r1.x * lp[0] + r1.y * lp[1] + r1.z * lp[2];
+            const double wz = r2.x * lp[0] + r2.y * lp[1] + r2.z * lp[2];
+            const double lonDeg = std::atan2(wy, wx) * static_cast<double>(k_RadToDeg);
+            const double latDeg = std::asin(std::clamp(wz, -1.0, 1.0)) * static_cast<double>(k_RadToDeg);
+
+            if (std::fabs(latDeg) > 6.0)
+            {
+                continue;
+            }
+
+            if (lonDeg >= -3.0 && lonDeg <= 3.0)
+            {
+                hotspotMaxRelief = std::max(hotspotMaxRelief, cs.x);
+                hotspotMaxTime = std::max(hotspotMaxTime, cs.z);
+            }
+            else if (lonDeg < -5.0 && lonDeg >= -25.0)
+            {
+                ++upstreamVolcanic;
+            }
+            else if (lonDeg > 3.5 && lonDeg <= 7.0)
+            {
+                ++binCount[0];
+                binTimeSum[0] += static_cast<double>(cs.z);
+            }
+            else if (lonDeg > 7.0 && lonDeg <= 10.5)
+            {
+                ++binCount[1];
+                binTimeSum[1] += static_cast<double>(cs.z);
+            }
+            else if (lonDeg > 10.5 && lonDeg <= 16.0)
+            {
+                ++binCount[2];
+                binTimeSum[2] += static_cast<double>(cs.z);
+            }
+        }
+
+        // Verify PlumeCount == 0 no-op invariance on an extra dispatch
+        plumes.PlumeCount = 0u;
+        plumes.Time = 999.0f;
+        if (buffers.UpdateUniform("PlumeConstants", std::as_bytes(std::span{ &plumes, 1u })) != PlanetGpuError::Success)
+        {
+            return false;
+        }
+
+        {
+            rhi::CommandBuffer cmd = context.Session.BeginCommands();
+            (*shaders)->RecordDispatch(cmd, **bindings, "ApplyMantlePlumesCS", k_PointCount);
+            buffers.RecordReadbackCopies(cmd);
+            if (!context.Session.SubmitAndWait(cmd))
+            {
+                return false;
+            }
+        }
+
+        const PlanetGpuResult<std::vector<math::Float4>> statesAfterNoOp = buffers.ReadFloat4s("CrustState");
+        if (!statesAfterNoOp.has_value() || statesAfterNoOp->size() != k_PointCount)
+        {
+            return false;
+        }
+
+        int32_t noOpDiffs = 0;
+        for (uint32_t cell = 0u; cell < k_PointCount; ++cell)
+        {
+            if (std::memcmp(&(*statesAfterChain)[cell], &(*statesAfterNoOp)[cell], sizeof(math::Float4)) != 0)
+            {
+                ++noOpDiffs;
+            }
+        }
+
+        const double mean0 = binCount[0] > 0 ? (binTimeSum[0] / binCount[0]) : 0.0;
+        const double mean1 = binCount[1] > 0 ? (binTimeSum[1] / binCount[1]) : 0.0;
+        const double mean2 = binCount[2] > 0 ? (binTimeSum[2] / binCount[2]) : 0.0;
+        const int32_t totalTrail = binCount[0] + binCount[1] + binCount[2];
+
+        const bool passed = hotspotMaxRelief >= 2.0f &&
+                            hotspotMaxTime >= 68.0f &&
+                            totalTrail >= 6 &&
+                            binCount[0] > 0 && binCount[1] > 0 && binCount[2] > 0 &&
+                            mean0 > mean1 && mean1 > mean2 &&
+                            upstreamVolcanic == 0 &&
+                            noOpDiffs == 0;
+
+        std::println("plumes (order {}): peak_relief={:.2f} km peak_time={:.1f} My trail={} bins=({}/{}/{}) ages=({:.1f}>{:.1f}>{:.1f}) upstream={} noop_diffs={}",
+                     k_Order, hotspotMaxRelief, hotspotMaxTime, totalTrail,
+                     binCount[0], binCount[1], binCount[2], mean0, mean1, mean2, upstreamVolcanic, noOpDiffs);
+        return passed;
     }
 }

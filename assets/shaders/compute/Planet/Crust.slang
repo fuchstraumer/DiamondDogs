@@ -100,12 +100,6 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
         if (!collision)
         {
             StoreCrustFlags(underFlat, PackCrustFlags(false, crustFlagsUnder.IsContinental()));
-            PlateFrontPointCount.Add(uint(topPlate), 1u);
-        }
-        else
-        {
-            PlateFrontPointCount.Add(uint(topPlate), 1u);
-            PlateFrontPointCount.Add(uint(underPlate), 1u);
         }
     }
     else if (topPlate >= 0)
@@ -170,10 +164,6 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
 
             const uint neighborFlat = uint(neighborPlate) * StepParams.PointCount + uint(neighborOwners.GetBestCell());
             const CrustFlagBits neighborFlags = LoadCrustFlags(neighborFlat);
-            if (!neighborFlags.IsAlive())
-            {
-                continue;
-            }
 
             uint candidateType = FrontTypeNone;
             if (topFlags.IsContinental() && neighborFlags.IsContinental())
@@ -212,7 +202,6 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
                                             bestNeighborPlate,
                                             bestNeighborFlat,
                                             bestFrontType);
-            PlateFrontPointCount.Add(uint(topPlate), 1u);
         }
     }
 

@@ -22,7 +22,7 @@ namespace planet
     class GpuBuffers;
 
     /** The entry points of one step, passes 1 to 6. Create PlanetShaders with these. */
-    inline constexpr std::array<std::string_view, 30> k_StepEntryPoints
+    inline constexpr std::array<std::string_view, 31> k_StepEntryPoints
     {
         "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
         "DetectCollisionsCS", "SelectCollisionPairCS", "BkeTileInitAndLocalUnionCS", "BkeStitchSeamsCS", "BkeFlattenCS",
@@ -30,12 +30,12 @@ namespace planet
         "ComputeSutureCapSpreadCS", "NearestSuturePointCS", "EscapeHistogramCS", "EscapePrefixSumCS", "ApplyEscapeAndSurgeCS",
         "RefreshOwnersAfterCollisionCS",
         "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
-        "OffsetFrontPointsCS", "ScatterFrontPointsCS", "SortFrontPointsCS", "BuildFrontTileCapsCS",
+        "CountFrontPointsCS", "OffsetFrontPointsCS", "ScatterFrontPointsCS", "SortFrontPointsCS", "BuildFrontTileCapsCS",
         "SumPullCS", "FrontDistanceAndUpliftCS",
     };
 
     /** The entry points of one live simulation step: passes 1 to 6 plus MovePlatesAndClearCountersCS. */
-    inline constexpr std::array<std::string_view, 31> k_LiveStepEntryPoints
+    inline constexpr std::array<std::string_view, 32> k_LiveStepEntryPoints
     {
         "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
         "DetectCollisionsCS", "SelectCollisionPairCS", "BkeTileInitAndLocalUnionCS", "BkeStitchSeamsCS", "BkeFlattenCS",
@@ -43,7 +43,7 @@ namespace planet
         "ComputeSutureCapSpreadCS", "NearestSuturePointCS", "EscapeHistogramCS", "EscapePrefixSumCS", "ApplyEscapeAndSurgeCS",
         "RefreshOwnersAfterCollisionCS",
         "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
-        "OffsetFrontPointsCS", "ScatterFrontPointsCS", "SortFrontPointsCS", "BuildFrontTileCapsCS",
+        "CountFrontPointsCS", "OffsetFrontPointsCS", "ScatterFrontPointsCS", "SortFrontPointsCS", "BuildFrontTileCapsCS",
         "SumPullCS", "FrontDistanceAndUpliftCS", "MovePlatesAndClearCountersCS",
     };
 

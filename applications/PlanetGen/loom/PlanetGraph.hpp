@@ -5,12 +5,14 @@
 #include "GraphBuilder.hpp"
 #include "LoomGraph.hpp"
 #include "LoomKeys.hpp"
+#include "MantlePlumes.hpp"
 #include "PassBuilders.hpp"
 #include "RecordContext.hpp"
 #include "ResourceTypes.hpp"
 #include "SequenceBuilder.hpp"
 #include "ShaderLibrary.host.hpp"
 #include "StepState.hpp"
+#include "utility/Delegate.hpp"
 #include <array>
 #include <cstdint>
 #include <string_view>
@@ -19,6 +21,10 @@ class ResourceContext;
 
 namespace planet_loom
 {
+    using PresentMapParamsHost = planet_gen_shaders::PresentMapParams<
+        planet_gen_shaders::CookProfile::Spirv,
+        ::lodestone::LayoutRule::Std140>;
+
     struct PlanetGraphConfig
     {
         uint32_t HealpixOrder{ 7u };
@@ -27,6 +33,9 @@ namespace planet_loom
         uint32_t MapHeight{ 512u };
         bool UseByteCrustFlags{ true };
         bool RenderOnTrigger{ false };
+        bool InteractiveControl{ false };
+        bool LiveMode{ false };
+        bool EnableCapturePass{ false };
     };
 
     // Imported uniform buffers
@@ -34,7 +43,9 @@ namespace planet_loom
     inline constexpr loom::ResourceKey<loom::Buffer> k_Pass3Constants{ "Planet.Pass3Constants" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_UpliftConstants{ "Planet.UpliftConstants" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_MovePlatesConstants{ "Planet.MovePlatesConstants" };
+    inline constexpr loom::ResourceKey<loom::Buffer> k_PlumeConstants{ "Planet.PlumeConstants" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_RenderMapConstants{ "Planet.RenderMapConstants" };
+    inline constexpr loom::ResourceKey<loom::Buffer> k_PresentConstants{ "Planet.PresentConstants" };
 
     // Imported persistent simulation state buffers
     inline constexpr loom::ResourceKey<loom::Buffer> k_CrustFlags{ "Planet.CrustFlags" };
@@ -59,7 +70,7 @@ namespace planet_loom
     inline constexpr loom::ResourceKey<loom::Buffer> k_PlateCounters{ "Planet.PlateCounters" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_PlatePull{ "Planet.PlatePull" };
 
-    // Declared frame scratch buffers (first-written each frame with AccessModifier::WriteOnly)
+    // Declared scratch (headless) / persistent-in-live-mode buffers
     inline constexpr loom::ResourceKey<loom::Buffer> k_Owners{ "Planet.Owners" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_FrontData{ "Planet.FrontData" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_CollisionJob{ "Planet.CollisionJob" };
@@ -82,28 +93,52 @@ namespace planet_loom
     inline constexpr loom::ResourceKey<loom::Buffer> k_FrontTileCaps{ "Planet.FrontTileCaps" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_CellFronts{ "Planet.CellFronts" };
 
-    // Output map image
+    // Output map image, sampler, and swapchain frame target
     inline constexpr loom::ResourceKey<loom::Image> k_MapOutput{ "Planet.MapOutput" };
+    inline constexpr loom::ResourceKey<loom::Sampler> k_MapSampler{ "Planet.MapSampler" };
+    inline constexpr loom::FrameTargetKey k_Screen{ "Planet.Screen" };
 
     // Sequence and passes
     inline constexpr loom::SequenceKey k_StepSequence{ "Planet.StepSequence" };
     inline constexpr loom::PassKey k_InitZeroCountersPass{ "Planet.InitZeroCounters" };
+    inline constexpr loom::PassKey k_OwnersPass{ "Planet.Pass.Owners" };
     inline constexpr loom::PassKey k_RenderMapPass{ "Planet.RenderMap" };
+    inline constexpr loom::PassKey k_CaptureMapPass{ "Planet.CaptureMap" };
+    inline constexpr loom::PassKey k_PresentMapPass{ "Planet.PresentMap" };
+    inline constexpr loom::PassKey k_UiPass{ "Planet.Ui" };
 
     /** Returns all pass keys registered by RegisterPlanetGraph, for GPU timer hash lookup. */
-    [[nodiscard]] const std::array<loom::PassKey, 33>& AllPlanetPassKeys() noexcept;
+    [[nodiscard]] const std::array<loom::PassKey, 38>& AllPlanetPassKeys() noexcept;
 
-    /** Records vkCmdFillBuffer(0) on all 11 persistent counter buffers before frame 0. */
+    /** Records vkCmdFillBuffer(0) on all 11 persistent counter buffers (and live display buffers when configured). */
     class ZeroCountersRecorder
     {
     public:
+        void SetIncludeLiveDisplayBuffers(bool include) noexcept;
         void Record(loom::RecordContext& ctx);
+
+    private:
+        bool includeLiveDisplayBuffers{ false };
     };
 
-    /** Declares/imports all resources and adds the 33-pass PlanetGen simulation + render sequence to `graph`. */
+    /** Optional callbacks supplied to RegisterPlanetGraph when capture or ImGui passes are active. */
+    struct PlanetGraphCallbacks
+    {
+        ZeroCountersRecorder* ZeroCounters{ nullptr };
+        Delegate<void(loom::RecordContext&)> CaptureCallback{};
+        Delegate<void(loom::RecordContext&)> UiCallback{};
+    };
+
+    /** Declares/imports all resources and adds the PlanetGen simulation + render/present sequence to `graph`. */
     void RegisterPlanetGraph(loom::GraphBuilder& graph,
                              const PlanetGraphConfig& config,
-                             ZeroCountersRecorder& zero_recorder);
+                             const PlanetGraphCallbacks& callbacks);
+
+    /** Triggers all 33 simulation passes (OwnersCS .. MovePlatesAndClearCountersCS) for a single OnTrigger live step. */
+    void TriggerSimulationStep(loom::Graph& graph);
+
+    /** Triggers zeroing of live display/counter buffers and initial OwnersCS evaluation for step-0 live view. */
+    void TriggerInitialLiveView(loom::Graph& graph);
 
     /** Owns the imported host/GPU buffer handles supplied to a realized PlanetGen Loom graph. */
     struct PlanetGraphImports
@@ -112,7 +147,9 @@ namespace planet_loom
         GraphicsResource Pass3Constants;
         GraphicsResource UpliftConstants;
         GraphicsResource MovePlatesConstants;
+        GraphicsResource PlumeConstants;
         GraphicsResource RenderMapConstants;
+        GraphicsResource PresentConstants;
 
         GraphicsResource CrustFlags;
         GraphicsResource CrustState;
@@ -131,13 +168,38 @@ namespace planet_loom
                                      uint32_t width,
                                      uint32_t height,
                                      uint32_t mode,
-                                     bool use_bytes);
+                                     bool use_bytes,
+                                     const PlumeSystemState& plumes);
+
+        [[nodiscard]] bool SupplyPresentConstants(loom::Graph& graph,
+                                                  ResourceContext& resources,
+                                                  const PresentMapParamsHost& params);
 
         [[nodiscard]] bool UpdateUniforms(ResourceContext& resources,
                                           float time,
                                           uint32_t width,
                                           uint32_t height,
-                                          uint32_t mode);
+                                          uint32_t mode,
+                                          const PlumeSystemState& plumes);
+
+        [[nodiscard]] bool UpdatePresentConstants(ResourceContext& resources,
+                                                  const PresentMapParamsHost& params);
+
+        [[nodiscard]] bool UpdateStepDt(ResourceContext& resources,
+                                        const planet::HealpixInitialState& initial,
+                                        float dt,
+                                        uint32_t order);
+
+        [[nodiscard]] bool ResetSimulationState(loom::Graph& graph,
+                                                ResourceContext& resources,
+                                                const planet::HealpixInitialState& initial,
+                                                float dt,
+                                                uint32_t order,
+                                                uint32_t width,
+                                                uint32_t height,
+                                                uint32_t mode,
+                                                bool use_bytes,
+                                                const PlumeSystemState& plumes);
 
         void Destroy(ResourceContext& resources);
     };

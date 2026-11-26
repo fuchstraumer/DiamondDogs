@@ -383,6 +383,8 @@ namespace planet
         // OffsetFrontPointsCS is one workgroup: a thread count of 1 dispatches one group, whatever its size
         {
             const OptionalScope pass(timers, k_StepScopes[5]);
+            recordDispatch(command_buffer, timers, detail, "CountFrontPointsCS", points);
+            RecordComputeBarrier(command_buffer);
             recordDispatch(command_buffer, timers, detail, "OffsetFrontPointsCS", 1u);
             RecordComputeBarrier(command_buffer);
             recordDispatch(command_buffer, timers, detail, "ScatterFrontPointsCS", points);

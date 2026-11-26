@@ -12,6 +12,7 @@ __include HEALPix;
 //   3 = Relief    (uplift relief heatmap in km)
 //   4 = Fronts    (subduction red, collision yellow, nearest-front distance gradient)
 //   5 = Voronoi   (world & plate Fibonacci cell hash to inspect sampling / stair-stepping)
+//   6 = Plumes    (mantle hotspot conduits, thermal swell, and volcanic island/seamount track age)
 
 struct RenderMapParams
 {
@@ -34,6 +35,7 @@ static const uint RenderModeOceanAge  = 2u;
 static const uint RenderModeRelief    = 3u;
 static const uint RenderModeFronts    = 4u;
 static const uint RenderModeVoronoi   = 5u;
+static const uint RenderModePlumes    = 6u;
 
 float3 HsvToRgb(float h, float s, float v)
 {
@@ -67,11 +69,33 @@ float3 Heatmap(float t)
     return lerp(c3, c4, (t - 0.75f) * 4.0f);
 }
 
-float3 BathymetryTopographyColor(float elevKm, bool isContinental, bool isSubduction)
+float3 BathymetryTopographyColor(float elevKm, bool isContinental, bool isSubduction, float reliefKm)
 {
     float3 color;
 
-    if (!isContinental && elevKm < 0.0f)
+    if (!isContinental && reliefKm > 0.45f)
+    {
+        const float3 seamount = float3(0.18f, 0.56f, 0.76f);
+        const float3 atollReef = float3(0.24f, 0.86f, 0.80f);
+        const float3 basalt = float3(0.26f, 0.30f, 0.24f);
+        const float3 volcanicPeak = float3(0.38f, 0.52f, 0.28f);
+
+        if (elevKm < -0.45f)
+        {
+            const float3 baseOcean = float3(0.05f, 0.16f, 0.38f);
+            color = lerp(baseOcean, seamount, saturate((reliefKm - 0.45f) / 1.8f));
+        }
+        else if (elevKm <= 0.35f)
+        {
+            const float lagoon = saturate(1.0f - abs(elevKm + 0.05f) / 0.40f);
+            color = lerp(basalt, atollReef, max(lagoon, saturate((reliefKm - 1.0f) * 0.5f)));
+        }
+        else
+        {
+            color = lerp(basalt, volcanicPeak, saturate((elevKm - 0.35f) / 1.5f));
+        }
+    }
+    else if (!isContinental && elevKm < 0.0f)
     {
         const float3 abyssal = float3(0.03f, 0.08f, 0.22f);
         const float3 ocean   = float3(0.06f, 0.20f, 0.44f);
@@ -157,7 +181,9 @@ float4 SampleElevationCorner(int pt)
     }
 
     const float reliefKm = state.GetRelief();
-    return float4(baseElev + reliefKm, isContinental ? 1.0f : 0.0f, isSubduction ? 1.0f : 0.0f, reliefKm);
+    const float3 cellWorldPos = HealpixPixToVec(uint(pt), StepParams.HealpixOrder);
+    const float swellKm = EvaluatePlumeSwellKm(cellWorldPos, RenderMapConstants.Time);
+    return float4(baseElev + reliefKm + swellKm, isContinental ? 1.0f : 0.0f, isSubduction ? 1.0f : 0.0f, reliefKm);
 }
 
 [shader("compute")]
@@ -208,7 +234,7 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
 
         const float4 s = lerp(lerp(s00, s10, fracUV.x), lerp(s01, s11, fracUV.x), fracUV.y);
         const bool isLand = s.y >= 0.5f;
-        float3 rgb = BathymetryTopographyColor(s.x, isLand, s.z >= 0.35f);
+        float3 rgb = BathymetryTopographyColor(s.x, isLand, s.z >= 0.35f, s.w);
         if (!isLand && s.y > 0.02f)
         {
             rgb = lerp(rgb, float3(0.24f, 0.62f, 0.72f), saturate(s.y * 1.6f) * 0.55f);
@@ -330,6 +356,55 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
             const float plateHue = frac(float(plate) * 0.61803398875f);
             const float cellShade = 0.75f + 0.25f * Hash01(uint(cell) ^ (uint(plate) * 2654435761u));
             rgb = HsvToRgb(plateHue, isContinental ? 0.35f : 0.75f, worldShade * cellShade);
+        }
+        else if (mode == RenderModePlumes)
+        {
+            rgb = isContinental ? float3(0.15f, 0.16f, 0.18f) : float3(0.03f, 0.05f, 0.11f);
+            const float swellKm = EvaluatePlumeSwellKm(worldPoint, RenderMapConstants.Time);
+            if (swellKm > 0.05f)
+            {
+                rgb = lerp(rgb, float3(0.06f, 0.34f, 0.50f), saturate(swellKm / 1.8f));
+            }
+
+            if (state.GetOrogenyType() == OrogenyVolcanic && state.GetRelief() > 0.05f)
+            {
+                const float volcanicAge = max(RenderMapConstants.Time - state.GetOrogenyTime(), 0.0f);
+                const float freshness = 1.0f - saturate(volcanicAge / 80.0f);
+                const float3 oldSeamountColor = float3(0.36f, 0.12f, 0.54f);
+                const float3 warmChainColor = float3(0.95f, 0.32f, 0.12f);
+                const float3 activeCoreColor = float3(1.00f, 0.96f, 0.55f);
+                const float3 trackColor = (freshness > 0.75f)
+                    ? lerp(warmChainColor, activeCoreColor, (freshness - 0.75f) * 4.0f)
+                    : lerp(oldSeamountColor, warmChainColor, freshness / 0.75f);
+                rgb = lerp(rgb, trackColor, saturate(0.45f + state.GetRelief() / 3.0f));
+            }
+
+            if ((PlumeConstants.Flags & PlumeFlagEnabled) != 0u && PlumeConstants.PlumeCount > 0u)
+            {
+                const bool driftEnabled = (PlumeConstants.Flags & PlumeFlagDriftEnabled) != 0u;
+                const uint activeCount = min(PlumeConstants.PlumeCount, MaxMantlePlumes);
+                for (uint plumeIdx = 0u; plumeIdx < activeCount; ++plumeIdx)
+                {
+                    const MantlePlumeGpu plume = PlumeConstants.Plumes[plumeIdx];
+                    const float lifeEnvelope = EvaluatePlumeLifeEnvelope(
+                        RenderMapConstants.Time, plume.TimingAndPulse.x, plume.TimingAndPulse.y);
+                    if (lifeEnvelope <= 0.0f)
+                    {
+                        continue;
+                    }
+
+                    const float3 plumePos = EvaluatePlumePosition(plume, RenderMapConstants.Time, driftEnabled);
+                    const float distKm = GeodesicKm(worldPoint, plumePos);
+                    if (abs(distKm - plume.PositionAndRadius.w) < 35.0f)
+                    {
+                        rgb = lerp(rgb, float3(0.20f, 0.96f, 1.00f), 0.85f);
+                    }
+                    else if (abs(distKm - plume.SwellAndFlux.x) < 25.0f)
+                    {
+                        rgb = lerp(rgb, float3(0.15f, 0.72f, 0.92f), 0.45f);
+                    }
+                }
+            }
         }
     }
 

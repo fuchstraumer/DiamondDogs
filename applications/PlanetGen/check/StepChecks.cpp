@@ -27,7 +27,7 @@ namespace planet
 {
     namespace
     {
-        constexpr std::array<std::string_view, 34> k_AllEntryPoints
+        constexpr std::array<std::string_view, 35> k_AllEntryPoints
         {
             "MapProbeCS", "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
             "DetectCollisionsCS", "SelectCollisionPairCS", "BkeTileInitAndLocalUnionCS", "BkeStitchSeamsCS", "BkeFlattenCS",
@@ -37,9 +37,10 @@ namespace planet
             "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
             "CountFrontPointsCS", "OffsetFrontPointsCS", "ScatterFrontPointsCS", "SortFrontPointsCS",
             "NearestFrontPointCS", "BuildFrontTileCapsCS", "FrontDistanceAndUpliftCS", "SumPullCS", "UpliftCS",
+            "ApplyMantlePlumesCS",
         };
 
-        constexpr std::array<NamedCheck, 11> k_AllChecks
+        constexpr std::array<NamedCheck, 12> k_AllChecks
         {
             NamedCheck{ "map", CheckMap },
             NamedCheck{ "owners", CheckOwners },
@@ -52,6 +53,7 @@ namespace planet
             NamedCheck{ "chain", CheckChain },
             NamedCheck{ "healpix", RunHealpixCheck },
             NamedCheck{ "collide", RunCollideCheck },
+            NamedCheck{ "plumes", RunPlumesCheck },
         };
 
         // NearestFrontPointCS and UpliftCS run this many threads to a group on the live cell list

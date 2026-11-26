@@ -1,23 +1,32 @@
 #include "CommandBuffer.hpp"
+#include "CommandPool.hpp"
 #include "Compile.hpp"
 #include "CompiledGraph.hpp"
 #include "Device.hpp"
 #include "DeviceConfig.hpp"
 #include "DeviceRequirements.hpp"
 #include "DeviceStage.hpp"
+#include "Fence.hpp"
+#include "FrameCapture.hpp"
+#include "FrameLimit.hpp"
 #include "FramePlan.hpp"
 #include "GpuBuffers.hpp"
 #include "GpuTimers.hpp"
 #include "GraphBuilder.hpp"
 #include "HeadlessBoot.hpp"
 #include "Healpix.hpp"
+#include "ImageDataFormats.hpp"
 #include "LoadedBundle.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
 #include "LoomGraph.hpp"
 #include "LoomKeys.hpp"
+#include "MantlePlumes.hpp"
 #include "PlanetGpuErrors.hpp"
+#include "Queue.hpp"
+#include "RhiResult.hpp"
 #include "PlanetGraph.hpp"
+#include "PlanetLiveApp.hpp"
 #include "PlanetSession.hpp"
 #include "PlanetShaders.hpp"
 #include "PlanetStep.hpp"
@@ -71,6 +80,7 @@ namespace
     struct LoomOptions
     {
         std::filesystem::path Reference;
+        std::filesystem::path CaptureDir;
         uint32_t Order{ 7u };
         uint32_t Steps{ 10u };
         float Dt{ 0.5f };
@@ -82,6 +92,13 @@ namespace
         bool SelfVerify{ false };
         bool Timestamps{ false };
         bool Explain{ false };
+        bool PlumesEnabled{ false };
+        bool PlumesExplicit{ false };
+        bool Live{ false };
+        bool Paused{ false };
+        int32_t ToolPort{ -1 };
+        int32_t FrameLimit{ -1 };
+        std::optional<bool> ValidationFull;
     };
 
     struct VerifySnapshot
@@ -99,6 +116,12 @@ namespace
         return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size();
     }
 
+    [[nodiscard]] bool ParseInt(std::string_view text, int32_t& value)
+    {
+        const std::from_chars_result parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+        return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size();
+    }
+
     [[nodiscard]] bool ParseFloat(std::string_view text, float& value)
     {
         const std::from_chars_result parsed = std::from_chars(text.data(), text.data() + text.size(), value);
@@ -107,7 +130,7 @@ namespace
 
     [[nodiscard]] bool ParseMode(std::string_view text, uint32_t& mode)
     {
-        if (ParseUint(text, mode) && mode <= 5u)
+        if (ParseUint(text, mode) && mode <= 6u)
         {
             return true;
         }
@@ -117,6 +140,7 @@ namespace
         if (text == "relief")    { mode = 3u; return true; }
         if (text == "fronts")    { mode = 4u; return true; }
         if (text == "voronoi")   { mode = 5u; return true; }
+        if (text == "plumes")    { mode = 6u; return true; }
         return false;
     }
 
@@ -179,6 +203,46 @@ namespace
             {
                 options.Explain = true;
             }
+            else if (text.starts_with("--capture-dir="))
+            {
+                options.CaptureDir = text.substr(14u);
+            }
+            else if (text == "--plumes=default")
+            {
+                options.PlumesEnabled = true;
+                options.PlumesExplicit = true;
+            }
+            else if (text == "--plumes=none")
+            {
+                options.PlumesEnabled = false;
+                options.PlumesExplicit = true;
+            }
+            else if (text == "--live")
+            {
+                options.Live = true;
+            }
+            else if (text == "--paused")
+            {
+                options.Paused = true;
+            }
+            else if (text.starts_with("--tool-port="))
+            {
+                valid = ParseInt(text.substr(12u), options.ToolPort) &&
+                        options.ToolPort >= 0 &&
+                        options.ToolPort <= 65535;
+            }
+            else if (text.starts_with("--frames="))
+            {
+                valid = ParseInt(text.substr(9u), options.FrameLimit) && options.FrameLimit > 0;
+            }
+            else if (text == "--validation=full")
+            {
+                options.ValidationFull = true;
+            }
+            else if (text == "--validation=none")
+            {
+                options.ValidationFull = false;
+            }
             else
             {
                 valid = false;
@@ -191,15 +255,52 @@ namespace
             }
         }
 
+        if (options.Live && !options.PlumesExplicit)
+        {
+            options.PlumesEnabled = true;
+        }
+
         if (options.Reference.empty())
         {
             std::println(stderr,
                          "usage: PlanetGenLoom --reference=<dir> [--order=4..9] [--steps=N] [--dt=F] "
-                         "[--width=N] [--height=N] [--mode=0..5] [--words] [--verify] [--timestamps] [--explain]");
+                         "[--width=N] [--height=N] [--mode=0..6|name] [--plumes=default|none] [--words] "
+                         "[--verify] [--self-verify] [--timestamps] [--explain] [--capture-dir=<dir>] "
+                         "[--live] [--paused] [--frames=N] [--tool-port=0..65535] [--validation=full|none]");
             return std::nullopt;
         }
 
         return options;
+    }
+
+    [[nodiscard]] planet_loom::PlanetLiveOptions ToLiveOptions(const LoomOptions& options)
+    {
+        bool validation = true;
+#ifdef NDEBUG
+        validation = false;
+#endif
+        if (options.ValidationFull.has_value())
+        {
+            validation = *options.ValidationFull;
+        }
+
+        return planet_loom::PlanetLiveOptions
+        {
+            .CaptureDir = options.CaptureDir,
+            .Order = options.Order,
+            .Dt = options.Dt,
+            .Width = options.Width,
+            .Height = options.Height,
+            .Mode = options.Mode,
+            .Words = options.Words,
+            .ValidationFull = validation,
+            .Timestamps = options.Timestamps || options.Live,
+            .PlumesEnabled = options.PlumesEnabled,
+            .StartPaused = options.Paused,
+            .ToolPort = options.ToolPort,
+            .FrameLimit = options.FrameLimit,
+            .Explain = options.Explain,
+        };
     }
 
     [[nodiscard]] std::string FormatDiagnosticValue(const loom::DiagnosticValue& value)
@@ -283,19 +384,6 @@ namespace
         return result;
     }
 
-    [[nodiscard]] std::string_view PassNameForHash(uint64_t hash) noexcept
-    {
-        for (const loom::PassKey& key : planet_loom::AllPlanetPassKeys())
-        {
-            if (rhi::HashGpuTimerName(key.Name) == hash)
-            {
-                return key.Name;
-            }
-        }
-
-        return "<unknown>";
-    }
-
     [[nodiscard]] bool RunLoomSimulation(std::span<char* const> arguments,
                                          const LoomOptions& options,
                                          const planet::ReferenceSet& reference,
@@ -337,11 +425,20 @@ namespace
             .MapHeight = options.Height,
             .UseByteCrustFlags = useBytes,
             .RenderOnTrigger = false,
+            .InteractiveControl = false,
+            .LiveMode = false,
+            .EnableCapturePass = false,
         };
 
         loom::GraphBuilder builder{ "PlanetGen.Graph", "PlanetLab" };
         planet_loom::ZeroCountersRecorder zeroRecorder;
-        planet_loom::RegisterPlanetGraph(builder, graphConfig, zeroRecorder);
+        const planet_loom::PlanetGraphCallbacks graphCallbacks
+        {
+            .ZeroCounters = &zeroRecorder,
+            .CaptureCallback = {},
+            .UiCallback = {},
+        };
+        planet_loom::RegisterPlanetGraph(builder, graphConfig, graphCallbacks);
 
         loom::CollectingSink sink;
         const loom::CompileInputs compileInputs
@@ -384,18 +481,21 @@ namespace
 
         std::unique_ptr<loom::Graph> graph = std::move(*realized);
         planet_loom::PlanetGraphImports imports;
+        const planet_loom::PlumeSystemState plumeState = options.PlumesEnabled
+            ? planet_loom::DefaultPresetPlumes(initial.InitialTime)
+            : planet_loom::EmptyPlumeSystem();
 
         if (!imports.SupplyAll(*graph, resources, initial, options.Dt, options.Order,
-                               options.Width, options.Height, options.Mode, useBytes))
+                               options.Width, options.Height, options.Mode, useBytes, plumeState))
         {
             graph.reset();
             imports.Destroy(resources);
             return false;
         }
 
-        std::println("PlanetGenLoom: {} points (HEALPix order {}), {} plates, {} steps (dt = {} My), crust flags in {}",
+        std::println("PlanetGenLoom: {} points (HEALPix order {}), {} plates, {} steps (dt = {} My), crust flags in {}, plumes={}",
                      initial.PointCount, options.Order, initial.PlateCount, options.Steps, options.Dt,
-                     useBytes ? "bytes" : "words");
+                     useBytes ? "bytes" : "words", options.PlumesEnabled ? "default" : "none");
 
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(k_TimeoutNs);
 
@@ -411,7 +511,7 @@ namespace
 
             const float stepTime = reference.Time() + static_cast<float>(step + 1u) * options.Dt;
 
-            if (!imports.UpdateUniforms(resources, stepTime, options.Width, options.Height, options.Mode))
+            if (!imports.UpdateUniforms(resources, stepTime, options.Width, options.Height, options.Mode, plumeState))
             {
                 graph.reset();
                 imports.Destroy(resources);
@@ -495,7 +595,7 @@ namespace
                 {
                     const double us = timing.Nanoseconds * 1.0e-3;
                     totalUs += us;
-                    std::println("  {:<42} {:9.2f} us", PassNameForHash(timing.Hash), us);
+                    std::println("  {:<42} {:9.2f} us", planet_loom::PassNameForHash(timing.Hash), us);
                 }
 
                 std::println("  {:<42} {:9.2f} us (top-level {:.2f} us, dropped {})",
@@ -527,6 +627,66 @@ namespace
             {
                 std::println(stderr, "PlanetGenLoom: Loom readback failed");
                 ok = false;
+            }
+        }
+
+        if (!options.CaptureDir.empty())
+        {
+            const GraphicsResource mapImage = graph->ImageOf(planet_loom::k_MapOutput);
+            if (mapImage)
+            {
+                capture::FrameCapture capture{ resources, 1u, options.CaptureDir, 1u };
+                rhi::CommandPool pool{
+                    device.Handle(),
+                    rhi::CommandPool::Type::Compute,
+                    device.GetQueueFamilyIndices().Graphics
+                };
+                if (pool.AllocateCommandBuffers(1u).IsSuccess())
+                {
+                    rhi::CommandBuffer cmd{ pool.GetCommandBuffer(0u) };
+                    if (cmd.Begin().IsSuccess())
+                    {
+                        const capture::CaptureSource source
+                        {
+                            .Image = rhi::ImageHandle{ mapImage.VkHandle },
+                            .Width = options.Width,
+                            .Height = options.Height,
+                            .Format = ImageFormat{ ImageComponentFormats::RGBA8, ImageDataType::UNorm },
+                            .Encoding = capture::CaptureEncoding::sRGB,
+                            .CurrentLayout = rhi::ImageLayout::General,
+                            .SrcStages = rhi::PipelineStage::ComputeShader,
+                            .SrcAccess = rhi::Access::ShaderStorageWrite,
+                            .LinearScale = 1.0f,
+                            .FinalLayout = rhi::ImageLayout::General,
+                            .DstStages = rhi::PipelineStage::AllCommands,
+                            .DstAccess = rhi::Access::MemoryRead | rhi::Access::MemoryWrite,
+                            .Aspect = rhi::ImageAspect::Color,
+                            .OffsetX = 0,
+                            .OffsetY = 0,
+                            .Downsample = 1u,
+                        };
+                        const std::string capName = std::format("loom_order{}_step{}_mode{}",
+                                                                options.Order, options.Steps, options.Mode);
+                        static_cast<void>(capture.RecordTrackedCopy(cmd, 0u, source, capName, capture::CaptureOutput::Png));
+                        static_cast<void>(cmd.End());
+                        const rhi::CommandBufferHandle handle = cmd.Handle();
+                        rhi::Fence fence{ device.Handle() };
+                        const rhi::Result submitted = rhi::QueueSubmit(
+                            device.GetGeneralQueue(),
+                            rhi::SubmitInfo{ {}, std::span{ &handle, 1u }, {} },
+                            fence.Handle());
+                        if (submitted.IsSuccess())
+                        {
+                            static_cast<void>(fence.Wait());
+                        }
+                    }
+                }
+                capture.Flush();
+                const std::vector<capture::CaptureResult> capResults = capture.TakeResults();
+                for (const capture::CaptureResult& cap : capResults)
+                {
+                    std::println("Captured PNG: {} ({}x{}, ok={})", cap.Path.string(), cap.Width, cap.Height, cap.Succeeded);
+                }
             }
         }
 
@@ -769,6 +929,16 @@ int main(int argc, char* argv[])
     {
         std::println(stderr, "PlanetGenLoom: failed to resample reference state at order {}", options->Order);
         return 1;
+    }
+
+    if (options->Live)
+    {
+        return planet_loom::RunLivePlanetApp(arguments, ToLiveOptions(*options), *reference, *initial);
+    }
+
+    if (options->ToolPort >= 0)
+    {
+        return planet_loom::RunHeadlessToolApp(arguments, ToLiveOptions(*options), *reference, *initial);
     }
 
     const bool needSnapshot = options->Verify || options->SelfVerify;

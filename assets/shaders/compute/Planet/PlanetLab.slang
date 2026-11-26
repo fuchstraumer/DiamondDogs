@@ -15,4 +15,5 @@ __include FrontPoints;
 __include TorqueSums;
 __include LiveCells;
 __include MovePlates;
+__include Plumes;
 __include RenderMap;

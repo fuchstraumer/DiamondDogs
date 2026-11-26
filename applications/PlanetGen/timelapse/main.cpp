@@ -12,6 +12,7 @@
 #include "RhiHandle.hpp"
 #include "RhiTypes.hpp"
 #include "StepState.hpp"
+#include "ShaderLibrary.host.hpp"
 #include "TimelapseAgentTools.hpp"
 #include <algorithm>
 #include <array>
@@ -200,11 +201,15 @@ int main(int argc, char* argv[])
         planet::UniformUint("Mode", options->Mode),
     };
     const ImageFormat mapFormat{ ImageComponentFormats::RGBA8, ImageDataType::UNorm };
+    const planet_gen_shaders::PlumeParams<
+        planet_gen_shaders::CookProfile::Spirv,
+        ::lodestone::LayoutRule::Std140> zeroPlumes{};
 
     if (!planet::AddHealpixStepBuffers(buffers, **shaders, *reference, options->Order, (*shaders)->CrustFlags(),
                                        options->ToolPort >= 0, options->Dt, !options->StatsPath.empty()) ||
         buffers.AddUniformFrom(**shaders, "MovePlatesAndClearCountersCS", "MovePlatesConstants", movePlatesInit) != planet::PlanetGpuError::Success ||
         buffers.AddUniformFrom(**shaders, "RenderMapCS", "RenderMapConstants", renderMapInit) != planet::PlanetGpuError::Success ||
+        buffers.AddUniform("PlumeConstants", std::as_bytes(std::span{ &zeroPlumes, 1u })) != planet::PlanetGpuError::Success ||
         buffers.AddStorageImage("MapOutput", options->Width, options->Height, mapFormat) != planet::PlanetGpuError::Success)
     {
         return 1;

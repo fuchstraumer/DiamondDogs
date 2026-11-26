@@ -62,7 +62,6 @@ namespace planet_loom
             k_PlatePull,
         };
 
-        inline constexpr loom::PassKey k_OwnersPass{ "Planet.Pass.Owners" };
         inline constexpr loom::PassKey k_CountVotesPass{ "Planet.Pass.CountVotes" };
         inline constexpr loom::PassKey k_SwapToMajorityPass{ "Planet.Pass.SwapToMajority" };
         inline constexpr loom::PassKey k_FillGapsPass{ "Planet.Pass.FillGaps" };
@@ -86,15 +85,54 @@ namespace planet_loom
         inline constexpr loom::PassKey k_CountLiveCellsPass{ "Planet.Pass.CountLiveCells" };
         inline constexpr loom::PassKey k_OffsetLiveCellsPass{ "Planet.Pass.OffsetLiveCells" };
         inline constexpr loom::PassKey k_ScatterLiveCellsPass{ "Planet.Pass.ScatterLiveCells" };
+        inline constexpr loom::PassKey k_CountFrontPointsPass{ "Planet.Pass.CountFrontPoints" };
         inline constexpr loom::PassKey k_OffsetFrontPointsPass{ "Planet.Pass.OffsetFrontPoints" };
         inline constexpr loom::PassKey k_ScatterFrontPointsPass{ "Planet.Pass.ScatterFrontPoints" };
         inline constexpr loom::PassKey k_SortFrontPointsPass{ "Planet.Pass.SortFrontPoints" };
         inline constexpr loom::PassKey k_BuildFrontTileCapsPass{ "Planet.Pass.BuildFrontTileCaps" };
         inline constexpr loom::PassKey k_SumPullPass{ "Planet.Pass.SumPull" };
         inline constexpr loom::PassKey k_FrontDistanceAndUpliftPass{ "Planet.Pass.FrontDistanceAndUplift" };
+        inline constexpr loom::PassKey k_ApplyMantlePlumesPass{ "Planet.Pass.ApplyMantlePlumes" };
         inline constexpr loom::PassKey k_MovePlatesAndClearCountersPass{ "Planet.Pass.MovePlatesAndClearCounters" };
 
-        inline constexpr std::array<loom::PassKey, 33> k_AllPassKeys
+        inline constexpr std::array<loom::PassKey, 33> k_SimulationPassKeys
+        {
+            k_OwnersPass,
+            k_CountVotesPass,
+            k_SwapToMajorityPass,
+            k_FillGapsPass,
+            k_RemoveSubductedPass,
+            k_DetectCollisionsPass,
+            k_SelectCollisionPairPass,
+            k_BkeTileInitAndLocalUnionPass,
+            k_BkeStitchSeamsPass,
+            k_BkeFlattenPass,
+            k_MarkTerraneSeedsPass,
+            k_CountTerranePass,
+            k_DecideTransferPass,
+            k_TransferTerraneDirectPass,
+            k_ClearSourceTerranePass,
+            k_ComputeSutureCapSpreadPass,
+            k_NearestSuturePointPass,
+            k_EscapeHistogramPass,
+            k_EscapePrefixSumPass,
+            k_ApplyEscapeAndSurgePass,
+            k_RefreshOwnersAfterCollisionPass,
+            k_CountLiveCellsPass,
+            k_OffsetLiveCellsPass,
+            k_ScatterLiveCellsPass,
+            k_CountFrontPointsPass,
+            k_OffsetFrontPointsPass,
+            k_ScatterFrontPointsPass,
+            k_SortFrontPointsPass,
+            k_BuildFrontTileCapsPass,
+            k_SumPullPass,
+            k_FrontDistanceAndUpliftPass,
+            k_ApplyMantlePlumesPass,
+            k_MovePlatesAndClearCountersPass,
+        };
+
+        inline constexpr std::array<loom::PassKey, 38> k_AllPassKeys
         {
             k_InitZeroCountersPass,
             k_OwnersPass,
@@ -121,14 +159,19 @@ namespace planet_loom
             k_CountLiveCellsPass,
             k_OffsetLiveCellsPass,
             k_ScatterLiveCellsPass,
+            k_CountFrontPointsPass,
             k_OffsetFrontPointsPass,
             k_ScatterFrontPointsPass,
             k_SortFrontPointsPass,
             k_BuildFrontTileCapsPass,
             k_SumPullPass,
             k_FrontDistanceAndUpliftPass,
+            k_ApplyMantlePlumesPass,
             k_MovePlatesAndClearCountersPass,
             k_RenderMapPass,
+            k_CaptureMapPass,
+            k_PresentMapPass,
+            k_UiPass,
         };
 
         void DeclareBuffer(loom::GraphBuilder& graph,
@@ -136,7 +179,43 @@ namespace planet_loom
                            loom::ResourceLifetime lifetime,
                            planet::BufferExtent extent,
                            planet::StepSize size,
-                           loom::CpuAccess cpu = loom::CpuAccess::None)
+                           loom::CpuAccess cpu = loom::CpuAccess::None);
+
+        [[nodiscard]] bool CreateAndSupplyStorage(loom::Graph& graph,
+                                                  ResourceContext& resources,
+                                                  loom::ResourceKey<loom::Buffer> key,
+                                                  std::span<const std::byte> data,
+                                                  GraphicsResource& out_handle);
+
+        [[nodiscard]] bool ResetStorageBuffer(ResourceContext& resources,
+                                              const rhi::TransferWait& wait,
+                                              bool has_wait,
+                                              GraphicsResource handle,
+                                              std::string_view name,
+                                              std::span<const std::byte> data);
+
+        template<typename T>
+        [[nodiscard]] bool CreateAndSupplyUniform(loom::Graph& graph,
+                                                  ResourceContext& resources,
+                                                  loom::ResourceKey<loom::Buffer> key,
+                                                  BufferUsageBits usage,
+                                                  const T& value,
+                                                  GraphicsResource& out_handle);
+
+        template<typename T>
+        [[nodiscard]] bool UpdateUniformBuffer(ResourceContext& resources,
+                                               GraphicsResource handle,
+                                               std::string_view name,
+                                               const T& value);
+
+        void DestroyHandle(ResourceContext& resources, GraphicsResource& handle);
+
+        void DeclareBuffer(loom::GraphBuilder& graph,
+                           loom::ResourceKey<loom::Buffer> key,
+                           loom::ResourceLifetime lifetime,
+                           planet::BufferExtent extent,
+                           planet::StepSize size,
+                           loom::CpuAccess cpu)
         {
             const int64_t bytes = static_cast<int64_t>(planet::StepBufferWordCount(extent, size) * sizeof(uint32_t));
             graph.Declare(loom::BufferDeclaration
@@ -150,11 +229,11 @@ namespace planet_loom
             });
         }
 
-        [[nodiscard]] bool CreateAndSupplyStorage(loom::Graph& graph,
-                                                  ResourceContext& resources,
-                                                  loom::ResourceKey<loom::Buffer> key,
-                                                  std::span<const std::byte> data,
-                                                  GraphicsResource& out_handle)
+        bool CreateAndSupplyStorage(loom::Graph& graph,
+                                    ResourceContext& resources,
+                                    loom::ResourceKey<loom::Buffer> key,
+                                    std::span<const std::byte> data,
+                                    GraphicsResource& out_handle)
         {
             const RhiBufferResourceData initial{ data, 0u };
             BufferCreateInfo info{};
@@ -178,17 +257,39 @@ namespace planet_loom
             return true;
         }
 
+        bool ResetStorageBuffer(ResourceContext& resources,
+                                const rhi::TransferWait& wait,
+                                bool has_wait,
+                                GraphicsResource handle,
+                                std::string_view name,
+                                std::span<const std::byte> data)
+        {
+            const RhiBufferResourceData piece{ data, 0u };
+            const std::span<const rhi::TransferWait> waits =
+                has_wait ? std::span{ &wait, 1u } : std::span<const rhi::TransferWait>{};
+            rhi::OperationFuture future = resources.SetBufferData(handle, std::span{ &piece, 1u }, waits);
+
+            if (resources.Wait(future, k_TimeoutNs) != rhi::FutureState::Complete)
+            {
+                std::println(stderr, "PlanetGraphImports: SetBufferData failed on {}", name);
+                return false;
+            }
+
+            return true;
+        }
+
         template<typename T>
-        [[nodiscard]] bool CreateAndSupplyUniform(loom::Graph& graph,
-                                                  ResourceContext& resources,
-                                                  loom::ResourceKey<loom::Buffer> key,
-                                                  const T& value,
-                                                  GraphicsResource& out_handle)
+        bool CreateAndSupplyUniform(loom::Graph& graph,
+                                    ResourceContext& resources,
+                                    loom::ResourceKey<loom::Buffer> key,
+                                    BufferUsageBits usage,
+                                    const T& value,
+                                    GraphicsResource& out_handle)
         {
             const RhiBufferResourceData initial{ std::as_bytes(std::span{ &value, 1u }), 0u };
             BufferCreateInfo info{};
             info.Domain = ResourceDomain::CPUToGPU;
-            info.Usage = BufferUsageBits::ComputeShaderUBO;
+            info.Usage = usage;
             info.Size = sizeof(T);
             info.Name = key.Name;
 
@@ -206,10 +307,10 @@ namespace planet_loom
         }
 
         template<typename T>
-        [[nodiscard]] bool UpdateUniformBuffer(ResourceContext& resources,
-                                               GraphicsResource handle,
-                                               std::string_view name,
-                                               const T& value)
+        bool UpdateUniformBuffer(ResourceContext& resources,
+                                 GraphicsResource handle,
+                                 std::string_view name,
+                                 const T& value)
         {
             rhi::ResourceFuture<void*> mapped = resources.MapBuffer(handle, sizeof(T), 0u);
 
@@ -244,9 +345,14 @@ namespace planet_loom
         }
     }
 
-    const std::array<loom::PassKey, 33>& AllPlanetPassKeys() noexcept
+    const std::array<loom::PassKey, 38>& AllPlanetPassKeys() noexcept
     {
         return k_AllPassKeys;
+    }
+
+    void ZeroCountersRecorder::SetIncludeLiveDisplayBuffers(bool include) noexcept
+    {
+        includeLiveDisplayBuffers = include;
     }
 
     void ZeroCountersRecorder::Record(loom::RecordContext& ctx)
@@ -257,11 +363,31 @@ namespace planet_loom
         {
             cmd.FillBuffer(rhi::BufferHandle{ ctx.BufferOf(key).VkHandle }, 0u, ~0ull, 0u);
         }
+
+        if (includeLiveDisplayBuffers)
+        {
+            cmd.FillBuffer(rhi::BufferHandle{ ctx.BufferOf(k_FrontData).VkHandle }, 0u, ~0ull, 0u);
+            cmd.FillBuffer(rhi::BufferHandle{ ctx.BufferOf(k_CellFronts).VkHandle }, 0u, ~0ull, 0u);
+        }
+    }
+
+    void TriggerSimulationStep(loom::Graph& graph)
+    {
+        for (const loom::PassKey& pass : k_SimulationPassKeys)
+        {
+            graph.Trigger(pass);
+        }
+    }
+
+    void TriggerInitialLiveView(loom::Graph& graph)
+    {
+        graph.Trigger(k_InitZeroCountersPass);
+        graph.Trigger(k_OwnersPass);
     }
 
     void RegisterPlanetGraph(loom::GraphBuilder& graph,
                              const PlanetGraphConfig& config,
-                             ZeroCountersRecorder& zero_recorder)
+                             const PlanetGraphCallbacks& callbacks)
     {
         const uint32_t pointCount = static_cast<uint32_t>(planet::HealpixPixelCount(config.HealpixOrder));
         const planet::StepSize size{ pointCount, config.PlateCount };
@@ -271,12 +397,18 @@ namespace planet_loom
 
         graph.Pin("CRUST_FLAG_BYTES", loom::AxisValue::Boolean(config.UseByteCrustFlags));
 
-        // 5 imported uniform buffers
+        // Imported uniform buffers
         graph.Import(loom::BufferImportDeclaration{ .Key = k_StepParams, .ByteSize = static_cast<int64_t>(sizeof(StepParamsHost)) });
         graph.Import(loom::BufferImportDeclaration{ .Key = k_Pass3Constants, .ByteSize = static_cast<int64_t>(sizeof(Pass3ParamsHost)) });
         graph.Import(loom::BufferImportDeclaration{ .Key = k_UpliftConstants, .ByteSize = static_cast<int64_t>(sizeof(UpliftParamsHost)) });
         graph.Import(loom::BufferImportDeclaration{ .Key = k_MovePlatesConstants, .ByteSize = static_cast<int64_t>(sizeof(MovePlatesParamsHost)) });
+        graph.Import(loom::BufferImportDeclaration{ .Key = k_PlumeConstants, .ByteSize = static_cast<int64_t>(sizeof(PlumeParamsHost)) });
         graph.Import(loom::BufferImportDeclaration{ .Key = k_RenderMapConstants, .ByteSize = static_cast<int64_t>(sizeof(RenderMapParamsHost)) });
+
+        if (config.LiveMode)
+        {
+            graph.Import(loom::BufferImportDeclaration{ .Key = k_PresentConstants, .ByteSize = static_cast<int64_t>(sizeof(PresentMapParamsHost)) });
+        }
 
         // 8 imported persistent state buffers
         const int64_t flagBytes = static_cast<int64_t>(pointCount) * static_cast<int64_t>(config.PlateCount) *
@@ -309,9 +441,15 @@ namespace planet_loom
         DeclareBuffer(graph, k_PlateCounters, loom::ResourceLifetime::Persistent, planet::BufferExtent::PlatesTimes4, size);
         DeclareBuffer(graph, k_PlatePull, loom::ResourceLifetime::Persistent, planet::BufferExtent::PlatesTimes3, size);
 
-        // 21 declared frame scratch buffers
-        DeclareBuffer(graph, k_Owners, loom::ResourceLifetime::Frame, planet::BufferExtent::PointsTimes4, size, loom::CpuAccess::Readback);
-        DeclareBuffer(graph, k_FrontData, loom::ResourceLifetime::Frame, planet::BufferExtent::PointsTimes4, size);
+        const bool interactive = config.LiveMode || config.InteractiveControl;
+
+        // When interactive, RenderMapCS reads Owners/FrontData/CellFronts on paused frames so keep them persistent.
+        const loom::ResourceLifetime displayLifetime =
+            interactive ? loom::ResourceLifetime::Persistent : loom::ResourceLifetime::Frame;
+
+        // 21 declared scratch / live-persistent buffers
+        DeclareBuffer(graph, k_Owners, displayLifetime, planet::BufferExtent::PointsTimes4, size, loom::CpuAccess::Readback);
+        DeclareBuffer(graph, k_FrontData, displayLifetime, planet::BufferExtent::PointsTimes4, size);
         DeclareBuffer(graph, k_CollisionJob, loom::ResourceLifetime::Frame, planet::BufferExtent::CollideJob, size, loom::CpuAccess::Readback);
         DeclareBuffer(graph, k_CollideDispatch, loom::ResourceLifetime::Frame, planet::BufferExtent::CollideDispatch, size);
         DeclareBuffer(graph, k_CollideScratchCounters, loom::ResourceLifetime::Frame, planet::BufferExtent::CollideCounters, size);
@@ -330,7 +468,7 @@ namespace planet_loom
         DeclareBuffer(graph, k_FrontTileDispatch, loom::ResourceLifetime::Frame, planet::BufferExtent::IndirectDispatch, size);
         DeclareBuffer(graph, k_FrontPoints, loom::ResourceLifetime::Frame, planet::BufferExtent::PointsTimes4, size);
         DeclareBuffer(graph, k_FrontTileCaps, loom::ResourceLifetime::Frame, planet::BufferExtent::FrontTilesTimes4, size);
-        DeclareBuffer(graph, k_CellFronts, loom::ResourceLifetime::Frame, planet::BufferExtent::CellsTimes2, size);
+        DeclareBuffer(graph, k_CellFronts, displayLifetime, planet::BufferExtent::CellsTimes2, size);
 
         // RenderMap output image
         graph.Declare(loom::ImageDeclaration
@@ -348,32 +486,58 @@ namespace planet_loom
             .NoHistoryAction = loom::OnNoHistory::Invalid,
         });
 
+        if (config.LiveMode)
+        {
+            graph.Import(k_Screen);
+            const loom::OutputFallback fallback = loom::OutputFallback::Clear(0.02f, 0.03f, 0.05f, 1.0f);
+            graph.Output(loom::OutputDeclaration{ .Target = k_Screen, .OnSkip = fallback });
+
+            SamplerCreateInfo mapSampler{};
+            mapSampler.MagFilter = ImageFilteringMode::Linear;
+            mapSampler.MinFilter = ImageFilteringMode::Linear;
+            mapSampler.MipFilter = ImageFilteringMode::Nearest;
+            mapSampler.AddressU = SamplerCreateInfo::AddressMode::Repeat;
+            mapSampler.AddressV = SamplerCreateInfo::AddressMode::ClampToEdge;
+            mapSampler.AddressW = SamplerCreateInfo::AddressMode::ClampToEdge;
+            mapSampler.Name = "Planet.MapSampler";
+            graph.Declare(loom::SamplerDeclaration{ .Key = k_MapSampler, .CreateInfo = mapSampler });
+        }
+
         constexpr loom::QueueAffinity k_Queue = loom::QueueAffinity::Graphics;
-        constexpr loom::RunPolicy k_EveryFrame = loom::RunPolicy::EveryFrame;
+        const loom::RunPolicy initPolicy = interactive ? loom::RunPolicy::OnTrigger : loom::RunPolicy::Once;
+        const loom::RunPolicy simPolicy = interactive ? loom::RunPolicy::OnTrigger : loom::RunPolicy::EveryFrame;
         constexpr std::string_view k_Module = "PlanetLab";
 
-        graph.AddSequence(k_StepSequence, [&](loom::SequenceBuilder& seq)
+        if (callbacks.ZeroCounters != nullptr)
         {
-            // 0. Zero all 11 persistent counters once before the first simulation step.
-            // Also register initial-state write barriers on imported persistent buffers that have only one
-            // late-sequence EveryFrame writer (Rotations, PoleRates, PlateCapSpread), so Loom's single-writer
-            // AddDataFlowEdges does not add backward DataFlow edges against the SequenceChain.
-            seq.AddRecord(k_InitZeroCountersPass, loom::RunPolicy::Once, k_Queue, [&](loom::RecordBuilder& pass)
+            callbacks.ZeroCounters->SetIncludeLiveDisplayBuffers(interactive);
+        }
+
+        const auto buildSequence = [&](loom::SequenceBuilder& seq)
+        {
+            // 0. Zero persistent counters (plus interactive display buffers)
+            const auto initPass = [interactive, &callbacks](loom::RecordBuilder& pass)
             {
                 for (const loom::ResourceKey<loom::Buffer>& counter : k_PersistentCounters)
                 {
                     pass.Uses(counter, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
                 }
 
-                pass.Uses(k_Rotations, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
-                pass.Uses(k_PoleRates, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
-                pass.Uses(k_PlateCapSpread, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
+                if (interactive)
+                {
+                    pass.Uses(k_FrontData, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
+                    pass.Uses(k_CellFronts, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
+                }
 
-                pass.Record(Delegate<void(loom::RecordContext&)>::Create<ZeroCountersRecorder, &ZeroCountersRecorder::Record>(&zero_recorder));
-            });
+                if (callbacks.ZeroCounters != nullptr)
+                {
+                    pass.Record(Delegate<void(loom::RecordContext&)>::Create<ZeroCountersRecorder, &ZeroCountersRecorder::Record>(callbacks.ZeroCounters));
+                }
+            };
+            seq.AddRecord(k_InitZeroCountersPass, initPolicy, k_Queue, initPass);
 
             // 1. OwnersCS
-            seq.AddDispatch(k_OwnersPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_OwnersPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::OwnersCS;
                 pass.Shader(k_Module, "OwnersCS");
@@ -390,7 +554,7 @@ namespace planet_loom
             });
 
             // 2. CountVotesCS
-            seq.AddDispatch(k_CountVotesPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_CountVotesPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::CountVotesCS;
                 pass.Shader(k_Module, "CountVotesCS");
@@ -404,7 +568,7 @@ namespace planet_loom
             });
 
             // 3. SwapToMajorityCS
-            seq.AddDispatch(k_SwapToMajorityPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_SwapToMajorityPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::SwapToMajorityCS;
                 pass.Shader(k_Module, "SwapToMajorityCS");
@@ -418,7 +582,7 @@ namespace planet_loom
             });
 
             // 4. FillGapsCS
-            seq.AddDispatch(k_FillGapsPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_FillGapsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::FillGapsCS;
                 pass.Shader(k_Module, "FillGapsCS");
@@ -434,7 +598,7 @@ namespace planet_loom
             });
 
             // 5. RemoveSubductedCS
-            seq.AddDispatch(k_RemoveSubductedPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_RemoveSubductedPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::RemoveSubductedCS;
                 pass.Shader(k_Module, "RemoveSubductedCS");
@@ -445,13 +609,12 @@ namespace planet_loom
                 pass.Bind(ep::CrustStateIn, k_CrustState);
                 pass.Bind(ep::FrontData, k_FrontData, loom::AccessModifier::WriteOnly);
                 pass.Bind(ep::OwnersIn, k_Owners);
-                pass.Bind(ep::PlateFrontPointCount, k_PlateFrontPointCount);
                 pass.Bind(ep::PoleRatesIn, k_PoleRates);
                 pass.DispatchThreads(points, 1, 1);
             });
 
             // 6. DetectCollisionsCS
-            seq.AddDispatch(k_DetectCollisionsPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_DetectCollisionsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::DetectCollisionsCS;
                 pass.Shader(k_Module, "DetectCollisionsCS");
@@ -467,7 +630,7 @@ namespace planet_loom
             });
 
             // 7. SelectCollisionPairCS
-            seq.AddDispatch(k_SelectCollisionPairPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_SelectCollisionPairPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::SelectCollisionPairCS;
                 pass.Shader(k_Module, "SelectCollisionPairCS");
@@ -484,7 +647,7 @@ namespace planet_loom
             });
 
             // 8. BkeTileInitAndLocalUnionCS
-            seq.AddDispatch(k_BkeTileInitAndLocalUnionPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_BkeTileInitAndLocalUnionPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::BkeTileInitAndLocalUnionCS;
                 pass.Shader(k_Module, "BkeTileInitAndLocalUnionCS");
@@ -499,7 +662,7 @@ namespace planet_loom
             });
 
             // 9. BkeStitchSeamsCS
-            seq.AddDispatch(k_BkeStitchSeamsPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_BkeStitchSeamsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::BkeStitchSeamsCS;
                 pass.Shader(k_Module, "BkeStitchSeamsCS");
@@ -510,7 +673,7 @@ namespace planet_loom
             });
 
             // 10. BkeFlattenCS
-            seq.AddDispatch(k_BkeFlattenPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_BkeFlattenPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::BkeFlattenCS;
                 pass.Shader(k_Module, "BkeFlattenCS");
@@ -521,7 +684,7 @@ namespace planet_loom
             });
 
             // 11. MarkTerraneSeedsCS
-            seq.AddDispatch(k_MarkTerraneSeedsPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_MarkTerraneSeedsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::MarkTerraneSeedsCS;
                 pass.Shader(k_Module, "MarkTerraneSeedsCS");
@@ -536,7 +699,7 @@ namespace planet_loom
             });
 
             // 12. CountTerraneCS
-            seq.AddDispatch(k_CountTerranePass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_CountTerranePass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::CountTerraneCS;
                 pass.Shader(k_Module, "CountTerraneCS");
@@ -549,7 +712,7 @@ namespace planet_loom
             });
 
             // 13. DecideTransferCS
-            seq.AddDispatch(k_DecideTransferPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_DecideTransferPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::DecideTransferCS;
                 pass.Shader(k_Module, "DecideTransferCS");
@@ -560,7 +723,7 @@ namespace planet_loom
             });
 
             // 14. TransferTerraneDirectCS
-            seq.AddDispatch(k_TransferTerraneDirectPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_TransferTerraneDirectPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::TransferTerraneDirectCS;
                 pass.Shader(k_Module, "TransferTerraneDirectCS");
@@ -580,7 +743,7 @@ namespace planet_loom
             });
 
             // 15. ClearSourceTerraneCS
-            seq.AddDispatch(k_ClearSourceTerranePass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_ClearSourceTerranePass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::ClearSourceTerraneCS;
                 pass.Shader(k_Module, "ClearSourceTerraneCS");
@@ -597,7 +760,7 @@ namespace planet_loom
             });
 
             // 16. ComputeSutureCapSpreadCS
-            seq.AddDispatch(k_ComputeSutureCapSpreadPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_ComputeSutureCapSpreadPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::ComputeSutureCapSpreadCS;
                 pass.Shader(k_Module, "ComputeSutureCapSpreadCS");
@@ -608,7 +771,7 @@ namespace planet_loom
             });
 
             // 17. NearestSuturePointCS
-            seq.AddDispatch(k_NearestSuturePointPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_NearestSuturePointPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::NearestSuturePointCS;
                 pass.Shader(k_Module, "NearestSuturePointCS");
@@ -621,7 +784,7 @@ namespace planet_loom
             });
 
             // 18. EscapeHistogramCS
-            seq.AddDispatch(k_EscapeHistogramPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_EscapeHistogramPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::EscapeHistogramCS;
                 pass.Shader(k_Module, "EscapeHistogramCS");
@@ -636,7 +799,7 @@ namespace planet_loom
             });
 
             // 19. EscapePrefixSumCS
-            seq.AddDispatch(k_EscapePrefixSumPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_EscapePrefixSumPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::EscapePrefixSumCS;
                 pass.Shader(k_Module, "EscapePrefixSumCS");
@@ -647,7 +810,7 @@ namespace planet_loom
             });
 
             // 20. ApplyEscapeAndSurgeCS
-            seq.AddDispatch(k_ApplyEscapeAndSurgePass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_ApplyEscapeAndSurgePass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::ApplyEscapeAndSurgeCS;
                 pass.Shader(k_Module, "ApplyEscapeAndSurgeCS");
@@ -663,7 +826,7 @@ namespace planet_loom
             });
 
             // 21. RefreshOwnersAfterCollisionCS
-            seq.AddDispatch(k_RefreshOwnersAfterCollisionPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_RefreshOwnersAfterCollisionPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::RefreshOwnersAfterCollisionCS;
                 pass.Shader(k_Module, "RefreshOwnersAfterCollisionCS");
@@ -679,7 +842,7 @@ namespace planet_loom
             });
 
             // 22. CountLiveCellsCS
-            seq.AddDispatch(k_CountLiveCellsPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_CountLiveCellsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::CountLiveCellsCS;
                 pass.Shader(k_Module, "CountLiveCellsCS");
@@ -695,7 +858,7 @@ namespace planet_loom
             });
 
             // 23. OffsetLiveCellsCS
-            seq.AddDispatch(k_OffsetLiveCellsPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_OffsetLiveCellsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::OffsetLiveCellsCS;
                 pass.Shader(k_Module, "OffsetLiveCellsCS");
@@ -709,7 +872,7 @@ namespace planet_loom
             });
 
             // 24. ScatterLiveCellsCS
-            seq.AddDispatch(k_ScatterLiveCellsPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            seq.AddDispatch(k_ScatterLiveCellsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::ScatterLiveCellsCS;
                 pass.Shader(k_Module, "ScatterLiveCellsCS");
@@ -725,8 +888,20 @@ namespace planet_loom
                 pass.DispatchThreads(liveThreads, 1, 1);
             });
 
-            // 25. OffsetFrontPointsCS
-            seq.AddDispatch(k_OffsetFrontPointsPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            // 25. CountFrontPointsCS (after RefreshOwnersAfterCollisionCS so PlateFrontPointCount matches post-collision Owners)
+            seq.AddDispatch(k_CountFrontPointsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+            {
+                namespace ep = pl::CountFrontPointsCS;
+                pass.Shader(k_Module, "CountFrontPointsCS");
+                pass.Bind(ep::StepParams, k_StepParams);
+                pass.Bind(ep::FrontDataIn, k_FrontData);
+                pass.Bind(ep::OwnersIn, k_Owners);
+                pass.Bind(ep::PlateFrontPointCount, k_PlateFrontPointCount);
+                pass.DispatchThreads(points, 1, 1);
+            });
+
+            // 26. OffsetFrontPointsCS
+            seq.AddDispatch(k_OffsetFrontPointsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::OffsetFrontPointsCS;
                 pass.Shader(k_Module, "OffsetFrontPointsCS");
@@ -737,8 +912,8 @@ namespace planet_loom
                 pass.DispatchThreads(1, 1, 1);
             });
 
-            // 26. ScatterFrontPointsCS
-            seq.AddDispatch(k_ScatterFrontPointsPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            // 27. ScatterFrontPointsCS
+            seq.AddDispatch(k_ScatterFrontPointsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::ScatterFrontPointsCS;
                 pass.Shader(k_Module, "ScatterFrontPointsCS");
@@ -751,8 +926,8 @@ namespace planet_loom
                 pass.DispatchThreads(points, 1, 1);
             });
 
-            // 27. SortFrontPointsCS
-            seq.AddDispatch(k_SortFrontPointsPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            // 28. SortFrontPointsCS
+            seq.AddDispatch(k_SortFrontPointsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::SortFrontPointsCS;
                 pass.Shader(k_Module, "SortFrontPointsCS");
@@ -762,8 +937,8 @@ namespace planet_loom
                 pass.DispatchThreads(plates * static_cast<int32_t>(planet::k_SortGroupSize), 1, 1);
             });
 
-            // 28. BuildFrontTileCapsCS
-            seq.AddDispatch(k_BuildFrontTileCapsPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            // 29. BuildFrontTileCapsCS
+            seq.AddDispatch(k_BuildFrontTileCapsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::BuildFrontTileCapsCS;
                 pass.Shader(k_Module, "BuildFrontTileCapsCS");
@@ -774,8 +949,8 @@ namespace planet_loom
                 pass.DispatchIndirect(k_FrontTileDispatch, 0);
             });
 
-            // 29. SumPullCS
-            seq.AddDispatch(k_SumPullPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            // 30. SumPullCS
+            seq.AddDispatch(k_SumPullPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::SumPullCS;
                 pass.Shader(k_Module, "SumPullCS");
@@ -788,8 +963,8 @@ namespace planet_loom
                 pass.DispatchThreads(points, 1, 1);
             });
 
-            // 30. FrontDistanceAndUpliftCS
-            seq.AddDispatch(k_FrontDistanceAndUpliftPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            // 31. FrontDistanceAndUpliftCS
+            seq.AddDispatch(k_FrontDistanceAndUpliftPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::FrontDistanceAndUpliftCS;
                 pass.Shader(k_Module, "FrontDistanceAndUpliftCS");
@@ -809,8 +984,24 @@ namespace planet_loom
                 pass.DispatchIndirect(k_LiveDispatch, 0);
             });
 
-            // 31. MovePlatesAndClearCountersCS
-            seq.AddDispatch(k_MovePlatesAndClearCountersPass, k_EveryFrame, k_Queue, [&](loom::DispatchBuilder& pass)
+            // 32. ApplyMantlePlumesCS (after FrontDistanceAndUpliftCS, before MovePlatesAndClearCountersCS)
+            seq.AddDispatch(k_ApplyMantlePlumesPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+            {
+                namespace ep = pl::ApplyMantlePlumesCS;
+                pass.Shader(k_Module, "ApplyMantlePlumesCS");
+                pass.Bind(ep::StepParams, k_StepParams);
+                pass.Bind(ep::PlumeConstants, k_PlumeConstants);
+                pass.Bind(ep::SomeVariants::CrustFlags, k_CrustFlags);
+                pass.Bind(ep::SomeVariants::CrustFlagsWords, k_CrustFlags);
+                pass.Bind(ep::CrustState, k_CrustState);
+                pass.Bind(ep::LiveCell, k_LiveCell, loom::AccessModifier::ReadOnly);
+                pass.Bind(ep::PlateLiveOffset, k_PlateLiveOffset, loom::AccessModifier::ReadOnly);
+                pass.Bind(ep::Rotations, k_Rotations);
+                pass.DispatchIndirect(k_LiveDispatch, 0);
+            });
+
+            // 33. MovePlatesAndClearCountersCS
+            seq.AddDispatch(k_MovePlatesAndClearCountersPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::MovePlatesAndClearCountersCS;
                 pass.Shader(k_Module, "MovePlatesAndClearCountersCS");
@@ -833,14 +1024,18 @@ namespace planet_loom
                 pass.DispatchThreads(1, 1, 1);
             });
 
-            // 32. RenderMapCS
-            const loom::RunPolicy renderPolicy = config.RenderOnTrigger ? loom::RunPolicy::OnTrigger : loom::RunPolicy::EveryFrame;
-            seq.AddDispatch(k_RenderMapPass, renderPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+            // 34. RenderMapCS (always EveryFrame when interactive so debug layers update while paused)
+            const loom::RunPolicy renderPolicy = (!interactive && config.RenderOnTrigger)
+                ? loom::RunPolicy::OnTrigger
+                : loom::RunPolicy::EveryFrame;
+
+            const auto renderMap = [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::RenderMapCS;
                 pass.Shader(k_Module, "RenderMapCS");
                 pass.Bind(ep::StepParams, k_StepParams);
                 pass.Bind(ep::RenderMapConstants, k_RenderMapConstants);
+                pass.Bind(ep::PlumeConstants, k_PlumeConstants);
                 pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
                 pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
                 pass.Bind(ep::CellFronts, k_CellFronts, loom::AccessModifier::ReadOnly);
@@ -849,8 +1044,47 @@ namespace planet_loom
                 pass.Bind(ep::MapOutput, k_MapOutput, loom::AccessModifier::WriteOnly);
                 pass.Bind(ep::OwnersIn, k_Owners);
                 pass.DispatchThreadsOver(k_MapOutput);
-            });
-        });
+            };
+            seq.AddDispatch(k_RenderMapPass, renderPolicy, k_Queue, renderMap);
+
+            // 35. Optional CaptureMapPass (OnTrigger PNG / region capture)
+            if (config.EnableCapturePass && callbacks.CaptureCallback)
+            {
+                const auto captureMap = [&callbacks](loom::RecordBuilder& pass)
+                {
+                    pass.Uses(k_MapOutput, loom::ResourceAccess::Read, loom::ImageUse::TransferSource);
+                    pass.Record(callbacks.CaptureCallback);
+                };
+                seq.AddRecord(k_CaptureMapPass, loom::RunPolicy::OnTrigger, k_Queue, captureMap);
+            }
+
+            // 36 & 37. Swapchain presentation + ImGui overlay in LiveMode
+            if (config.LiveMode)
+            {
+                const auto presentMap = [](loom::DrawBuilder& pass)
+                {
+                    pass.Shaders("PlanetPresent", "PresentMapVS", "PresentMapPS");
+                    pass.Bind("PresentConstants", k_PresentConstants);
+                    pass.Bind("MapInput", k_MapOutput);
+                    pass.Bind("MapSampler", k_MapSampler);
+                    pass.Color(0, k_Screen, loom::ColorLoad::DontCare(), loom::AttachmentStore::Store, loom::BlendMode::Opaque);
+                    pass.Draw(3, 1, 0, 0);
+                };
+                seq.AddDraw(k_PresentMapPass, loom::RunPolicy::EveryFrame, k_Queue, presentMap);
+
+                if (callbacks.UiCallback)
+                {
+                    const auto uiPass = [&callbacks](loom::RecordBuilder& pass)
+                    {
+                        pass.Uses(k_Screen, loom::ResourceAccess::ReadWrite, loom::ImageUse::ColorTarget);
+                        pass.Record(callbacks.UiCallback);
+                    };
+                    seq.AddRecord(k_UiPass, loom::RunPolicy::EveryFrame, k_Queue, uiPass);
+                }
+            }
+        };
+
+        graph.AddSequence(k_StepSequence, buildSequence);
     }
 
     bool PlanetGraphImports::SupplyAll(loom::Graph& graph,
@@ -861,7 +1095,8 @@ namespace planet_loom
                                        uint32_t width,
                                        uint32_t height,
                                        uint32_t mode,
-                                       bool use_bytes)
+                                       bool use_bytes,
+                                       const PlumeSystemState& plumes)
     {
         const size_t expectedFlagBytes = static_cast<size_t>(initial.PointCount) *
                                          static_cast<size_t>(initial.PlateCount) *
@@ -884,6 +1119,7 @@ namespace planet_loom
         const Pass3ParamsHost pass3Params{ .Time = initial.InitialTime };
         const UpliftParamsHost upliftParams{ .Time = initial.InitialTime };
         const MovePlatesParamsHost movePlatesParams{ .Time = initial.InitialTime };
+        const PlumeParamsHost plumeParams = PackPlumeUniform(plumes, initial.InitialTime);
         const RenderMapParamsHost renderMapParams
         {
             .Width = width,
@@ -894,11 +1130,12 @@ namespace planet_loom
 
         const std::vector<math::Float4> zeroRift(initial.PlateCount, math::Float4{ 0.0f, 0.0f, 0.0f, 0.0f });
 
-        return CreateAndSupplyUniform(graph, resources, k_StepParams, stepParams, StepParams) &&
-               CreateAndSupplyUniform(graph, resources, k_Pass3Constants, pass3Params, Pass3Constants) &&
-               CreateAndSupplyUniform(graph, resources, k_UpliftConstants, upliftParams, UpliftConstants) &&
-               CreateAndSupplyUniform(graph, resources, k_MovePlatesConstants, movePlatesParams, MovePlatesConstants) &&
-               CreateAndSupplyUniform(graph, resources, k_RenderMapConstants, renderMapParams, RenderMapConstants) &&
+        return CreateAndSupplyUniform(graph, resources, k_StepParams, BufferUsageBits::ComputeShaderUBO, stepParams, StepParams) &&
+               CreateAndSupplyUniform(graph, resources, k_Pass3Constants, BufferUsageBits::ComputeShaderUBO, pass3Params, Pass3Constants) &&
+               CreateAndSupplyUniform(graph, resources, k_UpliftConstants, BufferUsageBits::ComputeShaderUBO, upliftParams, UpliftConstants) &&
+               CreateAndSupplyUniform(graph, resources, k_MovePlatesConstants, BufferUsageBits::ComputeShaderUBO, movePlatesParams, MovePlatesConstants) &&
+               CreateAndSupplyUniform(graph, resources, k_PlumeConstants, BufferUsageBits::ComputeShaderUBO, plumeParams, PlumeConstants) &&
+               CreateAndSupplyUniform(graph, resources, k_RenderMapConstants, BufferUsageBits::ComputeShaderUBO, renderMapParams, RenderMapConstants) &&
                CreateAndSupplyStorage(graph, resources, k_CrustFlags, initial.CrustFlags, CrustFlags) &&
                CreateAndSupplyStorage(graph, resources, k_CrustState, std::as_bytes(std::span{ initial.CrustState }), CrustState) &&
                CreateAndSupplyStorage(graph, resources, k_Rotations, std::as_bytes(std::span{ initial.Rotations }), Rotations) &&
@@ -909,15 +1146,26 @@ namespace planet_loom
                CreateAndSupplyStorage(graph, resources, k_PreviousPlate, std::as_bytes(std::span{ initial.PreviousPlate }), PreviousPlate);
     }
 
+    bool PlanetGraphImports::SupplyPresentConstants(loom::Graph& graph,
+                                                    ResourceContext& resources,
+                                                    const PresentMapParamsHost& params)
+    {
+        constexpr BufferUsageBits k_PresentUsage =
+            BufferUsageBits::VertexShaderUBO | BufferUsageBits::FragmentShaderUBO;
+        return CreateAndSupplyUniform(graph, resources, k_PresentConstants, k_PresentUsage, params, PresentConstants);
+    }
+
     bool PlanetGraphImports::UpdateUniforms(ResourceContext& resources,
                                             float time,
                                             uint32_t width,
                                             uint32_t height,
-                                            uint32_t mode)
+                                            uint32_t mode,
+                                            const PlumeSystemState& plumes)
     {
         const Pass3ParamsHost pass3Params{ .Time = time };
         const UpliftParamsHost upliftParams{ .Time = time };
         const MovePlatesParamsHost movePlatesParams{ .Time = time };
+        const PlumeParamsHost plumeParams = PackPlumeUniform(plumes, time);
         const RenderMapParamsHost renderMapParams
         {
             .Width = width,
@@ -929,7 +1177,65 @@ namespace planet_loom
         return UpdateUniformBuffer(resources, Pass3Constants, k_Pass3Constants.Name, pass3Params) &&
                UpdateUniformBuffer(resources, UpliftConstants, k_UpliftConstants.Name, upliftParams) &&
                UpdateUniformBuffer(resources, MovePlatesConstants, k_MovePlatesConstants.Name, movePlatesParams) &&
+               UpdateUniformBuffer(resources, PlumeConstants, k_PlumeConstants.Name, plumeParams) &&
                UpdateUniformBuffer(resources, RenderMapConstants, k_RenderMapConstants.Name, renderMapParams);
+    }
+
+    bool PlanetGraphImports::UpdatePresentConstants(ResourceContext& resources,
+                                                    const PresentMapParamsHost& params)
+    {
+        return UpdateUniformBuffer(resources, PresentConstants, k_PresentConstants.Name, params);
+    }
+
+    bool PlanetGraphImports::UpdateStepDt(ResourceContext& resources,
+                                          const planet::HealpixInitialState& initial,
+                                          float dt,
+                                          uint32_t order)
+    {
+        const StepParamsHost stepParams
+        {
+            .PointCount = initial.PointCount,
+            .PlateCount = initial.PlateCount,
+            .TimeStepMy = dt,
+            .HealpixOrder = order,
+        };
+        return UpdateUniformBuffer(resources, StepParams, k_StepParams.Name, stepParams);
+    }
+
+    bool PlanetGraphImports::ResetSimulationState(loom::Graph& graph,
+                                                  ResourceContext& resources,
+                                                  const planet::HealpixInitialState& initial,
+                                                  float dt,
+                                                  uint32_t order,
+                                                  uint32_t width,
+                                                  uint32_t height,
+                                                  uint32_t mode,
+                                                  bool use_bytes,
+                                                  const PlumeSystemState& plumes)
+    {
+        const size_t expectedFlagBytes = static_cast<size_t>(initial.PointCount) *
+                                         static_cast<size_t>(initial.PlateCount) *
+                                         (use_bytes ? 1u : 4u);
+
+        if (initial.CrustFlags.size() != expectedFlagBytes)
+        {
+            return false;
+        }
+
+        const rhi::GpuWait last = graph.LastSubmit();
+        const rhi::TransferWait afterGraph{ last.Semaphore, last.Value };
+        const std::vector<math::Float4> zeroRift(initial.PlateCount, math::Float4{ 0.0f, 0.0f, 0.0f, 0.0f });
+
+        return UpdateStepDt(resources, initial, dt, order) &&
+               UpdateUniforms(resources, initial.InitialTime, width, height, mode, plumes) &&
+               ResetStorageBuffer(resources, afterGraph, last.Submitted, CrustFlags, k_CrustFlags.Name, initial.CrustFlags) &&
+               ResetStorageBuffer(resources, afterGraph, last.Submitted, CrustState, k_CrustState.Name, std::as_bytes(std::span{ initial.CrustState })) &&
+               ResetStorageBuffer(resources, afterGraph, last.Submitted, Rotations, k_Rotations.Name, std::as_bytes(std::span{ initial.Rotations })) &&
+               ResetStorageBuffer(resources, afterGraph, last.Submitted, PoleRates, k_PoleRates.Name, std::as_bytes(std::span{ initial.PoleRates })) &&
+               ResetStorageBuffer(resources, afterGraph, last.Submitted, PlateRift, k_PlateRift.Name, std::as_bytes(std::span{ zeroRift })) &&
+               ResetStorageBuffer(resources, afterGraph, last.Submitted, PlateCapCenters, k_PlateCapCenters.Name, std::as_bytes(std::span{ initial.Caps.Centres })) &&
+               ResetStorageBuffer(resources, afterGraph, last.Submitted, PlateCapSpread, k_PlateCapSpread.Name, std::as_bytes(std::span{ initial.Caps.Spreads })) &&
+               ResetStorageBuffer(resources, afterGraph, last.Submitted, PreviousPlate, k_PreviousPlate.Name, std::as_bytes(std::span{ initial.PreviousPlate }));
     }
 
     void PlanetGraphImports::Destroy(ResourceContext& resources)
@@ -938,7 +1244,9 @@ namespace planet_loom
         DestroyHandle(resources, Pass3Constants);
         DestroyHandle(resources, UpliftConstants);
         DestroyHandle(resources, MovePlatesConstants);
+        DestroyHandle(resources, PlumeConstants);
         DestroyHandle(resources, RenderMapConstants);
+        DestroyHandle(resources, PresentConstants);
         DestroyHandle(resources, CrustFlags);
         DestroyHandle(resources, CrustState);
         DestroyHandle(resources, Rotations);
