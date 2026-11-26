@@ -42,6 +42,7 @@ set(foundation_content_source_files
     "include/content/Encode.hpp"
     "include/content/EncodeErased.hpp"
     "include/content/HashSink.hpp"
+    "include/content/JsonDecode.hpp"
     "include/content/JsonSink.hpp"
     "include/content/JsonWriter.hpp"
     "include/content/Key.hpp"
@@ -51,6 +52,7 @@ set(foundation_content_source_files
     "src/content/BytesSink.cpp"
     "src/content/EncodeErased.cpp"
     "src/content/HashSink.cpp"
+    "src/content/JsonDecode.cpp"
     "src/content/JsonSink.cpp"
     "src/content/JsonWriter.cpp"
     "src/content/Key.cpp"
@@ -194,6 +196,7 @@ add_library(foundation STATIC
 
 target_include_directories(foundation PRIVATE
     "../third_party"
+    "${PROJECT_SOURCE_DIR}/third_party/json/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/")
 
 if(NOT EMSCRIPTEN)

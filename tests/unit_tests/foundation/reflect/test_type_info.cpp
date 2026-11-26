@@ -82,6 +82,7 @@ namespace foundation::reflect
     {
         static constexpr std::string_view Name = "typeinfotest.Shape";
         static constexpr std::string_view Doc = "The outline of a thing.";
+        static constexpr std::string_view UiWidget = "ShapePicker";
         static constexpr std::array<EnumCase<typeinfotest::Shape>, 3> Cases
         {
             EnumCase<typeinfotest::Shape>{ "Invalid", typeinfotest::Shape::Invalid },
@@ -144,6 +145,7 @@ namespace foundation::reflect
 
         static constexpr std::string_view Name = "typeinfotest.Everything";
         static constexpr std::string_view Doc = "One field of every kind.";
+        static constexpr std::string_view UiWidget = "EverythingPanel";
         static constexpr std::tuple Fields
         {
             Field<T, bool>{ "Flag", &T::Flag },
@@ -202,15 +204,20 @@ namespace
     // the proof that the compiler builds every table, with no dynamic initialization
     constinit const TypeInfo* g_everythingInfo = &GetTypeInfo<typeinfotest::Everything>();
     constinit const TypeInfo* g_nodeInfo = &GetTypeInfo<typeinfotest::Node>();
+    constinit const TypeInfo* g_shapeInfo = &GetTypeInfo<typeinfotest::Shape>();
 
     constexpr const TypeInfo& k_Everything = GetTypeInfo<typeinfotest::Everything>();
 
     static_assert(k_Everything.Kind == TypeKind::Struct);
     static_assert(k_Everything.Name == "typeinfotest.Everything");
+    static_assert(k_Everything.UiWidget == "EverythingPanel");
     static_assert(k_Everything.Fields.size() == 16);
     static_assert(k_Everything.Fields[1].Name == "Small");
     static_assert(k_Everything.Fields[1].Type().IntegerWidthBytes == 2);
     static_assert(k_Everything.Fields[3].Metadata.Range->Max == 8.0);
+    static_assert(GetTypeInfo<typeinfotest::Leaf>().UiWidget.empty());
+    static_assert(GetTypeInfo<typeinfotest::Shape>().UiWidget == "ShapePicker");
+    static_assert(GetTypeInfo<typeinfotest::Signed>().UiWidget.empty());
     static_assert(GetTypeInfo<typeinfotest::Node>().Fields[1].Type().Element().Name == "typeinfotest.Node");
 
     const TypeInfo& FieldType(const TypeInfo& owner, std::string_view name)
@@ -474,4 +481,114 @@ TEST(ReflectTypeInfoTest, EncodeAcceptsEveryKindInTheTable)
     foundation::content::Encode(value, everythingSink);
 
     EXPECT_FALSE(everythingSink.Text().empty());
+}
+
+TEST(ReflectTypeInfoTest, TableKeepsUiWidgetWhenPresentAndEmptyWhenOmitted)
+{
+    EXPECT_EQ(g_everythingInfo->UiWidget, "EverythingPanel");
+    EXPECT_TRUE(GetTypeInfo<typeinfotest::Leaf>().UiWidget.empty());
+    EXPECT_EQ(g_shapeInfo->UiWidget, "ShapePicker");
+    EXPECT_TRUE(GetTypeInfo<typeinfotest::Signed>().UiWidget.empty());
+}
+
+TEST(ReflectTypeInfoTest, ResizeSequenceResizesVectorsAndRejectsNegativeOrFixed)
+{
+    const TypeInfo& list = FieldType(*g_everythingInfo, "List");
+
+    ASSERT_NE(list.ResizeSequence, nullptr);
+
+    std::vector<int32_t> values{ 10, 20 };
+
+    EXPECT_TRUE(list.ResizeSequence(&values, 5));
+    EXPECT_EQ(std::ssize(values), 5);
+    EXPECT_EQ(list.ElementCount(&values), 5);
+    EXPECT_EQ(values[0], 10);
+    EXPECT_EQ(values[1], 20);
+    EXPECT_EQ(values[4], 0);
+
+    EXPECT_TRUE(list.ResizeSequence(&values, 1));
+    EXPECT_EQ(std::ssize(values), 1);
+    EXPECT_EQ(values[0], 10);
+
+    EXPECT_FALSE(list.ResizeSequence(&values, -1));
+    EXPECT_EQ(std::ssize(values), 1);
+    EXPECT_EQ(values[0], 10);
+
+    EXPECT_TRUE(list.ResizeSequence(&values, 0));
+    EXPECT_TRUE(values.empty());
+
+    EXPECT_EQ(FieldType(*g_everythingInfo, "Fixed").ResizeSequence, nullptr);
+    EXPECT_EQ(FieldType(*g_everythingInfo, "DynamicSpan").ResizeSequence, nullptr);
+    EXPECT_EQ(FieldType(*g_everythingInfo, "FixedSpan").ResizeSequence, nullptr);
+}
+
+TEST(ReflectTypeInfoTest, OptionalEmplaceAndResetManageValueLifetime)
+{
+    const TypeInfo& maybe = FieldType(*g_everythingInfo, "Maybe");
+
+    ASSERT_NE(maybe.OptionalValue, nullptr);
+    ASSERT_NE(maybe.EmplaceOptional, nullptr);
+    ASSERT_NE(maybe.ResetOptional, nullptr);
+
+    std::optional<typeinfotest::Leaf> storage;
+
+    EXPECT_EQ(maybe.OptionalValue(&storage), nullptr);
+
+    void* emplaced = maybe.EmplaceOptional(&storage);
+
+    ASSERT_TRUE(storage.has_value());
+    EXPECT_EQ(emplaced, &*storage);
+    EXPECT_EQ(maybe.OptionalValue(&storage), emplaced);
+    EXPECT_EQ(static_cast<const typeinfotest::Leaf*>(emplaced)->Value, 0.0f);
+
+    static_cast<typeinfotest::Leaf*>(emplaced)->Value = 3.5f;
+
+    EXPECT_EQ(storage->Value, 3.5f);
+
+    maybe.ResetOptional(&storage);
+
+    EXPECT_FALSE(storage.has_value());
+    EXPECT_EQ(maybe.OptionalValue(&storage), nullptr);
+}
+
+TEST(ReflectTypeInfoTest, VariantEmplaceSwitchesAlternativeAndRejectsInvalidIndices)
+{
+    const TypeInfo& choice = FieldType(*g_everythingInfo, "Choice");
+
+    ASSERT_NE(choice.ActiveIndex, nullptr);
+    ASSERT_NE(choice.ActiveValue, nullptr);
+    ASSERT_NE(choice.EmplaceVariant, nullptr);
+
+    std::variant<typeinfotest::Leaf, typeinfotest::OtherLeaf> storage{ typeinfotest::Leaf{ .Value = 7.0f } };
+
+    EXPECT_EQ(choice.ActiveIndex(&storage), 0);
+
+    void* second = choice.EmplaceVariant(&storage, 1);
+
+    ASSERT_NE(second, nullptr);
+    EXPECT_EQ(choice.ActiveIndex(&storage), 1);
+    ASSERT_TRUE(std::holds_alternative<typeinfotest::OtherLeaf>(storage));
+    EXPECT_EQ(second, &std::get<1>(storage));
+    EXPECT_EQ(choice.ActiveValue(&storage), second);
+    EXPECT_EQ(std::get<1>(storage).Value, 0.0f);
+
+    std::get<1>(storage).Value = 9.0f;
+
+    EXPECT_EQ(choice.EmplaceVariant(&storage, -1), nullptr);
+    EXPECT_EQ(choice.ActiveIndex(&storage), 1);
+    EXPECT_EQ(choice.ActiveValue(&storage), second);
+    EXPECT_EQ(std::get<1>(storage).Value, 9.0f);
+
+    EXPECT_EQ(choice.EmplaceVariant(&storage, 2), nullptr);
+    EXPECT_EQ(choice.ActiveIndex(&storage), 1);
+    EXPECT_EQ(choice.ActiveValue(&storage), second);
+    EXPECT_EQ(std::get<1>(storage).Value, 9.0f);
+
+    void* first = choice.EmplaceVariant(&storage, 0);
+
+    ASSERT_NE(first, nullptr);
+    EXPECT_EQ(choice.ActiveIndex(&storage), 0);
+    ASSERT_TRUE(std::holds_alternative<typeinfotest::Leaf>(storage));
+    EXPECT_EQ(first, &std::get<0>(storage));
+    EXPECT_EQ(choice.ActiveValue(&storage), first);
 }

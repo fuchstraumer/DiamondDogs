@@ -59,9 +59,10 @@ namespace foundation::reflect
     struct TypeInfo
     {
         TypeKind Kind{ TypeKind::Invalid };
-        // the descriptor's name and doc. Empty when the kind has no descriptor
+        // the descriptor's name, doc, and optional UI widget tag. Empty when the kind has no descriptor
         std::string_view Name;
         std::string_view Doc;
+        std::string_view UiWidget;
         // for Int, and for the underlying type of Enum
         int32_t IntegerWidthBytes{ 0 };
         bool IntegerIsSigned{ false };
@@ -75,16 +76,20 @@ namespace foundation::reflect
         // for String. WriteString is null for a string_view, because a view stores no characters of its own
         std::string_view (*ReadString)(const void* value) noexcept { nullptr };
         void (*WriteString)(void* value, std::string_view text) { nullptr };
-        // for Sequence
+        // for Sequence. ResizeSequence is non-null for std::vector, null for std::array and std::span
         int64_t (*ElementCount)(const void* sequence) noexcept { nullptr };
         const void* (*ElementAt)(const void* sequence, int64_t index) noexcept { nullptr };
+        bool (*ResizeSequence)(void* sequence, int64_t new_count) { nullptr };
         // false for a span of const elements
         bool ElementsAreWritable{ false };
-        // for Optional. Returns null when the optional is empty
+        // for Optional. OptionalValue returns null when the optional is empty
         const void* (*OptionalValue)(const void* optional) noexcept { nullptr };
+        void* (*EmplaceOptional)(void* optional) { nullptr };
+        void (*ResetOptional)(void* optional) noexcept { nullptr };
         // for Variant. A valueless variant returns -1 and null
         int32_t (*ActiveIndex)(const void* variant) noexcept { nullptr };
         const void* (*ActiveValue)(const void* variant) noexcept { nullptr };
+        void* (*EmplaceVariant)(void* variant, int32_t index) { nullptr };
     };
 
     /** @brief Returns the table of T. The compiler builds it, so it allocates nothing and any thread can read
@@ -125,10 +130,81 @@ namespace foundation::reflect
         }
 
         template<typename T>
+        bool ResizeVector(void* sequence, int64_t new_count)
+        {
+            if (new_count < 0)
+            {
+                return false;
+            }
+
+            static_cast<T*>(sequence)->resize(static_cast<size_t>(new_count));
+
+            return true;
+        }
+
+        template<typename T>
+        constexpr bool (*SequenceResizeFn() noexcept)(void*, int64_t)
+        {
+            if constexpr (IsVector<T>::value)
+            {
+                return &ResizeVector<T>;
+            }
+            else
+            {
+                return nullptr;
+            }
+        }
+
+        template<typename T>
         const void* OptionalValueOf(const void* optional) noexcept
         {
             const T& typedOptional = *static_cast<const T*>(optional);
             return typedOptional.has_value() ? &*typedOptional : nullptr;
+        }
+
+        template<typename T>
+        void* EmplaceOptionalValue(void* optional)
+        {
+            return &static_cast<T*>(optional)->emplace();
+        }
+
+        template<typename T>
+        void ResetOptionalValue(void* optional) noexcept
+        {
+            static_cast<T*>(optional)->reset();
+        }
+
+        template<typename Variant, size_t Index>
+        void* EmplaceVariantAt(void* variant)
+        {
+            return &static_cast<Variant*>(variant)->template emplace<Index>();
+        }
+
+        template<typename Variant, size_t... Indices>
+        void* EmplaceVariantByIndex(void* variant, int32_t index, std::index_sequence<Indices...>)
+        {
+            using EmplaceFn = void* (*)(void*);
+
+            static constexpr std::array<EmplaceFn, sizeof...(Indices)> emplacers
+            {
+                &EmplaceVariantAt<Variant, Indices>...
+            };
+
+            if (index < 0 || static_cast<size_t>(index) >= emplacers.size())
+            {
+                return nullptr;
+            }
+
+            return emplacers[static_cast<size_t>(index)](variant);
+        }
+
+        template<typename T>
+        void* EmplaceVariantValue(void* variant, int32_t index)
+        {
+            return EmplaceVariantByIndex<T>(
+                variant,
+                index,
+                std::make_index_sequence<std::variant_size_v<T>>{});
         }
 
         template<typename T>
@@ -272,6 +348,7 @@ namespace foundation::reflect
             TypeInfo info = MakeIntegerInfo<std::underlying_type_t<E>>(TypeKind::Enum);
             info.Name = Describe<E>::Name;
             info.Doc = DescribedDoc<E>();
+            info.UiWidget = DescribedUiWidget<E>();
             info.Cases = k_EnumCaseInfos<E>;
 
             return info;
@@ -287,6 +364,7 @@ namespace foundation::reflect
                 .Kind = TypeKind::Struct,
                 .Name = Describe<T>::Name,
                 .Doc = DescribedDoc<T>(),
+                .UiWidget = DescribedUiWidget<T>(),
                 .Fields = k_FieldInfos<T>,
             };
         }
@@ -344,6 +422,7 @@ namespace foundation::reflect
                     .FixedElementCount = FixedElementCountOf<T>(),
                     .ElementCount = &SequenceElementCount<T>,
                     .ElementAt = &SequenceElementAt<T>,
+                    .ResizeSequence = SequenceResizeFn<T>(),
                     .ElementsAreWritable = SequenceElementsAreWritable<T>(),
                 };
             }
@@ -354,6 +433,8 @@ namespace foundation::reflect
                     .Kind = TypeKind::Optional,
                     .Element = &GetTypeInfo<typename T::value_type>,
                     .OptionalValue = &OptionalValueOf<T>,
+                    .EmplaceOptional = &EmplaceOptionalValue<T>,
+                    .ResetOptional = &ResetOptionalValue<T>,
                 };
             }
             else if constexpr (IsVariant<T>::value)
@@ -367,6 +448,7 @@ namespace foundation::reflect
                     .Alternatives = k_VariantAlternatives<T>,
                     .ActiveIndex = &VariantActiveIndex<T>,
                     .ActiveValue = &VariantActiveValue<T>,
+                    .EmplaceVariant = &EmplaceVariantValue<T>,
                 };
             }
             else

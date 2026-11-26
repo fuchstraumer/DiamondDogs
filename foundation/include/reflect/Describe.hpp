@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_FOUNDATION_REFLECT_DESCRIBE_HPP
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <optional>
 #include <span>
@@ -27,6 +28,25 @@ namespace foundation::reflect
     /** @brief The limit for a range that is open at one end, for example { 0.0, k_NoLimit }. */
     inline constexpr double k_NoLimit = std::numeric_limits<double>::infinity();
 
+    enum class UiScale : uint8_t
+    {
+        Invalid = 0,
+        Linear,
+        Logarithmic,
+    };
+
+    /** @brief Optional editor display hints for one field. Recipe keys ignore all of this. */
+    struct FieldUiMetadata
+    {
+        std::string_view Label;
+        std::string_view Group;
+        std::string_view Widget;
+        std::optional<FieldRange> Slider;
+        double Step{ 0.0 };
+        UiScale Scale{ UiScale::Linear };
+        std::string_view Format;
+    };
+
     /** @brief Optional facts about a field. Recipe keys ignore all of this, so that editing it never
      *  invalidates content. */
     struct FieldMetadata
@@ -38,6 +58,7 @@ namespace foundation::reflect
         bool Hidden{ false };
         // a command call must give this field
         bool Required{ false };
+        FieldUiMetadata Ui{};
     };
 
     template<typename Owner, typename Member>
@@ -88,6 +109,20 @@ namespace foundation::reflect
         }
     }
 
+    /** @brief Returns the optional UiWidget tag of a type's descriptor, or an empty view when it has none. */
+    template<typename T>
+    constexpr std::string_view DescribedUiWidget() noexcept
+    {
+        if constexpr (requires { Describe<T>::UiWidget; })
+        {
+            return Describe<T>::UiWidget;
+        }
+        else
+        {
+            return {};
+        }
+    }
+
     namespace detail
     {
         constexpr bool NamesAreUnique(std::span<const std::string_view> names) noexcept
@@ -120,6 +155,27 @@ namespace foundation::reflect
             return !hasNaNLimit && range->Min <= range->Max;
         }
 
+        constexpr bool SliderRangeIsValid(const std::optional<FieldRange>& range,
+                                          const std::optional<FieldRange>& slider) noexcept
+        {
+            if (!slider.has_value())
+            {
+                return true;
+            }
+
+            if (!RangeIsOrdered(slider))
+            {
+                return false;
+            }
+
+            if (range.has_value())
+            {
+                return RangeIsOrdered(range) && slider->Min >= range->Min && slider->Max <= range->Max;
+            }
+
+            return true;
+        }
+
         template<typename T, size_t... Indices>
         consteval bool FieldNamesAreUnique(std::index_sequence<Indices...>)
         {
@@ -135,6 +191,13 @@ namespace foundation::reflect
         consteval bool FieldRangesAreOrdered(std::index_sequence<Indices...>)
         {
             return (RangeIsOrdered(std::get<Indices>(Describe<T>::Fields).Metadata.Range) && ...);
+        }
+
+        template<typename T, size_t... Indices>
+        consteval bool FieldSliderRangesAreValid(std::index_sequence<Indices...>)
+        {
+            return (SliderRangeIsValid(std::get<Indices>(Describe<T>::Fields).Metadata.Range,
+                                       std::get<Indices>(Describe<T>::Fields).Metadata.Ui.Slider) && ...);
         }
 
         template<typename E, size_t... Indices>
@@ -163,6 +226,13 @@ namespace foundation::reflect
         return detail::FieldRangesAreOrdered<T>(std::make_index_sequence<k_FieldCount<T>>{});
     }
 
+    /** @brief Returns true when every UI slider range is ordered, finite/non-NaN, and within Range. */
+    template<DescribedStruct T>
+    consteval bool FieldSliderRangesAreValid()
+    {
+        return detail::FieldSliderRangesAreValid<T>(std::make_index_sequence<k_FieldCount<T>>{});
+    }
+
     /** @brief Returns true when no two cases of the descriptor have the same name. */
     template<DescribedEnum E>
     consteval bool EnumCaseNamesAreUnique()
@@ -176,6 +246,8 @@ namespace foundation::reflect
     {
         static_assert(FieldNamesAreUnique<T>(), "Describe<T>: two fields have the same name");
         static_assert(FieldRangesAreOrdered<T>(), "Describe<T>: a field range has Min > Max or a NaN limit");
+        static_assert(FieldSliderRangesAreValid<T>(),
+                      "Describe<T>: a field UI slider range is inverted, NaN, or outside FieldMetadata::Range");
     }
 
     /** @brief Fails the build for an enum descriptor that has a duplicate case name. */
