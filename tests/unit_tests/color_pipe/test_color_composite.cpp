@@ -113,6 +113,28 @@ TEST(ColorCompositeTest, AgXPreservesGrayAndRespectsHeadroom)
     EXPECT_LE(highlight.Z, headroom);
 }
 
+TEST(ColorCompositeTest, AgXPunchyPreservesGrayAndAddsContrast)
+{
+    const color::DisplayTarget target = SdrTarget();
+    const double headroom = color::HeadroomOf(target);
+    const color::Vec3d gray = color::Tonemap(color::TonemapperKind::AgXPunchy, color::Vec3d{ 0.18, 0.18, 0.18 }, target);
+    const color::Vec3d baseGray = color::Tonemap(color::TonemapperKind::AgX, color::Vec3d{ 0.18, 0.18, 0.18 }, target);
+
+    EXPECT_NEAR(gray.X, gray.Y, 1.0e-9);
+    EXPECT_NEAR(gray.Z, gray.Y, 1.0e-9);
+    EXPECT_GT(gray.Y, 0.0);
+    // the look's power darkens the mid tones against the base look
+    EXPECT_LT(gray.Y, baseGray.Y);
+
+    const color::Vec3d highlight = color::Tonemap(color::TonemapperKind::AgXPunchy, color::Vec3d{ 100.0, 50.0, 200.0 }, target);
+    EXPECT_TRUE(std::isfinite(highlight.X));
+    EXPECT_TRUE(std::isfinite(highlight.Y));
+    EXPECT_TRUE(std::isfinite(highlight.Z));
+    EXPECT_LE(highlight.X, headroom);
+    EXPECT_LE(highlight.Y, headroom);
+    EXPECT_LE(highlight.Z, headroom);
+}
+
 TEST(ColorCompositeTest, AGrayStaysGrayThroughEveryEncoding)
 {
     const color::Vec3d gray{ 0.18, 0.18, 0.18 };

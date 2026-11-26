@@ -91,12 +91,13 @@ namespace
         EncodingCase{ color::DisplayEncoding::Hdr10Pq, "PQ", "A2B10G10R10_UNORM_PACK32", ImageFormat{ ImageComponentFormats::A2B10G10R10, ImageDataType::UNorm }, ColorSpace::HDR10_ST2084, 4u, 1023.0, 3.0 },
     };
 
-    constexpr std::array<color::TonemapperKind, 4> k_Tonemappers
+    constexpr std::array<color::TonemapperKind, 5> k_Tonemappers
     {
         color::TonemapperKind::Passthrough,
         color::TonemapperKind::FalseColorEv,
         color::TonemapperKind::KhronosNeutral,
-        color::TonemapperKind::AgX
+        color::TonemapperKind::AgX,
+        color::TonemapperKind::AgXPunchy
     };
 
     [[nodiscard]] constexpr std::string_view TonemapperName(color::TonemapperKind kind) noexcept
@@ -110,8 +111,11 @@ namespace
         case color::TonemapperKind::KhronosNeutral:
             return "KhronosNeutral";
         case color::TonemapperKind::AgX:
-        return "AgX";
-        default: return "Unknown";
+            return "AgX";
+        case color::TonemapperKind::AgXPunchy:
+            return "AgXPunchy";
+        default:
+            return "Unknown";
         }
     }
 
