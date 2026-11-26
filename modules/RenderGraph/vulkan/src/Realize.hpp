@@ -17,8 +17,12 @@ namespace loom
     [[nodiscard]] RealizeError CreateFrameSlots(GraphImpl& graph, int32_t frame_slots);
     // Step 7: binds each frame target, and loads the dynamic-state entry points when the graph draws
     [[nodiscard]] RealizeError PrepareTargets(GraphImpl& graph, const RealizeInputs& inputs);
-    // Every graph-declared resource but the OfTarget images: those wait for their target's first extent
-    void CreateResources(GraphImpl& graph);
+    // Every graph-declared resource but the OfTarget images: those wait for their target's first extent. With
+    // MemoryAliasing::On, packs the alias candidates and creates the heaps; the placed rows wait for their heap.
+    void CreateResources(GraphImpl& graph, MemoryAliasing aliasing);
+    // Creates the placed rows once every heap settled: in its heap, or in its own memory when its heap failed.
+    // Tick calls it before it polls the rows.
+    void CreatePlacedRows(GraphImpl& graph);
     void PrepareCoreState(GraphImpl& graph);
 
     // An OfTarget image of `row`, at `extent`. Tick makes them when a target's allocation extent changes.

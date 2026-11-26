@@ -1,6 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_LOOM_COMPILED_DATA_HPP
 #define DIAMOND_DOGS_LOOM_COMPILED_DATA_HPP
+#include "AliasLayout.hpp"
 #include "FramePlan.hpp"
 #include "Declarations.hpp"
 #include "LoomKeys.hpp"
@@ -122,7 +123,7 @@ namespace loom
         OutputFallback Fallback{ OutputFallback::KeepLast() };
     };
 
-    // The levels where a resource row is first and last used, for the aliasing stage after step 6. -1 when no pass
+    // The levels where a resource row is first and last used, for aliasing (alias/Lifetimes.cpp). -1 when no pass
     // uses the row.
     struct ResourceSpan
     {
@@ -158,6 +159,7 @@ namespace loom
         std::vector<CompiledAttachment> Attachments;
         std::vector<CompiledParams> Params;
         std::vector<ResourceSpan> Spans;            // [resource]
+        std::vector<AliasCandidate> AliasCandidates;    // the rows that may share memory (alias/Lifetimes.cpp)
         std::vector<rhi::ImageLayout> SlotLayouts;  // [slot]: the layout a descriptor names, the use's layout
 
         // History rings (spec R3): a row with HistoryDepth D has D + 1 copies, each its own object with its own barrier

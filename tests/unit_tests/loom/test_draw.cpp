@@ -1,3 +1,4 @@
+#include "AliasLayout.hpp"
 #include "Compile.hpp"
 #include "CompiledGraph.hpp"
 #include "DecideRuns.hpp"
@@ -37,6 +38,9 @@ using namespace freeze_tests;
 
 namespace
 {
+
+    // these tests place nothing: every row has its own memory
+    const loom::AliasLayout k_NoAliasing{};
 
     namespace host = loom_test_shaders;
 
@@ -321,7 +325,7 @@ namespace
         loom::PrepareFramePlan(compiled, tick.Plan);
         tick.Sync.assign(compiled.Data().CopyRows.size(), loom::ResourceSync{});
         loom::DecideRuns(compiled, states, controls, tick.Sync, 0, tick.Plan);
-        loom::PlanBarriers(compiled, states, tick.Sync, 0, tick.Plan);
+        loom::PlanBarriers(compiled, states, tick.Sync, k_NoAliasing, 0, tick.Plan);
         return tick;
     }
 

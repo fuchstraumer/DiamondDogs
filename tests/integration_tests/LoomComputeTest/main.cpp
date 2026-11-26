@@ -1,3 +1,4 @@
+#include "AliasLayout.hpp"
 #include "Compile.hpp"
 #include "CompiledGraph.hpp"
 #include "Declarations.hpp"
@@ -20,6 +21,7 @@
 #include "RhiResourceFlags.hpp"
 #include "RhiFlags.hpp"
 #include "RhiSystem.hpp"
+#include "SequenceBuilder.hpp"
 #include "ShaderBundle.hpp"
 #include "ShaderLibrary.host.hpp"
 #include "SpineNeeds.hpp"
@@ -280,16 +282,14 @@ namespace
         }
     }
 
-    // Compiles and realizes the test graph. Returns null, and prints why, when either step fails.
-    std::unique_ptr<loom::Graph> BuildAndRealize(HeadlessBoot& boot, loom::CollectingSink& sink, bool hash_twice,
-                                                 std::string_view variant_name)
+    // Compiles and realizes a graph. Returns null, and prints why, when either step fails.
+    std::unique_ptr<loom::Graph> CompileAndRealize(HeadlessBoot& boot, loom::CollectingSink& sink,
+                                                   const loom::GraphBuilder& builder, loom::MemoryAliasing aliasing,
+                                                   std::string_view variant_name)
     {
         ResourceContext& resources = boot.Gpu.Resources();
         const rhi::Device& device = *boot.Device.Rhi().GetDevice();
         const bootstrap::DeviceFilter filter = boot.Device.Filter();
-
-        loom::GraphBuilder builder{ "LoomCompute.Graph", "LoomCompute.Shaders" };
-        BuildGraph(builder, hash_twice);
 
         const loom::CompileInputs inputs
         {
@@ -315,6 +315,7 @@ namespace
             .Device = device,
             .FrameSlots = k_FrameSlots,
             .Timestamps = loom::PassTimestamps::On,
+            .Aliasing = aliasing,
             .Sink = sink,
             .FrameTargets = {},
             .TargetSettleSeconds = 0.0,
@@ -329,6 +330,15 @@ namespace
         }
 
         return std::move(*realized);
+    }
+
+    // The hash graph, with aliasing on: it has no alias candidate, so nothing is placed
+    std::unique_ptr<loom::Graph> BuildAndRealize(HeadlessBoot& boot, loom::CollectingSink& sink, bool hash_twice,
+                                                 std::string_view variant_name)
+    {
+        loom::GraphBuilder builder{ "LoomCompute.Graph", "LoomCompute.Shaders" };
+        BuildGraph(builder, hash_twice);
+        return CompileAndRealize(boot, sink, builder, loom::MemoryAliasing::On, variant_name);
     }
 
     int32_t RunVariant(HeadlessBoot& boot, bool hash_twice)
@@ -457,6 +467,165 @@ namespace
         return failures;
     }
 
+    // Aliasing on a real device. A sequence of four passes: FillA writes ScratchA, AgainA reads it into ResultA, FillB
+    // writes ScratchB, AgainB reads it into ResultB. ScratchA lives in levels 0-1 and ScratchB in 2-3, so with aliasing
+    // on they share one heap at offset 0, and FillB overwrites what AgainA read. Each result must still match the CPU
+    // on every frame: the takeover barrier must order FillB after AgainA, and next frame FillA after AgainB.
+    constexpr loom::ResourceKey<loom::Buffer> k_ScratchA{ "LoomAlias.ScratchA" };
+    constexpr loom::ResourceKey<loom::Buffer> k_ScratchB{ "LoomAlias.ScratchB" };
+    constexpr loom::ResourceKey<loom::Buffer> k_ResultA{ "LoomAlias.ResultA" };
+    constexpr loom::ResourceKey<loom::Buffer> k_ResultB{ "LoomAlias.ResultB" };
+    constexpr loom::SequenceKey k_AliasSteps{ "LoomAlias.Steps" };
+    constexpr loom::PassKey k_FillA{ "LoomAlias.FillA" };
+    constexpr loom::PassKey k_AgainA{ "LoomAlias.AgainA" };
+    constexpr loom::PassKey k_FillB{ "LoomAlias.FillB" };
+    constexpr loom::PassKey k_AgainB{ "LoomAlias.AgainB" };
+    constexpr loom::ParamsKey<FillParams> k_FillAParams{ "LoomAlias.FillAParams" };
+    constexpr loom::ParamsKey<FillParams> k_FillBParams{ "LoomAlias.FillBParams" };
+    constexpr loom::ParamsKey<AgainParams> k_AgainAParams{ "LoomAlias.AgainAParams" };
+    constexpr loom::ParamsKey<AgainParams> k_AgainBParams{ "LoomAlias.AgainBParams" };
+    constexpr uint32_t k_SeedA = 0x12345678u;
+    constexpr uint32_t k_SeedB = 0x0BADF00Du;
+
+    // CheckBuffer's form: the flag picks the seed (false: A, true: B)
+    uint32_t ExpectedResult(uint32_t index, bool second) noexcept
+    {
+        return PcgHash(PcgHash(index ^ (second ? k_SeedB : k_SeedA)));
+    }
+
+    loom::BufferDeclaration AliasBuffer(loom::ResourceKey<loom::Buffer> key, loom::CpuAccess cpu)
+    {
+        return loom::BufferDeclaration
+        {
+            .Key = key,
+            .Lifetime = loom::ResourceLifetime::Frame,
+            .Size = loom::SizeSource::Bytes(static_cast<int64_t>(k_Bytes)),
+            .Cpu = cpu,
+            .HistoryDepth = 0,
+            .NoHistoryAction = loom::OnNoHistory::Invalid
+        };
+    }
+
+    void AddFill(loom::SequenceBuilder& sequence, loom::PassKey pass_key, loom::ResourceKey<loom::Buffer> scratch,
+                 loom::ParamsKey<FillParams> params)
+    {
+        const auto fill = [scratch, params](loom::DispatchBuilder& pass)
+        {
+            pass.Shader("LoomHashFill", "HashFillCS");
+            pass.Bind("Output", scratch, loom::AccessModifier::WriteOnly);
+            pass.Params(params);
+            pass.DispatchThreads(static_cast<int32_t>(k_ElementCount), 1, 1);
+        };
+
+        sequence.AddDispatch(pass_key, loom::RunPolicy::EveryFrame, loom::QueueAffinity::Graphics, fill);
+    }
+
+    void AddAgain(loom::SequenceBuilder& sequence, loom::PassKey pass_key, loom::ResourceKey<loom::Buffer> scratch,
+                  loom::ResourceKey<loom::Buffer> result, loom::ParamsKey<AgainParams> params)
+    {
+        const auto again = [scratch, result, params](loom::DispatchBuilder& pass)
+        {
+            pass.Shader("LoomHashFill", "HashAgainCS");
+            pass.Bind("Hashed", scratch);
+            pass.Bind("Output2", result, loom::AccessModifier::WriteOnly);
+            pass.Params(params);
+            pass.DispatchThreads(static_cast<int32_t>(k_ElementCount), 1, 1);
+        };
+
+        sequence.AddDispatch(pass_key, loom::RunPolicy::EveryFrame, loom::QueueAffinity::Graphics, again);
+    }
+
+    void BuildAliasGraph(loom::GraphBuilder& graph)
+    {
+        graph.Pin("HASH_TWICE", loom::AxisValue::Boolean(false));
+        graph.Declare(AliasBuffer(k_ScratchA, loom::CpuAccess::None));
+        graph.Declare(AliasBuffer(k_ScratchB, loom::CpuAccess::None));
+        graph.Declare(AliasBuffer(k_ResultA, loom::CpuAccess::Readback));
+        graph.Declare(AliasBuffer(k_ResultB, loom::CpuAccess::Readback));
+
+        const auto steps = [](loom::SequenceBuilder& sequence)
+        {
+            AddFill(sequence, k_FillA, k_ScratchA, k_FillAParams);
+            AddAgain(sequence, k_AgainA, k_ScratchA, k_ResultA, k_AgainAParams);
+            AddFill(sequence, k_FillB, k_ScratchB, k_FillBParams);
+            AddAgain(sequence, k_AgainB, k_ScratchB, k_ResultB, k_AgainBParams);
+        };
+
+        graph.AddSequence(k_AliasSteps, steps);
+    }
+
+    // With aliasing on, the two scratch buffers must be in one heap at one offset; with it off, in none
+    int32_t CheckPlacement(const loom::Graph& graph, bool aliased, std::string_view variant_name)
+    {
+        const loom::AliasLayout& layout = graph.Aliases();
+        const int32_t scratchA = graph.Compiled().ResourceIndexOf(k_ScratchA.ToRef());
+        const int32_t scratchB = graph.Compiled().ResourceIndexOf(k_ScratchB.ToRef());
+
+        if (!aliased)
+        {
+            if (!layout.Heaps.empty())
+            {
+                std::cerr << std::format("[{}] aliasing is off, but the graph made {} heap(s)\n", variant_name, layout.Heaps.size());
+                return 1;
+            }
+
+            return 0;
+        }
+
+        const bool shared = layout.Heaps.size() == 1u && layout.IsPlaced(scratchA) && layout.IsPlaced(scratchB) &&
+                            layout.Placements[scratchA].Offset == layout.Placements[scratchB].Offset;
+
+        if (!shared)
+        {
+            std::cerr << std::format("[{}] the scratch buffers do not share one heap offset:\n{}", variant_name,
+                                     graph.ExplainAliasing());
+            return 1;
+        }
+
+        std::cout << std::format("[{}] {}", variant_name, graph.ExplainAliasing());
+        return 0;
+    }
+
+    int32_t RunAliasing(HeadlessBoot& boot, loom::MemoryAliasing aliasing)
+    {
+        const bool aliased = aliasing == loom::MemoryAliasing::On;
+        const std::string variantName = aliased ? "ALIASING=On" : "ALIASING=Off";
+        ResourceContext& resources = boot.Gpu.Resources();
+        loom::CollectingSink sink;
+
+        loom::GraphBuilder builder{ "LoomAlias.Graph", "LoomCompute.Shaders" };
+        BuildAliasGraph(builder);
+        std::unique_ptr<loom::Graph> graph = CompileAndRealize(boot, sink, builder, aliasing, variantName);
+
+        if (!graph)
+        {
+            return 1;
+        }
+
+        graph->Set(k_FillAParams, FillParams{ .seed = k_SeedA, .count = k_ElementCount });
+        graph->Set(k_FillBParams, FillParams{ .seed = k_SeedB, .count = k_ElementCount });
+        graph->Set(k_AgainAParams, AgainParams{ .count = k_ElementCount });
+        graph->Set(k_AgainBParams, AgainParams{ .count = k_ElementCount });
+
+        int32_t failures = CheckPlacement(*graph, aliased, variantName);
+        failures += TickFrames(*graph, resources, variantName) ? 0 : 1;
+
+        if (failures == 0)
+        {
+            failures += CheckBuffer(resources, *graph, graph->BufferOf(k_ResultA), "ResultA", variantName, &ExpectedResult, false);
+            failures += CheckBuffer(resources, *graph, graph->BufferOf(k_ResultB), "ResultB", variantName, &ExpectedResult, true);
+        }
+
+        graph.reset();
+
+        if (sink.ErrorCount() != 0)
+        {
+            PrintDiagnostics(sink, variantName);
+            ++failures;
+        }
+
+        return failures;
+    }
 
 }
 
@@ -484,6 +653,8 @@ int main(int argc, char* argv[])
     }
 
     failures += RunShortImport(boot);
+    failures += RunAliasing(boot, loom::MemoryAliasing::Off);
+    failures += RunAliasing(boot, loom::MemoryAliasing::On);
 
     if (failures != 0)
     {
@@ -491,6 +662,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    std::cout << "LoomComputeTest: both variants match the CPU reference, and LM701 caught the short import\n";
+    std::cout << "LoomComputeTest: both variants match the CPU reference, LM701 caught the short import, and the aliased "
+                 "scratch buffers match the CPU with aliasing on and off\n";
     return 0;
 }

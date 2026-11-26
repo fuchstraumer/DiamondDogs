@@ -1,3 +1,4 @@
+#include "AliasLayout.hpp"
 #include "Compile.hpp"
 #include "CompiledGraph.hpp"
 #include "DecideRuns.hpp"
@@ -14,6 +15,7 @@
 #include "ShaderBundle.hpp"
 #include "ShaderLibrary.host.hpp"
 #include "ShaderLibraryTypes.hpp"
+#include "alias/Packing.hpp"
 #include "compile/CompiledData.hpp"
 #include "freeze_test_helpers.hpp"
 #include <algorithm>
@@ -35,6 +37,9 @@ using namespace freeze_tests;
 
 namespace
 {
+
+    // these tests place nothing: every row has its own memory
+    const loom::AliasLayout k_NoAliasing{};
 
     namespace host = loom_test_shaders;
     using FillParams = host::LoomHashFill::HashFillCS::Params<host::CookProfile::Spirv>;
@@ -331,7 +336,7 @@ namespace
                   loom::FramePlan& plan)
     {
         loom::DecideRuns(compiled, resources, controls, {}, 0, plan);
-        loom::PlanBarriers(compiled, resources, sync, 0, plan);
+        loom::PlanBarriers(compiled, resources, sync, k_NoAliasing, 0, plan);
     }
 
 }
@@ -849,7 +854,7 @@ TEST(Runtime, ImageLayoutsChangeAtTheBatches)
     std::vector<loom::ResourceSync> sync(compiled->Data().CopyRows.size());
 
     loom::DecideRuns(*compiled, resources, controls, sync, 0, plan);
-    loom::PlanBarriers(*compiled, resources, sync, 0, plan);
+    loom::PlanBarriers(*compiled, resources, sync, k_NoAliasing, 0, plan);
 
     ASSERT_GE(plan.Batches.size(), 3u);     // the clears, frame start, before Sample
     const loom::BarrierBatch& frameStart = plan.Batches[1];
@@ -875,7 +880,7 @@ TEST(Runtime, ImageLayoutsChangeAtTheBatches)
 
     loom::CommitRuns(*compiled, plan, controls);
     loom::DecideRuns(*compiled, resources, controls, sync, 1, plan);
-    loom::PlanBarriers(*compiled, resources, sync, 1, plan);
+    loom::PlanBarriers(*compiled, resources, sync, k_NoAliasing, 1, plan);
 
     ASSERT_FALSE(plan.Batches.empty());
     const loom::PlannedBarrier* again = BarrierOf(plan, plan.Batches.front(), painted);
@@ -937,7 +942,7 @@ TEST(Runtime, AnEmptyHistoryCopyIsClearedFirst)
     EXPECT_EQ(plan.Decisions[k_AccumulatePass].Reason, loom::SkipReason::Ran);
     EXPECT_EQ(plan.Clears, (std::vector<int32_t>{ previousCopy }));
 
-    loom::PlanBarriers(*compiled, resources, sync, 0, plan);
+    loom::PlanBarriers(*compiled, resources, sync, k_NoAliasing, 0, plan);
     ASSERT_FALSE(plan.Batches.empty());
     EXPECT_EQ(plan.Batches.front().BeforeRun, loom::k_BeforeClears);
     const loom::PlannedBarrier* toClear = BarrierOf(plan, plan.Batches.front(), previousCopy);
@@ -980,4 +985,287 @@ TEST(Runtime, AnEmptyHistoryCopySkipsWithNoHistory)
     sync[loom::CopyOf(data, counter, 0, true)].HasContents = true;
     loom::DecideRuns(*compiled, resources, controls, sync, 0, plan);
     EXPECT_EQ(plan.Decisions[k_AccumulatePass].Reason, loom::SkipReason::Ran);
+}
+
+// Aliasing: the candidates (alias/Lifetimes.cpp), the packing (alias/Packing.cpp), and the takeover barrier
+// (PlanBarriers). The needs are written by hand, so no device is used.
+namespace
+{
+
+    constexpr loom::ResourceKey<loom::Buffer> k_ScratchA{ "Alias.ScratchA" };
+    constexpr loom::ResourceKey<loom::Buffer> k_ScratchB{ "Alias.ScratchB" };
+    constexpr loom::ResourceKey<loom::Buffer> k_ResultA{ "Alias.ResultA" };
+    constexpr loom::ResourceKey<loom::Buffer> k_ResultB{ "Alias.ResultB" };
+    constexpr loom::SequenceKey k_AliasSteps{ "Alias.Steps" };
+    constexpr loom::ParamsKey<FillParams> k_FillAParams{ "Alias.FillA" };
+    constexpr loom::ParamsKey<FillParams> k_FillBParams{ "Alias.FillB" };
+    constexpr loom::ParamsKey<AgainParams> k_AgainAParams{ "Alias.AgainA" };
+    constexpr loom::ParamsKey<AgainParams> k_AgainBParams{ "Alias.AgainB" };
+    constexpr loom::PassKey k_FillA{ "Alias.FillA" };
+    constexpr loom::PassKey k_AgainA{ "Alias.AgainA" };
+    constexpr loom::PassKey k_FillB{ "Alias.FillB" };
+    constexpr loom::PassKey k_AgainB{ "Alias.AgainB" };
+
+    // A 4-byte-aligned need that every candidate of a test shares, so only the sizes and the levels decide
+    constexpr uint32_t k_DeviceLocal = 0x2u;
+
+    loom::BufferDeclaration AliasBuffer(loom::ResourceKey<loom::Buffer> key, loom::CpuAccess cpu)
+    {
+        return loom::BufferDeclaration
+        {
+            .Key = key,
+            .Lifetime = loom::ResourceLifetime::Frame,
+            .Size = loom::SizeSource::Bytes(k_Bytes),
+            .Cpu = cpu,
+            .HistoryDepth = 0,
+            .NoHistoryAction = loom::OnNoHistory::Invalid
+        };
+    }
+
+    void AddFill(loom::SequenceBuilder& sequence, loom::PassKey pass_key, loom::ResourceKey<loom::Buffer> scratch,
+                 loom::ParamsKey<FillParams> params)
+    {
+        const auto fill = [scratch, params](loom::DispatchBuilder& pass)
+        {
+            pass.Shader("LoomHashFill", "HashFillCS");
+            pass.Bind("Output", scratch, loom::AccessModifier::WriteOnly);
+            pass.Params(params);
+            pass.DispatchThreads(static_cast<int32_t>(k_Count), 1, 1);
+        };
+
+        sequence.AddDispatch(pass_key, k_EveryFrame, k_Graphics, fill);
+    }
+
+    void AddAgain(loom::SequenceBuilder& sequence, loom::PassKey pass_key, loom::ResourceKey<loom::Buffer> scratch,
+                  loom::ResourceKey<loom::Buffer> result, loom::ParamsKey<AgainParams> params)
+    {
+        const auto again = [scratch, result, params](loom::DispatchBuilder& pass)
+        {
+            pass.Shader("LoomHashFill", "HashAgainCS");
+            pass.Bind("Hashed", scratch);
+            pass.Bind("Output2", result, loom::AccessModifier::WriteOnly);
+            pass.Params(params);
+            pass.DispatchThreads(static_cast<int32_t>(k_Count), 1, 1);
+        };
+
+        sequence.AddDispatch(pass_key, k_EveryFrame, k_Graphics, again);
+    }
+
+    // Four levels: ScratchA lives in 0-1 and ScratchB in 2-3, so they may share memory. The results are read back,
+    // so they are not candidates.
+    std::optional<loom::CompiledGraph> CompileAliasGraph(loom::CollectingSink& sink)
+    {
+        loom::GraphBuilder graph{ "Alias.Graph", "Alias.Library" };
+        graph.Pin("HASH_TWICE", loom::AxisValue::Boolean(false));
+        graph.Declare(AliasBuffer(k_ScratchA, loom::CpuAccess::None));
+        graph.Declare(AliasBuffer(k_ScratchB, loom::CpuAccess::None));
+        graph.Declare(AliasBuffer(k_ResultA, loom::CpuAccess::Readback));
+        graph.Declare(AliasBuffer(k_ResultB, loom::CpuAccess::Readback));
+
+        const auto steps = [](loom::SequenceBuilder& sequence)
+        {
+            AddFill(sequence, k_FillA, k_ScratchA, k_FillAParams);
+            AddAgain(sequence, k_AgainA, k_ScratchA, k_ResultA, k_AgainAParams);
+            AddFill(sequence, k_FillB, k_ScratchB, k_FillBParams);
+            AddAgain(sequence, k_AgainB, k_ScratchB, k_ResultB, k_AgainBParams);
+        };
+
+        graph.AddSequence(k_AliasSteps, steps);
+        return loom::Compile(graph, Inputs(), sink);
+    }
+
+    std::vector<loom::MemoryNeed> SameNeeds(size_t count, uint64_t size)
+    {
+        return std::vector<loom::MemoryNeed>(count, loom::MemoryNeed{ .Size = size, .Alignment = 256u, .MemoryTypeBits = k_DeviceLocal });
+    }
+
+    loom::AliasCandidate Candidate(int32_t row, int32_t first_level, int32_t last_level, loom::AliasClass alias_class)
+    {
+        return loom::AliasCandidate{ .Row = row, .FirstLevel = first_level, .LastLevel = last_level, .Class = alias_class };
+    }
+
+}
+
+TEST(Alias, CandidatesAreFrameRowsWithNoCpuAccess)
+{
+    loom::CollectingSink sink;
+    const std::optional<loom::CompiledGraph> compiled = CompileAliasGraph(sink);
+    ASSERT_TRUE(compiled.has_value()) << sink.Diagnostics().size() << " diagnostics";
+
+    const std::vector<loom::AliasCandidate>& candidates = compiled->Data().AliasCandidates;
+    ASSERT_EQ(candidates.size(), 2u);
+    EXPECT_EQ(candidates[0].Row, compiled->ResourceIndexOf(k_ScratchA.ToRef()));
+    EXPECT_EQ(candidates[0].FirstLevel, 0);
+    EXPECT_EQ(candidates[0].LastLevel, 1);
+    EXPECT_EQ(candidates[1].Row, compiled->ResourceIndexOf(k_ScratchB.ToRef()));
+    EXPECT_EQ(candidates[1].FirstLevel, 2);
+    EXPECT_EQ(candidates[1].LastLevel, 3);
+    EXPECT_EQ(candidates[0].Class, loom::AliasClass::Buffer);
+}
+
+// Disjoint levels: both rows at offset 0 of one heap, which is half of what they take alone
+TEST(Alias, DisjointLevelsShareOffsetZero)
+{
+    const std::vector<loom::AliasCandidate> candidates{ Candidate(0, 0, 1, loom::AliasClass::Buffer),
+                                                        Candidate(1, 2, 3, loom::AliasClass::Buffer) };
+    const loom::AliasLayout layout = loom::PackAliases(candidates, SameNeeds(2u, 16400u), 3);
+
+    ASSERT_EQ(layout.Heaps.size(), 1u);
+    EXPECT_EQ(layout.Heaps[0].Size, 16400u);
+    EXPECT_EQ(layout.HeapBytes, 16400u);
+    EXPECT_EQ(layout.UnaliasedBytes, 32800u);
+    ASSERT_TRUE(layout.IsPlaced(0));
+    ASSERT_TRUE(layout.IsPlaced(1));
+    EXPECT_FALSE(layout.IsPlaced(2));
+    EXPECT_EQ(layout.Placements[0].Offset, 0u);
+    EXPECT_EQ(layout.Placements[1].Offset, 0u);
+    EXPECT_EQ(std::vector<int32_t>(layout.OverlapsOf(0).begin(), layout.OverlapsOf(0).end()), (std::vector<int32_t>{ 1 }));
+    EXPECT_EQ(std::vector<int32_t>(layout.OverlapsOf(1).begin(), layout.OverlapsOf(1).end()), (std::vector<int32_t>{ 0 }));
+}
+
+// Rows that share a level cannot share bytes: packing them saves nothing, so no heap is made
+TEST(Alias, OverlappingLevelsGetNoHeap)
+{
+    const std::vector<loom::AliasCandidate> candidates{ Candidate(0, 0, 2, loom::AliasClass::Buffer),
+                                                        Candidate(1, 2, 3, loom::AliasClass::Buffer) };
+    const loom::AliasLayout layout = loom::PackAliases(candidates, SameNeeds(2u, 4096u), 2);
+
+    EXPECT_TRUE(layout.Heaps.empty());
+    EXPECT_FALSE(layout.IsPlaced(0));
+    EXPECT_FALSE(layout.IsPlaced(1));
+}
+
+// Largest first: C (300 bytes, level 1) at 0; A (100, level 0) at 0 beside it in time; B (50, level 0, 256 aligned)
+// shares level 0 with A, so it goes to the first aligned offset past A: 256. The heap is 306 bytes, not 450.
+TEST(Alias, PackingRespectsLevelsAndAlignment)
+{
+    const std::vector<loom::AliasCandidate> candidates{ Candidate(0, 0, 0, loom::AliasClass::Buffer),
+                                                        Candidate(1, 0, 0, loom::AliasClass::Buffer),
+                                                        Candidate(2, 1, 1, loom::AliasClass::Buffer) };
+    const std::vector<loom::MemoryNeed> needs{ loom::MemoryNeed{ .Size = 100u, .Alignment = 4u, .MemoryTypeBits = k_DeviceLocal },
+                                               loom::MemoryNeed{ .Size = 50u, .Alignment = 256u, .MemoryTypeBits = k_DeviceLocal },
+                                               loom::MemoryNeed{ .Size = 300u, .Alignment = 4u, .MemoryTypeBits = k_DeviceLocal } };
+    const loom::AliasLayout layout = loom::PackAliases(candidates, needs, 3);
+
+    ASSERT_EQ(layout.Heaps.size(), 1u);
+    EXPECT_EQ(layout.Heaps[0].Size, 306u);
+    EXPECT_EQ(layout.Placements[2].Offset, 0u);
+    EXPECT_EQ(layout.Placements[0].Offset, 0u);
+    EXPECT_EQ(layout.Placements[1].Offset, 256u);
+    // A and B share no byte; each shares bytes with C
+    EXPECT_EQ(std::vector<int32_t>(layout.OverlapsOf(0).begin(), layout.OverlapsOf(0).end()), (std::vector<int32_t>{ 2 }));
+    EXPECT_EQ(std::vector<int32_t>(layout.OverlapsOf(1).begin(), layout.OverlapsOf(1).end()), (std::vector<int32_t>{ 2 }));
+    EXPECT_EQ(std::vector<int32_t>(layout.OverlapsOf(2).begin(), layout.OverlapsOf(2).end()), (std::vector<int32_t>{ 0, 1 }));
+}
+
+// A buffer and an image never share a heap, and neither do two memory type masks
+TEST(Alias, ClassesAndMemoryTypesDoNotMix)
+{
+    const std::vector<loom::AliasCandidate> candidates{ Candidate(0, 0, 0, loom::AliasClass::Buffer),
+                                                        Candidate(1, 1, 1, loom::AliasClass::Image),
+                                                        Candidate(2, 2, 2, loom::AliasClass::Buffer) };
+    const std::vector<loom::MemoryNeed> needs{ loom::MemoryNeed{ .Size = 1024u, .Alignment = 4u, .MemoryTypeBits = 0x2u },
+                                               loom::MemoryNeed{ .Size = 1024u, .Alignment = 4u, .MemoryTypeBits = 0x2u },
+                                               loom::MemoryNeed{ .Size = 1024u, .Alignment = 4u, .MemoryTypeBits = 0x6u } };
+    const loom::AliasLayout layout = loom::PackAliases(candidates, needs, 3);
+
+    EXPECT_TRUE(layout.Heaps.empty());
+}
+
+// A need of size 0 means the backend could not ask the device: that row keeps its own memory
+TEST(Alias, UnknownNeedIsNotPlaced)
+{
+    const std::vector<loom::AliasCandidate> candidates{ Candidate(0, 0, 0, loom::AliasClass::Buffer),
+                                                        Candidate(1, 1, 1, loom::AliasClass::Buffer),
+                                                        Candidate(2, 2, 2, loom::AliasClass::Buffer) };
+    std::vector<loom::MemoryNeed> needs = SameNeeds(3u, 512u);
+    needs[1].Size = 0u;
+    const loom::AliasLayout layout = loom::PackAliases(candidates, needs, 3);
+
+    ASSERT_EQ(layout.Heaps.size(), 1u);
+    EXPECT_TRUE(layout.IsPlaced(0));
+    EXPECT_FALSE(layout.IsPlaced(1));
+    EXPECT_TRUE(layout.IsPlaced(2));
+}
+
+// ScratchB's first use takes the memory over from ScratchA: the barrier before level 2 waits for ScratchA's read in
+// AgainA. Next frame, ScratchA's first use waits for ScratchB's read in AgainB.
+TEST(Alias, FirstUseWaitsForTheRowsThatShareItsBytes)
+{
+    loom::CollectingSink sink;
+    const std::optional<loom::CompiledGraph> compiled = CompileAliasGraph(sink);
+    ASSERT_TRUE(compiled.has_value()) << sink.Diagnostics().size() << " diagnostics";
+
+    const loom::CompiledData& data = compiled->Data();
+    const int32_t scratchA = compiled->ResourceIndexOf(k_ScratchA.ToRef());
+    const int32_t scratchB = compiled->ResourceIndexOf(k_ScratchB.ToRef());
+    const loom::AliasLayout layout = loom::PackAliases(data.AliasCandidates, SameNeeds(2u, static_cast<uint64_t>(k_Bytes)), data.RowCount);
+    ASSERT_TRUE(layout.IsPlaced(scratchA));
+    ASSERT_TRUE(layout.IsPlaced(scratchB));
+
+    loom::FramePlan plan;
+    loom::PrepareFramePlan(*compiled, plan);
+    const std::vector<loom::ResourceState> resources = AllComplete(*compiled);
+    std::vector<loom::PassControl> controls(compiled->PassCount());
+    std::vector<loom::ResourceSync> sync(data.CopyRows.size());
+
+    loom::DecideRuns(*compiled, resources, controls, sync, 0, plan);
+    loom::PlanBarriers(*compiled, resources, sync, layout, 0, plan);
+    ASSERT_EQ(plan.Runs.size(), 4u);
+
+    const auto batchBefore = [&plan](int32_t run_index) -> const loom::BarrierBatch*
+    {
+        const auto matches = [run_index](const loom::BarrierBatch& batch)
+        {
+            return batch.BeforeRun == run_index;
+        };
+
+        const auto found = std::ranges::find_if(plan.Batches, matches);
+        return found == plan.Batches.end() ? nullptr : &*found;
+    };
+
+    const loom::BarrierBatch* beforeFillB = batchBefore(2);
+    ASSERT_NE(beforeFillB, nullptr);
+    const loom::PlannedBarrier* takeover = BarrierOf(plan, *beforeFillB, scratchB);
+    ASSERT_NE(takeover, nullptr);
+    EXPECT_NE(takeover->Before.Stages & rhi::PipelineStage::ComputeShader, rhi::PipelineStage::None);
+    EXPECT_EQ(takeover->After.Accesses & rhi::Access::ShaderStorageWrite, rhi::Access::ShaderStorageWrite);
+
+    // frame 1: ScratchA at level 0 waits for frame 0's last accesses of ScratchB
+    loom::CommitRuns(*compiled, plan, controls);
+    loom::DecideRuns(*compiled, resources, controls, sync, 1, plan);
+    loom::PlanBarriers(*compiled, resources, sync, layout, 1, plan);
+
+    const loom::BarrierBatch* frameStart = batchBefore(0);
+    ASSERT_NE(frameStart, nullptr);
+    const loom::PlannedBarrier* back = BarrierOf(plan, *frameStart, scratchA);
+    ASSERT_NE(back, nullptr);
+    EXPECT_NE(back->Before.Stages & rhi::PipelineStage::ComputeShader, rhi::PipelineStage::None);
+}
+
+// With no aliasing, ScratchB's first write owes nothing on frame 0: the takeover barrier is aliasing's alone
+TEST(Alias, NoTakeoverWithoutAliasing)
+{
+    loom::CollectingSink sink;
+    const std::optional<loom::CompiledGraph> compiled = CompileAliasGraph(sink);
+    ASSERT_TRUE(compiled.has_value()) << sink.Diagnostics().size() << " diagnostics";
+
+    const int32_t scratchB = compiled->ResourceIndexOf(k_ScratchB.ToRef());
+    loom::FramePlan plan;
+    loom::PrepareFramePlan(*compiled, plan);
+    const std::vector<loom::ResourceState> resources = AllComplete(*compiled);
+    std::vector<loom::PassControl> controls(compiled->PassCount());
+    std::vector<loom::ResourceSync> sync(compiled->Data().CopyRows.size());
+
+    loom::DecideRuns(*compiled, resources, controls, sync, 0, plan);
+    loom::PlanBarriers(*compiled, resources, sync, k_NoAliasing, 0, plan);
+
+    // FillB is run 2; ScratchB's read-after-write barrier before AgainB (run 3) is the normal one
+    for (const loom::BarrierBatch& batch : plan.Batches)
+    {
+        if (batch.BeforeRun == 2)
+        {
+            EXPECT_EQ(BarrierOf(plan, batch, scratchB), nullptr);
+        }
+    }
 }

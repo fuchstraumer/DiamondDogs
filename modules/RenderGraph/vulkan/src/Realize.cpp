@@ -15,10 +15,12 @@
 #include "Device.hpp"
 #include "LoomGraph.hpp"
 #include "ResourceContext.hpp"
+#include "ResourcePlacement.hpp"
 #include "RhiResourceFlags.hpp"
 #include "ResourceTypes.hpp"
 #include "ShaderProgram.hpp"
 #include "ShaderTypes.hpp"
+#include "alias/Packing.hpp"
 #include "bind/BoundGraph.hpp"
 #include "compile/CompiledData.hpp"
 #include <cstddef>
@@ -248,8 +250,7 @@ namespace
     }
 
     // An image at `extent`: Size's extent, or for an OfTarget image the one its target's allocation gives
-    rhi::ResourceFuture<GraphicsResource> CreateImage(GraphImpl& graph, int32_t row, std::string_view name,
-                                                      const ImageExtent& extent)
+    ImageCreateInfo ImageInfoOf(const GraphImpl& graph, int32_t row, std::string_view name, const ImageExtent& extent)
     {
         const CompiledData& data = graph.Compiled.Data();
         const FrozenResource& frozen = data.Frozen.Resources[row];
@@ -285,8 +286,13 @@ namespace
         view.ViewType = ViewTypeOf(sized, layers);
         view.Range = ImageRange{ aspect, 0u, static_cast<uint32_t>(mips), 0u, static_cast<uint32_t>(layers) };
         info.ViewInfo = view;
+        return info;
+    }
 
-        return graph.Resources.CreateImage(info);
+    rhi::ResourceFuture<GraphicsResource> CreateImage(GraphImpl& graph, int32_t row, std::string_view name,
+                                                      const ImageExtent& extent)
+    {
+        return graph.Resources.CreateImage(ImageInfoOf(graph, row, name, extent));
     }
 
     bool IsTargetSized(const CompiledData& data, int32_t row)
@@ -616,6 +622,67 @@ namespace
 
 }
 
+    // A buffer row's create info: every GPU use, and the copies its CpuAccess needs
+    BufferCreateInfo RowBufferInfo(const CompiledData& data, int32_t row)
+    {
+        const FrozenResource& frozen = data.Frozen.Resources[row];
+        const BufferDeclaration& declaration = data.Frozen.Buffers[frozen.DeclarationIndex];
+
+        BufferCreateInfo info{};
+        info.Domain = ResourceDomain::GPUOnly;
+        info.Usage = UsageOf(data, row, declaration.Cpu);
+        info.Size = static_cast<size_t>(data.Sized.Resources[row].ByteSize);
+        info.Name = frozen.Key.Name;
+        return info;
+    }
+
+    // Asks the device what each candidate needs, with the create info its row is made from, packs them, and asks for
+    // the heaps. The requirement queries run here, on the calling thread; the heaps come later, as futures.
+    void PlanAliasing(GraphImpl& graph)
+    {
+        const CompiledData& data = graph.Compiled.Data();
+        std::vector<MemoryNeed> needs;
+        needs.reserve(data.AliasCandidates.size());
+
+        for (const AliasCandidate& candidate : data.AliasCandidates)
+        {
+            rhi::placement::MemoryRequirements requirements{};
+
+            if (candidate.Class == AliasClass::Image)
+            {
+                const ImageCreateInfo info = ImageInfoOf(graph, candidate.Row, data.Frozen.Resources[candidate.Row].Key.Name,
+                                                         data.Sized.Resources[candidate.Row].Extent);
+                requirements = rhi::placement::GetImageMemoryRequirements(graph.Resources, info);
+            }
+            else
+            {
+                requirements = rhi::placement::GetBufferMemoryRequirements(graph.Resources, RowBufferInfo(data, candidate.Row));
+            }
+
+            needs.push_back(MemoryNeed
+            {
+                .Size = requirements.Size,
+                .Alignment = requirements.Alignment,
+                .MemoryTypeBits = requirements.MemoryTypeBits
+            });
+        }
+
+        graph.Aliases = PackAliases(data.AliasCandidates, needs, data.RowCount);
+        graph.Heaps.reserve(graph.Aliases.Heaps.size());
+
+        for (const AliasHeap& heap : graph.Aliases.Heaps)
+        {
+            const rhi::placement::MemoryHeapCreateInfo info
+            {
+                .Size = heap.Size,
+                .MemoryTypeBits = heap.MemoryTypeBits,
+                .Name = heap.Class == AliasClass::Image ? "Loom.AliasHeap.Images" : "Loom.AliasHeap.Buffers",
+            };
+
+            graph.Heaps.push_back(rhi::placement::CreateMemoryHeap(graph.Resources, info));
+        }
+    }
+
     // The copies of each history ring after its first, made like the first (same create info, a numbered name).
     void CreateHistoryCopies(GraphImpl& graph)
     {
@@ -872,12 +939,17 @@ namespace
         return RealizeError::Invalid;
     }
 
-    void CreateResources(GraphImpl& graph)
+    void CreateResources(GraphImpl& graph, MemoryAliasing aliasing)
     {
         const CompiledData& data = graph.Compiled.Data();
         const int32_t resourceCount = static_cast<int32_t>(data.Frozen.Resources.size());
         graph.Rows.resize(resourceCount);
         graph.States.assign(data.RowCount, ResourceState{ .Readiness = ResourceReadiness::Pending, .Epoch = 0u });
+
+        if (aliasing == MemoryAliasing::On)
+        {
+            PlanAliasing(graph);
+        }
 
         for (int32_t row = 0; row < resourceCount; ++row)
         {
@@ -896,20 +968,20 @@ namespace
                 continue;
             }
 
+            // a placed row waits for its heap (CreatePlacedRows)
+            if (graph.Aliases.IsPlaced(row))
+            {
+                graph.PendingPlacedRows.push_back(row);
+                graph.Rows[row].Owned = true;
+                graph.States[row].Epoch = 1u;
+                continue;
+            }
+
             switch (frozen.Kind)
             {
             case ResourceKind::Buffer:
-            {
-                const BufferDeclaration& declaration = data.Frozen.Buffers[frozen.DeclarationIndex];
-
-                BufferCreateInfo info{};
-                info.Domain = ResourceDomain::GPUOnly;
-                info.Usage = UsageOf(data, row, declaration.Cpu);
-                info.Size = static_cast<size_t>(data.Sized.Resources[row].ByteSize);
-                info.Name = frozen.Key.Name;
-                graph.Rows[row].Future = graph.Resources.CreateBuffer(info, {});
+                graph.Rows[row].Future = graph.Resources.CreateBuffer(RowBufferInfo(data, row), {});
                 break;
-            }
             case ResourceKind::Image:
                 graph.Rows[row].Future = CreateImage(graph, row, frozen.Key.Name, data.Sized.Resources[row].Extent);
                 break;
@@ -1004,6 +1076,59 @@ namespace
         }
 
         return RealizeError::Invalid;
+    }
+
+    void CreatePlacedRows(GraphImpl& graph)
+    {
+        if (graph.PendingPlacedRows.empty())
+        {
+            return;
+        }
+
+        const auto settled = [](const rhi::ResourceFuture<GraphicsResource>& heap)
+        {
+            const rhi::FutureState state = heap.State();
+            return state == rhi::FutureState::Complete || state == rhi::FutureState::Failed;
+        };
+
+        if (!std::ranges::all_of(graph.Heaps, settled))
+        {
+            return;
+        }
+
+        const CompiledData& data = graph.Compiled.Data();
+
+        for (const int32_t row : graph.PendingPlacedRows)
+        {
+            const AliasPlacement& placement = graph.Aliases.Placements[row];
+            const rhi::ResourceFuture<GraphicsResource>& heap = graph.Heaps[placement.Heap];
+            const bool image = data.Frozen.Resources[row].Kind == ResourceKind::Image;
+
+            // a failed heap costs the memory it would have saved, not the row: the row gets its own memory. The
+            // barriers still treat it as aliased, which only waits longer than it must.
+            if (heap.State() != rhi::FutureState::Complete)
+            {
+                graph.Rows[row].Future = image ? CreateImage(graph, row, data.Frozen.Resources[row].Key.Name,
+                                                             data.Sized.Resources[row].Extent)
+                                               : graph.Resources.CreateBuffer(RowBufferInfo(data, row), {});
+                continue;
+            }
+
+            const rhi::placement::Placement where{ .Heap = heap.Get(), .Offset = placement.Offset };
+
+            if (image)
+            {
+                const ImageCreateInfo info = ImageInfoOf(graph, row, data.Frozen.Resources[row].Key.Name,
+                                                         data.Sized.Resources[row].Extent);
+                graph.Rows[row].Future = rhi::placement::CreatePlacedImage(graph.Resources, info, where);
+                continue;
+            }
+
+            graph.Rows[row].Future = rhi::placement::CreatePlacedBuffer(graph.Resources, RowBufferInfo(data, row), where);
+        }
+
+        graph.PendingPlacedRows.clear();
+        graph.AllRowsSettled = false;
     }
 
     int32_t TargetOfImage(const CompiledData& data, int32_t row) noexcept

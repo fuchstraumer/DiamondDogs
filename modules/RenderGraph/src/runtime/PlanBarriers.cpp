@@ -4,6 +4,7 @@
 #include "PassStatements.hpp"
 #include "compile/CompiledData.hpp"
 #include "RhiFlags.hpp"
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -21,6 +22,10 @@
 //  - an image use whose layout differs from the image's needs a layout change, which waits for the last write and
 //    every read since, and makes the write visible to the use. It replaces the three rules above for that use.
 // After the last level, the frame-end batch moves each acquired frame target to the layout it hands back in.
+//
+// Aliasing: a placed row shares bytes with other rows whose levels never overlap its own. Its first use in a Tick
+// takes the memory over: the barrier waits for the last accesses of every row that shares its bytes (and its own,
+// from an earlier frame), and an image starts from Undefined, because the bytes hold another resource's data.
 namespace loom
 {
 
@@ -192,6 +197,42 @@ namespace
         Merge(sync.ReadsSinceWrite, ReadPart(use));
     }
 
+    // The takeover of a placed row's memory, at its first use in the Tick. The row starts with no contents: its state
+    // is reset, so the use's own needs (NeedsOf) are all in this one barrier.
+    void AddAliasHandoff(FramePlan& plan, const AliasLayout& aliases, int32_t row, const PassUse& use,
+                         std::span<ResourceSync> sync)
+    {
+        SyncScope before{ .Stages = sync[row].Write.Stages | sync[row].ReadsSinceWrite.Stages,
+                          .Accesses = sync[row].Write.Accesses };
+
+        for (const int32_t other : aliases.OverlapsOf(row))
+        {
+            const ResourceSync& state = sync[other];
+            before.Stages |= state.Write.Stages | state.ReadsSinceWrite.Stages;
+            before.Accesses |= state.Write.Accesses;
+        }
+
+        sync[row] = ResourceSync{ .Layout = rhi::ImageLayout::Undefined, .Epoch = sync[row].Epoch };
+        const bool image = use.Layout != rhi::ImageLayout::Undefined;
+
+        // a buffer that nothing touched yet owes nothing
+        if (!image && IsEmpty(before))
+        {
+            return;
+        }
+
+        plan.BatchBarrier[row] = static_cast<int32_t>(plan.Barriers.size());
+
+        plan.Barriers.push_back(PlannedBarrier
+        {
+            .Resource = row,
+            .Before = before,
+            .After = use.Scope,
+            .OldLayout = rhi::ImageLayout::Undefined,
+            .NewLayout = use.Layout,
+        });
+    }
+
     // OnNoHistory::Clear: a clear is a transfer write of the whole copy. Its batch waits for every earlier access and
     // puts an image in General, which vkCmdClearColorImage allows. A frame target's fallback clear is an empty
     // rendering pass instead, because a swapchain image has no transfer usage: ColorAttachment layout and scope.
@@ -341,12 +382,14 @@ namespace
     void PlanBarriers(const CompiledGraph& compiled,
                       std::span<const ResourceState> resources,
                       std::span<ResourceSync> sync,
+                      const AliasLayout& aliases,
                       int64_t frame_index,
                       FramePlan& plan)
     {
         const CompiledData& data = compiled.Data();
         plan.Barriers.clear();
         plan.Batches.clear();
+        std::ranges::fill(plan.AliasClaimed, uint8_t{ 0u });
 
         // a new object owes nothing to the work on the old one
         for (size_t copy = 0u; copy < sync.size(); ++copy)
@@ -384,6 +427,15 @@ namespace
                 {
                     const PassUse& use = data.Uses[useIndex];
                     const int32_t copy = CopyOf(data, use.Resource, frame_index, use.Previous);
+
+                    // a placed row has no history ring, so its copy is the row
+                    if (aliases.IsPlaced(copy) && plan.AliasClaimed[copy] == 0u)
+                    {
+                        plan.AliasClaimed[copy] = 1u;
+                        AddAliasHandoff(plan, aliases, copy, use, sync);
+                        continue;
+                    }
+
                     NeedsOf(plan, copy, use, sync[copy]);
                 }
             }

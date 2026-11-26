@@ -296,6 +296,7 @@ namespace
             .Device = device,
             .FrameSlots = k_FrameSlots,
             .Timestamps = loom::PassTimestamps::Off,
+            .Aliasing = loom::MemoryAliasing::On,
             .Sink = sink,
             .FrameTargets = {},
             .TargetSettleSeconds = 0.0,

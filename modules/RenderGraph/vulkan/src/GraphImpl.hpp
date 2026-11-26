@@ -1,6 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_LOOM_VULKAN_GRAPH_IMPL_HPP
 #define DIAMOND_DOGS_LOOM_VULKAN_GRAPH_IMPL_HPP
+#include "AliasLayout.hpp"
 #include "CommandPool.hpp"
 #include "CompiledGraph.hpp"
 #include "containers/SmallVector.hpp"
@@ -120,6 +121,11 @@ namespace loom
         rhi::OperationFuture TimelineRegistration;
 
         std::vector<RowRuntime> Rows;                   // [resource row]; frame-target rows have none
+        // Aliasing: the packing, one heap per AliasLayout::Heaps entry, and the placed rows that wait for their heap.
+        // A placed row's future is empty until Tick makes it (CreatePlacedRows).
+        AliasLayout Aliases;
+        std::vector<rhi::ResourceFuture<GraphicsResource>> Heaps;
+        std::vector<int32_t> PendingPlacedRows;
         // the history copies after each row's first: ExtraCopies[copy - RowCount] (CompiledData::ExtraCopyBase)
         std::vector<rhi::ResourceFuture<GraphicsResource>> ExtraCopies;
         std::vector<PipelineRuntime> Pipelines;

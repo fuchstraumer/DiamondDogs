@@ -30,6 +30,7 @@ namespace loom
         plan.SkippedWriter.assign(rowCount, -1);
         plan.BatchBarrier.assign(copyCount, -1);
         plan.WrittenThisTick.assign(rowCount, 0u);
+        plan.AliasClaimed.assign(rowCount, 0u);
     }
 
 }

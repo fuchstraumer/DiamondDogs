@@ -2,6 +2,7 @@
 #ifndef DIAMOND_DOGS_LOOM_VULKAN_GRAPH_HPP
 #define DIAMOND_DOGS_LOOM_VULKAN_GRAPH_HPP
 #include "CompiledGraph.hpp"
+#include "AliasLayout.hpp"
 #include "FramePlan.hpp"
 #include "FrameTarget.hpp"
 #include "TargetExtents.hpp"
@@ -50,12 +51,22 @@ namespace loom
     // FrameTargets names the object of each imported FrameTargetKey; every one must outlive the Graph.
     // TargetSettleSeconds is how long a frame target's extent must keep one value before the OfTarget images follow it
     // (step 7, round 2 Q1; about 0.15 is a good start). It must be set, to 0 or more, even with no frame targets.
+    // Memory aliasing (AliasLayout.hpp). Off gives every row its own memory: turn it off to find out whether a bug
+    // comes from aliasing.
+    enum class MemoryAliasing : uint8_t
+    {
+        Invalid = 0,
+        Off = 1,
+        On = 2
+    };
+
     struct RealizeInputs
     {
         ResourceContext& Resources;
         const rhi::Device& Device;
         int32_t FrameSlots{ 0 };
         PassTimestamps Timestamps{ PassTimestamps::Invalid };
+        MemoryAliasing Aliasing{ MemoryAliasing::Invalid };
         DiagnosticSink& Sink;
         std::span<const FrameTargetBinding> FrameTargets;
         double TargetSettleSeconds{ -1.0 };
@@ -81,7 +92,8 @@ namespace loom
         CommandPoolFailed = 12,
         FrameTargetUnbound = 13,        // an imported FrameTargetKey with no RealizeInputs::FrameTargets entry
         SettleUnset = 14,               // RealizeInputs::TargetSettleSeconds < 0
-        DrawStateUnavailable = 15       // a Draw pass, and the device lacks the dynamic-state entry points
+        DrawStateUnavailable = 15,      // a Draw pass, and the device lacks the dynamic-state entry points
+        AliasingUnset = 16              // RealizeInputs::Aliasing is Invalid
     };
 
     [[nodiscard]] std::string_view ToString(RealizeError error) noexcept;
@@ -146,6 +158,10 @@ namespace loom
         // The object of an image row, or a null resource while it does not exist.
         [[nodiscard]] GraphicsResource ImageOf(ResourceKey<Image> resource) const noexcept;
         [[nodiscard]] const FramePlan& LastPlan() const noexcept;
+        // Which rows share memory, and where. Empty with MemoryAliasing::Off, or when no two rows can share.
+        [[nodiscard]] const AliasLayout& Aliases() const noexcept;
+        // The heaps and the rows in each, as text
+        [[nodiscard]] std::string ExplainAliasing() const;
         [[nodiscard]] const CompiledGraph& Compiled() const noexcept;
         // The per-pass times of the latest collected frame, when Realize had PassTimestamps::On.
         [[nodiscard]] std::optional<rhi::GpuTimingBlock> LatestTimings() const;

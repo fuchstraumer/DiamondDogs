@@ -159,6 +159,12 @@ namespace
 
         destroyMade(LoomFrameBuffer);
 
+        // a heap refuses to go while a placed resource counts it, so the heaps go after every row
+        for (const rhi::ResourceFuture<GraphicsResource>& heap : Heaps)
+        {
+            destroyMade(heap);
+        }
+
         for (const rhi::OperationFuture& destroy : Destroys)
         {
             [[maybe_unused]] const rhi::FutureState state = Resources.Wait(destroy, k_TeardownTimeoutNs);

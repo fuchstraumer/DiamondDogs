@@ -5,6 +5,7 @@
 #include "ShaderBundle.hpp"
 #include "ShaderLibraryTypes.hpp"
 #include "ShaderManifestDevice.hpp"
+#include "alias/Lifetimes.hpp"
 #include "bind/BoundGraph.hpp"
 #include "compile/Pipelines.hpp"
 #include "compile/Uses.hpp"
@@ -111,6 +112,7 @@ namespace loom
         compile::GatherUses(*data);
         compile::GatherParams(*data);
         compile::ComputeSpans(*data);
+        data->AliasCandidates = FindAliasCandidates(*data);
 
         return CompiledGraph{ std::move(data) };
     }

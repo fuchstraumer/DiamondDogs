@@ -1,4 +1,5 @@
 #include "LoomGraph.hpp"
+#include "alias/Packing.hpp"
 #include "GpuTimers.hpp"
 #include "FramePlan.hpp"
 #include "LoomKeys.hpp"
@@ -133,6 +134,8 @@ namespace
             return "SettleUnset";
         case RealizeError::DrawStateUnavailable:
             return "DrawStateUnavailable";
+        case RealizeError::AliasingUnset:
+            return "AliasingUnset";
         }
 
         return "Invalid";
@@ -148,6 +151,11 @@ namespace
         if (inputs.Timestamps == PassTimestamps::Invalid)
         {
             return std::unexpected(RealizeError::TimestampsUnset);
+        }
+
+        if (inputs.Aliasing == MemoryAliasing::Invalid)
+        {
+            return std::unexpected(RealizeError::AliasingUnset);
         }
 
         const RealizeError unsupported = CheckSupported(compiled.Data(), inputs);
@@ -176,7 +184,7 @@ namespace
             return std::unexpected(error);
         }
 
-        CreateResources(*impl);
+        CreateResources(*impl, inputs.Aliasing);
         error = PrepareTargets(*impl, inputs);
 
         if (error != RealizeError::Invalid)
@@ -238,6 +246,7 @@ namespace
         // step 7: retired objects, the target extents, and the OfTarget images that a settled resize made
         RetireObjects(graph);
         UpdateTargets(graph, deltaSeconds);
+        CreatePlacedRows(graph);
         PollRows(graph);
 
         // the LoomFrame buffer must exist before a set names it; it is made at Realize, so this waits only at start
@@ -277,7 +286,7 @@ namespace
         }
 
         UpdateFrameConstants(graph);
-        PlanBarriers(graph.Compiled, graph.States, graph.Sync, graph.FrameIndex, graph.Plan);
+        PlanBarriers(graph.Compiled, graph.States, graph.Sync, graph.Aliases, graph.FrameIndex, graph.Plan);
         WriteDescriptors(graph, frameSlot);
 
         const uint64_t signalValue = graph.LastSignaled + 1u;
@@ -407,6 +416,16 @@ namespace
         {
             impl->Controls[index].Triggered = true;
         }
+    }
+
+    const AliasLayout& Graph::Aliases() const noexcept
+    {
+        return impl->Aliases;
+    }
+
+    std::string Graph::ExplainAliasing() const
+    {
+        return ExplainAliases(impl->Compiled.Data(), impl->Aliases);
     }
 
     std::string Graph::ExplainLastTick() const

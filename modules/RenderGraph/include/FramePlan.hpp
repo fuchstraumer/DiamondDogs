@@ -151,6 +151,8 @@ namespace loom
         std::vector<int32_t> SkippedWriter;
         std::vector<int32_t> BatchBarrier;
         std::vector<uint8_t> WrittenThisTick;
+        // scratch, [row]: an aliased row whose memory this Tick already took over from the rows that share it
+        std::vector<uint8_t> AliasClaimed;
     };
 
     // FramePlan.cpp: sizes every array of `plan` for the graph.

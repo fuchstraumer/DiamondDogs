@@ -321,7 +321,7 @@ still holds Compile's diagnostics, because their binding names are views into it
   row with no history is its own copy; a ring's other copies follow the rows (`ExtraCopyBase`, `CopyRows`).
   `CopyOf(data, row, frame, previous)` gives the copy that frame `frame` writes, or reads through `BindPrevious`.
 - `Params`: per `Params` statement, the key and the size and alignment of its type.
-- The first and last level that uses each row, for the aliasing stage that comes after step 6.
+- The first and last level that uses each row (`Spans`), and the alias candidates (`AliasCandidates`, "Aliasing").
 
 ## The core runtime
 
@@ -678,8 +678,40 @@ Two words, two opposite ideas. Keep them apart in code, comments and diagnostics
   binding as a view of the first (`ViewOf:<root>` today, Lodestone request C27 later). Order treats every binding of
   one key as one resource, so views need nothing from Order. Size compares them in bytes; Bind checks that a view and
   its root name one key (LM307).
-- **An alias** is more than one resource sharing one memory, never valid at the same time. Loom will alias transient
-  resources whose lifetimes do not overlap (not written yet). Order's lifetimes must prove that they do not overlap.
+- **An alias** is more than one resource sharing one memory, never valid at the same time. "Aliasing" below has the
+  details.
+
+## Aliasing
+
+Rows that are never live in the same level share memory. It is Vulkan only (`rhi::placement`); WebGPU has no
+placement, and its backend gives every row its own memory.
+
+- **Candidates** (`alias/Lifetimes.cpp`, at Compile, no device): a declared buffer or image with
+  `ResourceLifetime::Frame`, no history, `CpuAccess::None`, at least one use, and no writer whose run policy is not
+  `EveryFrame` (such a write persists across frames, by the LM503 rule). An image sized from a frame target is not
+  one: a resize makes it again, and the heaps do not move. Each candidate keeps its span: the first and last level
+  that uses it. `CompiledData::AliasCandidates` holds them.
+- **Why levels, not run positions.** The passes of one level run with no barrier between them, so they can run at the
+  same time. Two rows used in one level can never share bytes, even when their passes look sequential in run order.
+- **Packing** (`alias/Packing.cpp`, no device, so `loom_tests` checks it with needs written by hand). Realize asks the
+  device what each candidate needs (`rhi::placement::Get*MemoryRequirements`, with the create info its row is made
+  from). Candidates group by class (buffers and images never share a heap: no `bufferImageGranularity` padding) and
+  memory type mask. Each group packs largest first, at the lowest aligned offset that misses every placed candidate
+  whose span overlaps its own. A group whose heap would save nothing gets no heap. `AliasLayout` holds the heaps, each
+  row's placement, and the rows that share bytes with each row.
+- **Creation.** Realize creates the heaps (`CreateMemoryHeap`, futures). Tick creates the placed rows once every heap
+  has settled (`CreatePlacedRows`), so Realize still never blocks. A row whose heap failed gets its own memory. The
+  graph destroys the heaps after every row.
+- **The takeover barrier** (`PlanBarriers`). The first use of a placed row in each Tick takes the memory over: its
+  barrier waits for the last write and the reads since of every row that shares its bytes, and of its own last frame,
+  and an image starts from `Undefined`. The row's barrier state starts again, so its first use needs nothing else.
+  A buffer barrier is a global memory barrier in the Vulkan backend, which covers accesses through every buffer
+  that names the bytes.
+- **The switch.** `RealizeInputs::Aliasing` (`MemoryAliasing::On` or `Off`, no default: `Invalid` is
+  `RealizeError::AliasingUnset`). Turn it off to find out whether a bug comes from aliasing.
+  `Graph::ExplainAliasing()` prints the heaps and the rows in each; `Graph::Aliases()` gives the layout.
+- **What the app must keep true.** A `Frame` row's contents end with the frame. A pass that writes only part of a
+  `Frame` row and a later pass that reads the rest read bytes of another row. Declare such a row `Persistent`.
 
 ## Diagnostics
 
@@ -713,13 +745,18 @@ When Loom needs something from Lodestone, it stubs it here and adds a row to Lod
 | `test_order.cpp`, `test_explain.cpp` | Order and `Explain`, from hand-made access tables. |
 | `test_diagnostics.cpp` | The catalog and the sinks. |
 | `test_levels.cpp` | Kahn levels, the level-major run order, the persistence rule for LM503, buffer imports, and `BindFrameStart` (the `FrameStart` edges, the in-place step that is LM501 with a plain `Bind`, LM506, and LM504 with a frame-start reader). |
-| `test_runtime.cpp` (`LoomHashFill.slang`, `LoomImages.slang`) | `Compile`, `DecideRuns` (pending and failed rows, `Once`, `WhenInputsChange`, `OnTrigger`, `NoHistory`, Q3g), `PlanBarriers` (level and frame-start batches, write after reads, epochs, image layout changes, history copies, the clear batch), `ParamsStore` (LM703, LM704, the byte compare), and `ExplainLastTick`, from readiness values written by hand. |
+| `test_runtime.cpp` (`LoomHashFill.slang`, `LoomImages.slang`) | `Compile`, `DecideRuns` (pending and failed rows, `Once`, `WhenInputsChange`, `OnTrigger`, `NoHistory`, Q3g), `PlanBarriers` (level and frame-start batches, write after reads, epochs, image layout changes, history copies, the clear batch), `ParamsStore` (LM703, LM704, the byte compare), `ExplainLastTick`, and aliasing (`Alias.*`: the candidates, the packing with needs written by hand, the takeover barrier), from readiness values written by hand. |
 | `test_draw.cpp` (`LoomDraw.slang`, shared with the step 7 GPU test) | Step 7a: frame-target rows, attachments and their uses (depth read-only, color, Record targets as Keep and Store), indirect draw reads, `DrawIndirectCount` checks (LM109, LM401), `g_LoomFrame` with no `Bind` and its C++ mirror against the cooked layout, the target actions and fallbacks, the frame-end batch, the target clear, and the three target extents. |
 
 `tests/integration_tests/LoomComputeTest` runs on a real device, headless. `HashFillCS` writes `Output` (an imported
 buffer that the test supplies with a sentinel), and `HashAgainCS` reads it and writes `Output2`, so the graph has two
 levels. It runs three Ticks on two frame slots, for both `HASH_TWICE` variants (a graph pin). Every word must match
-the CPU, with zero validation messages. A third case supplies `Output` 4 bytes short and expects one LM701.
+the CPU, with zero validation messages. A third case supplies `Output` 4 bytes short and expects one LM701. The last
+two cases run a four-pass sequence whose two scratch buffers live in levels 0-1 and 2-3: with `MemoryAliasing::On`
+they must share one heap at one offset, and with `Off` no heap; both results must match the CPU each time. It cannot
+prove the takeover barrier: a planted removal still matched, and synchronization validation does not see the
+descriptor accesses of shader-object dispatches. The `Alias.FirstUseWaitsForTheRowsThatShareItsBytes` unit test
+catches that plant.
 
 `tests/integration_tests/LoomImageTest` runs step 6 on a real device, headless, for eight Ticks: a storage image
 written, then sampled in the next level; an imported image, uploaded by the test and sampled with a point sampler, whose

@@ -209,6 +209,7 @@ namespace loom_draw
             .Device = arguments.Device,
             .FrameSlots = arguments.FrameSlots,
             .Timestamps = loom::PassTimestamps::Off,
+            .Aliasing = loom::MemoryAliasing::On,
             .Sink = arguments.Sink,
             .FrameTargets = arguments.Targets,
             .TargetSettleSeconds = arguments.TargetSettleSeconds,
