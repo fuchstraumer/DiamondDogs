@@ -27,15 +27,19 @@ namespace planet
 {
     namespace
     {
-        constexpr std::array<std::string_view, 18> k_AllEntryPoints
+        constexpr std::array<std::string_view, 34> k_AllEntryPoints
         {
             "MapProbeCS", "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
+            "DetectCollisionsCS", "SelectCollisionPairCS", "BkeTileInitAndLocalUnionCS", "BkeStitchSeamsCS", "BkeFlattenCS",
+            "MarkTerraneSeedsCS", "CountTerraneCS", "DecideTransferCS", "TransferTerraneDirectCS", "ClearSourceTerraneCS",
+            "ComputeSutureCapSpreadCS", "NearestSuturePointCS", "EscapeHistogramCS", "EscapePrefixSumCS", "ApplyEscapeAndSurgeCS",
+            "RefreshOwnersAfterCollisionCS",
             "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
             "CountFrontPointsCS", "OffsetFrontPointsCS", "ScatterFrontPointsCS", "SortFrontPointsCS",
             "NearestFrontPointCS", "BuildFrontTileCapsCS", "FrontDistanceAndUpliftCS", "SumPullCS", "UpliftCS",
         };
 
-        constexpr std::array<NamedCheck, 10> k_AllChecks
+        constexpr std::array<NamedCheck, 11> k_AllChecks
         {
             NamedCheck{ "map", CheckMap },
             NamedCheck{ "owners", CheckOwners },
@@ -47,6 +51,7 @@ namespace planet
             NamedCheck{ "torque", CheckTorqueSums },
             NamedCheck{ "chain", CheckChain },
             NamedCheck{ "healpix", RunHealpixCheck },
+            NamedCheck{ "collide", RunCollideCheck },
         };
 
         // NearestFrontPointCS and UpliftCS run this many threads to a group on the live cell list

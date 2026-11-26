@@ -71,7 +71,8 @@ namespace ocean
  *    cdlod_morph value                     set CDLOD morph start ratio (0.1 to 0.95)
  *    cdlod_max_level value                 set CDLOD maximum subdivision level (1 to 14, 0 for auto)
  *    wireframe on|off                      enable or disable wireframe polygon mode
- *    brdf field value                      set BRDF parameter: sss, body, leadr, foam_roughness, seabed_roughness
+ *    brdf field value                      set BRDF parameter: sss, body, leadr, foam_roughness, seabed_roughness,
+ *                                          crest_mod (0 or 1), crest_mod_strength
  *    async_compute on|off                  enable or disable async compute execution
  *    capture [name]                        write this frame to <capture dir>/<name>.png. The commands after it
  *                                          run on the next frame, so the capture sees only the ones before it

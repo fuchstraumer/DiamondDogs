@@ -135,8 +135,11 @@ namespace
         float AutoExposureSpeed{ 1.0f };
         std::array<float, 3> WaterLeavingReflectanceAp1{};
         float BodyReflectanceScale{ 1.0f };
+        uint32_t UseCrestModulation{ 0u };
+        float CrestModulationStrength{ 0.75f };
+        std::array<float, 2> CrestModulationPadding{};
     };
-    static_assert(sizeof(FrameConstants) == 336u);
+    static_assert(sizeof(FrameConstants) == 352u);
 
     // Remote-sensing reflectance R_rs of clear open ocean in sr^-1, at about 670, 555 and 443 nm. The body radiance
     // of the water is R_rs times the downwelling irradiance
@@ -1691,6 +1694,14 @@ void OceanScene::runCommand(const SceneCommand& command)
         {
             leadrSlopeVarianceScale = std::max(v[0], 0.0f);
         }
+        else if (command.Text == "crest_mod")
+        {
+            useCrestModulation = (v[0] != 0.0f);
+        }
+        else if (command.Text == "crest_mod_strength")
+        {
+            crestModulationStrength = std::max(v[0], 0.0f);
+        }
         else if (command.Text == "foam_roughness")
         {
             foamRoughnessScale = std::max(v[0], 0.0f);
@@ -1923,6 +1934,8 @@ void OceanScene::printState() const
         wireframe ? "on" : "off");
     std::cout << std::format("\nbrdf sss {:.2f} body {:.2f} leadr {:.2f} foam_roughness {:.2f} seabed_roughness {:.2f}",
         sssStrength, bodyReflectanceScale, leadrSlopeVarianceScale, foamRoughnessScale, seabedRoughnessScale);
+    std::cout << std::format("\ncrest modulation {} strength {:.2f}",
+        useCrestModulation ? "on" : "off", crestModulationStrength);
     std::cout << std::format("\nasync compute {}", (useAsyncCompute && hasAsyncComputeQueue) ? "on" : "off");
     std::cout << '\n' << std::flush;
 }
@@ -2045,6 +2058,8 @@ void OceanScene::writeReproScript(std::ostream& out) const
     out << std::format("brdf sss {:.9g}\n", sssStrength);
     out << std::format("brdf body {:.9g}\n", bodyReflectanceScale);
     out << std::format("brdf leadr {:.9g}\n", leadrSlopeVarianceScale);
+    out << std::format("brdf crest_mod {}\n", useCrestModulation ? 1 : 0);
+    out << std::format("brdf crest_mod_strength {:.9g}\n", crestModulationStrength);
     out << std::format("brdf foam_roughness {:.9g}\n", foamRoughnessScale);
     out << std::format("brdf seabed_roughness {:.9g}\n", seabedRoughnessScale);
     out << std::format("lod_scale {:.9g}\n", lodScale);
@@ -2777,6 +2792,24 @@ void OceanScene::drawPanel()
                 "",
                 false);
 
+            (void)ocean::DrawToggle(
+                "##crest_modulation",
+                "Crest/trough modulation (F11)",
+                "OFF",
+                "ON",
+                &useCrestModulation);
+
+            (void)ocean::DrawSlider(
+                "##crest_modulation_strength",
+                "Crest modulation M",
+                "fine slope variance gain per unit 1 - J",
+                &crestModulationStrength,
+                0.0f,
+                2.0f,
+                std::format("{:.2f}", crestModulationStrength),
+                "",
+                false);
+
             (void)ocean::DrawSlider(
                 "##foam_roughness",
                 "Foam roughness",
@@ -3045,6 +3078,11 @@ void OceanScene::update()
         snapshotPending = true;
     }
 
+    if (ImGui::IsKeyPressed(ImGuiKey_F11, false))
+    {
+        useCrestModulation = !useCrestModulation;
+    }
+
     if (snapshotPending && !scriptCaptureDue())
     {
         snapshotPending = false;
@@ -3246,6 +3284,8 @@ void OceanScene::writeViewParameters()
     frameConstants.UseSkyTexture = 1u;
     frameConstants.SkyIntensityScale = skyIntensityScale;
     frameConstants.LeadrSlopeVarianceScale = leadrSlopeVarianceScale;
+    frameConstants.UseCrestModulation = useCrestModulation ? 1u : 0u;
+    frameConstants.CrestModulationStrength = crestModulationStrength;
     frameConstants.PrevViewProjectionRows = (prevViewProj[3][3] != 0.0f) ? prevViewProj : jitteredViewProj;
     frameConstants.JitterOffsetNdc = jitterOffsetNdc;
     frameConstants.PrevJitterOffsetNdc = prevJitterOffsetNdc;

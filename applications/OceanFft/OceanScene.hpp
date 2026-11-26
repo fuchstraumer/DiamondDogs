@@ -362,6 +362,9 @@ private:
     // scales the open-ocean water-leaving reflectance of the body scatter. 1 is clear open ocean
     float bodyReflectanceScale{ 1.0f };
     float leadrSlopeVarianceScale{ 1.0f };
+    // the crest/trough modulation of the two finest cascades (off by default, for A/B) and its strength M
+    bool useCrestModulation{ false };
+    float crestModulationStrength{ 0.75f };
     float foamRoughnessScale{ 1.0f };
     float seabedRoughnessScale{ 1.0f };
 

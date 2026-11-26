@@ -25,11 +25,12 @@ namespace planet
     {
         constexpr std::string_view k_LiveDispatchBuffer{ "LiveDispatch" };
         constexpr std::string_view k_FrontTileDispatchBuffer{ "FrontTileDispatch" };
+        constexpr std::string_view k_CollideDispatchBuffer{ "CollideDispatch" };
 
         // pass 3 and 3b write these, and the next step's OwnersCS / FillGapsCS read them
         constexpr std::array<std::string_view, 3> k_CarriedBuffers{ "PlateCapCenters", "PlateCapSpread", "PreviousPlate" };
 
-        constexpr std::array<StepBufferSpec, 18> k_ZeroedBuffers
+        constexpr std::array<StepBufferSpec, 31> k_ZeroedBuffers
         {
             StepBufferSpec{ "PairVotes", BufferExtent::PlatesSquared },
             StepBufferSpec{ "LowVotes", BufferExtent::PlatesSquared },
@@ -48,7 +49,20 @@ namespace planet
             StepBufferSpec{ "PlatePull", BufferExtent::PlatesTimes3 },
             StepBufferSpec{ "Owners", BufferExtent::PointsTimes4 },
             StepBufferSpec{ "FrontData", BufferExtent::PointsTimes4 },
-            StepBufferSpec{ "CellFronts", BufferExtent::CellsTimes2 }
+            StepBufferSpec{ "CellFronts", BufferExtent::CellsTimes2 },
+            StepBufferSpec{ "CollisionPairCount", BufferExtent::PlatesSquared },
+            StepBufferSpec{ "CollisionPairSpeedSum", BufferExtent::PlatesSquared },
+            StepBufferSpec{ "CollisionPairDeepCount", BufferExtent::PlatesSquared },
+            StepBufferSpec{ "CollisionJob", BufferExtent::CollideJob },
+            StepBufferSpec{ "CollideDispatch", BufferExtent::CollideDispatch },
+            StepBufferSpec{ "BkeParent", BufferExtent::HalfPoints },
+            StepBufferSpec{ "BkeMask", BufferExtent::HalfPoints },
+            StepBufferSpec{ "BkeSeedFlag", BufferExtent::HalfPoints },
+            StepBufferSpec{ "CollideScratchCounters", BufferExtent::CollideCounters },
+            StepBufferSpec{ "SuturePositionSum", BufferExtent::SignedVec3 },
+            StepBufferSpec{ "SuturePoints", BufferExtent::PointsTimes4 },
+            StepBufferSpec{ "SutureDistance", BufferExtent::Points },
+            StepBufferSpec{ "EscapeHistogram", BufferExtent::EscapeHistogram },
         };
 
         // a GPU timer scope when the caller gave a timer block, and nothing when it did not
@@ -111,6 +125,18 @@ namespace planet
             return ((points + 63u) / 64u) * 4u;
         case BufferExtent::IndirectDispatch:
             return 3u;
+        case BufferExtent::HalfPoints:
+            return points / 2u;
+        case BufferExtent::CollideJob:
+            return 16u;
+        case BufferExtent::CollideDispatch:
+            return 12u;
+        case BufferExtent::CollideCounters:
+            return 8u;
+        case BufferExtent::SignedVec3:
+            return 3u;
+        case BufferExtent::EscapeHistogram:
+            return 64u;
         default:
             return 0u;
         }
@@ -155,6 +181,14 @@ namespace planet
             return std::unexpected(PlanetGpuError::BufferNotFound);
         }
 
+        const std::optional<rhi::BufferHandle> collideDispatch = buffers.Handle(k_CollideDispatchBuffer);
+
+        if (!collideDispatch.has_value())
+        {
+            std::println(stderr, "PlanetStep: no buffer {}", k_CollideDispatchBuffer);
+            return std::unexpected(PlanetGpuError::BufferNotFound);
+        }
+
         PlanetGpuResult<std::unique_ptr<PassBindings>> bound = shaders.Bind(buffers.Bound());
 
         if (!bound.has_value())
@@ -162,7 +196,7 @@ namespace planet
             return std::unexpected(bound.error());
         }
 
-        return std::make_unique<PlanetStep>(shaders, buffers, std::move(*bound), *liveDispatch, *frontTileDispatch, size);
+        return std::make_unique<PlanetStep>(shaders, buffers, std::move(*bound), *liveDispatch, *frontTileDispatch, *collideDispatch, size);
     }
 
     PlanetStep::PlanetStep(const PlanetShaders& _shaders,
@@ -170,12 +204,14 @@ namespace planet
                            std::unique_ptr<PassBindings>&& _bindings,
                            rhi::BufferHandle _live_dispatch,
                            rhi::BufferHandle _front_tile_dispatch,
+                           rhi::BufferHandle _collide_dispatch,
                            StepSize _size) noexcept :
         shaders{ _shaders },
         buffers{ _buffers },
         bindings{ std::move(_bindings) },
         liveDispatch{ _live_dispatch },
         frontTileDispatch{ _front_tile_dispatch },
+        collideDispatch{ _collide_dispatch },
         size{ _size }
     {}
 
@@ -295,9 +331,46 @@ namespace planet
 
         RecordComputeBarrier(command_buffer);
 
-        // OffsetLiveCellsCS writes the group counts of the dispatches on the list, so an indirect barrier follows
         {
             const OptionalScope pass(timers, k_StepScopes[3]);
+            recordDispatch(command_buffer, timers, detail, "DetectCollisionsCS", points);
+            RecordComputeBarrier(command_buffer);
+            recordDispatch(command_buffer, timers, detail, "SelectCollisionPairCS", 1u);
+            RecordIndirectBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "BkeTileInitAndLocalUnionCS", collideDispatch, 0u);
+            RecordComputeBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "BkeStitchSeamsCS", collideDispatch, 0u);
+            RecordComputeBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "BkeFlattenCS", collideDispatch, 12u);
+            RecordComputeBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "MarkTerraneSeedsCS", collideDispatch, 24u);
+            RecordComputeBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "CountTerraneCS", collideDispatch, 12u);
+            RecordComputeBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "DecideTransferCS", collideDispatch, 36u);
+            RecordComputeBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "TransferTerraneDirectCS", collideDispatch, 24u);
+            RecordComputeBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "ClearSourceTerraneCS", collideDispatch, 24u);
+            RecordComputeBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "ComputeSutureCapSpreadCS", collideDispatch, 36u);
+            RecordComputeBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "NearestSuturePointCS", collideDispatch, 24u);
+            RecordComputeBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "EscapeHistogramCS", collideDispatch, 24u);
+            RecordComputeBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "EscapePrefixSumCS", collideDispatch, 36u);
+            RecordComputeBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "ApplyEscapeAndSurgeCS", collideDispatch, 24u);
+            RecordComputeBarrier(command_buffer);
+            recordIndirectDispatch(command_buffer, timers, detail, "RefreshOwnersAfterCollisionCS", collideDispatch, 24u);
+        }
+
+        RecordComputeBarrier(command_buffer);
+
+        // OffsetLiveCellsCS writes the group counts of the dispatches on the list, so an indirect barrier follows
+        {
+            const OptionalScope pass(timers, k_StepScopes[4]);
             recordDispatch(command_buffer, timers, detail, "CountLiveCellsCS", liveThreads);
             RecordComputeBarrier(command_buffer);
             recordDispatch(command_buffer, timers, detail, "OffsetLiveCellsCS", 1u);
@@ -309,7 +382,7 @@ namespace planet
 
         // OffsetFrontPointsCS is one workgroup: a thread count of 1 dispatches one group, whatever its size
         {
-            const OptionalScope pass(timers, k_StepScopes[4]);
+            const OptionalScope pass(timers, k_StepScopes[5]);
             recordDispatch(command_buffer, timers, detail, "OffsetFrontPointsCS", 1u);
             RecordComputeBarrier(command_buffer);
             recordDispatch(command_buffer, timers, detail, "ScatterFrontPointsCS", points);
@@ -322,14 +395,14 @@ namespace planet
         RecordComputeBarrier(command_buffer);
 
         {
-            const OptionalScope pass(timers, k_StepScopes[5]);
+            const OptionalScope pass(timers, k_StepScopes[6]);
             recordDispatch(command_buffer, timers, detail, "SumPullCS", points);
         }
 
         RecordComputeBarrier(command_buffer);
 
         {
-            const OptionalScope pass(timers, k_StepScopes[6]);
+            const OptionalScope pass(timers, k_StepScopes[7]);
             recordIndirectDispatch(command_buffer, timers, detail, "FrontDistanceAndUpliftCS", liveDispatch);
         }
     }
@@ -349,10 +422,11 @@ namespace planet
                                             rhi::GpuTimerBlock* timers,
                                             StepTimerDetail detail,
                                             std::string_view entry_point,
-                                            rhi::BufferHandle arguments) const
+                                            rhi::BufferHandle arguments,
+                                            uint64_t byte_offset) const
     {
         rhi::GpuTimerBlock* dispatchTimers = detail == StepTimerDetail::Dispatches ? timers : nullptr;
         const OptionalScope scope(dispatchTimers, entry_point);
-        shaders.RecordDispatchIndirect(command_buffer, *bindings, entry_point, arguments, 0u);
+        shaders.RecordDispatchIndirect(command_buffer, *bindings, entry_point, arguments, byte_offset);
     }
 }

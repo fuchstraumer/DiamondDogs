@@ -118,11 +118,14 @@ void MovePlatesAndClearCountersCS(uint3 threadId : SV_DispatchThreadID)
         PlatePull.Store(pullBase + 2u, 0);
     }
 
-    // 5. Clear P * P ocean-overlap vote counters for Pass 2 of the next tick
+    // 5. Clear P * P ocean-overlap and continental-collision pair counters for the next tick
     const uint pairCount = plateCount * plateCount;
     for (uint pair = threadId.x; pair < pairCount; pair += MovePlatesGroupSize)
     {
         PairVotes.Store(pair, 0u);
         LowVotes.Store(pair, 0u);
+        CollisionPairCount.Store(pair, 0u);
+        CollisionPairSpeedSum.Store(pair, 0u);
+        CollisionPairDeepCount.Store(pair, 0u);
     }
 }

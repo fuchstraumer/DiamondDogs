@@ -22,18 +22,26 @@ namespace planet
     class GpuBuffers;
 
     /** The entry points of one step, passes 1 to 6. Create PlanetShaders with these. */
-    inline constexpr std::array<std::string_view, 14> k_StepEntryPoints
+    inline constexpr std::array<std::string_view, 30> k_StepEntryPoints
     {
         "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
+        "DetectCollisionsCS", "SelectCollisionPairCS", "BkeTileInitAndLocalUnionCS", "BkeStitchSeamsCS", "BkeFlattenCS",
+        "MarkTerraneSeedsCS", "CountTerraneCS", "DecideTransferCS", "TransferTerraneDirectCS", "ClearSourceTerraneCS",
+        "ComputeSutureCapSpreadCS", "NearestSuturePointCS", "EscapeHistogramCS", "EscapePrefixSumCS", "ApplyEscapeAndSurgeCS",
+        "RefreshOwnersAfterCollisionCS",
         "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
         "OffsetFrontPointsCS", "ScatterFrontPointsCS", "SortFrontPointsCS", "BuildFrontTileCapsCS",
         "SumPullCS", "FrontDistanceAndUpliftCS",
     };
 
     /** The entry points of one live simulation step: passes 1 to 6 plus MovePlatesAndClearCountersCS. */
-    inline constexpr std::array<std::string_view, 15> k_LiveStepEntryPoints
+    inline constexpr std::array<std::string_view, 31> k_LiveStepEntryPoints
     {
         "OwnersCS", "CountVotesCS", "SwapToMajorityCS", "FillGapsCS", "RemoveSubductedCS",
+        "DetectCollisionsCS", "SelectCollisionPairCS", "BkeTileInitAndLocalUnionCS", "BkeStitchSeamsCS", "BkeFlattenCS",
+        "MarkTerraneSeedsCS", "CountTerraneCS", "DecideTransferCS", "TransferTerraneDirectCS", "ClearSourceTerraneCS",
+        "ComputeSutureCapSpreadCS", "NearestSuturePointCS", "EscapeHistogramCS", "EscapePrefixSumCS", "ApplyEscapeAndSurgeCS",
+        "RefreshOwnersAfterCollisionCS",
         "CountLiveCellsCS", "OffsetLiveCellsCS", "ScatterLiveCellsCS",
         "OffsetFrontPointsCS", "ScatterFrontPointsCS", "SortFrontPointsCS", "BuildFrontTileCapsCS",
         "SumPullCS", "FrontDistanceAndUpliftCS", "MovePlatesAndClearCountersCS",
@@ -47,9 +55,9 @@ namespace planet
     inline constexpr uint32_t k_SortGroupSize = 256u;
 
     /** The GPU timer scope of each pass, in the order that RecordStep runs them. */
-    inline constexpr std::array<std::string_view, 7> k_StepScopes
+    inline constexpr std::array<std::string_view, 8> k_StepScopes
     {
-        "1 Owners", "2 One plate on top", "3 Crust", "3b Live cells", "4 Front points", "6 Torque pull", "4+5 Front uplift",
+        "1 Owners", "2 One plate on top", "3 Crust", "3a Collision", "3b Live cells", "4 Front points", "6 Torque pull", "4+5 Front uplift",
     };
 
     /** The scope around the whole step, outside the pass scopes. */
@@ -89,6 +97,12 @@ namespace planet
         LiveGroups,
         FrontTilesTimes4,
         IndirectDispatch,
+        HalfPoints,
+        CollideJob,
+        CollideDispatch,
+        CollideCounters,
+        SignedVec3,
+        EscapeHistogram,
     };
 
     struct StepBufferSpec
@@ -113,6 +127,7 @@ namespace planet
                    std::unique_ptr<PassBindings>&& _bindings,
                    rhi::BufferHandle _live_dispatch,
                    rhi::BufferHandle _front_tile_dispatch,
+                   rhi::BufferHandle _collide_dispatch,
                    StepSize _size) noexcept;
         ~PlanetStep();
         PlanetStep(const PlanetStep&) = delete;
@@ -152,14 +167,16 @@ namespace planet
                                     rhi::GpuTimerBlock* timers,
                                     StepTimerDetail detail,
                                     std::string_view entry_point,
-                                    rhi::BufferHandle arguments) const;
+                                    rhi::BufferHandle arguments,
+                                    uint64_t byte_offset = 0u) const;
 
         const PlanetShaders& shaders;
         const GpuBuffers& buffers;
         std::unique_ptr<PassBindings> bindings;
-        // the group counts of the dispatches on the live cell list and front tile caps
+        // the group counts of the dispatches on the live cell list, front tile caps, and collision passes
         rhi::BufferHandle liveDispatch;
         rhi::BufferHandle frontTileDispatch;
+        rhi::BufferHandle collideDispatch;
         StepSize size;
     };
 

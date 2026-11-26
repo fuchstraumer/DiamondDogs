@@ -12,6 +12,7 @@ import LodestoneShims;
 [ls_axis_boolean][ls_axis_kind("Capability")]
 extern static const bool CRUST_FLAG_BYTES = true;
 
+extern struct Floats : IReadWriteBuffer<float>;
 extern struct FloatsIn : IReadBuffer<float>;
 extern struct Ints : IReadWriteBuffer<int>;
 extern struct IntsIn : IReadBuffer<int>;
@@ -120,6 +121,42 @@ CellPoints CellFronts;
 Points FrontPoints;
 Points FrontTileCaps;
 Words FrontTileDispatch;
+
+// Used by Collide.slang (Phase 2: Pure-GPU Continental Collision & Allegretti 2x2 BKE CCL)
+// Per-pair P * P tables indexed by lowPlate * PlateCount + highPlate, cleared each tick.
+Counters CollisionPairCount;
+Counters CollisionPairSpeedSum;
+Counters CollisionPairDeepCount;
+[ls_resource_tags("Aliased:CollisionPairCount")]
+WordsIn CollisionPairCountIn;
+[ls_resource_tags("Aliased:CollisionPairSpeedSum")]
+WordsIn CollisionPairSpeedSumIn;
+[ls_resource_tags("Aliased:CollisionPairDeepCount")]
+WordsIn CollisionPairDeepCountIn;
+
+// 16-word selected collision job descriptor (see Collide.slang JobSlot* constants).
+Words CollisionJob;
+[ls_resource_tags("Aliased:CollisionJob")]
+WordsIn CollisionJobIn;
+
+// 12-word indirect dispatch table: 4 x {groupCountX, 1, 1} at byte offsets 0, 12, 24, 36.
+// [0..2]  = 16x16 tile passes (2 * NumTiles_16x16)
+// [3..5]  = 2x2 block passes  (ceil(2 * (PointCount / 4) / 64))
+// [6..8]  = cell passes       (ceil(PointCount / 64))
+// [9..11] = single-group passes (1)
+Words CollideDispatch;
+
+// Allegretti 2x2 BKE CCL buffers (2 * (PointCount / 4) = PointCount / 2 entries across PlateA & PlateB).
+Counters BkeParent;
+Words BkeMask;
+Words BkeSeedFlag;
+
+// Per-collision counters, suture anchors, geodesic suture distance, and 64-bin escape histogram.
+Counters CollideScratchCounters;
+SignedCounters SuturePositionSum;
+Points SuturePoints;
+Floats SutureDistance;
+Counters EscapeHistogram;
 
 internal static const float PlateCapNone = 0.0f;
 internal static const float PlateCapValid = 1.0f;

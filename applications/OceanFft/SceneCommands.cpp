@@ -107,9 +107,9 @@ namespace
         "underwater", "specular", "albedo", "normal"
     };
 
-    const std::array<std::string_view, 5> k_BrdfFields
+    const std::array<std::string_view, 7> k_BrdfFields
     {
-        "sss", "body", "leadr", "foam_roughness", "seabed_roughness"
+        "sss", "body", "leadr", "foam_roughness", "seabed_roughness", "crest_mod", "crest_mod_strength"
     };
 
     std::vector<std::string_view> SplitWords(std::string_view line)

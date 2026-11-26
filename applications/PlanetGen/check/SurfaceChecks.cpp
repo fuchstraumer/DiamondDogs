@@ -1,6 +1,7 @@
 #include "PlanetGpuErrors.hpp"
 #include "StepChecks.hpp"
 #include "CheckHarness.hpp"
+#include "CommandBuffer.hpp"
 #include "GpuBuffers.hpp"
 #include "Healpix.hpp"
 #include "PlanetMath.hpp"
@@ -8,6 +9,7 @@
 #include "PlanetShaders.hpp"
 #include "PlanetStep.hpp"
 #include "ReferenceSet.hpp"
+#include "RhiHandle.hpp"
 #include "StepState.hpp"
 #include "math/MathStorage.hpp"
 #include <algorithm>
@@ -19,6 +21,7 @@
 #include <memory>
 #include <optional>
 #include <print>
+#include <queue>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -492,5 +495,496 @@ namespace planet
         std::println("healpix gpu (order {}): {} vec errors (max diff {:.3g}), {} round-trip errors, {} neighbor errors",
                      k_Order, vecErrors, maxVecDiff, roundTripErrors, neighborErrors);
         return vecErrors == 0 && roundTripErrors == 0 && neighborErrors == 0;
+    }
+
+    namespace
+    {
+        constexpr std::array<std::string_view, 15> k_CollideEntryPoints
+        {
+            "DetectCollisionsCS", "SelectCollisionPairCS", "BkeTileInitAndLocalUnionCS", "BkeStitchSeamsCS", "BkeFlattenCS",
+            "MarkTerraneSeedsCS", "CountTerraneCS", "DecideTransferCS", "TransferTerraneDirectCS", "ClearSourceTerraneCS",
+            "ComputeSutureCapSpreadCS", "NearestSuturePointCS", "EscapeHistogramCS", "EscapePrefixSumCS", "ApplyEscapeAndSurgeCS",
+        };
+
+        constexpr std::array<StepBufferSpec, 13> k_CollideZeroedBuffers
+        {
+            StepBufferSpec{ "CollisionPairCount", BufferExtent::PlatesSquared },
+            StepBufferSpec{ "CollisionPairSpeedSum", BufferExtent::PlatesSquared },
+            StepBufferSpec{ "CollisionPairDeepCount", BufferExtent::PlatesSquared },
+            StepBufferSpec{ "CollisionJob", BufferExtent::CollideJob },
+            StepBufferSpec{ "CollideDispatch", BufferExtent::CollideDispatch },
+            StepBufferSpec{ "BkeParent", BufferExtent::HalfPoints },
+            StepBufferSpec{ "BkeMask", BufferExtent::HalfPoints },
+            StepBufferSpec{ "BkeSeedFlag", BufferExtent::HalfPoints },
+            StepBufferSpec{ "CollideScratchCounters", BufferExtent::CollideCounters },
+            StepBufferSpec{ "SuturePositionSum", BufferExtent::SignedVec3 },
+            StepBufferSpec{ "SuturePoints", BufferExtent::PointsTimes4 },
+            StepBufferSpec{ "SutureDistance", BufferExtent::Points },
+            StepBufferSpec{ "EscapeHistogram", BufferExtent::EscapeHistogram },
+        };
+
+        [[nodiscard]] bool AddCollideZeroedBuffers(GpuBuffers& buffers, StepSize size)
+        {
+            for (const StepBufferSpec& spec : k_CollideZeroedBuffers)
+            {
+                const size_t byteSize = StepBufferWordCount(spec.Extent, size) * sizeof(uint32_t);
+
+                if (buffers.AddZeroedStorage(spec.Name, byteSize, true) != PlanetGpuError::Success)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        [[nodiscard]] bool AddCollideCrustFlags(GpuBuffers& buffers,
+                                                CrustFlagStorage storage,
+                                                std::span<const uint8_t> packed_flags,
+                                                bool readable)
+        {
+            const std::string_view name = CrustFlagBufferNames(storage);
+
+            if (storage == CrustFlagStorage::Bytes)
+            {
+                return buffers.AddStorage(name, std::as_bytes(packed_flags), readable) == PlanetGpuError::Success;
+            }
+
+            std::vector<uint32_t> words(packed_flags.size());
+
+            for (size_t i = 0u; i < packed_flags.size(); ++i)
+            {
+                words[i] = static_cast<uint32_t>(packed_flags[i]);
+            }
+
+            return buffers.AddStorage(name, std::as_bytes(std::span{ words }), readable) == PlanetGpuError::Success;
+        }
+
+        [[nodiscard]] std::optional<std::vector<uint8_t>> ReadCollideCrustFlags(const GpuBuffers& buffers, CrustFlagStorage storage)
+        {
+            const std::string_view name = CrustFlagBufferNames(storage);
+
+            if (storage == CrustFlagStorage::Bytes)
+            {
+                const PlanetGpuResult<std::vector<std::byte>> bytes = buffers.Read(name);
+
+                if (!bytes.has_value())
+                {
+                    return std::nullopt;
+                }
+
+                std::vector<uint8_t> flags(bytes->size());
+
+                for (size_t i = 0u; i < bytes->size(); ++i)
+                {
+                    flags[i] = std::to_integer<uint8_t>((*bytes)[i]);
+                }
+
+                return flags;
+            }
+
+            const PlanetGpuResult<std::vector<uint32_t>> words = buffers.ReadWords(name);
+
+            if (!words.has_value())
+            {
+                return std::nullopt;
+            }
+
+            std::vector<uint8_t> flags(words->size());
+
+            for (size_t i = 0u; i < words->size(); ++i)
+            {
+                flags[i] = static_cast<uint8_t>((*words)[i] & 0xFFu);
+            }
+
+            return flags;
+        }
+
+        [[nodiscard]] bool AddCollideKinematics(GpuBuffers& buffers, uint32_t plate_count)
+        {
+            std::vector<math::Float4> rotations;
+            rotations.reserve(static_cast<size_t>(plate_count) * 3u);
+
+            for (uint32_t plate = 0u; plate < plate_count; ++plate)
+            {
+                rotations.push_back(math::Float4{ 1.0f, 0.0f, 0.0f, 0.0f });
+                rotations.push_back(math::Float4{ 0.0f, 1.0f, 0.0f, 0.0f });
+                rotations.push_back(math::Float4{ 0.0f, 0.0f, 1.0f, 0.0f });
+            }
+
+            const std::array<math::Float4, 4> poleRates
+            {
+                math::Float4{ 0.0f, 1.0f, 0.0f, 0.008f },
+                math::Float4{ 0.0f, -1.0f, 0.0f, 0.008f },
+                math::Float4{ 0.0f, 0.0f, 1.0f, 0.001f },
+                math::Float4{ 0.0f, 0.0f, 1.0f, 0.001f },
+            };
+
+            return buffers.AddStorage("Rotations", std::as_bytes(std::span{ rotations }), false) == PlanetGpuError::Success &&
+                   buffers.AddStorage("PoleRatesIn", std::as_bytes(std::span{ poleRates }), false) == PlanetGpuError::Success;
+        }
+
+        [[nodiscard]] std::vector<uint8_t> ComputeBfsTerrane(std::span<const uint8_t> continental,
+                                                             std::span<const uint32_t> seeds,
+                                                             uint32_t point_count,
+                                                             uint32_t order,
+                                                             uint32_t& out_count)
+        {
+            std::vector<uint8_t> inTerrane(point_count, 0u);
+            std::queue<uint32_t> frontier;
+            out_count = 0u;
+
+            for (const uint32_t seed : seeds)
+            {
+                if (continental[seed] != 0u && inTerrane[seed] == 0u)
+                {
+                    inTerrane[seed] = 1u;
+                    ++out_count;
+                    frontier.push(seed);
+                }
+            }
+
+            while (!frontier.empty())
+            {
+                const uint32_t current = frontier.front();
+                frontier.pop();
+                const std::array<int32_t, 8> neighbors = HealpixNeighbors8(current, order);
+
+                for (const int32_t neighbor : neighbors)
+                {
+                    if (neighbor < 0)
+                    {
+                        continue;
+                    }
+
+                    const uint32_t next = static_cast<uint32_t>(neighbor);
+
+                    if (continental[next] != 0u && inTerrane[next] == 0u)
+                    {
+                        inTerrane[next] = 1u;
+                        ++out_count;
+                        frontier.push(next);
+                    }
+                }
+            }
+
+            return inTerrane;
+        }
+
+        [[nodiscard]] bool RunCollideSubtestA(CheckContext& context)
+        {
+            constexpr uint32_t k_Order = 5u;
+            constexpr uint32_t k_PointCount = 12288u;
+            constexpr uint32_t k_PlateCount = 4u;
+            constexpr float k_TimeMy = 100.0f;
+            const StepSize size{ k_PointCount, k_PlateCount };
+
+            const PlanetGpuResult<std::unique_ptr<PlanetShaders>> shaders =
+                context.Session.CreateShaders(context.CrustFlags, k_CollideEntryPoints);
+
+            if (!shaders.has_value())
+            {
+                return false;
+            }
+
+            const CrustFlagStorage storage = (*shaders)->CrustFlags();
+            const size_t totalCells = static_cast<size_t>(k_PlateCount) * static_cast<size_t>(k_PointCount);
+            std::vector<uint8_t> packedFlags(totalCells, 0u);
+            std::vector<math::Float4> crustState(totalCells, math::Float4{ 0.0f, 0.0f, 0.0f, 0.0f });
+            std::vector<uint8_t> plate0Cont0A(k_PointCount, 0u);
+            std::vector<uint8_t> plate0Island0B(k_PointCount, 0u);
+            std::vector<uint8_t> plate0Cont(k_PointCount, 0u);
+            std::vector<uint8_t> plate1Cont(k_PointCount, 0u);
+            std::vector<math::Int4> owners(k_PointCount);
+            std::vector<uint32_t> overlapSeeds;
+            uint32_t initialCont1 = 0u;
+
+            for (uint32_t p = 0u; p < k_PointCount; ++p)
+            {
+                const std::array<double, 3> vec = HealpixPixToVec(p, k_Order);
+                const bool is0A = vec[2] > 0.85;
+                const bool is0B = vec[2] < -0.94;
+                const bool is0 = is0A || is0B;
+                const bool is1 = (vec[2] > 0.72) && (vec[0] > -0.2);
+
+                plate0Cont0A[p] = is0A ? 1u : 0u;
+                plate0Island0B[p] = is0B ? 1u : 0u;
+                plate0Cont[p] = is0 ? 1u : 0u;
+                plate1Cont[p] = is1 ? 1u : 0u;
+
+                if (is0)
+                {
+                    packedFlags[p] = 3u;
+                    crustState[p] = math::Float4{ 0.5f, 0.0f, 0.0f, 0.0f };
+                }
+
+                if (is1)
+                {
+                    const size_t flat1 = static_cast<size_t>(k_PointCount) + p;
+                    packedFlags[flat1] = 3u;
+                    crustState[flat1] = math::Float4{ 0.5f, 0.0f, 0.0f, 0.0f };
+                    ++initialCont1;
+                }
+
+                if (is0 && is1)
+                {
+                    owners[p] = math::Int4{ 0, static_cast<int32_t>(p), 1, static_cast<int32_t>(p) };
+                    overlapSeeds.push_back(p);
+                }
+                else if (is0)
+                {
+                    owners[p] = math::Int4{ 0, static_cast<int32_t>(p), -1, -1 };
+                }
+                else if (is1)
+                {
+                    owners[p] = math::Int4{ 1, static_cast<int32_t>(p), -1, -1 };
+                }
+                else
+                {
+                    owners[p] = math::Int4{ 2, static_cast<int32_t>(p), -1, -1 };
+                }
+            }
+
+            GpuBuffers buffers(context.Session.Resources());
+
+            if (!AddParamsUniform(buffers, **shaders, "DetectCollisionsCS", size, 2.0f, k_Order) ||
+                !AddTimeUniform(buffers, **shaders, "ApplyEscapeAndSurgeCS", "Pass3Constants", k_TimeMy) ||
+                !AddCollideKinematics(buffers, k_PlateCount) ||
+                !AddCollideCrustFlags(buffers, storage, packedFlags, true) ||
+                buffers.AddStorage("CrustState", std::as_bytes(std::span{ crustState }), true) != PlanetGpuError::Success ||
+                buffers.AddStorage("Owners", std::as_bytes(std::span{ owners }), false) != PlanetGpuError::Success ||
+                !AddCollideZeroedBuffers(buffers, size))
+            {
+                return false;
+            }
+
+            const std::optional<rhi::BufferHandle> collideDispatch = buffers.Handle("CollideDispatch");
+            const PlanetGpuResult<std::unique_ptr<PassBindings>> bindings = (*shaders)->Bind(buffers.Bound());
+
+            if (!collideDispatch.has_value() || !bindings.has_value())
+            {
+                return false;
+            }
+
+            rhi::CommandBuffer commandBuffer = context.Session.BeginCommands();
+            (*shaders)->RecordDispatch(commandBuffer, **bindings, "DetectCollisionsCS", k_PointCount);
+            RecordComputeBarrier(commandBuffer);
+            (*shaders)->RecordDispatch(commandBuffer, **bindings, "SelectCollisionPairCS", 1u);
+            RecordIndirectBarrier(commandBuffer);
+
+            struct IndirectStage
+            {
+                std::string_view EntryPoint;
+                uint64_t Offset;
+            };
+
+            constexpr std::array<IndirectStage, 13> k_IndirectStages
+            {
+                IndirectStage{ "BkeTileInitAndLocalUnionCS", 0u },
+                IndirectStage{ "BkeStitchSeamsCS", 0u },
+                IndirectStage{ "BkeFlattenCS", 12u },
+                IndirectStage{ "MarkTerraneSeedsCS", 24u },
+                IndirectStage{ "CountTerraneCS", 12u },
+                IndirectStage{ "DecideTransferCS", 36u },
+                IndirectStage{ "TransferTerraneDirectCS", 24u },
+                IndirectStage{ "ClearSourceTerraneCS", 24u },
+                IndirectStage{ "ComputeSutureCapSpreadCS", 36u },
+                IndirectStage{ "NearestSuturePointCS", 24u },
+                IndirectStage{ "EscapeHistogramCS", 24u },
+                IndirectStage{ "EscapePrefixSumCS", 36u },
+                IndirectStage{ "ApplyEscapeAndSurgeCS", 24u },
+            };
+
+            for (size_t i = 0u; i < k_IndirectStages.size(); ++i)
+            {
+                if (i > 0u)
+                {
+                    RecordComputeBarrier(commandBuffer);
+                }
+
+                (*shaders)->RecordDispatchIndirect(commandBuffer, **bindings, k_IndirectStages[i].EntryPoint,
+                                                   *collideDispatch, k_IndirectStages[i].Offset);
+            }
+
+            buffers.RecordReadbackCopies(commandBuffer);
+
+            if (!context.Session.SubmitAndWait(commandBuffer))
+            {
+                return false;
+            }
+
+            const PlanetGpuResult<std::vector<uint32_t>> collisionJob = buffers.ReadWords("CollisionJob");
+            const PlanetGpuResult<std::vector<uint32_t>> counters = buffers.ReadWords("CollideScratchCounters");
+            const PlanetGpuResult<std::vector<uint32_t>> bkeParent = buffers.ReadWords("BkeParent");
+            const PlanetGpuResult<std::vector<uint32_t>> bkeMask = buffers.ReadWords("BkeMask");
+            const PlanetGpuResult<std::vector<uint32_t>> bkeSeedFlag = buffers.ReadWords("BkeSeedFlag");
+            const std::optional<std::vector<uint8_t>> finalFlags = ReadCollideCrustFlags(buffers, storage);
+            const PlanetGpuResult<std::vector<math::Float4>> finalState = buffers.ReadFloat4s("CrustState");
+
+            if (!collisionJob.has_value() || collisionJob->size() < 5u ||
+                !counters.has_value() || counters->size() < 4u ||
+                !bkeParent.has_value() || !bkeMask.has_value() || !bkeSeedFlag.has_value() ||
+                !finalFlags.has_value() || finalFlags->size() != totalCells ||
+                !finalState.has_value() || finalState->size() != totalCells)
+            {
+                return false;
+            }
+
+            uint32_t cpuTerraneCount0 = 0u;
+            uint32_t cpuTerraneCount1 = 0u;
+            const std::vector<uint8_t> cpuTerrane0 =
+                ComputeBfsTerrane(plate0Cont, overlapSeeds, k_PointCount, k_Order, cpuTerraneCount0);
+            const std::vector<uint8_t> cpuTerrane1 =
+                ComputeBfsTerrane(plate1Cont, overlapSeeds, k_PointCount, k_Order, cpuTerraneCount1);
+
+            const uint32_t blocksPerPlate = k_PointCount >> 2u;
+            int64_t bkeMismatches = 0;
+
+            for (uint32_t slot = 0u; slot < 2u; ++slot)
+            {
+                const std::vector<uint8_t>& cpuTerrane = slot == 0u ? cpuTerrane0 : cpuTerrane1;
+
+                for (uint32_t p = 0u; p < k_PointCount; ++p)
+                {
+                    const uint32_t block = slot * blocksPerPlate + (p >> 2u);
+                    const uint32_t mask = (*bkeMask)[block];
+                    const uint32_t parent = (*bkeParent)[block];
+                    const bool gpuInTerrane = ((mask & (1u << (p & 3u))) != 0u) &&
+                                              (parent < bkeSeedFlag->size()) &&
+                                              ((*bkeSeedFlag)[parent] != 0u);
+
+                    if (gpuInTerrane != (cpuTerrane[p] != 0u))
+                    {
+                        ++bkeMismatches;
+                    }
+                }
+            }
+
+            int64_t continent0ARemaining = 0;
+            int64_t island0BLost = 0;
+            uint32_t finalCont1 = 0u;
+            int64_t surgeCells = 0;
+
+            for (uint32_t p = 0u; p < k_PointCount; ++p)
+            {
+                const uint8_t flags0 = (*finalFlags)[p];
+
+                if (plate0Cont0A[p] != 0u && (flags0 & 1u) != 0u)
+                {
+                    ++continent0ARemaining;
+                }
+
+                if (plate0Island0B[p] != 0u && (flags0 & 3u) != 3u)
+                {
+                    ++island0BLost;
+                }
+
+                const size_t flat1 = static_cast<size_t>(k_PointCount) + p;
+                const uint8_t flags1 = (*finalFlags)[flat1];
+
+                if ((flags1 & 3u) == 3u)
+                {
+                    ++finalCont1;
+                    const math::Float4& state = (*finalState)[flat1];
+
+                    if (state.x > 0.5f && std::bit_cast<int32_t>(state.w) == 2 && state.z == k_TimeMy)
+                    {
+                        ++surgeCells;
+                    }
+                }
+            }
+
+            const bool pairOk = (*collisionJob)[0] == 0u && (*collisionJob)[1] == 1u;
+            const bool countsOk = (*counters)[0] == cpuTerraneCount0 && (*counters)[1] == cpuTerraneCount1;
+            const bool bkeOk = bkeMismatches == 0;
+            const bool sourceTargetOk = (*collisionJob)[3] == 0u && (*collisionJob)[4] == 1u;
+            const bool clearedOk = continent0ARemaining == 0 && island0BLost == 0;
+            const bool sutureOk = (*counters)[2] > 0u && (*counters)[3] > 0u;
+            const uint32_t gained1 = finalCont1 >= initialCont1 ? (finalCont1 - initialCont1) : 0u;
+            const bool growthOk = finalCont1 >= initialCont1 && (gained1 * 100u) >= (85u * cpuTerraneCount0);
+            const bool surgeOk = surgeCells >= 10;
+
+            std::println("collide A (order {}): pair=({},{}) src->dst={}->{} terrane=({}/{} vs cpu {}/{}) bke_err={} 0A_rem={} 0B_lost={} suture={} recv={} plate1_gain={}/{} surge_cells={}",
+                         k_Order, (*collisionJob)[0], (*collisionJob)[1], (*collisionJob)[3], (*collisionJob)[4],
+                         (*counters)[0], (*counters)[1], cpuTerraneCount0, cpuTerraneCount1, bkeMismatches,
+                         continent0ARemaining, island0BLost, (*counters)[2], (*counters)[3],
+                         gained1, cpuTerraneCount0, surgeCells);
+
+            return pairOk && countsOk && bkeOk && sourceTargetOk && clearedOk && sutureOk && growthOk && surgeOk;
+        }
+
+        [[nodiscard]] bool RunCollideSubtestB(CheckContext& context)
+        {
+            constexpr uint32_t k_Order = 5u;
+            constexpr uint32_t k_PointCount = 12288u;
+            constexpr uint32_t k_PlateCount = 4u;
+            constexpr std::array<std::string_view, 2> k_GateEntryPoints{ "DetectCollisionsCS", "SelectCollisionPairCS" };
+            const StepSize size{ k_PointCount, k_PlateCount };
+
+            const PlanetGpuResult<std::unique_ptr<PlanetShaders>> shaders =
+                context.Session.CreateShaders(context.CrustFlags, k_GateEntryPoints);
+
+            if (!shaders.has_value())
+            {
+                return false;
+            }
+
+            const CrustFlagStorage storage = (*shaders)->CrustFlags();
+            const size_t totalCells = static_cast<size_t>(k_PlateCount) * static_cast<size_t>(k_PointCount);
+            const std::vector<uint8_t> packedFlags(totalCells, 0u);
+            std::vector<math::Int4> owners(k_PointCount);
+
+            for (uint32_t p = 0u; p < k_PointCount; ++p)
+            {
+                owners[p] = math::Int4{ 0, static_cast<int32_t>(p), -1, -1 };
+            }
+
+            GpuBuffers buffers(context.Session.Resources());
+
+            if (!AddParamsUniform(buffers, **shaders, "DetectCollisionsCS", size, 2.0f, k_Order) ||
+                !AddCollideKinematics(buffers, k_PlateCount) ||
+                !AddCollideCrustFlags(buffers, storage, packedFlags, false) ||
+                buffers.AddStorage("Owners", std::as_bytes(std::span{ owners }), false) != PlanetGpuError::Success ||
+                !AddCollideZeroedBuffers(buffers, size))
+            {
+                return false;
+            }
+
+            const std::array<DispatchStage, 2> stages
+            {
+                DispatchStage{ "DetectCollisionsCS", k_PointCount },
+                DispatchStage{ "SelectCollisionPairCS", 1u },
+            };
+
+            if (!RunDispatches(context.Session, **shaders, buffers, stages))
+            {
+                return false;
+            }
+
+            const PlanetGpuResult<std::vector<uint32_t>> collisionJob = buffers.ReadWords("CollisionJob");
+            const PlanetGpuResult<std::vector<uint32_t>> collideDispatch = buffers.ReadWords("CollideDispatch");
+
+            if (!collisionJob.has_value() || collisionJob->empty() ||
+                !collideDispatch.has_value() || collideDispatch->size() < 12u)
+            {
+                return false;
+            }
+
+            const bool passed = (*collisionJob)[0] == 0xFFFFFFFFu &&
+                                (*collideDispatch)[0] == 0u &&
+                                (*collideDispatch)[3] == 0u &&
+                                (*collideDispatch)[6] == 0u &&
+                                (*collideDispatch)[9] == 0u;
+
+            std::println("collide B (no overlap): job[0]={:#010x} dispatch=({}, {}, {}, {})",
+                         (*collisionJob)[0], (*collideDispatch)[0], (*collideDispatch)[3],
+                         (*collideDispatch)[6], (*collideDispatch)[9]);
+            return passed;
+        }
+    }
+
+    bool RunCollideCheck(CheckContext& context)
+    {
+        return RunCollideSubtestA(context) && RunCollideSubtestB(context);
     }
 }

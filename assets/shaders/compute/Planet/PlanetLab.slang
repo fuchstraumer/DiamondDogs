@@ -9,6 +9,7 @@ __include Owners;
 __include MapProbe;
 __include Front;
 __include Crust;
+__include Collide;
 __include Uplift;
 __include FrontPoints;
 __include TorqueSums;
