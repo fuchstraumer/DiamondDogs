@@ -23,7 +23,7 @@ struct LiveGroup
 
 LiveGroup FindLiveGroup(uint group)
 {
-    const uint groupsPerPlate = (Params.PointCount + CellsPerGroup - 1u) / CellsPerGroup;
+    const uint groupsPerPlate = (StepParams.PointCount + CellsPerGroup - 1u) / CellsPerGroup;
     LiveGroup result;
     result.Plate = group / groupsPerPlate;
     result.FirstCell = (group % groupsPerPlate) * CellsPerGroup;
@@ -32,14 +32,14 @@ LiveGroup FindLiveGroup(uint group)
 
 uint LoadPacked4Flags(uint plate, uint cellBase)
 {
-    if ((Params.PointCount & 3u) == 0u)
+    if ((StepParams.PointCount & 3u) == 0u)
     {
-        if (cellBase >= Params.PointCount)
+        if (cellBase >= StepParams.PointCount)
         {
             return 0u;
         }
 
-        const uint flatBase = plate * Params.PointCount + cellBase;
+        const uint flatBase = plate * StepParams.PointCount + cellBase;
         return CrustFlagsPackedIn.Load(flatBase >> 2u);
     }
 
@@ -48,12 +48,12 @@ uint LoadPacked4Flags(uint plate, uint cellBase)
     for (uint step = 0u; step < CellsPerThread; ++step)
     {
         const uint cellIndex = cellBase + step;
-        if (cellIndex >= Params.PointCount)
+        if (cellIndex >= StepParams.PointCount)
         {
             break;
         }
 
-        const uint flat = plate * Params.PointCount + cellIndex;
+        const uint flat = plate * StepParams.PointCount + cellIndex;
         const uint byteVal = (CrustFlagsPackedIn.Load(flat >> 2u) >> ((flat & 3u) * 8u)) & 0x3u;
         packed4 |= byteVal << (step * 8u);
     }
@@ -70,7 +70,7 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
     if (laneInGroup.x == 0u)
     {
         uint culled = 0u;
-        if (Params.HealpixOrder >= 5u)
+        if (StepParams.HealpixOrder >= 5u)
         {
             const float4 cap = PlateCapCenters.Load(liveGroup.Plate);
             if (cap.w == PlateCapEmpty)
@@ -80,7 +80,7 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
             }
             else if (cap.w == PlateCapValid)
             {
-                const uint coarseOrder = Params.HealpixOrder - 5u;
+                const uint coarseOrder = StepParams.HealpixOrder - 5u;
                 const uint coarseTileIdx = liveGroup.FirstCell >> 10u;
                 const float3 tileCenter = HealpixPixToVec(coarseTileIdx, coarseOrder);
                 const float capSpread = asfloat(PlateCapSpreadIn.Load(liveGroup.Plate));
@@ -143,7 +143,7 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
 
                 live += 1u;
                 continental += (stepFlags & 0x2u) != 0u ? 1u : 0u;
-                const float3 latticePoint = HealpixPixToVec(uint(cellBase + step), Params.HealpixOrder);
+                const float3 latticePoint = HealpixPixToVec(uint(cellBase + step), StepParams.HealpixOrder);
                 position += int3(round(latticePoint * PositionSumScale));
             }
         }
@@ -157,12 +157,12 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
         for (uint step = 0u; step < CellsPerThread; ++step)
         {
             const uint cellIndex = liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x;
-            if (cellIndex >= Params.PointCount)
+            if (cellIndex >= StepParams.PointCount)
             {
                 break;
             }
 
-            const uint flattenedIndex = liveGroup.Plate * Params.PointCount + cellIndex;
+            const uint flattenedIndex = liveGroup.Plate * StepParams.PointCount + cellIndex;
             const CrustFlagBits crustFlags = LoadCrustFlagsIn(flattenedIndex);
             liveMask |= (crustFlags.Bits & 0x3u) << (step * 2u);
         }
@@ -174,7 +174,7 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
             for (uint step = 0u; step < CellsPerThread; ++step)
             {
                 const uint cellIndex = liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x;
-                if (cellIndex >= Params.PointCount)
+                if (cellIndex >= StepParams.PointCount)
                 {
                     break;
                 }
@@ -187,7 +187,7 @@ void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupTh
 
                 live += 1u;
                 continental += (stepMask & 0x2u) != 0u ? 1u : 0u;
-                const float3 latticePoint = HealpixPixToVec(uint(cellIndex), Params.HealpixOrder);
+                const float3 latticePoint = HealpixPixToVec(uint(cellIndex), StepParams.HealpixOrder);
                 position += int3(round(latticePoint * PositionSumScale));
             }
         }
@@ -226,7 +226,7 @@ void OffsetLiveCellsCS(uint3 threadID : SV_DispatchThreadID)
     // this runs one dispatch, the dispatch thread is the lane ID
     const uint plate = threadID.x;
     // non-active threads here just won't do any work
-    const bool isActive = plate < Params.PlateCount;
+    const bool isActive = plate < StepParams.PlateCount;
 
     const int4 plateCounters = isActive ? LoadPlateCountersIn(plate) : 0.xxxx;
     const uint count = isActive ? uint(plateCounters.w) : 0u;
@@ -258,7 +258,7 @@ void OffsetLiveCellsCS(uint3 threadID : SV_DispatchThreadID)
 
     if (WaveIsFirstLane())
     {
-        PlateLiveOffset.Store(Params.PlateCount, total);
+        PlateLiveOffset.Store(StepParams.PlateCount, total);
         LiveDispatch.Store(0u, (total + ListGroupSize - 1u) / ListGroupSize);
         LiveDispatch.Store(1u, 1u);
         LiveDispatch.Store(2u, 1u);
@@ -300,12 +300,12 @@ void ScatterLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_Group
         for (uint step = 0u; step < CellsPerThread; ++step)
         {
             const uint cellIndex = liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x;
-            if (cellIndex >= Params.PointCount)
+            if (cellIndex >= StepParams.PointCount)
             {
                 break;
             }
 
-            const uint flattenedIndex = liveGroup.Plate * Params.PointCount + cellIndex;
+            const uint flattenedIndex = liveGroup.Plate * StepParams.PointCount + cellIndex;
             const CrustFlagBits crustFlags = LoadCrustFlagsIn(flattenedIndex);
             if (crustFlags.IsAlive())
             {
@@ -363,11 +363,11 @@ void ScatterLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_Group
                 const uint cellIndex = CRUST_FLAG_BYTES
                     ? (cellBase + step)
                     : (liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x);
-                const uint flattenedIndex = liveGroup.Plate * Params.PointCount + cellIndex;
+                const uint flattenedIndex = liveGroup.Plate * StepParams.PointCount + cellIndex;
                 LiveCell.Store(resultIdx, flattenedIndex);
                 resultIdx += 1u;
 
-                const float3 latticePoint = HealpixPixToVec(uint(cellIndex), Params.HealpixOrder);
+                const float3 latticePoint = HealpixPixToVec(uint(cellIndex), StepParams.HealpixOrder);
                 spread = max(spread, 1.0f - dot(latticePoint, plateCap.xyz));
             }
         }

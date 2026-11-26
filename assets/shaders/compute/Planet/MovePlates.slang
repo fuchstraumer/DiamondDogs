@@ -50,8 +50,8 @@ float3x3 Reorthogonalize(in float3x3 mat)
 [numthreads(MovePlatesGroupSize, 1, 1)]
 void MovePlatesAndClearCountersCS(uint3 threadId : SV_DispatchThreadID)
 {
-    const uint plateCount = Params.PlateCount;
-    const float dt = Params.TimeStepMy;
+    const uint plateCount = StepParams.PlateCount;
+    const float dt = StepParams.TimeStepMy;
 
     for (uint plate = threadId.x; plate < plateCount; plate += MovePlatesGroupSize)
     {

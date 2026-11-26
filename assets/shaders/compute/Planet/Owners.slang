@@ -13,7 +13,7 @@ struct OwnersParams
     uint HealpixOrder;
 };
 
-ConstantBuffer<OwnersParams> Params;
+ConstantBuffer<OwnersParams> StepParams;
 
 static const float ContinentPriority = 1.0e6f;
 static const float NoScore = -3.402823466e+38f;
@@ -39,8 +39,8 @@ bool InsideCap(in float3 direction,
 void OwnersCS(uint3 threadId : SV_DispatchThreadID, uint3 laneInGroup : SV_GroupThreadID)
 {
     const uint point = threadId.x;
-    const int count = int(Params.PointCount);
-    const int plateCount = Params.PlateCount;
+    const int count = int(StepParams.PointCount);
+    const int plateCount = StepParams.PlateCount;
 
     const float marginAmount = 2.0f * sqrt(4.0f * 3.141592653589793f / float(count));
     float sinMargin, cosMargin;
@@ -80,14 +80,14 @@ void OwnersCS(uint3 threadId : SV_DispatchThreadID, uint3 laneInGroup : SV_Group
     GroupMemoryBarrierWithGroupSync();
 
     // now we let the out-of-range lanes exit, since they're not helpers anymore
-    if (threadId.x >= Params.PointCount)
+    if (threadId.x >= StepParams.PointCount)
     {
         return;
     }
 
     // todo-ship: store point indices in morton-order so all 32 lanes in a warp will be in a tight 2D patch,
     // as right now they're effectively covering a 360 degree ring
-    const float3 worldPoint = HealpixPixToVec(point, Params.HealpixOrder);
+    const float3 worldPoint = HealpixPixToVec(point, StepParams.HealpixOrder);
     const int previousPlate = PreviousPlateIn.Load(point);
 
     float bestScore = NoScore;
@@ -110,8 +110,8 @@ void OwnersCS(uint3 threadId : SV_DispatchThreadID, uint3 laneInGroup : SV_Group
             worldPoint.y * SharedRotationR1[plate] +
             worldPoint.z * SharedRotationR2[plate];
 
-        const int cell = int(HealpixVecToPix(frameDirection, Params.HealpixOrder));
-        const uint flattenedIdx = plate * Params.PointCount + uint(cell);
+        const int cell = int(HealpixVecToPix(frameDirection, StepParams.HealpixOrder));
+        const uint flattenedIdx = plate * StepParams.PointCount + uint(cell);
         CrustFlagBits crustFlags = LoadCrustFlagsIn(flattenedIdx);
         if (!crustFlags.IsAlive())
         {

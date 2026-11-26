@@ -44,7 +44,7 @@ void StoreFrontPointData(uint where, float3 position, uint point)
 void CountFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint point = threadId.x;
-    if (point >= Params.PointCount)
+    if (point >= StepParams.PointCount)
     {
         return;
     }
@@ -70,7 +70,7 @@ void CountFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
 void OffsetFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint plate = threadId.x;
-    const bool isActive = plate < Params.PlateCount;
+    const bool isActive = plate < StepParams.PlateCount;
     const uint count = isActive ? PlateFrontPointCountIn.Load(plate) : 0u;
     const uint waveOffset = WavePrefixSum(count);
     const uint waveTotal = WaveActiveSum(count);
@@ -82,7 +82,7 @@ void OffsetFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
 
     if (WaveIsFirstLane())
     {
-        PlateFrontPointOffset.Store(Params.PlateCount, waveTotal);
+        PlateFrontPointOffset.Store(StepParams.PlateCount, waveTotal);
         FrontTileDispatch.Store(0u, (waveTotal + 63u) / 64u);
         FrontTileDispatch.Store(1u, 1u);
         FrontTileDispatch.Store(2u, 1u);
@@ -95,7 +95,7 @@ void ScatterFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint point = threadId.x;
     // skip points out of range or not on a subduction front
-    if (point >= Params.PointCount)
+    if (point >= StepParams.PointCount)
     {
         return;
     }
@@ -115,7 +115,7 @@ void ScatterFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
     // `PlateFrontPointCursor` is an atomic counter, so multiple threads can increment it concurrently
     // to write to the same plate's front point slots without causing race conditions.
     const uint slot = PlateFrontPointOffset.Load(plate) + PlateFrontPointCursor.Add(plate, 1u);
-    const float3 position = HealpixPixToVec(uint(point), Params.HealpixOrder);
+    const float3 position = HealpixPixToVec(uint(point), StepParams.HealpixOrder);
     StoreFrontPointData(slot, position, point);
 
     if (frontType == FrontTypeCollision && owners.GetSecondPlate() >= 0)
@@ -134,7 +134,7 @@ groupshared uint SharedSortPixels[MaxSortableFrontsPerPlate];
 void SortFrontPointsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupThreadID)
 {
     const uint plate = groupID.x;
-    if (plate >= Params.PlateCount)
+    if (plate >= StepParams.PlateCount)
     {
         return;
     }
@@ -364,7 +364,7 @@ void SortFrontPointsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupT
     for (uint i = thisLaneGlobal; i < count; i += SortGroupSize)
     {
         const uint pixelIndex = SharedSortPixels[i];
-        const float3 position = HealpixPixToVec(pixelIndex, Params.HealpixOrder);
+        const float3 position = HealpixPixToVec(pixelIndex, StepParams.HealpixOrder);
         StoreFrontPointData(begin + i, position, pixelIndex);
     }
 }
@@ -388,7 +388,7 @@ groupshared uint SharedGroupHasContinent;
 [numthreads(64, 1, 1)]
 void BuildFrontTileCapsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupThreadID)
 {
-    const uint totalFronts = PlateFrontPointOffset.Load(Params.PlateCount);
+    const uint totalFronts = PlateFrontPointOffset.Load(StepParams.PlateCount);
     const uint slot = groupID.x * SearchBlockSize + laneInGroup.x;
     const bool valid = slot < totalFronts;
     const float3 pt = valid ? FrontPoints.Load(slot).xyz : float3(0.0f, 0.0f, 0.0f);
@@ -459,14 +459,14 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
                               uint3 groupID : SV_GroupID,
                               uint3 laneInGroup : SV_GroupThreadID)
 {
-    const uint idxLimit = PlateLiveOffset.Load(Params.PlateCount);
+    const uint idxLimit = PlateLiveOffset.Load(StepParams.PlateCount);
     const bool isLive = threadId.x < idxLimit;
 
     const uint groupFirstCell = groupID.x * SearchBlockSize;
     const uint groupLastCell = min(groupFirstCell + SearchBlockSize, idxLimit) - 1u;
-    const uint firstPlate = LiveCell.Load(groupFirstCell) / Params.PointCount;
+    const uint firstPlate = LiveCell.Load(groupFirstCell) / StepParams.PointCount;
     const uint sharedBegin = PlateFrontPointOffset.Load(firstPlate);
-    const uint lastPlate = (LiveCell.Load(groupLastCell) / Params.PointCount) + 1u;
+    const uint lastPlate = (LiveCell.Load(groupLastCell) / StepParams.PointCount) + 1u;
     const uint sharedEnd = PlateFrontPointOffset.Load(lastPlate);
 
     uint flattenedPoint = 0u;
@@ -481,10 +481,10 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
         flattenedPoint = LiveCell.Load(threadId.x);
         crustFlags = LoadCrustFlags(flattenedPoint);
         isContinental = crustFlags.IsContinental();
-        const uint plateIdx = flattenedPoint / Params.PointCount;
-        const uint plateCell = flattenedPoint % Params.PointCount;
+        const uint plateIdx = flattenedPoint / StepParams.PointCount;
+        const uint plateCell = flattenedPoint % StepParams.PointCount;
         const float3x4 plateTransform = LoadRotation(plateIdx);
-        const float3 latticePoint = HealpixPixToVec(uint(plateCell), Params.HealpixOrder);
+        const float3 latticePoint = HealpixPixToVec(uint(plateCell), StepParams.HealpixOrder);
         worldPoint = PlateToWorld(latticePoint, plateTransform);
         begin = PlateFrontPointOffset.Load(plateIdx);
         end = PlateFrontPointOffset.Load(plateIdx + 1u);
@@ -611,7 +611,7 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
     float distance = asfloat(0x7f800000);
     if (best.Index >= 0)
     {
-        const float3 delta = worldPoint - HealpixPixToVec(uint(best.Index), Params.HealpixOrder);
+        const float3 delta = worldPoint - HealpixPixToVec(uint(best.Index), StepParams.HealpixOrder);
         distance = 6370.0f * 2.0f * asin(clamp(0.5f * length(delta), 0.0f, 1.0f));
     }
 
@@ -629,7 +629,7 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
     {
         const FrontState frontState = LoadFrontStateIn(uint(best.Index));
         const uint frontType = frontState.GetSubduction();
-        const float dt = Params.TimeStepMy;
+        const float dt = StepParams.TimeStepMy;
 
         if (frontType == FrontTypeCollision)
         {
@@ -666,7 +666,7 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
 
     if (isContinental)
     {
-        relief *= 1.0f - ContinentErosion * Params.TimeStepMy / PeakElevation;
+        relief *= 1.0f - ContinentErosion * StepParams.TimeStepMy / PeakElevation;
     }
 
     relief = min(relief, PeakElevation);
@@ -694,16 +694,16 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID,
 
     // every lane now takes part in the groupshared loads and barriers - so a lane past
     // the end of the list is aware of this, but doesn't return since it has to help still
-    const uint idxLimit = PlateLiveOffset.Load(Params.PlateCount);
+    const uint idxLimit = PlateLiveOffset.Load(StepParams.PlateCount);
     const bool isLive = threadId.x < idxLimit;
 
     // the live list is in plate order, and so are the front points: the plates of a groups
     // first and last cells bound one contiguous range of slots, even if the group spans multiple plates
     const uint groupFirstCell = groupID.x * SearchBlockSize;
     const uint groupLastCell = min(groupFirstCell + SearchBlockSize, idxLimit) - 1u;
-    const uint firstPlate = LiveCell.Load(groupFirstCell) / Params.PointCount;
+    const uint firstPlate = LiveCell.Load(groupFirstCell) / StepParams.PointCount;
     const uint sharedBegin = PlateFrontPointOffset.Load(firstPlate);
-    const uint lastPlate = (LiveCell.Load(groupLastCell) / Params.PointCount) + 1u;
+    const uint lastPlate = (LiveCell.Load(groupLastCell) / StepParams.PointCount) + 1u;
     const uint sharedEnd = PlateFrontPointOffset.Load(lastPlate);
 
     uint flattenedPoint = 0u;
@@ -714,10 +714,10 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID,
     if (isLive)
     {
         flattenedPoint = LiveCell.Load(threadId.x);
-        const uint plateIdx = flattenedPoint / Params.PointCount;
-        const uint plateCell = flattenedPoint % Params.PointCount;
+        const uint plateIdx = flattenedPoint / StepParams.PointCount;
+        const uint plateCell = flattenedPoint % StepParams.PointCount;
         const float3x4 plateTransform = LoadRotation(plateIdx);
-        const float3 latticePoint = HealpixPixToVec(uint(plateCell), Params.HealpixOrder);
+        const float3 latticePoint = HealpixPixToVec(uint(plateCell), StepParams.HealpixOrder);
         worldPoint = PlateToWorld(latticePoint, plateTransform);
         begin = PlateFrontPointOffset.Load(plateIdx);
         end = PlateFrontPointOffset.Load(plateIdx + 1u);
@@ -886,7 +886,7 @@ void NearestFrontPointCS(uint3 threadId : SV_DispatchThreadID,
     float distance = asfloat(0x7f800000);
     if (best.Index >= 0)
     {
-        const float3 delta = worldPoint - HealpixPixToVec(uint(best.Index), Params.HealpixOrder);
+        const float3 delta = worldPoint - HealpixPixToVec(uint(best.Index), StepParams.HealpixOrder);
         distance = 6370.0f * 2.0f * asin(clamp(0.5f * length(delta), 0.0f, 1.0f));
     }
 

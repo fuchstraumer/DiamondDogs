@@ -87,8 +87,8 @@ bool FindContinentalOverlap(in OwnersData owners, out uint lowPlate, out uint hi
         return false;
     }
 
-    const uint bestFlat = uint(bestPlate) * Params.PointCount + uint(owners.GetBestCell());
-    const uint secondFlat = uint(secondPlate) * Params.PointCount + uint(owners.GetSecondCell());
+    const uint bestFlat = uint(bestPlate) * StepParams.PointCount + uint(owners.GetBestCell());
+    const uint secondFlat = uint(secondPlate) * StepParams.PointCount + uint(owners.GetSecondCell());
     const CrustFlagBits bestFlags = LoadCrustFlagsIn(bestFlat);
     const CrustFlagBits secondFlags = LoadCrustFlagsIn(secondFlat);
     if (!bestFlags.IsAlive() || !bestFlags.IsContinental() ||
@@ -104,7 +104,7 @@ bool FindContinentalOverlap(in OwnersData owners, out uint lowPlate, out uint hi
 
 bool IsOverlapDeepEnough(in float3 worldPoint, uint lowPlate, uint highPlate)
 {
-    const float cellSpacingKm = sqrt(2.0f * HealpixTwoPi / float(Params.PointCount)) * PlanetRadiusKm;
+    const float cellSpacingKm = sqrt(2.0f * HealpixTwoPi / float(StepParams.PointCount)) * PlanetRadiusKm;
     const float halfPenetrationAngle = 0.5f * (TerranePenetrationKm + cellSpacingKm) / PlanetRadiusKm;
 
     const float3 referenceAxis = abs(worldPoint.z) < 0.9f
@@ -127,7 +127,7 @@ bool IsOverlapDeepEnough(in float3 worldPoint, uint lowPlate, uint highPlate)
             const float2 compass = k_ProbeCompass[dirIndex];
             const float3 probeDirection = normalize(
                 worldPoint * cosAngle + (tangentU * compass.x + tangentV * compass.y) * sinAngle);
-            const uint probePoint = HealpixVecToPix(probeDirection, Params.HealpixOrder);
+            const uint probePoint = HealpixVecToPix(probeDirection, StepParams.HealpixOrder);
             const OwnersData probeOwners = LoadOwnersIn(probePoint);
 
             uint probeLow;
@@ -150,7 +150,7 @@ uint LocalBlockMorton(uint localBlockX, uint localBlockY)
 
 uint LoadBlockContinentalMask(uint plate, uint firstPixelInBlock)
 {
-    const uint flatBase = plate * Params.PointCount + firstPixelInBlock;
+    const uint flatBase = plate * StepParams.PointCount + firstPixelInBlock;
     if (CRUST_FLAG_BYTES)
     {
         const uint packed4 = CrustFlagsPackedIn.Load(flatBase >> 2u);
@@ -273,7 +273,7 @@ void UnionGlobal(uint blockA, uint blockB)
 void DetectCollisionsCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint worldPointIndex = threadId.x;
-    if (worldPointIndex >= Params.PointCount)
+    if (worldPointIndex >= StepParams.PointCount)
     {
         return;
     }
@@ -286,11 +286,11 @@ void DetectCollisionsCS(uint3 threadId : SV_DispatchThreadID)
         return;
     }
 
-    const uint pairIndex = lowPlate * Params.PlateCount + highPlate;
+    const uint pairIndex = lowPlate * StepParams.PlateCount + highPlate;
     const float4 poleRatesLow = LoadPoleRates(lowPlate);
     const float4 poleRatesHigh = LoadPoleRates(highPlate);
     const float3 relativeSpin = (poleRatesLow.xyz * poleRatesLow.w) - (poleRatesHigh.xyz * poleRatesHigh.w);
-    const float3 worldPoint = HealpixPixToVec(worldPointIndex, Params.HealpixOrder);
+    const float3 worldPoint = HealpixPixToVec(worldPointIndex, StepParams.HealpixOrder);
     const float convergenceSpeed = length(cross(relativeSpin, worldPoint)) * PlanetRadiusKm;
 
     CollisionPairCount.Add(pairIndex, 1u);
@@ -307,7 +307,7 @@ void DetectCollisionsCS(uint3 threadId : SV_DispatchThreadID)
 void SelectCollisionPairCS(uint3 laneInGroup : SV_GroupThreadID)
 {
     const uint lane = laneInGroup.x;
-    const uint totalPairs = Params.PlateCount * Params.PlateCount;
+    const uint totalPairs = StepParams.PlateCount * StepParams.PlateCount;
 
     uint localBestPair = NoCollisionPair;
     for (uint pairIndex = lane; pairIndex < totalPairs; pairIndex += 32u)
@@ -350,8 +350,8 @@ void SelectCollisionPairCS(uint3 laneInGroup : SV_GroupThreadID)
         return;
     }
 
-    const uint plateA = winningPair / Params.PlateCount;
-    const uint plateB = winningPair % Params.PlateCount;
+    const uint plateA = winningPair / StepParams.PlateCount;
+    const uint plateB = winningPair % StepParams.PlateCount;
     const uint overlapCount = max(CollisionPairCountIn.Load(winningPair), 1u);
     const float averageSpeed = (float(CollisionPairSpeedSumIn.Load(winningPair)) / CollisionSpeedFixedScale)
                              / float(overlapCount);
@@ -372,11 +372,11 @@ void SelectCollisionPairCS(uint3 laneInGroup : SV_GroupThreadID)
     SuturePositionSum.Store(1u, 0);
     SuturePositionSum.Store(2u, 0);
 
-    const uint tilesPerPlate = Params.PointCount >> 8u;
-    const uint blocksPerPlate = Params.PointCount >> 2u;
+    const uint tilesPerPlate = StepParams.PointCount >> 8u;
+    const uint blocksPerPlate = StepParams.PointCount >> 2u;
     const uint tileGroups = 2u * tilesPerPlate;
     const uint blockGroups = ((2u * blocksPerPlate) + 63u) / 64u;
-    const uint cellGroups = (Params.PointCount + 63u) / 64u;
+    const uint cellGroups = (StepParams.PointCount + 63u) / 64u;
 
     CollideDispatch.Store(0u, tileGroups);
     CollideDispatch.Store(1u, 1u);
@@ -403,7 +403,7 @@ void SelectCollisionPairCS(uint3 laneInGroup : SV_GroupThreadID)
 [numthreads(8, 8, 1)]
 void BkeTileInitAndLocalUnionCS(uint3 groupId : SV_GroupID, uint3 localId : SV_GroupThreadID)
 {
-    const uint tilesPerPlate = Params.PointCount >> 8u;
+    const uint tilesPerPlate = StepParams.PointCount >> 8u;
     const uint slot = groupId.x / tilesPerPlate;
     const uint tileIndex = groupId.x % tilesPerPlate;
     const uint plate = CollisionJobIn.Load(slot == 0u ? JobSlotPlateA : JobSlotPlateB);
@@ -465,7 +465,7 @@ void BkeTileInitAndLocalUnionCS(uint3 groupId : SV_GroupID, uint3 localId : SV_G
 
     GroupMemoryBarrierWithGroupSync();
 
-    const uint blocksPerPlate = Params.PointCount >> 2u;
+    const uint blocksPerPlate = StepParams.PointCount >> 2u;
     const uint slotBase = slot * blocksPerPlate;
     const uint globalBlock = slotBase + blockInPlate;
 
@@ -495,8 +495,8 @@ void BkeStitchSeamsCS(uint3 groupId : SV_GroupID, uint3 localId : SV_GroupThread
         return;
     }
 
-    const uint tilesPerPlate = Params.PointCount >> 8u;
-    const uint blocksPerPlate = Params.PointCount >> 2u;
+    const uint tilesPerPlate = StepParams.PointCount >> 8u;
+    const uint blocksPerPlate = StepParams.PointCount >> 2u;
     const uint slot = groupId.x / tilesPerPlate;
     const uint tileIndex = groupId.x % tilesPerPlate;
     const uint slotBase = slot * blocksPerPlate;
@@ -510,7 +510,7 @@ void BkeStitchSeamsCS(uint3 groupId : SV_GroupID, uint3 localId : SV_GroupThread
         return;
     }
 
-    const uint order = Params.HealpixOrder;
+    const uint order = StepParams.HealpixOrder;
     const uint sideLength = 1u << order;
     const uint blocksPerSide = sideLength >> 1u;
     const uint firstPixelInBlock = blockInPlate << 2u;
@@ -628,7 +628,7 @@ void BkeStitchSeamsCS(uint3 groupId : SV_GroupID, uint3 localId : SV_GroupThread
 [numthreads(64, 1, 1)]
 void BkeFlattenCS(uint3 threadId : SV_DispatchThreadID)
 {
-    const uint totalBlocks = 2u * (Params.PointCount >> 2u);
+    const uint totalBlocks = 2u * (StepParams.PointCount >> 2u);
     const uint globalBlock = threadId.x;
     if (globalBlock >= totalBlocks)
     {
@@ -653,7 +653,7 @@ void BkeFlattenCS(uint3 threadId : SV_DispatchThreadID)
 void MarkTerraneSeedsCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint worldPointIndex = threadId.x;
-    if (worldPointIndex >= Params.PointCount)
+    if (worldPointIndex >= StepParams.PointCount)
     {
         return;
     }
@@ -674,7 +674,7 @@ void MarkTerraneSeedsCS(uint3 threadId : SV_DispatchThreadID)
     const uint cellA = uint(bestIsPlateA ? owners.GetBestCell() : owners.GetSecondCell());
     const uint cellB = uint(bestIsPlateA ? owners.GetSecondCell() : owners.GetBestCell());
 
-    const uint blocksPerPlate = Params.PointCount >> 2u;
+    const uint blocksPerPlate = StepParams.PointCount >> 2u;
     const uint rootA = BkeParent.Load(cellA >> 2u);
     const uint rootB = BkeParent.Load(blocksPerPlate + (cellB >> 2u));
 
@@ -693,7 +693,7 @@ void MarkTerraneSeedsCS(uint3 threadId : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void CountTerraneCS(uint3 threadId : SV_DispatchThreadID)
 {
-    const uint blocksPerPlate = Params.PointCount >> 2u;
+    const uint blocksPerPlate = StepParams.PointCount >> 2u;
     const uint totalBlocks = 2u * blocksPerPlate;
     const uint globalBlock = threadId.x;
 
@@ -742,8 +742,8 @@ void DecideTransferCS(uint3 laneInGroup : SV_GroupThreadID)
     const uint sourceTerraneCount = transferPlateA ? terraneCountA : terraneCountB;
 
     const float planetSurfaceAreaKm2 = 2.0f * HealpixTwoPi * PlanetRadiusKm * PlanetRadiusKm;
-    const float terraneAreaKm2 = float(sourceTerraneCount) * planetSurfaceAreaKm2 / float(Params.PointCount);
-    const float areaOverMeanPlate = (float(sourceTerraneCount) * float(Params.PlateCount)) / float(Params.PointCount);
+    const float terraneAreaKm2 = float(sourceTerraneCount) * planetSurfaceAreaKm2 / float(StepParams.PointCount);
+    const float areaOverMeanPlate = (float(sourceTerraneCount) * float(StepParams.PlateCount)) / float(StepParams.PointCount);
     const float rawSurgeRadius = CollisionDistanceKm
                                * sqrt(max(0.0f, (averageSpeed / MaximumPlateSpeed) * areaOverMeanPlate));
     const float surgeRadiusKm = clamp(rawSurgeRadius, 1.0f, SurgeRadiusLimitKm);
@@ -766,12 +766,12 @@ void DecideTransferCS(uint3 laneInGroup : SV_GroupThreadID)
 void TransferTerraneDirectCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint targetCell = threadId.x;
-    const bool inRange = targetCell < Params.PointCount;
+    const bool inRange = targetCell < StepParams.PointCount;
 
     const uint sourcePlate = CollisionJobIn.Load(JobSlotSourcePlate);
     const uint targetPlate = CollisionJobIn.Load(JobSlotTargetPlate);
     const uint sourceSlot = CollisionJobIn.Load(JobSlotSourceSlot);
-    const uint blocksPerPlate = Params.PointCount >> 2u;
+    const uint blocksPerPlate = StepParams.PointCount >> 2u;
 
     uint didTransfer = 0u;
     int3 anchorPositionFixed = int3(0, 0, 0);
@@ -780,10 +780,10 @@ void TransferTerraneDirectCS(uint3 threadId : SV_DispatchThreadID)
     {
         const float3x4 targetRotation = LoadRotation(targetPlate);
         const float3x4 sourceRotation = LoadRotation(sourcePlate);
-        const float3 targetLocalPos = HealpixPixToVec(targetCell, Params.HealpixOrder);
+        const float3 targetLocalPos = HealpixPixToVec(targetCell, StepParams.HealpixOrder);
         const float3 worldPos = PlateToWorld(targetLocalPos, targetRotation);
         const float3 sourceLocalPos = WorldToPlate(worldPos, sourceRotation);
-        const uint sourceCell = HealpixVecToPix(sourceLocalPos, Params.HealpixOrder);
+        const uint sourceCell = HealpixVecToPix(sourceLocalPos, StepParams.HealpixOrder);
 
         const uint sourceBlock = sourceSlot * blocksPerPlate + (sourceCell >> 2u);
         const uint sourceMask = BkeMask.Load(sourceBlock);
@@ -798,7 +798,7 @@ void TransferTerraneDirectCS(uint3 threadId : SV_DispatchThreadID)
 
         if (inSourceTerrane)
         {
-            const uint targetFlat = targetPlate * Params.PointCount + targetCell;
+            const uint targetFlat = targetPlate * StepParams.PointCount + targetCell;
             const CrustFlagBits targetFlags = LoadCrustFlags(targetFlat);
             if (targetFlags.IsAlive() && targetFlags.IsContinental())
             {
@@ -808,7 +808,7 @@ void TransferTerraneDirectCS(uint3 threadId : SV_DispatchThreadID)
             }
             else
             {
-                const uint sourceFlat = sourcePlate * Params.PointCount + sourceCell;
+                const uint sourceFlat = sourcePlate * StepParams.PointCount + sourceCell;
                 StoreCrustFlags(targetFlat, PackCrustFlags(true, true));
                 StoreCrustState(targetFlat, LoadCrustState(sourceFlat));
                 didTransfer = 1u;
@@ -850,14 +850,14 @@ void TransferTerraneDirectCS(uint3 threadId : SV_DispatchThreadID)
 void ClearSourceTerraneCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint sourceCell = threadId.x;
-    if (sourceCell >= Params.PointCount)
+    if (sourceCell >= StepParams.PointCount)
     {
         return;
     }
 
     const uint sourcePlate = CollisionJob.Load(JobSlotSourcePlate);
     const uint sourceSlot = CollisionJob.Load(JobSlotSourceSlot);
-    const uint blocksPerPlate = Params.PointCount >> 2u;
+    const uint blocksPerPlate = StepParams.PointCount >> 2u;
 
     const uint sourceBlock = sourceSlot * blocksPerPlate + (sourceCell >> 2u);
     const uint sourceMask = BkeMask.Load(sourceBlock);
@@ -866,7 +866,7 @@ void ClearSourceTerraneCS(uint3 threadId : SV_DispatchThreadID)
         const uint sourceRoot = BkeParent.Load(sourceBlock);
         if (sourceRoot != NoCollisionPair && BkeSeedFlag.Load(sourceRoot) != 0u)
         {
-            const uint sourceFlat = sourcePlate * Params.PointCount + sourceCell;
+            const uint sourceFlat = sourcePlate * StepParams.PointCount + sourceCell;
             StoreCrustFlags(sourceFlat, PackCrustFlags(false, false));
         }
     }
@@ -952,7 +952,7 @@ void NearestSuturePointCS(uint3 threadId : SV_DispatchThreadID, uint3 laneInGrou
 {
     const uint targetCell = threadId.x;
     const uint lane = laneInGroup.x;
-    const bool inRange = targetCell < Params.PointCount;
+    const bool inRange = targetCell < StepParams.PointCount;
 
     const uint sutureCount = CollideScratchCounters.Load(ScratchSlotSutureCount);
     if (sutureCount == 0u)
@@ -966,7 +966,7 @@ void NearestSuturePointCS(uint3 threadId : SV_DispatchThreadID, uint3 laneInGrou
 
     const float surgeRadiusKm = asfloat(CollisionJobIn.Load(JobSlotSurgeRadiusBits));
     const float searchRadiusKm = max(surgeRadiusKm, MinEscapeSearchRadiusKm);
-    const float3 targetPos = inRange ? HealpixPixToVec(targetCell, Params.HealpixOrder) : float3(0.0f, 0.0f, 1.0f);
+    const float3 targetPos = inRange ? HealpixPixToVec(targetCell, StepParams.HealpixOrder) : float3(0.0f, 0.0f, 1.0f);
 
     bool cellInRange = inRange;
     const uint capValid = CollisionJobIn.Load(JobSlotSutureCapValid);
@@ -1063,10 +1063,10 @@ void EscapeHistogramCS(uint3 threadId : SV_DispatchThreadID, uint3 laneInGroup :
     GroupMemoryBarrierWithGroupSync();
 
     const uint targetCell = threadId.x;
-    if (targetCell < Params.PointCount)
+    if (targetCell < StepParams.PointCount)
     {
         const uint targetPlate = CollisionJobIn.Load(JobSlotTargetPlate);
-        const CrustFlagBits targetFlags = LoadCrustFlagsIn(targetPlate * Params.PointCount + targetCell);
+        const CrustFlagBits targetFlags = LoadCrustFlagsIn(targetPlate * StepParams.PointCount + targetCell);
         const bool isFree = !(targetFlags.IsAlive() && targetFlags.IsContinental());
 
         if (isFree)
@@ -1148,7 +1148,7 @@ void EscapePrefixSumCS(uint3 laneInGroup : SV_GroupThreadID)
 void ApplyEscapeAndSurgeCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint targetCell = threadId.x;
-    if (targetCell >= Params.PointCount)
+    if (targetCell >= StepParams.PointCount)
     {
         return;
     }
@@ -1160,7 +1160,7 @@ void ApplyEscapeAndSurgeCS(uint3 threadId : SV_DispatchThreadID)
     }
 
     const uint targetPlate = CollisionJobIn.Load(JobSlotTargetPlate);
-    const uint targetFlat = targetPlate * Params.PointCount + targetCell;
+    const uint targetFlat = targetPlate * StepParams.PointCount + targetCell;
     const float distanceKm = SutureDistance.Load(targetCell);
     const float escapeRadiusKm = asfloat(CollisionJobIn.Load(JobSlotEscapeRadiusBits));
     const float surgeRadiusKm = asfloat(CollisionJobIn.Load(JobSlotSurgeRadiusBits));
@@ -1198,7 +1198,7 @@ void ApplyEscapeAndSurgeCS(uint3 threadId : SV_DispatchThreadID)
 void RefreshOwnersAfterCollisionCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint worldPointIndex = threadId.x;
-    if (worldPointIndex >= Params.PointCount)
+    if (worldPointIndex >= StepParams.PointCount)
     {
         return;
     }
@@ -1222,16 +1222,16 @@ void RefreshOwnersAfterCollisionCS(uint3 threadId : SV_DispatchThreadID)
 
     bool changed = false;
 
-    const float3 worldPos = HealpixPixToVec(worldPointIndex, Params.HealpixOrder);
+    const float3 worldPos = HealpixPixToVec(worldPointIndex, StepParams.HealpixOrder);
     const float3x4 targetRotation = LoadRotation(uint(targetPlate));
-    const uint targetCell = HealpixVecToPix(WorldToPlate(worldPos, targetRotation), Params.HealpixOrder);
-    const CrustFlagBits targetFlags = LoadCrustFlagsIn(uint(targetPlate) * Params.PointCount + targetCell);
+    const uint targetCell = HealpixVecToPix(WorldToPlate(worldPos, targetRotation), StepParams.HealpixOrder);
+    const CrustFlagBits targetFlags = LoadCrustFlagsIn(uint(targetPlate) * StepParams.PointCount + targetCell);
     const bool targetAlive = targetFlags.IsAlive();
     const bool targetContinental = targetAlive && targetFlags.IsContinental();
 
     if (secondPlate == sourcePlate && secondCell >= 0)
     {
-        const CrustFlagBits secondFlags = LoadCrustFlagsIn(uint(sourcePlate) * Params.PointCount + uint(secondCell));
+        const CrustFlagBits secondFlags = LoadCrustFlagsIn(uint(sourcePlate) * StepParams.PointCount + uint(secondCell));
         if (!secondFlags.IsAlive())
         {
             secondPlate = -1;
@@ -1242,7 +1242,7 @@ void RefreshOwnersAfterCollisionCS(uint3 threadId : SV_DispatchThreadID)
 
     if (bestPlate == sourcePlate && bestCell >= 0)
     {
-        const CrustFlagBits bestFlags = LoadCrustFlagsIn(uint(sourcePlate) * Params.PointCount + uint(bestCell));
+        const CrustFlagBits bestFlags = LoadCrustFlagsIn(uint(sourcePlate) * StepParams.PointCount + uint(bestCell));
         if (!bestFlags.IsAlive())
         {
             if (targetAlive)
@@ -1268,7 +1268,7 @@ void RefreshOwnersAfterCollisionCS(uint3 threadId : SV_DispatchThreadID)
     else if (bestPlate != targetPlate && targetContinental)
     {
         const bool bestIsContinental = (bestPlate >= 0 && bestCell >= 0)
-            ? LoadCrustFlagsIn(uint(bestPlate) * Params.PointCount + uint(bestCell)).IsContinental()
+            ? LoadCrustFlagsIn(uint(bestPlate) * StepParams.PointCount + uint(bestCell)).IsContinental()
             : false;
         if (!bestIsContinental)
         {

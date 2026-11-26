@@ -13,7 +13,7 @@ bool FindOceanOverlap(in OwnersData owners, out int low, out int high);
 void CountVotesCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint point = threadId.x;
-    if (point >= Params.PointCount)
+    if (point >= StepParams.PointCount)
     {
         return;
     }
@@ -26,7 +26,7 @@ void CountVotesCS(uint3 threadId : SV_DispatchThreadID)
         return;
     }
 
-    const uint pair = uint(low) * Params.PlateCount + uint(high);
+    const uint pair = uint(low) * StepParams.PlateCount + uint(high);
     PairVotes.Add(pair, 1u);
 
     if (owners.GetBestPlate() == low)
@@ -40,7 +40,7 @@ void CountVotesCS(uint3 threadId : SV_DispatchThreadID)
 void SwapToMajorityCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint point = threadId.x;
-    if (point >= Params.PointCount)
+    if (point >= StepParams.PointCount)
     {
         return;
     }
@@ -53,7 +53,7 @@ void SwapToMajorityCS(uint3 threadId : SV_DispatchThreadID)
         return;
     }
 
-    const uint pair = uint(low) * Params.PlateCount + uint(high);
+    const uint pair = uint(low) * StepParams.PlateCount + uint(high);
     const bool lowWins = 2u * LowVotesIn.Load(pair) >= PairVotesIn.Load(pair);
     const bool lowIsOnTop = owners.GetBestPlate() == low;
     if (lowIsOnTop == lowWins)
@@ -78,9 +78,9 @@ bool FindOceanOverlap(in OwnersData owners, out int low, out int high)
         return false;
     }
 
-    const uint bestFlat = uint(bestPlate) * Params.PointCount + uint(owners.GetBestCell());
+    const uint bestFlat = uint(bestPlate) * StepParams.PointCount + uint(owners.GetBestCell());
     const CrustFlagBits crustFlagsBest = LoadCrustFlagsIn(bestFlat);
-    const uint secondFlat = uint(secondPlate) * Params.PointCount + uint(owners.GetSecondCell());
+    const uint secondFlat = uint(secondPlate) * StepParams.PointCount + uint(owners.GetSecondCell());
     const CrustFlagBits crustFlagsSecond = LoadCrustFlagsIn(secondFlat);
     if (crustFlagsBest.IsContinental() || crustFlagsSecond.IsContinental())
     {

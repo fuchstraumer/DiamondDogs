@@ -454,7 +454,7 @@ namespace
             planet::UniformUint("HealpixOrder", healpix_order),
         };
 
-        return buffers.UpdateUniformFrom(shaders, "OwnersCS", "Params", paramsValues) == planet::PlanetGpuError::Success;
+        return buffers.UpdateUniformFrom(shaders, "OwnersCS", "StepParams", paramsValues) == planet::PlanetGpuError::Success;
     }
 
     bool UpdateRenderMapUniform(planet::GpuBuffers& buffers,

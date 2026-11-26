@@ -254,7 +254,7 @@ namespace planet
             UniformFloat("TimeStepMy", time_step_my),
             UniformUint("HealpixOrder", healpix_order),
         };
-        return buffers.AddUniformFrom(shaders, entry_point, "Params", values) == PlanetGpuError::Success;
+        return buffers.AddUniformFrom(shaders, entry_point, "StepParams", values) == PlanetGpuError::Success;
     }
 
     bool AddTimeUniform(GpuBuffers& buffers,
@@ -376,38 +376,24 @@ namespace planet
         return AddCarriedAndZeroedStepBuffers(buffers, size, caps, *previousPlate, readable, true);
     }
 
-    bool AddHealpixStepBuffers(GpuBuffers& buffers,
-                               const PlanetShaders& shaders,
-                               const ReferenceSet& reference,
-                               uint32_t order,
-                               CrustFlagStorage storage,
-                               bool include_initial_copies,
-                               float time_step_my,
-                               bool readable)
+    std::optional<HealpixInitialState> ResampleHealpixState(const ReferenceSet& reference,
+                                                            uint32_t order,
+                                                            CrustFlagStorage storage)
     {
-        if (order > 13u || reference.PointCount() <= 0 || reference.PlateCount() <= 0)
+        if (order > 13u || reference.PointCount() <= 0 || reference.PlateCount() <= 0 ||
+            (storage != CrustFlagStorage::Bytes && storage != CrustFlagStorage::Words))
         {
-            return false;
+            return std::nullopt;
         }
 
         const uint32_t pointCount = static_cast<uint32_t>(HealpixPixelCount(order));
         const int32_t refPointCount = reference.PointCount();
         const int32_t plateCount = reference.PlateCount();
-        const StepSize size{ pointCount, static_cast<uint32_t>(plateCount) };
+        const size_t refCellCount = static_cast<size_t>(plateCount) * static_cast<size_t>(refPointCount);
 
-        if (!AddParamsUniform(buffers, shaders, "OwnersCS", size, time_step_my, order) ||
-            !AddTimeUniform(buffers, shaders, "FillGapsCS", "Pass3Constants", reference.Time()) ||
-            !AddTimeUniform(buffers, shaders, "FrontDistanceAndUpliftCS", "UpliftConstants", reference.Time()))
-        {
-            return false;
-        }
-
-        if (!AddRotationsBuffer(buffers, reference) ||
-            !AddPoleRatesBuffer(buffers, reference, readable))
-        {
-            return false;
-        }
-
+        const std::optional<std::vector<math::Float3x3>> rotations = reference.Float3x3s("rotation");
+        const std::optional<std::vector<math::Float3>> poles = reference.Float3s("poles");
+        const std::optional<std::vector<float>> rates = reference.Floats("rates");
         const std::optional<std::vector<uint8_t>> refAlive = reference.Bytes("ref_alive");
         const std::optional<std::vector<uint8_t>> refContinental = reference.Bytes("ref_continental");
         const std::optional<std::vector<float>> refRelief = reference.Floats("ref_relief");
@@ -415,9 +401,11 @@ namespace planet
         const std::optional<std::vector<float>> refOrogenyTime = reference.Floats("ref_orogeny_time");
         const std::optional<std::vector<int32_t>> refOrogeny = reference.Ints("ref_orogeny");
         const std::optional<std::vector<int32_t>> refPreviousPlate = reference.Ints("previous_plate");
-        const size_t refCellCount = static_cast<size_t>(plateCount) * static_cast<size_t>(refPointCount);
 
-        if (!refAlive.has_value() || refAlive->size() != refCellCount ||
+        if (!rotations.has_value() || rotations->size() != static_cast<size_t>(plateCount) ||
+            !poles.has_value() || poles->size() != static_cast<size_t>(plateCount) ||
+            !rates.has_value() || rates->size() != static_cast<size_t>(plateCount) ||
+            !refAlive.has_value() || refAlive->size() != refCellCount ||
             !refContinental.has_value() || refContinental->size() != refCellCount ||
             !refRelief.has_value() || refRelief->size() != refCellCount ||
             !refBirth.has_value() || refBirth->size() != refCellCount ||
@@ -425,11 +413,30 @@ namespace planet
             !refOrogeny.has_value() || refOrogeny->size() != refCellCount ||
             !refPreviousPlate.has_value() || refPreviousPlate->size() != static_cast<size_t>(refPointCount))
         {
-            return false;
+            return std::nullopt;
+        }
+
+        HealpixInitialState state;
+        state.PointCount = pointCount;
+        state.PlateCount = static_cast<uint32_t>(plateCount);
+        state.InitialTime = reference.Time();
+
+        state.Rotations.reserve(rotations->size() * 3u);
+        for (const math::Float3x3& matrix : *rotations)
+        {
+            state.Rotations.emplace_back(matrix.Row(0u), 0.0f);
+            state.Rotations.emplace_back(matrix.Row(1u), 0.0f);
+            state.Rotations.emplace_back(matrix.Row(2u), 0.0f);
+        }
+
+        state.PoleRates.reserve(poles->size());
+        for (size_t i = 0u; i < poles->size(); ++i)
+        {
+            state.PoleRates.emplace_back((*poles)[i], (*rates)[i]);
         }
 
         std::vector<size_t> srcIndices(pointCount);
-        std::vector<int32_t> healpixPreviousPlate(pointCount);
+        state.PreviousPlate.resize(pointCount);
 
         for (uint32_t i = 0u; i < pointCount; ++i)
         {
@@ -437,7 +444,7 @@ namespace planet
             const Double3 dir{ vec[0], vec[1], vec[2] };
             const size_t srcIdx = static_cast<size_t>(FibonacciNearest(dir, refPointCount));
             srcIndices[i] = srcIdx;
-            healpixPreviousPlate[i] = (*refPreviousPlate)[srcIdx];
+            state.PreviousPlate[i] = (*refPreviousPlate)[srcIdx];
         }
 
         const size_t totalCells = static_cast<size_t>(plateCount) * static_cast<size_t>(pointCount);
@@ -454,7 +461,7 @@ namespace planet
             flagWords.resize(totalCells);
         }
 
-        std::vector<math::Float4> crustState(totalCells);
+        state.CrustState.resize(totalCells);
 
         for (int32_t p = 0; p < plateCount; ++p)
         {
@@ -478,7 +485,7 @@ namespace planet
                     flagWords[dstFlat] = static_cast<uint32_t>(aliveVal | contVal);
                 }
 
-                crustState[dstFlat] = math::Float4
+                state.CrustState[dstFlat] = math::Float4
                 {
                     (*refRelief)[srcFlat],
                     (*refBirth)[srcFlat],
@@ -488,28 +495,11 @@ namespace planet
             }
         }
 
-        const std::string_view flagBufferName = CrustFlagBufferNames(storage);
-        const std::span<const std::byte> flagSpan = storage == CrustFlagStorage::Bytes
-            ? std::as_bytes(std::span{ flagBytes })
-            : std::as_bytes(std::span{ flagWords });
+        state.CrustFlags = storage == CrustFlagStorage::Bytes
+            ? ToBytes(flagBytes)
+            : ToBytes(flagWords);
 
-        if (buffers.AddStorage(flagBufferName, flagSpan, readable) != PlanetGpuError::Success ||
-            (include_initial_copies &&
-             buffers.AddStorage(InitialName(flagBufferName), flagSpan, false) != PlanetGpuError::Success))
-        {
-            return false;
-        }
-
-        const std::span<const std::byte> stateSpan = std::as_bytes(std::span{ crustState });
-
-        if (buffers.AddStorage("CrustState", stateSpan, readable) != PlanetGpuError::Success ||
-            (include_initial_copies &&
-             buffers.AddStorage(InitialName("CrustState"), stateSpan, false) != PlanetGpuError::Success))
-        {
-            return false;
-        }
-
-        const PlateCaps caps = ComputePlateCapsFor(
+        state.Caps = ComputePlateCapsFor(
             healpixAlive,
             static_cast<int32_t>(pointCount),
             plateCount,
@@ -519,11 +509,63 @@ namespace planet
                 return Double3{ vec[0], vec[1], vec[2] };
             });
 
+        return state;
+    }
+
+    bool AddHealpixStepBuffers(GpuBuffers& buffers,
+                               const PlanetShaders& shaders,
+                               const ReferenceSet& reference,
+                               uint32_t order,
+                               CrustFlagStorage storage,
+                               bool include_initial_copies,
+                               float time_step_my,
+                               bool readable)
+    {
+        const std::optional<HealpixInitialState> initial = ResampleHealpixState(reference, order, storage);
+
+        if (!initial.has_value())
+        {
+            return false;
+        }
+
+        const StepSize size{ initial->PointCount, initial->PlateCount };
+
+        if (!AddParamsUniform(buffers, shaders, "OwnersCS", size, time_step_my, order) ||
+            !AddTimeUniform(buffers, shaders, "FillGapsCS", "Pass3Constants", initial->InitialTime) ||
+            !AddTimeUniform(buffers, shaders, "FrontDistanceAndUpliftCS", "UpliftConstants", initial->InitialTime))
+        {
+            return false;
+        }
+
+        if (buffers.AddStorage("Rotations", std::as_bytes(std::span{ initial->Rotations }), readable) != PlanetGpuError::Success ||
+            buffers.AddStorage("PoleRatesIn", std::as_bytes(std::span{ initial->PoleRates }), readable) != PlanetGpuError::Success)
+        {
+            return false;
+        }
+
+        const std::string_view flagBufferName = CrustFlagBufferNames(storage);
+
+        if (buffers.AddStorage(flagBufferName, initial->CrustFlags, readable) != PlanetGpuError::Success ||
+            (include_initial_copies &&
+             buffers.AddStorage(InitialName(flagBufferName), initial->CrustFlags, false) != PlanetGpuError::Success))
+        {
+            return false;
+        }
+
+        const std::span<const std::byte> stateSpan = std::as_bytes(std::span{ initial->CrustState });
+
+        if (buffers.AddStorage("CrustState", stateSpan, readable) != PlanetGpuError::Success ||
+            (include_initial_copies &&
+             buffers.AddStorage(InitialName("CrustState"), stateSpan, false) != PlanetGpuError::Success))
+        {
+            return false;
+        }
+
         return AddCarriedAndZeroedStepBuffers(
             buffers,
             size,
-            caps,
-            std::as_bytes(std::span{ healpixPreviousPlate }),
+            initial->Caps,
+            std::as_bytes(std::span{ initial->PreviousPlate }),
             readable,
             include_initial_copies);
     }

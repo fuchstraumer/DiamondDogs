@@ -32,6 +32,25 @@ namespace planet
         std::vector<uint32_t> Spreads;
     };
 
+    /** Resampled HEALPix initial simulation state shared between legacy PlanetStep and Loom PlanetGenLoom. */
+    struct HealpixInitialState
+    {
+        uint32_t PointCount{ 0u };
+        uint32_t PlateCount{ 0u };
+        float InitialTime{ 0.0f };
+        std::vector<math::Float4> Rotations;
+        std::vector<math::Float4> PoleRates;
+        std::vector<std::byte> CrustFlags;
+        std::vector<math::Float4> CrustState;
+        PlateCaps Caps;
+        std::vector<int32_t> PreviousPlate;
+    };
+
+    /** @brief Resamples the reference state onto a nested HEALPix grid of `order`. */
+    [[nodiscard]] std::optional<HealpixInitialState> ResampleHealpixState(const ReferenceSet& reference,
+                                                                          uint32_t order,
+                                                                          CrustFlagStorage storage);
+
     enum class ReferenceArrayForm : uint8_t
     {
         Invalid = 0,

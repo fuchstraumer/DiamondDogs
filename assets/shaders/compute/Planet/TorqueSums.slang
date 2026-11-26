@@ -22,7 +22,7 @@ void SumPullCS(uint3 threadID : SV_DispatchThreadID)
     // this only has to run once per front points, so those are what make the "pull" forces
     // for each plates torque balance
     const uint pointID = threadID.x;
-    if (pointID >= Params.PointCount)
+    if (pointID >= StepParams.PointCount)
     {
         return;
     }
@@ -54,14 +54,14 @@ void SumPullCS(uint3 threadID : SV_DispatchThreadID)
     const float3x4 plateFrame = LoadRotation(underPlate);
     const float3 centroidWorld = PlateToWorld(centroidLocal, plateFrame);
 
-    const float cellArea = 4.0f * 3.14159265f * PlanetRadiusKm * (PlanetRadiusKm / float(Params.PointCount));
-    const float effectiveTravel = max(frontState.GetSpeed(), 10.0f) * Params.TimeStepMy;
+    const float cellArea = 4.0f * 3.14159265f * PlanetRadiusKm * (PlanetRadiusKm / float(StepParams.PointCount));
+    const float effectiveTravel = max(frontState.GetSpeed(), 10.0f) * StepParams.TimeStepMy;
     const float trenchAmount = cellArea / max(effectiveTravel, 1.0f);
     const float slabWeight = trenchAmount * sqrt(clamp(frontState.GetSlabAge() / SlabFullAgeMy, 0.0f, 1.0f));
 
     // now apply the pull and perform the last fixed-point add. 
     // cross(centroid, world) is the rotation axis/lever arm that would turn the plate towards the trench
-    const float3 worldPoint = HealpixPixToVec(pointID, Params.HealpixOrder);
+    const float3 worldPoint = HealpixPixToVec(pointID, StepParams.HealpixOrder);
     const float3 axis = cross(centroidWorld, worldPoint);
     const float3 pullForce = axis / max(length(axis), 1e-6f) * slabWeight;
     const int3 intPull = int3(round(pullForce * PullScale));

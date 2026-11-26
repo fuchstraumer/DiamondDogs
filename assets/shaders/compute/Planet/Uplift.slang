@@ -41,7 +41,7 @@ float SubductionProfile(float distance, float reach)
 [numthreads(64, 1, 1)]
 void UpliftCS(uint3 threadID : SV_DispatchThreadID)
 {
-    const uint pointLimit = PlateLiveOffset.Load(Params.PlateCount);
+    const uint pointLimit = PlateLiveOffset.Load(StepParams.PlateCount);
     if (threadID.x >= pointLimit)
     {
         return;
@@ -66,7 +66,7 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
         const float shape = SubductionProfile(cellState.GetDistance(), reach);
         const FrontState frontState = LoadFrontStateIn(frontPoint);
         const float rate = BaseUplift * shape * frontState.GetStrength();
-        const float dt = Params.TimeStepMy;
+        const float dt = StepParams.TimeStepMy;
         crustState = LoadCrustState(flattenedPt);
         relief = crustState.GetRelief() + (rate * dt);
 
@@ -81,7 +81,7 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
     // slight erosion: cap, accrete, store
     if (isContinental)
     {
-        relief *= 1.0f - ContinentErosion * Params.TimeStepMy / PeakElevation;
+        relief *= 1.0f - ContinentErosion * StepParams.TimeStepMy / PeakElevation;
     }
 
     // peak elevation will also need to adjust for gravity: Olympus Mons vs Everest, for example!

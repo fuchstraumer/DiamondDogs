@@ -22,6 +22,7 @@ struct RenderMapParams
 };
 
 ConstantBuffer<RenderMapParams> RenderMapConstants;
+[format("rgba8")]
 RWTexture2D<float4> MapOutput;
 
 static const float Pi = 3.141592653589793f;
@@ -140,7 +141,7 @@ float4 SampleElevationCorner(int pt)
         return float4(-6.0f, 0.0f, 0.0f, 0.0f);
     }
 
-    const uint flat = uint(plate) * Params.PointCount + uint(cell);
+    const uint flat = uint(plate) * StepParams.PointCount + uint(cell);
     const CrustFlagBits flags = LoadCrustFlagsIn(flat);
     const CrustStateData state = LoadCrustStateIn(flat);
     const FrontState front = LoadFrontStateIn(uint(pt));
@@ -183,16 +184,16 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
     {
         uint baseFace = 0u;
         float2 faceUV = float2(0.0f, 0.0f);
-        HealpixVecToFaceUV(worldPoint, Params.HealpixOrder, baseFace, faceUV);
+        HealpixVecToFaceUV(worldPoint, StepParams.HealpixOrder, baseFace, faceUV);
 
         const float2 shifted = faceUV - 0.5f;
         const int2 baseXY = int2(floor(shifted));
         const float2 fracUV = shifted - float2(baseXY);
 
-        const int p00 = HealpixSampleIndex(baseFace, baseXY.x, baseXY.y, Params.HealpixOrder);
-        const int p10 = HealpixSampleIndex(baseFace, baseXY.x + 1, baseXY.y, Params.HealpixOrder);
-        const int p01 = HealpixSampleIndex(baseFace, baseXY.x, baseXY.y + 1, Params.HealpixOrder);
-        const int p11 = HealpixSampleIndex(baseFace, baseXY.x + 1, baseXY.y + 1, Params.HealpixOrder);
+        const int p00 = HealpixSampleIndex(baseFace, baseXY.x, baseXY.y, StepParams.HealpixOrder);
+        const int p10 = HealpixSampleIndex(baseFace, baseXY.x + 1, baseXY.y, StepParams.HealpixOrder);
+        const int p01 = HealpixSampleIndex(baseFace, baseXY.x, baseXY.y + 1, StepParams.HealpixOrder);
+        const int p11 = HealpixSampleIndex(baseFace, baseXY.x + 1, baseXY.y + 1, StepParams.HealpixOrder);
 
         float4 s00 = (p00 >= 0) ? SampleElevationCorner(p00) : float4(0.0f);
         float4 s10 = (p10 >= 0) ? SampleElevationCorner(p10) : float4(0.0f);
@@ -216,10 +217,10 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
         const float dEdU = lerp(s10.x - s00.x, s11.x - s01.x, fracUV.y);
         const float dEdV = lerp(s01.x - s00.x, s11.x - s10.x, fracUV.x);
 
-        float3 v00 = (p00 >= 0) ? HealpixPixToVec(uint(p00), Params.HealpixOrder) : float3(0.0f);
-        float3 v10 = (p10 >= 0) ? HealpixPixToVec(uint(p10), Params.HealpixOrder) : float3(0.0f);
-        float3 v01 = (p01 >= 0) ? HealpixPixToVec(uint(p01), Params.HealpixOrder) : float3(0.0f);
-        float3 v11 = (p11 >= 0) ? HealpixPixToVec(uint(p11), Params.HealpixOrder) : float3(0.0f);
+        float3 v00 = (p00 >= 0) ? HealpixPixToVec(uint(p00), StepParams.HealpixOrder) : float3(0.0f);
+        float3 v10 = (p10 >= 0) ? HealpixPixToVec(uint(p10), StepParams.HealpixOrder) : float3(0.0f);
+        float3 v01 = (p01 >= 0) ? HealpixPixToVec(uint(p01), StepParams.HealpixOrder) : float3(0.0f);
+        float3 v11 = (p11 >= 0) ? HealpixPixToVec(uint(p11), StepParams.HealpixOrder) : float3(0.0f);
         if (p00 < 0) v00 = normalize(v10 + v01);
         if (p10 < 0) v10 = normalize(v00 + v11);
         if (p01 < 0) v01 = normalize(v00 + v11);
@@ -237,7 +238,7 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
         if (abs(det) > 1e-12f)
         {
             const float3 gradWorld = (dEdU * perpB - dEdV * perpA) / det;
-            const float cellScale = sqrt(4.0f * Pi / float(Params.PointCount));
+            const float cellScale = sqrt(4.0f * Pi / float(StepParams.PointCount));
             const float3 sunDir = normalize(float3(0.6f, 0.4f, 0.7f));
             shade = clamp(1.0f - 0.14f * dot(gradWorld * cellScale, sunDir), 0.78f, 1.22f);
         }
@@ -247,7 +248,7 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
         return;
     }
 
-    const int pt = int(HealpixVecToPix(worldPoint, Params.HealpixOrder));
+    const int pt = int(HealpixVecToPix(worldPoint, StepParams.HealpixOrder));
     const OwnersData owners = LoadOwnersIn(uint(pt));
     const int plate = owners.GetBestPlate();
     const int cell = owners.GetBestCell();
@@ -255,7 +256,7 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
     float3 rgb = float3(0.02f, 0.04f, 0.10f);
     if (plate >= 0 && cell >= 0)
     {
-        const uint flat = uint(plate) * Params.PointCount + uint(cell);
+        const uint flat = uint(plate) * StepParams.PointCount + uint(cell);
         const CrustFlagBits flags = LoadCrustFlagsIn(flat);
         const CrustStateData state = LoadCrustStateIn(flat);
         const FrontState front = LoadFrontStateIn(uint(pt));

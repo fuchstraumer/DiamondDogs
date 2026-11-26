@@ -41,7 +41,7 @@ FrontState ComputeFrontValues(in CrustFlagBits crustFlagsUnder,
 void FillGapsCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint point = threadId.x;
-    if (point >= Params.PointCount)
+    if (point >= StepParams.PointCount)
     {
         return;
     }
@@ -52,12 +52,12 @@ void FillGapsCS(uint3 threadId : SV_DispatchThreadID)
 
     if (plate == -1)
     {
-        float3 worldPoint = HealpixPixToVec(point, Params.HealpixOrder);
+        float3 worldPoint = HealpixPixToVec(point, StepParams.HealpixOrder);
         plate = PreviousPlate.Load(point);
         float3x4 rotation = LoadRotation(uint(plate));
         worldPoint = WorldToPlate(worldPoint, rotation);
-        cell = int(HealpixVecToPix(worldPoint, Params.HealpixOrder));
-        WriteNewOceanCrust(uint(plate) * Params.PointCount + uint(cell));
+        cell = int(HealpixVecToPix(worldPoint, StepParams.HealpixOrder));
+        WriteNewOceanCrust(uint(plate) * StepParams.PointCount + uint(cell));
         StoreOwners(point, int2(plate, cell), owners.Data.zw);
     }
 
@@ -69,7 +69,7 @@ void FillGapsCS(uint3 threadId : SV_DispatchThreadID)
 void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
 {
     const uint point = threadId.x;
-    if (point >= Params.PointCount)
+    if (point >= StepParams.PointCount)
     {
         return;
     }
@@ -82,12 +82,12 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
     const int underPlate = owners.GetSecondPlate();
     if (underPlate >= 0)
     {
-        const uint topFlat = uint(topPlate) * Params.PointCount + uint(owners.GetBestCell());
-        const uint underFlat = uint(underPlate) * Params.PointCount + uint(owners.GetSecondCell());
+        const uint topFlat = uint(topPlate) * StepParams.PointCount + uint(owners.GetBestCell());
+        const uint underFlat = uint(underPlate) * StepParams.PointCount + uint(owners.GetSecondCell());
         const CrustFlagBits crustFlagsTop = LoadCrustFlags(topFlat);
         const CrustFlagBits crustFlagsUnder = LoadCrustFlags(underFlat);
         const bool collision = crustFlagsTop.IsContinental() && crustFlagsUnder.IsContinental();
-        const float3 worldPoint = HealpixPixToVec(point, Params.HealpixOrder);
+        const float3 worldPoint = HealpixPixToVec(point, StepParams.HealpixOrder);
         const uint frontType = collision ? FrontTypeCollision : FrontTypeSubductionOverlap;
         frontState = ComputeFrontValues(crustFlagsUnder,
                                         point,
@@ -115,7 +115,7 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
         uint baseFace;
         uint faceX;
         uint faceY;
-        HealpixDecode(point, Params.HealpixOrder, baseFace, faceX, faceY);
+        HealpixDecode(point, StepParams.HealpixOrder, baseFace, faceX, faceY);
 
         int bestNeighborPlate = -1;
         uint bestNeighborFlat = 0u;
@@ -123,8 +123,8 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
         uint bestFrontType = FrontTypeNone;
         float bestClosingSpeed = ConvergentBoundarySpeedThreshold;
 
-        const uint topFlat = uint(topPlate) * Params.PointCount + uint(owners.GetBestCell());
-        const float3 worldPoint = HealpixPixToVec(point, Params.HealpixOrder);
+        const uint topFlat = uint(topPlate) * StepParams.PointCount + uint(owners.GetBestCell());
+        const float3 worldPoint = HealpixPixToVec(point, StepParams.HealpixOrder);
         bool loadedTopState = false;
         CrustFlagBits topFlags = { 0u };
         float topBirth = 0.0f;
@@ -136,7 +136,7 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
             const uint dirIndex = k_CardinalNeighborIndices[cardinal];
             const int neighborPoint = HealpixNeighbor(baseFace, int(faceX), int(faceY),
                                                       k_NeighborDeltaX[dirIndex], k_NeighborDeltaY[dirIndex],
-                                                      Params.HealpixOrder);
+                                                      StepParams.HealpixOrder);
             if (neighborPoint < 0)
             {
                 continue;
@@ -160,7 +160,7 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
 
             const float4 poleRatesNeighbor = LoadPoleRates(uint(neighborPlate));
             const float3 neighborVelocity = cross(poleRatesNeighbor.xyz * poleRatesNeighbor.w, worldPoint) * PlanetRadiusKm;
-            const float3 neighborPos = HealpixPixToVec(uint(neighborPoint), Params.HealpixOrder);
+            const float3 neighborPos = HealpixPixToVec(uint(neighborPoint), StepParams.HealpixOrder);
             const float3 edgeNormal = normalize(worldPoint - neighborPos);
             const float closingSpeed = dot(neighborVelocity - topVelocity, edgeNormal);
             if (closingSpeed <= bestClosingSpeed)
@@ -168,7 +168,7 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
                 continue;
             }
 
-            const uint neighborFlat = uint(neighborPlate) * Params.PointCount + uint(neighborOwners.GetBestCell());
+            const uint neighborFlat = uint(neighborPlate) * StepParams.PointCount + uint(neighborOwners.GetBestCell());
             const CrustFlagBits neighborFlags = LoadCrustFlags(neighborFlat);
             if (!neighborFlags.IsAlive())
             {

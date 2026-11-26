@@ -4,6 +4,7 @@ set(PLANET_GEN_SHADER_DIR "${PROJECT_SOURCE_DIR}/assets/shaders/compute/Planet")
 
 lodestone_add_shader_cook(planet_gen_shaders
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
+    HOST_TYPES "math/ShaderHostTypes.hpp"
     TARGETS spirv
     OPTIONS --O3 --g3
     MODULES "${PLANET_GEN_SHADER_DIR}/PlanetLab.slang")
@@ -77,3 +78,19 @@ add_executable(PlanetGenTimelapse
 target_link_libraries(PlanetGenTimelapse PRIVATE planet_reference planet_gpu frame_capture agent_tools bootstrap_vulkan)
 set_target_properties(PlanetGenTimelapse PROPERTIES FOLDER "Applications/PlanetGen" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(PlanetGenTimelapse LIBRARY)
+
+# PlanetGenLoom: Loom RenderGraph port of PlanetGen with built-in --verify parity check against PlanetStep.
+add_executable(PlanetGenLoom
+    "loom/main.cpp"
+    "loom/PlanetGraph.cpp"
+    "loom/PlanetGraph.hpp"
+    "${PROJECT_SOURCE_DIR}/tests/integration_tests/fixtures/HeadlessBoot.cpp"
+    "${PROJECT_SOURCE_DIR}/tests/integration_tests/fixtures/HeadlessBoot.hpp")
+target_include_directories(PlanetGenLoom PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/cooked"
+    "${CMAKE_CURRENT_SOURCE_DIR}/loom"
+    "${PROJECT_SOURCE_DIR}/tests/integration_tests/fixtures")
+target_link_libraries(PlanetGenLoom PRIVATE planet_reference planet_gpu loom_vulkan bootstrap_vulkan frame_capture)
+add_dependencies(PlanetGenLoom planet_gen_shaders)
+set_target_properties(PlanetGenLoom PROPERTIES FOLDER "Applications/PlanetGen" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+diamond_dogs_add_pch(PlanetGenLoom LIBRARY)
