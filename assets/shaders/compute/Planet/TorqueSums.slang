@@ -55,7 +55,8 @@ void SumPullCS(uint3 threadID : SV_DispatchThreadID)
     const float3 centroidWorld = PlateToWorld(centroidLocal, plateFrame);
 
     const float cellArea = 4.0f * 3.14159265f * PlanetRadiusKm * (PlanetRadiusKm / float(Params.PointCount));
-    const float trenchAmount = cellArea / max(frontState.GetSpeed() * Params.TimeStepMy, sqrt(cellArea));
+    const float effectiveTravel = max(frontState.GetSpeed(), 10.0f) * Params.TimeStepMy;
+    const float trenchAmount = cellArea / max(effectiveTravel, 1.0f);
     const float slabWeight = trenchAmount * sqrt(clamp(frontState.GetSlabAge() / SlabFullAgeMy, 0.0f, 1.0f));
 
     // now apply the pull and perform the last fixed-point add. 

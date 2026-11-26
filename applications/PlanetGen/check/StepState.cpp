@@ -382,7 +382,8 @@ namespace planet
                                uint32_t order,
                                CrustFlagStorage storage,
                                bool include_initial_copies,
-                               float time_step_my)
+                               float time_step_my,
+                               bool readable)
     {
         if (order > 13u || reference.PointCount() <= 0 || reference.PlateCount() <= 0)
         {
@@ -402,7 +403,7 @@ namespace planet
         }
 
         if (!AddRotationsBuffer(buffers, reference) ||
-            !AddPoleRatesBuffer(buffers, reference))
+            !AddPoleRatesBuffer(buffers, reference, readable))
         {
             return false;
         }
@@ -492,7 +493,7 @@ namespace planet
             ? std::as_bytes(std::span{ flagBytes })
             : std::as_bytes(std::span{ flagWords });
 
-        if (buffers.AddStorage(flagBufferName, flagSpan, false) != PlanetGpuError::Success ||
+        if (buffers.AddStorage(flagBufferName, flagSpan, readable) != PlanetGpuError::Success ||
             (include_initial_copies &&
              buffers.AddStorage(InitialName(flagBufferName), flagSpan, false) != PlanetGpuError::Success))
         {
@@ -501,7 +502,7 @@ namespace planet
 
         const std::span<const std::byte> stateSpan = std::as_bytes(std::span{ crustState });
 
-        if (buffers.AddStorage("CrustState", stateSpan, false) != PlanetGpuError::Success ||
+        if (buffers.AddStorage("CrustState", stateSpan, readable) != PlanetGpuError::Success ||
             (include_initial_copies &&
              buffers.AddStorage(InitialName("CrustState"), stateSpan, false) != PlanetGpuError::Success))
         {
@@ -523,7 +524,7 @@ namespace planet
             size,
             caps,
             std::as_bytes(std::span{ healpixPreviousPlate }),
-            false,
+            readable,
             include_initial_copies);
     }
 
@@ -627,7 +628,7 @@ namespace planet
         return !with_initial || buffers.AddStorage(InitialName("CrustState"), bytes, false) == PlanetGpuError::Success;
     }
 
-    bool AddPoleRatesBuffer(GpuBuffers& buffers, const ReferenceSet& reference)
+    bool AddPoleRatesBuffer(GpuBuffers& buffers, const ReferenceSet& reference, bool readable)
     {
         const auto poles = reference.Float3s("poles");
         const auto rates = reference.Floats("rates");
@@ -645,7 +646,7 @@ namespace planet
             packed.emplace_back((*poles)[i], (*rates)[i]);
         }
 
-        return buffers.AddStorage("PoleRatesIn", std::as_bytes(std::span{ packed }), false) == PlanetGpuError::Success;
+        return buffers.AddStorage("PoleRatesIn", std::as_bytes(std::span{ packed }), readable) == PlanetGpuError::Success;
     }
 
     bool AddOwnersBuffer(GpuBuffers& buffers,

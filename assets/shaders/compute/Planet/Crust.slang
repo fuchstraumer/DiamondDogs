@@ -17,6 +17,14 @@ static const float MaximumPlateSpeed = 100.0f;
 static const float MantleVigor = 1.0f;
 static const float TrenchElevation = -10.0f;
 static const float PeakElevation = 10.0f;
+static const float ConvergentBoundarySpeedThreshold = 5.0f;
+
+static const uint FrontTypeNone = 0u;
+static const uint FrontTypeSubductionOverlap = 1u;
+static const uint FrontTypeSubductionBorder = 2u;
+static const uint FrontTypeCollision = 3u;
+
+static const uint k_CardinalNeighborIndices[4] = { 0u, 2u, 4u, 6u };
 
 float4 LoadPoleRates(uint plate);
 void WriteNewOceanCrust(uint flat);
@@ -70,27 +78,140 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
 
 
     const OwnersData owners = LoadOwnersIn(point);
+    const int topPlate = owners.GetBestPlate();
     const int underPlate = owners.GetSecondPlate();
     if (underPlate >= 0)
     {
-        const int topPlate = owners.GetBestPlate();
         const uint topFlat = uint(topPlate) * Params.PointCount + uint(owners.GetBestCell());
         const uint underFlat = uint(underPlate) * Params.PointCount + uint(owners.GetSecondCell());
         const CrustFlagBits crustFlagsTop = LoadCrustFlags(topFlat);
         const CrustFlagBits crustFlagsUnder = LoadCrustFlags(underFlat);
         const bool collision = crustFlagsTop.IsContinental() && crustFlagsUnder.IsContinental();
         const float3 worldPoint = HealpixPixToVec(point, Params.HealpixOrder);
+        const uint frontType = collision ? FrontTypeCollision : FrontTypeSubductionOverlap;
         frontState = ComputeFrontValues(crustFlagsUnder,
                                         point,
                                         worldPoint,
                                         topPlate,
                                         underPlate,
                                         underFlat,
-                                        collision ? 0u : 1u);
+                                        frontType);
 
         if (!collision)
         {
             StoreCrustFlags(underFlat, PackCrustFlags(false, crustFlagsUnder.IsContinental()));
+            PlateFrontPointCount.Add(uint(topPlate), 1u);
+        }
+        else
+        {
+            PlateFrontPointCount.Add(uint(topPlate), 1u);
+            PlateFrontPointCount.Add(uint(underPlate), 1u);
+        }
+    }
+    else if (topPlate >= 0)
+    {
+        // Continuous convergent-boundary detection via edge-sharing HEALPix neighbors so sub-cell
+        // timesteps (v * dt < cellSpacing) maintain unbroken subduction trenches and colliding faults.
+        uint baseFace;
+        uint faceX;
+        uint faceY;
+        HealpixDecode(point, Params.HealpixOrder, baseFace, faceX, faceY);
+
+        int bestNeighborPlate = -1;
+        uint bestNeighborFlat = 0u;
+        CrustFlagBits bestNeighborFlags = { 0u };
+        uint bestFrontType = FrontTypeNone;
+        float bestClosingSpeed = ConvergentBoundarySpeedThreshold;
+
+        const uint topFlat = uint(topPlate) * Params.PointCount + uint(owners.GetBestCell());
+        const float3 worldPoint = HealpixPixToVec(point, Params.HealpixOrder);
+        bool loadedTopState = false;
+        CrustFlagBits topFlags = { 0u };
+        float topBirth = 0.0f;
+        float3 topVelocity = float3(0.0f, 0.0f, 0.0f);
+
+        [unroll]
+        for (uint cardinal = 0u; cardinal < 4u; ++cardinal)
+        {
+            const uint dirIndex = k_CardinalNeighborIndices[cardinal];
+            const int neighborPoint = HealpixNeighbor(baseFace, int(faceX), int(faceY),
+                                                      k_NeighborDeltaX[dirIndex], k_NeighborDeltaY[dirIndex],
+                                                      Params.HealpixOrder);
+            if (neighborPoint < 0)
+            {
+                continue;
+            }
+
+            const OwnersData neighborOwners = LoadOwnersIn(uint(neighborPoint));
+            const int neighborPlate = neighborOwners.GetBestPlate();
+            if (neighborPlate < 0 || neighborPlate == topPlate)
+            {
+                continue;
+            }
+
+            if (!loadedTopState)
+            {
+                topFlags = LoadCrustFlags(topFlat);
+                topBirth = LoadCrustStateIn(topFlat).GetBirth();
+                const float4 poleRatesTop = LoadPoleRates(uint(topPlate));
+                topVelocity = cross(poleRatesTop.xyz * poleRatesTop.w, worldPoint) * PlanetRadiusKm;
+                loadedTopState = true;
+            }
+
+            const float4 poleRatesNeighbor = LoadPoleRates(uint(neighborPlate));
+            const float3 neighborVelocity = cross(poleRatesNeighbor.xyz * poleRatesNeighbor.w, worldPoint) * PlanetRadiusKm;
+            const float3 neighborPos = HealpixPixToVec(uint(neighborPoint), Params.HealpixOrder);
+            const float3 edgeNormal = normalize(worldPoint - neighborPos);
+            const float closingSpeed = dot(neighborVelocity - topVelocity, edgeNormal);
+            if (closingSpeed <= bestClosingSpeed)
+            {
+                continue;
+            }
+
+            const uint neighborFlat = uint(neighborPlate) * Params.PointCount + uint(neighborOwners.GetBestCell());
+            const CrustFlagBits neighborFlags = LoadCrustFlags(neighborFlat);
+            if (!neighborFlags.IsAlive())
+            {
+                continue;
+            }
+
+            uint candidateType = FrontTypeNone;
+            if (topFlags.IsContinental() && neighborFlags.IsContinental())
+            {
+                candidateType = FrontTypeCollision;
+            }
+            else if (topFlags.IsContinental() && !neighborFlags.IsContinental())
+            {
+                candidateType = FrontTypeSubductionBorder;
+            }
+            else if (!topFlags.IsContinental() && !neighborFlags.IsContinental())
+            {
+                const float neighborBirth = LoadCrustStateIn(neighborFlat).GetBirth();
+                if (topBirth > neighborBirth || (topBirth == neighborBirth && topPlate < neighborPlate))
+                {
+                    candidateType = FrontTypeSubductionBorder;
+                }
+            }
+
+            if (candidateType != FrontTypeNone)
+            {
+                bestClosingSpeed = closingSpeed;
+                bestNeighborPlate = neighborPlate;
+                bestNeighborFlat = neighborFlat;
+                bestNeighborFlags = neighborFlags;
+                bestFrontType = candidateType;
+            }
+        }
+
+        if (bestFrontType != FrontTypeNone)
+        {
+            frontState = ComputeFrontValues(bestNeighborFlags,
+                                            point,
+                                            worldPoint,
+                                            topPlate,
+                                            bestNeighborPlate,
+                                            bestNeighborFlat,
+                                            bestFrontType);
             PlateFrontPointCount.Add(uint(topPlate), 1u);
         }
     }

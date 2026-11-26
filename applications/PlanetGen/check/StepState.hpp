@@ -111,7 +111,8 @@ namespace planet
                                              uint32_t order,
                                              CrustFlagStorage storage,
                                              bool include_initial_copies,
-                                             float time_step_my = 2.0f);
+                                             float time_step_my = 2.0f,
+                                             bool readable = false);
 
     [[nodiscard]] bool AddCrustFlagsBuffer(GpuBuffers& buffers,
                                            const ReferenceSet& reference,
@@ -130,7 +131,7 @@ namespace planet
                                            bool readable,
                                            bool with_initial = false);
 
-    [[nodiscard]] bool AddPoleRatesBuffer(GpuBuffers& buffers, const ReferenceSet& reference);
+    [[nodiscard]] bool AddPoleRatesBuffer(GpuBuffers& buffers, const ReferenceSet& reference, bool readable = false);
 
     [[nodiscard]] bool AddOwnersBuffer(GpuBuffers& buffers,
                                        const ReferenceSet& reference,

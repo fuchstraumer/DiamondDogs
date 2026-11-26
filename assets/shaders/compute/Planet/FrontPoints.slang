@@ -50,14 +50,19 @@ void CountFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
     }
 
     const FrontState frontState = LoadFrontStateIn(point);
-    if (frontState.GetSubduction() != 1u)
+    const uint frontType = frontState.GetSubduction();
+    if (frontType == FrontTypeNone)
     {
         return;
     }
 
     const OwnersData owners = LoadOwnersIn(point);
-    int plate = owners.GetBestPlate();
+    const int plate = owners.GetBestPlate();
     PlateFrontPointCount.Add(uint(plate), 1u);
+    if (frontType == FrontTypeCollision && owners.GetSecondPlate() >= 0)
+    {
+        PlateFrontPointCount.Add(uint(owners.GetSecondPlate()), 1u);
+    }
 }
 
 [shader("compute")]
@@ -96,7 +101,8 @@ void ScatterFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
     }
 
     const FrontState frontState = LoadFrontStateIn(point);
-    if (frontState.GetSubduction() != 1u)
+    const uint frontType = frontState.GetSubduction();
+    if (frontType == FrontTypeNone)
     {
         return;
     }
@@ -111,6 +117,13 @@ void ScatterFrontPointsCS(uint3 threadId : SV_DispatchThreadID)
     const uint slot = PlateFrontPointOffset.Load(plate) + PlateFrontPointCursor.Add(plate, 1u);
     const float3 position = HealpixPixToVec(uint(point), Params.HealpixOrder);
     StoreFrontPointData(slot, position, point);
+
+    if (frontType == FrontTypeCollision && owners.GetSecondPlate() >= 0)
+    {
+        const uint secondPlate = uint(owners.GetSecondPlate());
+        const uint secondSlot = PlateFrontPointOffset.Load(secondPlate) + PlateFrontPointCursor.Add(secondPlate, 1u);
+        StoreFrontPointData(secondSlot, position, point);
+    }
 }
 
 static const uint SortGroupSize = 256u;
@@ -614,18 +627,40 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
 
     if (best.Index >= 0)
     {
-        const float reach = isContinental ? ContinentalReachKm : IslandArcReachKm;
-        const float shape = SubductionProfile(distance, reach);
         const FrontState frontState = LoadFrontStateIn(uint(best.Index));
-        const float rate = BaseUplift * shape * frontState.GetStrength();
+        const uint frontType = frontState.GetSubduction();
         const float dt = Params.TimeStepMy;
-        relief += rate * dt;
 
-        if (rate > ActiveUplift)
+        if (frontType == FrontTypeCollision)
         {
-            const int updatedOrogeny = isContinental ? OrogenyAndean : OrogenyIslandArc;
-            crustState.SetOrogenyType(updatedOrogeny);
-            crustState.SetOrogenyTime(UpliftConstants.Time);
+            if (isContinental)
+            {
+                const float collisionReachKm = 900.0f;
+                const float u = clamp(distance / collisionReachKm, 0.0f, 1.0f);
+                const float foldProfile = (1.0f - u * u) * (1.0f - u * u);
+                const float rate = 0.65f * BaseUplift * foldProfile * frontState.GetStrength();
+                relief += rate * dt;
+
+                if (rate > ActiveUplift)
+                {
+                    crustState.SetOrogenyType(OrogenyHimalayan);
+                    crustState.SetOrogenyTime(UpliftConstants.Time);
+                }
+            }
+        }
+        else
+        {
+            const float reach = isContinental ? ContinentalReachKm : IslandArcReachKm;
+            const float shape = SubductionProfile(distance, reach);
+            const float rate = BaseUplift * shape * frontState.GetStrength();
+            relief += rate * dt;
+
+            if (rate > ActiveUplift)
+            {
+                const int updatedOrogeny = isContinental ? OrogenyAndean : OrogenyIslandArc;
+                crustState.SetOrogenyType(updatedOrogeny);
+                crustState.SetOrogenyTime(UpliftConstants.Time);
+            }
         }
     }
 

@@ -145,7 +145,8 @@ float4 SampleElevationCorner(int pt)
     const CrustStateData state = LoadCrustStateIn(flat);
     const FrontState front = LoadFrontStateIn(uint(pt));
     const bool isContinental = flags.IsContinental();
-    const bool isSubduction = front.GetSubduction() == 1u;
+    const uint frontType = front.GetSubduction();
+    const bool isSubduction = (frontType == 1u || frontType == 2u);
 
     float baseElev = 0.5f;
     if (!isContinental)
@@ -259,7 +260,9 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
         const CrustStateData state = LoadCrustStateIn(flat);
         const FrontState front = LoadFrontStateIn(uint(pt));
         const bool isContinental = flags.IsContinental();
-        const bool isSubduction = front.GetSubduction() == 1u;
+        const uint frontType = front.GetSubduction();
+        const bool isSubduction = (frontType == 1u || frontType == 2u);
+        const bool isCollisionFront = (frontType == 3u);
         const bool hasOverlap = owners.GetSecondPlate() >= 0;
 
         if (mode == RenderModePlates)
@@ -307,7 +310,11 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
                 const float distNorm = 1.0f - saturate(cellFront.GetDistance() / 1800.0f);
                 rgb = lerp(rgb, float3(0.10f, 0.78f, 0.92f), distNorm * 0.75f);
             }
-            if (isSubduction)
+            if (isCollisionFront)
+            {
+                rgb = float3(0.96f, 0.85f, 0.15f);
+            }
+            else if (isSubduction)
             {
                 rgb = float3(0.95f, 0.15f, 0.15f);
             }

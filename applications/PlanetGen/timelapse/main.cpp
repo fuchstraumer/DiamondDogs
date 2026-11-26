@@ -15,11 +15,14 @@
 #include "TimelapseAgentTools.hpp"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <charconv>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -28,6 +31,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 // PlanetGenTimelapse: runs live plate simulation steps and captures equirectangular PNG frames,
@@ -45,6 +49,8 @@ namespace
         uint32_t Width{ 1024u };
         uint32_t Height{ 512u };
         uint32_t Mode{ 0u };
+        std::filesystem::path StatsPath;
+        uint32_t StatsEvery{ 10u };
         int32_t ToolPort{ -1 };
     };
 
@@ -196,7 +202,7 @@ int main(int argc, char* argv[])
     const ImageFormat mapFormat{ ImageComponentFormats::RGBA8, ImageDataType::UNorm };
 
     if (!planet::AddHealpixStepBuffers(buffers, **shaders, *reference, options->Order, (*shaders)->CrustFlags(),
-                                       options->ToolPort >= 0, options->Dt) ||
+                                       options->ToolPort >= 0, options->Dt, !options->StatsPath.empty()) ||
         buffers.AddUniformFrom(**shaders, "MovePlatesAndClearCountersCS", "MovePlatesConstants", movePlatesInit) != planet::PlanetGpuError::Success ||
         buffers.AddUniformFrom(**shaders, "RenderMapCS", "RenderMapConstants", renderMapInit) != planet::PlanetGpuError::Success ||
         buffers.AddStorageImage("MapOutput", options->Width, options->Height, mapFormat) != planet::PlanetGpuError::Success)
@@ -262,7 +268,10 @@ int main(int argc, char* argv[])
         }
     }
 
-    capture::FrameCapture capture(session->Resources(), 1u, options->OutDir);
+    const uint32_t writerThreads = options->ToolPort >= 0
+        ? 1u
+        : std::clamp(std::thread::hardware_concurrency(), 2u, 12u);
+    capture::FrameCapture capture(session->Resources(), 1u, options->OutDir, writerThreads);
 
     if (options->ToolPort >= 0)
     {
@@ -378,6 +387,15 @@ namespace
             {
                 valid = ParseMode(text.substr(7u), options.Mode);
             }
+            else if (text.starts_with("--stats="))
+            {
+                options.StatsPath = text.substr(8u);
+                valid = !options.StatsPath.empty();
+            }
+            else if (text.starts_with("--stats-every="))
+            {
+                valid = ParseUint(text.substr(14u), options.StatsEvery) && options.StatsEvery > 0u;
+            }
             else if (text.starts_with("--tool-port="))
             {
                 valid = ParseInt(text.substr(12u), options.ToolPort) &&
@@ -398,11 +416,12 @@ namespace
 
         if (options.Reference.empty() || options.OutDir.empty() ||
             options.Steps == 0u || options.Dt <= 0.0f || options.Every == 0u ||
-            options.Width == 0u || options.Height == 0u)
+            options.StatsEvery == 0u || options.Width == 0u || options.Height == 0u)
         {
             std::println(stderr,
                          "usage: PlanetGenTimelapse --reference=<folder> --out=<dir> [--order=N] [--steps=N] [--dt=F] [--every=N] "
-                         "[--width=N] [--height=N] [--mode=elevation|plates|age|relief|fronts|voronoi] [--tool-port=N]");
+                         "[--width=N] [--height=N] [--mode=elevation|plates|age|relief|fronts|voronoi] "
+                         "[--stats=<path.csv>] [--stats-every=N] [--tool-port=N]");
             return std::nullopt;
         }
 
@@ -657,6 +676,140 @@ namespace
         };
     }
 
+    [[nodiscard]] bool WriteStatsRow(std::ofstream& stats_file,
+                                     const planet::PlanetShaders& shaders,
+                                     const planet::GpuBuffers& buffers,
+                                     uint32_t step,
+                                     float time)
+    {
+        const planet::PlanetGpuResult<std::vector<uint32_t>> frontOffsets =
+            buffers.ReadWords("PlateFrontPointOffset");
+        const planet::PlanetGpuResult<std::vector<math::Float4>> poleRates =
+            buffers.ReadFloat4s("PoleRatesIn");
+        const planet::PlanetGpuResult<std::vector<uint32_t>> collisionJob =
+            buffers.ReadWords("CollisionJob");
+        const planet::PlanetGpuResult<std::vector<uint32_t>> scratchCounters =
+            buffers.ReadWords("CollideScratchCounters");
+        const planet::PlanetGpuResult<std::vector<math::Float4>> crustState =
+            buffers.ReadFloat4s("CrustState");
+
+        if (!frontOffsets.has_value() || frontOffsets->empty() ||
+            !poleRates.has_value() ||
+            !collisionJob.has_value() || collisionJob->size() < 9u ||
+            !scratchCounters.has_value() || scratchCounters->size() < 3u ||
+            !crustState.has_value())
+        {
+            return false;
+        }
+
+        const planet::CrustFlagStorage flagStorage = shaders.CrustFlags();
+        const std::string_view flagBufferName = planet::CrustFlagBufferNames(flagStorage);
+        std::vector<std::byte> flagBytes;
+        std::vector<uint32_t> flagWords;
+
+        if (flagStorage == planet::CrustFlagStorage::Bytes)
+        {
+            const planet::PlanetGpuResult<std::vector<std::byte>> readBytes = buffers.Read(flagBufferName);
+            if (!readBytes.has_value() || readBytes->size() != crustState->size())
+            {
+                return false;
+            }
+            flagBytes = *readBytes;
+        }
+        else
+        {
+            const planet::PlanetGpuResult<std::vector<uint32_t>> readWords = buffers.ReadWords(flagBufferName);
+            if (!readWords.has_value() || readWords->size() != crustState->size())
+            {
+                return false;
+            }
+            flagWords = *readWords;
+        }
+
+        const uint32_t frontPoints = frontOffsets->back();
+
+        double speedSum = 0.0;
+        float maxSpeed = 0.0f;
+        for (const math::Float4& pole : *poleRates)
+        {
+            const float speedKmMy = pole.w * 6370.0f;
+            speedSum += static_cast<double>(speedKmMy);
+            maxSpeed = std::max(maxSpeed, speedKmMy);
+        }
+        const float meanSpeed = poleRates->empty()
+            ? 0.0f
+            : static_cast<float>(speedSum / static_cast<double>(poleRates->size()));
+
+        const uint32_t collisionFired = ((*collisionJob)[0] != 0xFFFFFFFFu) ? 1u : 0u;
+        const int32_t collSrc = collisionFired != 0u ? static_cast<int32_t>((*collisionJob)[3]) : -1;
+        const int32_t collDst = collisionFired != 0u ? static_cast<int32_t>((*collisionJob)[4]) : -1;
+        const uint32_t collTerrane = collisionFired != 0u ? (*collisionJob)[8] : 0u;
+        const uint32_t collSuture = collisionFired != 0u ? (*scratchCounters)[2] : 0u;
+
+        std::vector<float> reliefs;
+        double reliefSum = 0.0;
+        float reliefMax = -std::numeric_limits<float>::infinity();
+        uint32_t orogAndean = 0u;
+        uint32_t orogHimalayan = 0u;
+        uint32_t orogIslandArc = 0u;
+
+        for (size_t i = 0u; i < crustState->size(); ++i)
+        {
+            const uint32_t flags = flagStorage == planet::CrustFlagStorage::Bytes
+                ? static_cast<uint32_t>(flagBytes[i])
+                : flagWords[i];
+            if ((flags & 3u) != 3u)
+            {
+                continue;
+            }
+
+            const math::Float4& state = (*crustState)[i];
+            reliefs.push_back(state.x);
+            reliefSum += static_cast<double>(state.x);
+            reliefMax = std::max(reliefMax, state.x);
+
+            const int32_t orog = std::bit_cast<int32_t>(state.w);
+            if (orog == 1)
+            {
+                ++orogAndean;
+            }
+            else if (orog == 2)
+            {
+                ++orogHimalayan;
+            }
+            else if (orog == 3)
+            {
+                ++orogIslandArc;
+            }
+        }
+
+        const uint32_t contCells = static_cast<uint32_t>(reliefs.size());
+        float reliefMean = 0.0f;
+        float reliefP95 = 0.0f;
+        if (reliefs.empty())
+        {
+            reliefMax = 0.0f;
+        }
+        else
+        {
+            reliefMean = static_cast<float>(reliefSum / static_cast<double>(reliefs.size()));
+            const size_t p95Index = std::min(reliefs.size() - 1u, (reliefs.size() * 95u) / 100u);
+            std::nth_element(reliefs.begin(),
+                             reliefs.begin() + static_cast<std::ptrdiff_t>(p95Index),
+                             reliefs.end());
+            reliefP95 = reliefs[p95Index];
+        }
+
+        stats_file << std::format(
+            "{},{:.3f},{},{:.4f},{:.4f},{},{},{},{},{},{},{:.4f},{:.4f},{:.4f},{},{},{}\n",
+            step, time, frontPoints, meanSpeed, maxSpeed,
+            collisionFired, collSrc, collDst, collTerrane, collSuture,
+            contCells, reliefMean, reliefP95, reliefMax,
+            orogAndean, orogHimalayan, orogIslandArc);
+        stats_file.flush();
+        return stats_file.good();
+    }
+
     int RunBatchTimelapse(planet::PlanetSession& session,
                           const planet::PlanetShaders& shaders,
                           planet::GpuBuffers& buffers,
@@ -667,13 +820,50 @@ namespace
                           ImageFormat map_format,
                           const TimelapseOptions& options)
     {
+        std::optional<std::ofstream> statsFile;
+        if (!options.StatsPath.empty())
+        {
+            const std::filesystem::path parentDir = options.StatsPath.parent_path();
+            if (!parentDir.empty())
+            {
+                std::error_code dirError;
+                std::filesystem::create_directories(parentDir, dirError);
+                if (dirError)
+                {
+                    std::println(stderr, "PlanetGenTimelapse: failed to create stats directory {}: {}",
+                                 parentDir.string(), dirError.message());
+                    return 1;
+                }
+            }
+
+            statsFile.emplace(options.StatsPath);
+            if (!statsFile->is_open())
+            {
+                std::println(stderr, "PlanetGenTimelapse: failed to open stats file {}", options.StatsPath.string());
+                return 1;
+            }
+
+            *statsFile << "step,time_my,front_points,mean_speed_km_my,max_speed_km_my,collision_fired,coll_src,coll_dst,"
+                          "coll_terrane,coll_suture,cont_cells,relief_mean_km,relief_p95_km,relief_max_km,"
+                          "orog_andean,orog_himalayan,orog_island_arc\n";
+        }
+
         uint32_t frameIndex = 0u;
 
         for (uint32_t step = 0u; step < options.Steps; ++step)
         {
             const float time = reference.Time() + static_cast<float>(step + 1u) * options.Dt;
 
-            if (!UpdateTimeUniforms(buffers, shaders, time) ||
+            const bool captureThisStep = (step % options.Every == 0u);
+            const bool statsThisStep = statsFile.has_value() &&
+                (step == 0u || (step + 1u) % options.StatsEvery == 0u || (step + 1u) == options.Steps);
+
+            if (!UpdateTimeUniforms(buffers, shaders, time))
+            {
+                return 1;
+            }
+
+            if (captureThisStep &&
                 !UpdateRenderMapUniform(buffers, shaders, options.Width, options.Height, time, options.Mode))
             {
                 return 1;
@@ -681,11 +871,12 @@ namespace
 
             rhi::CommandBuffer commandBuffer = session.BeginCommands();
             step_runner.RecordLiveStep(commandBuffer);
-            planet::RecordComputeBarrier(commandBuffer);
-            step_runner.RecordDispatch2D(commandBuffer, "RenderMapCS", options.Width, options.Height);
 
-            if (step % options.Every == 0u)
+            if (captureThisStep)
             {
+                planet::RecordComputeBarrier(commandBuffer);
+                step_runner.RecordDispatch2D(commandBuffer, "RenderMapCS", options.Width, options.Height);
+
                 const capture::CaptureSource source
                 {
                     .Image = map_output,
@@ -710,12 +901,32 @@ namespace
                 }
             }
 
+            if (statsThisStep)
+            {
+                buffers.RecordReadbackCopies(commandBuffer);
+            }
+
             if (!session.SubmitAndWait(commandBuffer))
             {
                 return 1;
             }
 
-            capture.Collect(0u);
+            if (captureThisStep)
+            {
+                capture.Collect(0u);
+            }
+
+            if (statsThisStep && !WriteStatsRow(*statsFile, shaders, buffers, step + 1u, time))
+            {
+                std::println(stderr, "PlanetGenTimelapse: failed to read back or write stats for step {}", step + 1u);
+                return 1;
+            }
+
+            if ((step + 1u) % 10u == 0u || (step + 1u) == options.Steps)
+            {
+                std::println("step {:4d}/{} ({:6.1f} My) — queued {}, written {}",
+                             step + 1u, options.Steps, time, frameIndex, capture.WrittenCount());
+            }
         }
 
         capture.Flush();

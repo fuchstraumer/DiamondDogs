@@ -149,7 +149,7 @@ int main(int argc, char* argv[])
         {
             session->Device().GetQueueFamilyIndices().Graphics,
             2u,
-            32u,
+            64u,
         };
         rhi::GpuTimers timers(session->Device(), timerInfo);
 
