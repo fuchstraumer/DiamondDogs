@@ -68,6 +68,8 @@ include(cmake/DiamondDogsPch.cmake)
 
 # Lodestone: the shader cooker, the manifest client, and the Slang compiler target
 include(cmake/ConfigureLodestone.cmake)
+# One shader bundle per application: modules register their shaders, applications cook them together
+include(cmake/DiamondDogsShaderModules.cmake)
 
 # Lodestone builds Slang in its own tree, so no other project defines mimalloc-static in this build. If one does, two
 # allocators would override new and delete in one process.
