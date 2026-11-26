@@ -71,6 +71,7 @@ namespace planet_loom
     inline constexpr loom::ResourceKey<loom::Buffer> k_PlateContinentalCount{ "Planet.PlateContinentalCount" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_PlateCounters{ "Planet.PlateCounters" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_PlatePull{ "Planet.PlatePull" };
+    inline constexpr loom::ResourceKey<loom::Buffer> k_PlateIncubation{ "Planet.PlateIncubation" };
 
     // Declared scratch (headless) / persistent-in-live-mode buffers
     inline constexpr loom::ResourceKey<loom::Buffer> k_Owners{ "Planet.Owners" };
@@ -94,6 +95,8 @@ namespace planet_loom
     inline constexpr loom::ResourceKey<loom::Buffer> k_FrontPoints{ "Planet.FrontPoints" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_FrontTileCaps{ "Planet.FrontTileCaps" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_CellFronts{ "Planet.CellFronts" };
+    inline constexpr loom::ResourceKey<loom::Buffer> k_RiftJob{ "Planet.RiftJob" };
+    inline constexpr loom::ResourceKey<loom::Buffer> k_RiftDispatch{ "Planet.RiftDispatch" };
 
     // Output map image, sampler, and swapchain frame target
     inline constexpr loom::ResourceKey<loom::Image> k_MapOutput{ "Planet.MapOutput" };
@@ -110,9 +113,9 @@ namespace planet_loom
     inline constexpr loom::PassKey k_UiPass{ "Planet.Ui" };
 
     /** Returns all pass keys registered by RegisterPlanetGraph, for GPU timer hash lookup. */
-    [[nodiscard]] const std::array<loom::PassKey, 38>& AllPlanetPassKeys() noexcept;
+    [[nodiscard]] const std::array<loom::PassKey, 41>& AllPlanetPassKeys() noexcept;
 
-    /** Records vkCmdFillBuffer(0) on all 11 persistent counter buffers (and live display buffers when configured). */
+    /** Records vkCmdFillBuffer(0) on all 12 persistent counter buffers (and live display buffers when configured). */
     class ZeroCountersRecorder
     {
     public:
@@ -136,7 +139,7 @@ namespace planet_loom
                              const PlanetGraphConfig& config,
                              const PlanetGraphCallbacks& callbacks);
 
-    /** Triggers all 33 simulation passes (OwnersCS .. MovePlatesAndClearCountersCS) for a single OnTrigger live step. */
+    /** Triggers all 36 simulation passes (OwnersCS .. MovePlatesAndClearCountersCS) for a single OnTrigger live step. */
     void TriggerSimulationStep(loom::Graph& graph);
 
     /** Triggers zeroing of live display/counter buffers and initial OwnersCS evaluation for step-0 live view. */
@@ -162,6 +165,9 @@ namespace planet_loom
         GraphicsResource PlateCapCenters;
         GraphicsResource PlateCapSpread;
         GraphicsResource PreviousPlate;
+
+        // DecideRiftCS splits plates only when this is set, and only into free plate slots (AddRiftSlots)
+        bool RiftEnabled{ false };
 
         [[nodiscard]] bool SupplyAll(loom::Graph& graph,
                                      ResourceContext& resources,

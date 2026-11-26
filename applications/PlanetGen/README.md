@@ -375,3 +375,52 @@ aggregation would remove 18 of the 808 atomics.
   - Added `RenderMapCS` (`RWTexture2D<float4> MapOutput`) and `PlanetGenTimelapse` wired to `modules/FrameCapture` for headless PNG dumps.
 - **Next steps / TODOs:**
   - See [HANDOFF.md](HANDOFF.md) for detailed next steps: coastal shelf/slope elevation pass, GBuffer-style debug visualization modes + `AgentTools` / `FrameCapture` subregion inspection, WebGPU wave-size portability (`Offset*CS`, `LiveCells.slang`), and RenderGraph integration.
+
+## Rifting (2026-11-26)
+
+`Rift.slang` ports `tectonics.Rift` and `AddPlate` from PlanetLab. Before it, plates could only merge, so every long
+run ended as one supercontinent on one plate. Three passes run after `ApplyMantlePlumesCS` and before
+`MovePlatesAndClearCountersCS`:
+
+1. **`DecideRiftCS`**, one wave, one lane for each plate. Each plate keeps an incubation clock (`PlateIncubation`):
+   the mantle under continental crust warms at `dt × min(continental share / 0.1, 1)`, where 0.1 is the area of a
+   supercontinent cap (`SUPERCONTINENT_RADIUS` mantle depths). A plate from the start state gets a random head start of
+   up to 100 My, as `tectonics.Start` does. A plate can rift when it is warm (100 My), larger than 4 % of the sphere,
+   has continental crust, and passes a trial with probability `dt / 40 My`. At most one plate rifts in a step. The new
+   half needs a **free slot**: a plate with no live cells. Lane 0 picks two continental cells from the plate's live
+   list, and the cut line passes between them. The halves get opposite poles about `first × second` at 5 km/My, and
+   `PlateRift` gets the axis and time, so `MovePlatesAndClearCountersCS` applies the rift push (5 km/My for 20 My, then
+   20 km/My until 100 My).
+2. **`SplitPlateCS`** (indirect, zero groups when no plate rifts) moves every live cell on the far side of the warped
+   cut line to the free slot. The warp is the lab's sum of 8 plane waves on each axis, amplitude 0.075. The new plate
+   copies the old rotation, so a moved cell keeps its index.
+3. **`RefreshOwnersAfterRiftCS`** points the `Owners` and `PreviousPlate` entries of moved cells at the new plate, so
+   the map is right on the rift step itself.
+
+The host reserves free slots: `AddRiftSlots` appends up to 8 empty plates (`k_DefaultRiftSlots`, never past
+`k_MaxPlateSlots` = 32), and plates that lose all their crust free their slots too. `--rift=off` turns rifting off.
+`--verify` and `--self-verify` always turn it off, so the parity checks still compare like with like. The random
+choices hash the step time, so a run repeats exactly.
+
+Cost at order 7 (earth preset, RTX 4080): `DecideRiftCS` 3.1 µs, `SplitPlateCS` 1.7 µs and
+`RefreshOwnersAfterRiftCS` 2.1 µs (median, mostly the cost of a dispatch), on a sim of about 217 µs.
+
+Effect (earth preset, seed 42, order 7, dt 0.5): the largest landmass at 200 My falls from 20.9 % to 10.1 % of the
+sphere, and coast_D rises from 1.26 to 1.32. Land area still grows (26.6 % at 0 My, 37 % at 400 My), because arc
+accretion adds continent and nothing removes it.
+
+## The atlas layer (mode 7, 2026-11-26)
+
+Modes 0 to 6 are for agents and debugging: `planet_diagnostics.py` classifies their colours, so they keep them. Mode 7
+(`--mode=atlas`, `planet.set_layer atlas`, "7: Atlas" in the live UI) is a map for people:
+
+- **One continuous ramp** by elevation in km, from -6.5 (abyss, navy) through 0 (shelf cyan, then lowland green) to 8
+  (white). The same colour always means the same height, and nothing snaps between bands.
+- **Hillshade** with the cartographic convention: sun from the north-west, 45° high, relief exaggerated 25× on land
+  and 8× at sea.
+- **A coastline** at elevation 0, about one pixel wide, and faint **contours** every km.
+- **A graticule** every 30°, the equator a little stronger.
+- **A scale bar** at the bottom left: -6.5 km at the left end to 8 km at the right, a tick every km, and a tall white
+  tick at sea level.
+
+It shows the raw simulation (no ShapingParams noise), so what you see is what the crust arrays hold.

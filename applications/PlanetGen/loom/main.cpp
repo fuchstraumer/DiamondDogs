@@ -99,6 +99,7 @@ namespace
         bool Explain{ false };
         bool PlumesEnabled{ false };
         bool PlumesExplicit{ false };
+        bool Rift{ true };
         bool Live{ false };
         bool Paused{ false };
         int32_t ToolPort{ -1 };
@@ -141,7 +142,7 @@ namespace
 
     [[nodiscard]] bool ParseMode(std::string_view text, uint32_t& mode)
     {
-        if (ParseUint(text, mode) && mode <= 6u)
+        if (ParseUint(text, mode) && mode <= 7u)
         {
             return true;
         }
@@ -152,6 +153,7 @@ namespace
         if (text == "fronts")    { mode = 4u; return true; }
         if (text == "voronoi")   { mode = 5u; return true; }
         if (text == "plumes")    { mode = 6u; return true; }
+        if (text == "atlas")     { mode = 7u; return true; }
         return false;
     }
 
@@ -264,6 +266,14 @@ namespace
                 options.PlumesEnabled = false;
                 options.PlumesExplicit = true;
             }
+            else if (text == "--rift=on")
+            {
+                options.Rift = true;
+            }
+            else if (text == "--rift=off")
+            {
+                options.Rift = false;
+            }
             else if (text == "--live")
             {
                 options.Live = true;
@@ -333,14 +343,20 @@ namespace
         {
             std::println(stderr,
                          "usage: PlanetGenLoom (--reference=<dir> | --preset=earth|atoll) [--shaping=legacy|earth|atoll] "
-                         "[--seed=N] [--plates=4..32] [--order=4..9] [--steps=N] [--dt=F] "
-                         "[--width=N] [--height=N] [--mode=0..6|name] [--plumes=default|none] [--words] "
+                         "[--seed=N] [--plates=4..32] [--rift=on|off] [--order=4..9] [--steps=N] [--dt=F] "
+                         "[--width=N] [--height=N] [--mode=0..7|name] [--plumes=default|none] [--words] "
                          "[--verify] [--self-verify] [--timestamps] [--explain] [--capture-dir=<dir>] "
                          "[--live] [--paused] [--frames=N] [--tool-port=0..65535] [--validation=full|none]");
             return std::nullopt;
         }
 
         return options;
+    }
+
+    // the parity checks compare against runs with no rifting
+    [[nodiscard]] bool RiftWanted(const LoomOptions& options) noexcept
+    {
+        return options.Rift && !options.Verify && !options.SelfVerify;
     }
 
     [[nodiscard]] planet_loom::PlanetLiveOptions ToLiveOptions(const LoomOptions& options)
@@ -373,6 +389,7 @@ namespace
             .ToolPort = options.ToolPort,
             .FrameLimit = options.FrameLimit,
             .Explain = options.Explain,
+            .RiftEnabled = RiftWanted(options),
         };
     }
 
@@ -559,6 +576,8 @@ namespace
         const planet_loom::ShapingState shapingState = planet_loom::ShapingStateForPreset(
             options.Shaping.value_or(planet_loom::ShapingPreset::Legacy),
             static_cast<uint32_t>(options.Seed));
+
+        imports.RiftEnabled = RiftWanted(options);
 
         if (!imports.SupplyAll(*graph, resources, initial, options.Dt, options.Order,
                                options.Width, options.Height, options.Mode, useBytes, plumeState, shapingState))
@@ -1023,6 +1042,11 @@ int main(int argc, char* argv[])
                          planet_loom::PlanetPresetName(options->Preset));
             return 1;
         }
+    }
+
+    if (RiftWanted(*options))
+    {
+        planet_loom::AddRiftSlots(*initial, planet_loom::k_DefaultRiftSlots, storage);
     }
 
     if (options->Live)

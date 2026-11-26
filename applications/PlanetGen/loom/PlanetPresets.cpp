@@ -605,3 +605,30 @@ namespace planet_loom
         }
     }
 }
+
+namespace planet_loom
+{
+    void AddRiftSlots(planet::HealpixInitialState& state, uint32_t spare_slots, planet::CrustFlagStorage storage)
+    {
+        const uint32_t room = state.PlateCount < k_MaxPlateSlots ? k_MaxPlateSlots - state.PlateCount : 0u;
+        const uint32_t added = std::min(spare_slots, room);
+        const size_t pointCount = static_cast<size_t>(state.PointCount);
+        const size_t flagSize = storage == planet::CrustFlagStorage::Bytes ? 1u : 4u;
+        // the lowest plate speed, as MovePlatesAndClearCountersCS clamps it: 10 km/My on a 6370 km radius
+        constexpr float k_SlotRate = 10.0f / 6370.0f;
+
+        for (uint32_t slot = 0u; slot < added; ++slot)
+        {
+            state.Rotations.emplace_back(1.0f, 0.0f, 0.0f, 0.0f);
+            state.Rotations.emplace_back(0.0f, 1.0f, 0.0f, 0.0f);
+            state.Rotations.emplace_back(0.0f, 0.0f, 1.0f, 0.0f);
+            state.PoleRates.emplace_back(0.0f, 0.0f, 1.0f, k_SlotRate);
+            state.Caps.Centres.emplace_back(0.0f, 0.0f, 0.0f, planet::k_CapEmpty);
+            state.Caps.Spreads.push_back(0u);
+        }
+
+        state.CrustFlags.resize(state.CrustFlags.size() + static_cast<size_t>(added) * pointCount * flagSize, std::byte{ 0 });
+        state.CrustState.resize(state.CrustState.size() + static_cast<size_t>(added) * pointCount, math::Float4{ 0.0f, 0.0f, 0.0f, 0.0f });
+        state.PlateCount += added;
+    }
+}

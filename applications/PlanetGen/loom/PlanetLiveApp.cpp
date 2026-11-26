@@ -331,8 +331,9 @@ namespace planet_loom
                 "4: Fronts",
                 "5: Voronoi",
                 "6: Mantle Plumes",
+                "7: Atlas (shaded relief)",
             };
-            ImGui::Combo("Layer", &host->Sim.RenderMode, k_ModeLabels, 7);
+            ImGui::Combo("Layer", &host->Sim.RenderMode, k_ModeLabels, 8);
 
             ImGui::SliderFloat("Zoom", &host->Sim.ViewZoom, 0.5f, 8.0f, "%.2fx");
             ImGui::SameLine();
@@ -589,6 +590,8 @@ namespace planet_loom
 
         bool LiveSessionController::SupplyGraphResources(const PlanetLiveOptions& opts)
         {
+            Imports.RiftEnabled = opts.RiftEnabled;
+
             if (!Imports.SupplyAll(*Graph, Resources, Initial, opts.Dt, opts.Order,
                                    opts.Width, opts.Height, opts.Mode, UseBytes, Plumes, Shaping))
             {
@@ -850,7 +853,7 @@ namespace planet_loom
             }
 
             const int32_t savedMode = Sim.RenderMode;
-            const bool overrideMode = mode >= 0 && mode <= 6 && mode != savedMode;
+            const bool overrideMode = mode >= 0 && mode <= 7 && mode != savedMode;
 
             if (overrideMode)
             {

@@ -204,12 +204,27 @@ int main(int argc, char* argv[])
     const planet_gen_shaders::PlumeParams<
         planet_gen_shaders::CookProfile::Spirv,
         ::lodestone::LayoutRule::Std140> zeroPlumes{};
+    planet_gen_shaders::ShapingParams<
+        planet_gen_shaders::CookProfile::Spirv,
+        ::lodestone::LayoutRule::Std140> defaultShaping{};
+    defaultShaping.BaseUplift = 0.6f;
+    defaultShaping.ContinentErosion = 0.06f;
+    defaultShaping.AccretionRelief = 1.5f;
+    defaultShaping.AccretionStartRelief = 0.3f;
+    defaultShaping.ContinentalReachKm = 1800.0f;
+    defaultShaping.IslandArcReachKm = 450.0f;
+    defaultShaping.ArcDistanceKm = 250.0f;
+    defaultShaping.CollisionReachKm = 900.0f;
+    defaultShaping.CollisionUpliftScale = 0.65f;
+    defaultShaping.NoiseFrequency = 6.0f;
+    defaultShaping.NoiseSeed = 1337u;
 
     if (!planet::AddHealpixStepBuffers(buffers, **shaders, *reference, options->Order, (*shaders)->CrustFlags(),
                                        options->ToolPort >= 0, options->Dt, !options->StatsPath.empty()) ||
         buffers.AddUniformFrom(**shaders, "MovePlatesAndClearCountersCS", "MovePlatesConstants", movePlatesInit) != planet::PlanetGpuError::Success ||
         buffers.AddUniformFrom(**shaders, "RenderMapCS", "RenderMapConstants", renderMapInit) != planet::PlanetGpuError::Success ||
         buffers.AddUniform("PlumeConstants", std::as_bytes(std::span{ &zeroPlumes, 1u })) != planet::PlanetGpuError::Success ||
+        buffers.AddUniform("ShapingConstants", std::as_bytes(std::span{ &defaultShaping, 1u })) != planet::PlanetGpuError::Success ||
         buffers.AddStorageImage("MapOutput", options->Width, options->Height, mapFormat) != planet::PlanetGpuError::Success)
     {
         return 1;

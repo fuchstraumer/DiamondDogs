@@ -99,6 +99,15 @@ namespace planet_loom
         uint32_t plate_count,
         uint64_t seed,
         planet::CrustFlagStorage storage);
+
+    /** The most plates the step shaders take: several passes run one wave with one lane for each plate. */
+    inline constexpr uint32_t k_MaxPlateSlots = 32u;
+    /** Free plate slots that AddRiftSlots gives a world, when the 32-plate limit leaves room. */
+    inline constexpr uint32_t k_DefaultRiftSlots = 8u;
+
+    /** @brief Appends up to `spare_slots` empty plates (no crust, an empty cap, an identity rotation) to `state`, and
+     *  stops at k_MaxPlateSlots. DecideRiftCS puts the new half of a rifting plate into an empty plate. */
+    void AddRiftSlots(planet::HealpixInitialState& state, uint32_t spare_slots, planet::CrustFlagStorage storage);
 }
 
 #endif // !DIAMOND_DOGS_PLANET_LOOM_PRESETS_HPP

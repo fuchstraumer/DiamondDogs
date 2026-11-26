@@ -47,7 +47,7 @@ namespace planet_loom
         using MovePlatesParamsHost = shaders::MovePlatesParams<shaders::CookProfile::Spirv, ::lodestone::LayoutRule::Std140>;
         using RenderMapParamsHost = shaders::RenderMapParams<shaders::CookProfile::Spirv, ::lodestone::LayoutRule::Std140>;
 
-        inline constexpr std::array<loom::ResourceKey<loom::Buffer>, 11> k_PersistentCounters
+        inline constexpr std::array<loom::ResourceKey<loom::Buffer>, 12> k_PersistentCounters
         {
             k_PairVotes,
             k_LowVotes,
@@ -60,6 +60,7 @@ namespace planet_loom
             k_PlateContinentalCount,
             k_PlateCounters,
             k_PlatePull,
+            k_PlateIncubation,
         };
 
         inline constexpr loom::PassKey k_CountVotesPass{ "Planet.Pass.CountVotes" };
@@ -93,9 +94,12 @@ namespace planet_loom
         inline constexpr loom::PassKey k_SumPullPass{ "Planet.Pass.SumPull" };
         inline constexpr loom::PassKey k_FrontDistanceAndUpliftPass{ "Planet.Pass.FrontDistanceAndUplift" };
         inline constexpr loom::PassKey k_ApplyMantlePlumesPass{ "Planet.Pass.ApplyMantlePlumes" };
+        inline constexpr loom::PassKey k_DecideRiftPass{ "Planet.Pass.DecideRift" };
+        inline constexpr loom::PassKey k_SplitPlatePass{ "Planet.Pass.SplitPlate" };
+        inline constexpr loom::PassKey k_RefreshOwnersAfterRiftPass{ "Planet.Pass.RefreshOwnersAfterRift" };
         inline constexpr loom::PassKey k_MovePlatesAndClearCountersPass{ "Planet.Pass.MovePlatesAndClearCounters" };
 
-        inline constexpr std::array<loom::PassKey, 33> k_SimulationPassKeys
+        inline constexpr std::array<loom::PassKey, 36> k_SimulationPassKeys
         {
             k_OwnersPass,
             k_CountVotesPass,
@@ -129,10 +133,13 @@ namespace planet_loom
             k_SumPullPass,
             k_FrontDistanceAndUpliftPass,
             k_ApplyMantlePlumesPass,
+            k_DecideRiftPass,
+            k_SplitPlatePass,
+            k_RefreshOwnersAfterRiftPass,
             k_MovePlatesAndClearCountersPass,
         };
 
-        inline constexpr std::array<loom::PassKey, 38> k_AllPassKeys
+        inline constexpr std::array<loom::PassKey, 41> k_AllPassKeys
         {
             k_InitZeroCountersPass,
             k_OwnersPass,
@@ -167,6 +174,9 @@ namespace planet_loom
             k_SumPullPass,
             k_FrontDistanceAndUpliftPass,
             k_ApplyMantlePlumesPass,
+            k_DecideRiftPass,
+            k_SplitPlatePass,
+            k_RefreshOwnersAfterRiftPass,
             k_MovePlatesAndClearCountersPass,
             k_RenderMapPass,
             k_CaptureMapPass,
@@ -345,7 +355,7 @@ namespace planet_loom
         }
     }
 
-    const std::array<loom::PassKey, 38>& AllPlanetPassKeys() noexcept
+    const std::array<loom::PassKey, 41>& AllPlanetPassKeys() noexcept
     {
         return k_AllPassKeys;
     }
@@ -441,6 +451,7 @@ namespace planet_loom
         DeclareBuffer(graph, k_PlateContinentalCount, loom::ResourceLifetime::Persistent, planet::BufferExtent::Plates, size);
         DeclareBuffer(graph, k_PlateCounters, loom::ResourceLifetime::Persistent, planet::BufferExtent::PlatesTimes4, size);
         DeclareBuffer(graph, k_PlatePull, loom::ResourceLifetime::Persistent, planet::BufferExtent::PlatesTimes3, size);
+        DeclareBuffer(graph, k_PlateIncubation, loom::ResourceLifetime::Persistent, planet::BufferExtent::Plates, size);
 
         const bool interactive = config.LiveMode || config.InteractiveControl;
 
@@ -470,6 +481,8 @@ namespace planet_loom
         DeclareBuffer(graph, k_FrontPoints, loom::ResourceLifetime::Frame, planet::BufferExtent::PointsTimes4, size);
         DeclareBuffer(graph, k_FrontTileCaps, loom::ResourceLifetime::Frame, planet::BufferExtent::FrontTilesTimes4, size);
         DeclareBuffer(graph, k_CellFronts, displayLifetime, planet::BufferExtent::CellsTimes2, size);
+        DeclareBuffer(graph, k_RiftJob, loom::ResourceLifetime::Frame, planet::BufferExtent::CollideJob, size);
+        DeclareBuffer(graph, k_RiftDispatch, loom::ResourceLifetime::Frame, planet::BufferExtent::IndirectDispatch, size);
 
         // RenderMap output image
         graph.Declare(loom::ImageDeclaration
@@ -1002,7 +1015,57 @@ namespace planet_loom
                 pass.DispatchIndirect(k_LiveDispatch, 0);
             });
 
-            // 33. MovePlatesAndClearCountersCS
+            // 33. DecideRiftCS: one wave picks at most one plate to split, and a free slot for its new half
+            seq.AddDispatch(k_DecideRiftPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+            {
+                namespace ep = pl::DecideRiftCS;
+                pass.Shader(k_Module, "DecideRiftCS");
+                pass.Bind(ep::StepParams, k_StepParams);
+                pass.Bind(ep::MovePlatesConstants, k_MovePlatesConstants);
+                pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
+                pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
+                pass.Bind(ep::LiveCell, k_LiveCell, loom::AccessModifier::ReadOnly);
+                pass.Bind(ep::PlateCapCenters, k_PlateCapCenters);
+                pass.Bind(ep::PlateContinentalCount, k_PlateContinentalCount);
+                pass.Bind(ep::PlateCountersIn, k_PlateCounters);
+                pass.Bind(ep::PlateIncubation, k_PlateIncubation);
+                pass.Bind(ep::PlateLiveOffset, k_PlateLiveOffset, loom::AccessModifier::ReadOnly);
+                pass.Bind(ep::PlateRiftRW, k_PlateRift);
+                pass.Bind(ep::PoleRatesRW, k_PoleRates);
+                pass.Bind(ep::RiftDispatch, k_RiftDispatch, loom::AccessModifier::WriteOnly);
+                pass.Bind(ep::RiftJob, k_RiftJob, loom::AccessModifier::WriteOnly);
+                pass.Bind(ep::RotationsRW, k_Rotations);
+                pass.DispatchThreads(1, 1, 1);
+            });
+
+            // 34. SplitPlateCS: moves one side of the cut line to the new plate (zero groups when no plate rifts)
+            seq.AddDispatch(k_SplitPlatePass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+            {
+                namespace ep = pl::SplitPlateCS;
+                pass.Shader(k_Module, "SplitPlateCS");
+                pass.Bind(ep::StepParams, k_StepParams);
+                pass.Bind(ep::SomeVariants::CrustFlags, k_CrustFlags);
+                pass.Bind(ep::SomeVariants::CrustFlagsWords, k_CrustFlags);
+                pass.Bind(ep::CrustState, k_CrustState);
+                pass.Bind(ep::RiftJobIn, k_RiftJob);
+                pass.DispatchIndirect(k_RiftDispatch, 0);
+            });
+
+            // 35. RefreshOwnersAfterRiftCS: points that showed a moved cell show the new plate
+            seq.AddDispatch(k_RefreshOwnersAfterRiftPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+            {
+                namespace ep = pl::RefreshOwnersAfterRiftCS;
+                pass.Shader(k_Module, "RefreshOwnersAfterRiftCS");
+                pass.Bind(ep::StepParams, k_StepParams);
+                pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
+                pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
+                pass.Bind(ep::Owners, k_Owners);
+                pass.Bind(ep::PreviousPlate, k_PreviousPlate);
+                pass.Bind(ep::RiftJobIn, k_RiftJob);
+                pass.DispatchIndirect(k_RiftDispatch, 0);
+            });
+
+            // 36. MovePlatesAndClearCountersCS
             seq.AddDispatch(k_MovePlatesAndClearCountersPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::MovePlatesAndClearCountersCS;
@@ -1123,7 +1186,7 @@ namespace planet_loom
         const Pass3ParamsHost pass3Params{ .Time = initial.InitialTime };
         const UpliftParamsHost upliftParams{ .Time = initial.InitialTime };
         const ShapingParamsHost shapingParams = PackShapingUniform(shaping);
-        const MovePlatesParamsHost movePlatesParams{ .Time = initial.InitialTime };
+        const MovePlatesParamsHost movePlatesParams{ .Time = initial.InitialTime, .RiftEnabled = RiftEnabled ? 1u : 0u };
         const PlumeParamsHost plumeParams = PackPlumeUniform(plumes, initial.InitialTime);
         const RenderMapParamsHost renderMapParams
         {
@@ -1172,7 +1235,7 @@ namespace planet_loom
         const Pass3ParamsHost pass3Params{ .Time = time };
         const UpliftParamsHost upliftParams{ .Time = time };
         const ShapingParamsHost shapingParams = PackShapingUniform(shaping);
-        const MovePlatesParamsHost movePlatesParams{ .Time = time };
+        const MovePlatesParamsHost movePlatesParams{ .Time = time, .RiftEnabled = RiftEnabled ? 1u : 0u };
         const PlumeParamsHost plumeParams = PackPlumeUniform(plumes, time);
         const RenderMapParamsHost renderMapParams
         {

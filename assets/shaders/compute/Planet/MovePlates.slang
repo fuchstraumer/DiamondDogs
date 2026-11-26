@@ -9,6 +9,8 @@ __include Buffers;
 struct MovePlatesParams
 {
     float Time;
+    // DecideRiftCS (Rift.slang) splits plates only when this is not zero
+    uint RiftEnabled;
 };
 
 ConstantBuffer<MovePlatesParams> MovePlatesConstants;

@@ -13,6 +13,7 @@ __include HEALPix;
 //   4 = Fronts    (subduction red, collision yellow, nearest-front distance gradient)
 //   5 = Voronoi   (world & plate Fibonacci cell hash to inspect sampling / stair-stepping)
 //   6 = Plumes    (mantle hotspot conduits, thermal swell, and volcanic island/seamount track age)
+//   7 = Atlas     (for people: one continuous elevation ramp, hillshade, coastline, contours, scale bar)
 
 struct RenderMapParams
 {
@@ -36,6 +37,7 @@ static const uint RenderModeRelief    = 3u;
 static const uint RenderModeFronts    = 4u;
 static const uint RenderModeVoronoi   = 5u;
 static const uint RenderModePlumes    = 6u;
+static const uint RenderModeAtlas     = 7u;
 
 float3 HsvToRgb(float h, float s, float v)
 {
@@ -425,6 +427,180 @@ internal float3 SculptedAtollSurfaceColor(in float elevKm, in bool isContinental
     return color;
 }
 
+// ---- Atlas view (mode 7): a map for people. Modes 0 to 6 keep their colours, because the diagnostics scripts read them.
+// The ramp is continuous in elevation (km): no band snaps, and the same colour always means the same height.
+static const float AtlasLowestKm = -6.5f;
+static const float AtlasHighestKm = 8.0f;
+static const float AtlasLandExaggeration = 25.0f;
+static const float AtlasSeaExaggeration = 8.0f;
+static const float AtlasPlanetRadiusKm = 6370.0f;
+
+internal float3 AtlasRamp(in float elevKm)
+{
+    if (elevKm < 0.0f)
+    {
+        // deep navy at the abyss, to pale cyan on the shelf
+        const float3 abyss = float3(0.03f, 0.07f, 0.20f);
+        const float3 basin = float3(0.06f, 0.17f, 0.40f);
+        const float3 slope = float3(0.12f, 0.33f, 0.58f);
+        const float3 shelf = float3(0.36f, 0.64f, 0.78f);
+
+        if (elevKm < -4.5f)
+        {
+            return lerp(abyss, basin, saturate((elevKm - AtlasLowestKm) / 2.0f));
+        }
+
+        if (elevKm < -1.5f)
+        {
+            return lerp(basin, slope, (elevKm + 4.5f) / 3.0f);
+        }
+
+        return lerp(slope, shelf, (elevKm + 1.5f) / 1.5f);
+    }
+
+    // green lowland, tan upland, brown mountains, grey rock, white above about 6 km
+    const float3 lowland = float3(0.30f, 0.50f, 0.27f);
+    const float3 plain = float3(0.55f, 0.62f, 0.36f);
+    const float3 upland = float3(0.76f, 0.68f, 0.46f);
+    const float3 mountain = float3(0.60f, 0.45f, 0.33f);
+    const float3 rock = float3(0.66f, 0.63f, 0.61f);
+    const float3 snow = float3(0.97f, 0.97f, 0.98f);
+
+    if (elevKm < 0.6f)
+    {
+        return lerp(lowland, plain, elevKm / 0.6f);
+    }
+
+    if (elevKm < 1.8f)
+    {
+        return lerp(plain, upland, (elevKm - 0.6f) / 1.2f);
+    }
+
+    if (elevKm < 3.5f)
+    {
+        return lerp(upland, mountain, (elevKm - 1.8f) / 1.7f);
+    }
+
+    if (elevKm < 5.5f)
+    {
+        return lerp(mountain, rock, (elevKm - 3.5f) / 2.0f);
+    }
+
+    return lerp(rock, snow, saturate((elevKm - 5.5f) / 1.5f));
+}
+
+// coverage of a line at each multiple of `spacing`, for a field that changes by `perPixel` units in one pixel
+internal float AtlasLineCoverage(in float value, in float spacing, in float perPixel, in float halfWidthPixels)
+{
+    const float offset = abs(frac(value / spacing + 0.5f) - 0.5f) * spacing;
+    return 1.0f - smoothstep(halfWidthPixels, halfWidthPixels + 1.0f, offset / max(perPixel, 1.0e-6f));
+}
+
+// the scale bar: AtlasLowestKm .. AtlasHighestKm left to right, a tick every km, a tall white tick at sea level
+internal bool AtlasScaleBar(in uint2 pixel, out float3 rgb)
+{
+    rgb = float3(0.0f, 0.0f, 0.0f);
+    const uint barWidth = min(320u, RenderMapConstants.Width / 3u);
+    const uint left = 12u;
+    const uint bottom = RenderMapConstants.Height - 12u;
+    const uint barTop = bottom - 10u;
+    const uint tickTop = barTop - 6u;
+
+    if (barWidth < 64u || pixel.x + 2u < left || pixel.x >= left + barWidth + 2u || pixel.y + 2u < tickTop || pixel.y >= bottom + 2u)
+    {
+        return false;
+    }
+
+    // a dark frame around the bar and its ticks
+    rgb = float3(0.06f, 0.07f, 0.08f);
+
+    if (pixel.x < left || pixel.x >= left + barWidth || pixel.y < tickTop || pixel.y >= bottom)
+    {
+        return true;
+    }
+
+    const float kmPerPixel = (AtlasHighestKm - AtlasLowestKm) / float(barWidth);
+    const float elevKm = AtlasLowestKm + (float(pixel.x - left) + 0.5f) * kmPerPixel;
+
+    if (pixel.y >= barTop)
+    {
+        rgb = AtlasRamp(elevKm);
+        return true;
+    }
+
+    const float nearestKm = round(elevKm);
+    const bool onTick = abs(elevKm - nearestKm) < 0.5f * kmPerPixel;
+
+    if (onTick && nearestKm == 0.0f)
+    {
+        rgb = float3(1.0f, 1.0f, 1.0f);
+    }
+    else if (onTick && pixel.y >= tickTop + 3u)
+    {
+        rgb = float3(0.75f, 0.75f, 0.75f);
+    }
+
+    return true;
+}
+
+internal float3 RenderAtlas(in uint2 pixel, in float3 worldPoint, in float lat, in float lon)
+{
+    float3 scaleRgb;
+
+    if (AtlasScaleBar(pixel, scaleRgb))
+    {
+        return scaleRgb;
+    }
+
+    float dEdU, dEdV;
+    float3 tU, tV;
+    const float4 s = SampleBilinearElevationAtPoint(worldPoint, dEdU, dEdV, tU, tV);
+    const float elevKm = s.x;
+    const bool isLand = elevKm >= 0.0f;
+
+    // the gradient in km for each radian of arc, in the world frame
+    float3 gradWorld = float3(0.0f, 0.0f, 0.0f);
+    const float3 perpA = cross(worldPoint, tU);
+    const float3 perpB = cross(worldPoint, tV);
+    const float det = dot(tU, perpB);
+
+    if (abs(det) > 1e-12f)
+    {
+        gradWorld = (dEdU * perpB - dEdV * perpA) / det;
+    }
+
+    // hillshade: the cartographic convention, sun from the north-west, 45 degrees high
+    const float3 refUp = (abs(worldPoint.z) < 0.999f) ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
+    const float3 east = normalize(cross(refUp, worldPoint));
+    const float3 north = cross(worldPoint, east);
+    const float3 sun = normalize(-0.5f * east + 0.5f * north + 0.7071f * worldPoint);
+    const float exaggeration = isLand ? AtlasLandExaggeration : AtlasSeaExaggeration;
+    const float3 normal = normalize(worldPoint - exaggeration * gradWorld / AtlasPlanetRadiusKm);
+    const float shade = clamp(dot(normal, sun) / dot(worldPoint, sun), 0.55f, 1.3f);
+    float3 rgb = AtlasRamp(elevKm) * lerp(1.0f, shade, isLand ? 1.0f : 0.6f);
+
+    // the vertical size of one pixel, in radians of arc
+    const float pixelArc = Pi / float(RenderMapConstants.Height);
+    const float kmPerPixel = length(gradWorld) * pixelArc;
+
+    // faint contours every km, then the coastline over them
+    const float contour = AtlasLineCoverage(elevKm, 1.0f, kmPerPixel, 0.35f) * (abs(elevKm) > 0.5f ? 1.0f : 0.0f);
+    rgb = lerp(rgb, rgb * 0.72f, contour * (isLand ? 0.55f : 0.35f));
+    const float coast = 1.0f - smoothstep(0.6f, 1.6f, abs(elevKm) / max(kmPerPixel, 1.0e-6f));
+    rgb = lerp(rgb, float3(0.08f, 0.09f, 0.10f), coast * 0.85f);
+
+    // a faint graticule every 30 degrees, the equator a little stronger
+    const float degreesPerPixel = 180.0f / float(RenderMapConstants.Height);
+    const float latDeg = lat * (180.0f / Pi);
+    const float lonDeg = lon * (180.0f / Pi);
+    const float latLine = AtlasLineCoverage(latDeg, 30.0f, degreesPerPixel, 0.25f);
+    const float lonLine = AtlasLineCoverage(lonDeg, 30.0f, degreesPerPixel, 0.25f);
+    const float equator = AtlasLineCoverage(latDeg, 180.0f, degreesPerPixel, 0.25f);
+    rgb = lerp(rgb, float3(1.0f, 1.0f, 1.0f), max(max(latLine, lonLine) * 0.12f, equator * 0.25f));
+
+    return rgb;
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
@@ -445,6 +621,12 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
     const float3 worldPoint = float3(cosLat * cosLon, cosLat * sinLon, sinLat);
 
     const uint mode = RenderMapConstants.Mode;
+    if (mode == RenderModeAtlas)
+    {
+        MapOutput[threadId.xy] = float4(RenderAtlas(threadId.xy, worldPoint, lat, lon), 1.0f);
+        return;
+    }
+
     if (mode == RenderModeElevation)
     {
         const bool shapingNoiseActive =
