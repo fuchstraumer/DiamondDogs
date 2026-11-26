@@ -398,6 +398,7 @@ namespace planet
 
         if (!AddParamsUniform(buffers, **shaders, "UpliftCS", size) ||
             !AddTimeUniform(buffers, **shaders, "UpliftCS", "UpliftConstants", context.Reference.Time()) ||
+            !AddDefaultShapingUniform(buffers) ||
             !AddCellFrontsBuffer(buffers, context.Reference, "p4_cell_front_point", "p4_cell_distance", false) ||
             !AddFrontDataBuffer(buffers, context.Reference, "front_strength", "", "", "", false) ||
             !AddCrustFlagsBuffer(buffers, context.Reference, storage, "p3_ref_alive", "p3_ref_continental", true) ||

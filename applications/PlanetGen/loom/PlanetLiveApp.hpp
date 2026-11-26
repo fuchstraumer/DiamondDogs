@@ -2,7 +2,7 @@
 #ifndef DIAMOND_DOGS_PLANET_LOOM_LIVE_APP_HPP
 #define DIAMOND_DOGS_PLANET_LOOM_LIVE_APP_HPP
 
-#include "ReferenceSet.hpp"
+#include "PlanetPresets.hpp"
 #include "StepState.hpp"
 #include <cstdint>
 #include <filesystem>
@@ -14,6 +14,9 @@ namespace planet_loom
     struct PlanetLiveOptions
     {
         std::filesystem::path CaptureDir;
+        PlanetPreset Preset{ PlanetPreset::Reference };
+        ShapingPreset Shaping{ ShapingPreset::Legacy };
+        uint64_t Seed{ 42ull };
         uint32_t Order{ 7u };
         float Dt{ 0.5f };
         uint32_t Width{ 1024u };
@@ -35,13 +38,11 @@ namespace planet_loom
     /** Runs windowed interactive PlanetGenLoom (swapchain present, ImGui HUD, and optional AgentTools server). */
     [[nodiscard]] int RunLivePlanetApp(std::span<char* const> arguments,
                                        const PlanetLiveOptions& options,
-                                       const planet::ReferenceSet& reference,
                                        const planet::HealpixInitialState& initial);
 
     /** Runs headless PlanetGenLoom AgentTools server (no window; supports step, reset, plumes, and capture). */
     [[nodiscard]] int RunHeadlessToolApp(std::span<char* const> arguments,
                                            const PlanetLiveOptions& options,
-                                           const planet::ReferenceSet& reference,
                                            const planet::HealpixInitialState& initial);
 }
 

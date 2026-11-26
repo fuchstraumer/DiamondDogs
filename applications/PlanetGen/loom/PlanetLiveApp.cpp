@@ -112,6 +112,7 @@ namespace planet_loom
             void handleViewportMouse();
             void drawControlWindow();
             void drawPlumesSection();
+            void drawShapingSection();
             void drawTimingsSection();
 
             ImGuiModule* imgui{ nullptr };
@@ -139,7 +140,6 @@ namespace planet_loom
         public:
             LiveSessionController(ResourceContext& resources,
                                   const rhi::Device& device,
-                                  const planet::ReferenceSet& reference,
                                   const planet::HealpixInitialState& initial,
                                   capture::FrameCapture& frame_capture,
                                   PlatformWindowSystem* window_platform,
@@ -147,14 +147,16 @@ namespace planet_loom
                                   const PlanetLiveOptions& opts)
                 : Resources{ resources }
                 , Device{ device }
-                , Reference{ reference }
                 , Initial{ initial }
                 , Capture{ frame_capture }
                 , Platform{ window_platform }
                 , ActiveSwapchain{ swapchain }
+                , Preset{ opts.Preset }
+                , Seed{ opts.Seed }
                 , UseBytes{ !opts.Words }
                 , LiveWindowed{ window_platform != nullptr }
-                , Plumes{ opts.PlumesEnabled ? DefaultPresetPlumes(initial.InitialTime) : EmptyPlumeSystem() }
+                , Plumes{ opts.PlumesEnabled ? PresetPlumes(opts.Preset, initial.InitialTime, opts.Seed) : EmptyPlumeSystem() }
+                , Shaping{ ShapingStateForPreset(opts.Shaping, static_cast<uint32_t>(opts.Seed)) }
                 , Sim{
                     .Paused = opts.StartPaused,
                     .TimeStepMy = opts.Dt,
@@ -182,6 +184,8 @@ namespace planet_loom
             [[nodiscard]] bool TickOnce(bool step_simulation, bool& out_submitted);
             void OnSimChanged(std::string_view field_path);
             void OnPlumesChanged();
+            void OnShapingChanged(std::string_view field_path);
+            [[nodiscard]] std::optional<std::string> ApplyShapingPreset(ShapingPreset preset);
             [[nodiscard]] std::optional<std::string> Step(int32_t steps, float dt);
             [[nodiscard]] std::optional<std::string> Reset();
             [[nodiscard]] CaptureOutput CaptureArea(int32_t x,
@@ -197,14 +201,16 @@ namespace planet_loom
 
             ResourceContext& Resources;
             const rhi::Device& Device;
-            const planet::ReferenceSet& Reference;
             const planet::HealpixInitialState& Initial;
             capture::FrameCapture& Capture;
             PlatformWindowSystem* Platform{ nullptr };
             const Swapchain* ActiveSwapchain{ nullptr };
+            PlanetPreset Preset{ PlanetPreset::Reference };
+            uint64_t Seed{ 42ull };
             bool UseBytes{ true };
             bool LiveWindowed{ false };
             PlumeSystemState Plumes;
+            ShapingState Shaping;
             PlanetSimState Sim;
             PlanetGraphImports Imports;
             loom::Graph* Graph{ nullptr };
@@ -349,6 +355,7 @@ namespace planet_loom
             }
 
             drawPlumesSection();
+            drawShapingSection();
             drawTimingsSection();
 
             ImGui::End();
@@ -375,9 +382,9 @@ namespace planet_loom
                 SyncPlumesFromSim(host->Plumes, host->Sim);
             }
 
-            if (ImGui::Button("Preset 4"))
+            if (ImGui::Button("Preset Plumes"))
             {
-                host->Plumes = DefaultPresetPlumes(host->Initial.InitialTime);
+                host->Plumes = PresetPlumes(host->Preset, host->Initial.InitialTime, host->Seed);
                 SyncSimFromPlumes(host->Sim, host->Plumes);
             }
             ImGui::SameLine();
@@ -438,6 +445,44 @@ namespace planet_loom
                 host->Plumes.Plumes.erase(host->Plumes.Plumes.begin() + removeIndex);
                 SyncSimFromPlumes(host->Sim, host->Plumes);
             }
+        }
+
+        void PlanetUiOverlay::drawShapingSection()
+        {
+            if (!ImGui::CollapsingHeader("Art Direction & Shaping"))
+            {
+                return;
+            }
+
+            if (ImGui::Button("Legacy"))
+            {
+                host->Shaping = LegacyShapingState();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Earth"))
+            {
+                host->Shaping = EarthShapingState(static_cast<uint32_t>(host->Seed));
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Atoll World"))
+            {
+                host->Shaping = AtollShapingState(static_cast<uint32_t>(host->Seed));
+            }
+
+            ImGui::Checkbox("Cortial Slab Dip", &host->Shaping.SlabDipEnabled);
+            ImGui::Checkbox("Spherical Coastal Noise", &host->Shaping.CoastalNoiseEnabled);
+            ImGui::Checkbox("Atoll Lagoons & Palette", &host->Shaping.AtollShapingEnabled);
+
+            ImGui::SliderFloat("Base Uplift", &host->Shaping.BaseUplift, 0.1f, 2.0f, "%.2f");
+            ImGui::SliderFloat("Accretion Thresh", &host->Shaping.AccretionRelief, 0.3f, 3.0f, "%.2f");
+            ImGui::SliderFloat("Slab Age Weight", &host->Shaping.SlabDipAgeWeight, 0.0f, 2.0f, "%.2f");
+            ImGui::SliderFloat("Slab Speed Weight", &host->Shaping.SlabDipSpeedWeight, 0.0f, 2.0f, "%.2f");
+            ImGui::SliderFloat("Trench Depth (km)", &host->Shaping.TrenchDepthKm, 0.0f, 3.5f, "%.2f");
+            ImGui::SliderFloat("Coastal Warp", &host->Shaping.CoastalWarpAmplitude, 0.0f, 0.06f, "%.3f");
+            ImGui::SliderFloat("Coastal Detail (km)", &host->Shaping.CoastalDetailKm, 0.0f, 2.0f, "%.2f");
+            ImGui::SliderFloat("Atoll Lagoon", &host->Shaping.AtollLagoonStrength, 0.0f, 2.0f, "%.2f");
+            ImGui::SliderFloat("Noise Freq", &host->Shaping.NoiseFrequency, 1.0f, 20.0f, "%.1f");
+            ImGui::SliderFloat("Atoll Sea Bias", &host->Shaping.AtollLandBias, -1.5f, 1.5f, "%.2f");
         }
 
         void PlanetUiOverlay::drawTimingsSection()
@@ -545,7 +590,7 @@ namespace planet_loom
         bool LiveSessionController::SupplyGraphResources(const PlanetLiveOptions& opts)
         {
             if (!Imports.SupplyAll(*Graph, Resources, Initial, opts.Dt, opts.Order,
-                                   opts.Width, opts.Height, opts.Mode, UseBytes, Plumes))
+                                   opts.Width, opts.Height, opts.Mode, UseBytes, Plumes, Shaping))
             {
                 return false;
             }
@@ -574,7 +619,8 @@ namespace planet_loom
                                         static_cast<uint32_t>(Sim.Width),
                                         static_cast<uint32_t>(Sim.Height),
                                         static_cast<uint32_t>(Sim.RenderMode),
-                                        Plumes))
+                                        Plumes,
+                                        Shaping))
             {
                 return false;
             }
@@ -603,7 +649,7 @@ namespace planet_loom
             if (step_simulation)
             {
                 ++Sim.Step;
-                Sim.Time = Reference.Time() + static_cast<float>(Sim.Step) * Sim.TimeStepMy;
+                Sim.Time = Initial.InitialTime + static_cast<float>(Sim.Step) * Sim.TimeStepMy;
                 TriggerSimulationStep(*Graph);
             }
 
@@ -693,6 +739,27 @@ namespace planet_loom
             SyncSimFromPlumes(Sim, Plumes);
         }
 
+        void LiveSessionController::OnShapingChanged(std::string_view field_path)
+        {
+            static_cast<void>(field_path);
+            if (!LiveWindowed)
+            {
+                bool submitted = false;
+                static_cast<void>(TickOnce(false, submitted));
+                if (submitted)
+                {
+                    static_cast<void>(Graph->WaitForFrameSlot(std::chrono::nanoseconds(k_TimeoutNs)));
+                }
+            }
+        }
+
+        std::optional<std::string> LiveSessionController::ApplyShapingPreset(ShapingPreset preset)
+        {
+            Shaping = ShapingStateForPreset(preset, static_cast<uint32_t>(Seed));
+            OnShapingChanged("");
+            return std::nullopt;
+        }
+
         std::optional<std::string> LiveSessionController::Step(int32_t steps, float dt)
         {
             if (steps < 0)
@@ -753,7 +820,7 @@ namespace planet_loom
                                               static_cast<uint32_t>(Sim.Width),
                                               static_cast<uint32_t>(Sim.Height),
                                               static_cast<uint32_t>(Sim.RenderMode),
-                                              UseBytes, Plumes))
+                                              UseBytes, Plumes, Shaping))
             {
                 return std::string{ "failed to reset GPU simulation buffers" };
             }
@@ -903,6 +970,7 @@ namespace planet_loom
             {
                 .Sim = controller.Sim,
                 .Plumes = controller.Plumes,
+                .Shaping = controller.Shaping,
                 .OnSimChanged = [&controller](std::string_view field_path)
                 {
                     controller.OnSimChanged(field_path);
@@ -910,6 +978,14 @@ namespace planet_loom
                 .OnPlumesChanged = [&controller]()
                 {
                     controller.OnPlumesChanged();
+                },
+                .OnShapingChanged = [&controller](std::string_view field_path)
+                {
+                    controller.OnShapingChanged(field_path);
+                },
+                .ApplyShapingPreset = [&controller](ShapingPreset preset)
+                {
+                    return controller.ApplyShapingPreset(preset);
                 },
                 .Step = [&controller](int32_t steps, float dt)
                 {
@@ -1001,7 +1077,6 @@ namespace planet_loom
 
     int RunLivePlanetApp(std::span<char* const> arguments,
                          const PlanetLiveOptions& options,
-                         const planet::ReferenceSet& reference,
                          const planet::HealpixInitialState& initial)
     {
         const PlatformWindowCreateInfo windowInfo
@@ -1057,7 +1132,7 @@ namespace planet_loom
             ? std::filesystem::path{ "build/planet_captures" }
             : options.CaptureDir;
         capture::FrameCapture frameCapture{ resources, 1u, captureDir, 1u };
-        LiveSessionController controller{ resources, device, reference, initial, frameCapture, &platform, &swapchain, options };
+        LiveSessionController controller{ resources, device, initial, frameCapture, &platform, &swapchain, options };
         ui.AttachController(&controller);
 
         ZeroCountersRecorder zeroRecorder;
@@ -1254,7 +1329,6 @@ namespace planet_loom
 
     int RunHeadlessToolApp(std::span<char* const> arguments,
                            const PlanetLiveOptions& options,
-                           const planet::ReferenceSet& reference,
                            const planet::HealpixInitialState& initial)
     {
         const bootstrap::DeviceConfig deviceConfig
@@ -1279,7 +1353,7 @@ namespace planet_loom
             ? std::filesystem::path{ "build/planet_captures" }
             : options.CaptureDir;
         capture::FrameCapture frameCapture{ resources, 1u, captureDir, 1u };
-        LiveSessionController controller{ resources, device, reference, initial, frameCapture, nullptr, nullptr, options };
+        LiveSessionController controller{ resources, device, initial, frameCapture, nullptr, nullptr, options };
 
         ZeroCountersRecorder zeroRecorder;
         const PlanetGraphConfig graphConfig

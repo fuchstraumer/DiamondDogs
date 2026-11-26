@@ -79,6 +79,12 @@ namespace planet
      *  mean of the live lattice points, the spread the largest 1 - dot(point, centre), rounded up to a float. */
     [[nodiscard]] PlateCaps ComputePlateCaps(std::span<const uint8_t> alive, int32_t point_count, int32_t plate_count);
 
+    /** @brief Computes tight spherical caps per plate from alive flags indexed on nested HEALPix `order`. */
+    [[nodiscard]] PlateCaps ComputeHealpixPlateCaps(std::span<const uint8_t> alive, uint32_t order, int32_t plate_count);
+
+    /** @brief Binds the default legacy `ShapingConstants` uniform buffer matching PlanetLab. */
+    [[nodiscard]] bool AddDefaultShapingUniform(GpuBuffers& buffers);
+
     [[nodiscard]] size_t FlagElementSize(CrustFlagStorage storage) noexcept;
     [[nodiscard]] size_t ReferenceElementSize(ReferenceArrayForm form, CrustFlagStorage storage) noexcept;
     [[nodiscard]] std::optional<std::vector<std::byte>> ReadReferenceBytes(const ReferenceSet& reference,

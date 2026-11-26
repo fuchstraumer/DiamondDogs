@@ -163,6 +163,7 @@ internal static const float PlateCapValid = 1.0f;
 internal static const float PlateCapEmpty = 2.0f;
 internal static const uint CrustFlagAlive = 1u << 0u;
 internal static const uint CrustFlagContinental = 1u << 1u;
+internal static const int OrogenyVolcanic = 4;
 
 internal struct CrustFlagBits
 {

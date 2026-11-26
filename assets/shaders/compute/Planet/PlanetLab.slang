@@ -1,6 +1,10 @@
 module PlanetLab;
 import LodestoneAttributes;
 import LodestoneShims;
+import NoiseBases;
+import NoiseFractal;
+import NoiseRules;
+import NoiseCellular;
 
 __include Buffers;
 __include Fibonacci;

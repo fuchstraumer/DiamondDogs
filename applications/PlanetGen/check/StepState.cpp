@@ -6,6 +6,7 @@
 #include "PlanetShaders.hpp"
 #include "PlanetStep.hpp"
 #include "ReferenceSet.hpp"
+#include "ShaderLibrary.host.hpp"
 #include "math/MathStorage.hpp"
 #include <algorithm>
 #include <array>
@@ -178,6 +179,52 @@ namespace planet
         });
     }
 
+    PlateCaps ComputeHealpixPlateCaps(std::span<const uint8_t> alive, uint32_t order, int32_t plate_count)
+    {
+        const int32_t pointCount = static_cast<int32_t>(HealpixPixelCount(order));
+        return ComputePlateCapsFor(alive, pointCount, plate_count, [order](int32_t cell) noexcept
+        {
+            const std::array<double, 3> vec = HealpixPixToVec(static_cast<uint32_t>(cell), order);
+            return Double3{ vec[0], vec[1], vec[2] };
+        });
+    }
+
+    bool AddDefaultShapingUniform(GpuBuffers& buffers)
+    {
+        using ShapingParamsHost = planet_gen_shaders::ShapingParams<
+            planet_gen_shaders::CookProfile::Spirv,
+            ::lodestone::LayoutRule::Std140>;
+
+        ShapingParamsHost shaping{};
+        shaping.BaseUplift = 0.6f;
+        shaping.ContinentErosion = 0.06f;
+        shaping.AccretionRelief = 1.5f;
+        shaping.AccretionStartRelief = 0.3f;
+        shaping.ContinentalReachKm = 1800.0f;
+        shaping.IslandArcReachKm = 450.0f;
+        shaping.ArcDistanceKm = 250.0f;
+        shaping.CollisionReachKm = 900.0f;
+        shaping.CollisionUpliftScale = 0.65f;
+        shaping.SlabDipAgeWeight = 0.0f;
+        shaping.SlabDipSpeedWeight = 0.0f;
+        shaping.TrenchDepthKm = 0.0f;
+        shaping.CoastalWarpAmplitude = 0.0f;
+        shaping.CoastalDetailKm = 0.0f;
+        shaping.AtollLagoonStrength = 0.0f;
+        shaping.NoiseFrequency = 6.0f;
+        shaping.Flags = 0u;
+        shaping.NoiseSeed = 1337u;
+        shaping.AtollLandBias = 0.0f;
+        shaping.Pad0 = 0.0f;
+
+        for (uint32_t i = 0u; i < 4u; ++i)
+        {
+            shaping.ProfileLut[i] = math::Float4{ 0.0f, 0.0f, 0.0f, 0.0f };
+        }
+
+        return buffers.AddUniform("ShapingConstants", std::as_bytes(std::span{ &shaping, 1u })) == PlanetGpuError::Success;
+    }
+
     size_t FlagElementSize(CrustFlagStorage storage) noexcept
     {
         return storage == CrustFlagStorage::Bytes ? sizeof(uint8_t) : sizeof(uint32_t);
@@ -348,7 +395,8 @@ namespace planet
         // the uniform buffers: the sizes, and the time of the step for passes 3 and 5
         if (!AddParamsUniform(buffers, shaders, "OwnersCS", size, time_step_my) ||
             !AddTimeUniform(buffers, shaders, "FillGapsCS", "Pass3Constants", reference.Time()) ||
-            !AddTimeUniform(buffers, shaders, "FrontDistanceAndUpliftCS", "UpliftConstants", reference.Time()))
+            !AddTimeUniform(buffers, shaders, "FrontDistanceAndUpliftCS", "UpliftConstants", reference.Time()) ||
+            !AddDefaultShapingUniform(buffers))
         {
             return false;
         }
@@ -532,7 +580,8 @@ namespace planet
 
         if (!AddParamsUniform(buffers, shaders, "OwnersCS", size, time_step_my, order) ||
             !AddTimeUniform(buffers, shaders, "FillGapsCS", "Pass3Constants", initial->InitialTime) ||
-            !AddTimeUniform(buffers, shaders, "FrontDistanceAndUpliftCS", "UpliftConstants", initial->InitialTime))
+            !AddTimeUniform(buffers, shaders, "FrontDistanceAndUpliftCS", "UpliftConstants", initial->InitialTime) ||
+            !AddDefaultShapingUniform(buffers))
         {
             return false;
         }

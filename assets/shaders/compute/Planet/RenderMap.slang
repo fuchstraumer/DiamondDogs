@@ -75,24 +75,28 @@ float3 BathymetryTopographyColor(float elevKm, bool isContinental, bool isSubduc
 
     if (!isContinental && reliefKm > 0.45f)
     {
-        const float3 seamount = float3(0.18f, 0.56f, 0.76f);
+        const float3 deepOcean = float3(0.04f, 0.12f, 0.32f);
+        const float3 seamount = float3(0.14f, 0.42f, 0.64f);
         const float3 atollReef = float3(0.24f, 0.86f, 0.80f);
-        const float3 basalt = float3(0.26f, 0.30f, 0.24f);
-        const float3 volcanicPeak = float3(0.38f, 0.52f, 0.28f);
+        const float3 islandGreen = float3(0.18f, 0.44f, 0.22f);
+        const float3 basaltPeak = float3(0.40f, 0.36f, 0.28f);
 
-        if (elevKm < -0.45f)
+        if (elevKm < -0.55f)
         {
-            const float3 baseOcean = float3(0.05f, 0.16f, 0.38f);
-            color = lerp(baseOcean, seamount, saturate((reliefKm - 0.45f) / 1.8f));
+            color = lerp(deepOcean, seamount, saturate((reliefKm - 0.45f) / 2.2f));
         }
-        else if (elevKm <= 0.35f)
+        else if (elevKm <= 0.05f)
         {
-            const float lagoon = saturate(1.0f - abs(elevKm + 0.05f) / 0.40f);
-            color = lerp(basalt, atollReef, max(lagoon, saturate((reliefKm - 1.0f) * 0.5f)));
+            const float reefMask = saturate(1.0f - abs(elevKm + 0.20f) / 0.35f);
+            color = lerp(seamount, atollReef, max(reefMask, saturate((elevKm + 0.55f) * 1.4f)));
+        }
+        else if (elevKm <= 1.6f)
+        {
+            color = lerp(islandGreen, basaltPeak, saturate((elevKm - 0.05f) / 1.55f));
         }
         else
         {
-            color = lerp(basalt, volcanicPeak, saturate((elevKm - 0.35f) / 1.5f));
+            color = lerp(basaltPeak, float3(0.56f, 0.48f, 0.38f), saturate((elevKm - 1.6f) / 2.2f));
         }
     }
     else if (!isContinental && elevKm < 0.0f)
@@ -186,6 +190,241 @@ float4 SampleElevationCorner(int pt)
     return float4(baseElev + reliefKm + swellKm, isContinental ? 1.0f : 0.0f, isSubduction ? 1.0f : 0.0f, reliefKm);
 }
 
+internal float4 SampleBilinearElevationAtPoint(in float3 dir, out float dEdU, out float dEdV, out float3 tU, out float3 tV)
+{
+    uint baseFace = 0u;
+    float2 faceUV = float2(0.0f, 0.0f);
+    HealpixVecToFaceUV(dir, StepParams.HealpixOrder, baseFace, faceUV);
+
+    const float2 shifted = faceUV - 0.5f;
+    const int2 baseXY = int2(floor(shifted));
+    const float2 fracUV = shifted - float2(baseXY);
+
+    const int p00 = HealpixSampleIndex(baseFace, baseXY.x, baseXY.y, StepParams.HealpixOrder);
+    const int p10 = HealpixSampleIndex(baseFace, baseXY.x + 1, baseXY.y, StepParams.HealpixOrder);
+    const int p01 = HealpixSampleIndex(baseFace, baseXY.x, baseXY.y + 1, StepParams.HealpixOrder);
+    const int p11 = HealpixSampleIndex(baseFace, baseXY.x + 1, baseXY.y + 1, StepParams.HealpixOrder);
+
+    float4 s00 = (p00 >= 0) ? SampleElevationCorner(p00) : float4(0.0f);
+    float4 s10 = (p10 >= 0) ? SampleElevationCorner(p10) : float4(0.0f);
+    float4 s01 = (p01 >= 0) ? SampleElevationCorner(p01) : float4(0.0f);
+    float4 s11 = (p11 >= 0) ? SampleElevationCorner(p11) : float4(0.0f);
+
+    // Karlbauer et al. (2024) 24-corner bridge across missing rhombic-dodecahedron diagonal corners
+    if (p00 < 0) s00 = 0.5f * (s10 + s01);
+    if (p10 < 0) s10 = 0.5f * (s00 + s11);
+    if (p01 < 0) s01 = 0.5f * (s00 + s11);
+    if (p11 < 0) s11 = 0.5f * (s10 + s01);
+
+    dEdU = lerp(s10.x - s00.x, s11.x - s01.x, fracUV.y);
+    dEdV = lerp(s01.x - s00.x, s11.x - s10.x, fracUV.x);
+
+    float3 v00 = (p00 >= 0) ? HealpixPixToVec(uint(p00), StepParams.HealpixOrder) : float3(0.0f);
+    float3 v10 = (p10 >= 0) ? HealpixPixToVec(uint(p10), StepParams.HealpixOrder) : float3(0.0f);
+    float3 v01 = (p01 >= 0) ? HealpixPixToVec(uint(p01), StepParams.HealpixOrder) : float3(0.0f);
+    float3 v11 = (p11 >= 0) ? HealpixPixToVec(uint(p11), StepParams.HealpixOrder) : float3(0.0f);
+    if (p00 < 0) v00 = normalize(v10 + v01);
+    if (p10 < 0) v10 = normalize(v00 + v11);
+    if (p01 < 0) v01 = normalize(v00 + v11);
+    if (p11 < 0) v11 = normalize(v10 + v01);
+
+    const float3 dPdU = lerp(v10 - v00, v11 - v01, fracUV.y);
+    const float3 dPdV = lerp(v01 - v00, v11 - v10, fracUV.x);
+    tU = dPdU - dir * dot(dir, dPdU);
+    tV = dPdV - dir * dot(dir, dPdV);
+
+    return lerp(lerp(s00, s10, fracUV.x), lerp(s01, s11, fracUV.x), fracUV.y);
+}
+
+internal float3 WarpSphereDirection(in float3 unitDir, in float amplitude, in float frequency, in uint seed)
+{
+    if (amplitude <= 0.0f)
+    {
+        return unitDir;
+    }
+
+    Fbm fbmRule;
+    fbmRule.gain = 0.5f;
+
+    Fractal<Simplex3, Fbm> warpField;
+    warpField.rule = fbmRule;
+    warpField.frequency = frequency * 0.65f;
+    warpField.lacunarity = 2.05f;
+    warpField.octaveCount = 3;
+    warpField.rotateOctaves = 1;
+
+    warpField.seed = seed + 17u;
+    const float wx = warpField.eval(unitDir);
+    warpField.seed = seed + 53u;
+    const float wy = warpField.eval(unitDir);
+    warpField.seed = seed + 109u;
+    const float wz = warpField.eval(unitDir);
+
+    const float3 rawWarp = float3(wx, wy, wz);
+    const float3 tangentWarp = rawWarp - unitDir * dot(unitDir, rawWarp);
+    return normalize(unitDir + amplitude * tangentWarp);
+}
+
+internal float EvaluateSculptedDetailKm(in float3 warpedDir, in float baseElevKm, in float reliefKm)
+{
+    const bool coastalEnabled = (ShapingConstants.Flags & ShapingFlagCoastalNoiseEnabled) != 0u;
+    const bool atollEnabled = (ShapingConstants.Flags & ShapingFlagAtollShapingEnabled) != 0u;
+    if (!coastalEnabled && !atollEnabled)
+    {
+        return 0.0f;
+    }
+
+    if (baseElevKm < -3.2f && reliefKm < 0.25f)
+    {
+        return 0.0f;
+    }
+
+    float deltaKm = 0.0f;
+    const float freq = max(ShapingConstants.NoiseFrequency, 0.5f);
+    const uint seed = ShapingConstants.NoiseSeed;
+
+    float swissVal = 0.0f;
+    if (coastalEnabled && ShapingConstants.CoastalDetailKm > 0.0f)
+    {
+        Swiss swissRule;
+        swissRule.gain = 0.52f;
+        swissRule.warpStrength = 0.14f;
+        swissRule.compoundingWarp = 0;
+        swissRule.warpFalloff = 1;
+        swissRule.smoothClamp = 1;
+
+        Fractal<Simplex3, Swiss> swissField;
+        swissField.rule = swissRule;
+        swissField.frequency = freq;
+        swissField.lacunarity = 2.05f;
+        swissField.octaveCount = 5;
+        swissField.seed = seed;
+        swissField.rotateOctaves = 1;
+        swissVal = swissField.eval(warpedDir);
+
+        // Coastal fjords and fractal inlets peak near sea level; attenuate in deep ocean.
+        const float coastProximity = exp(-0.30f * baseElevKm * baseElevKm);
+        const float shelfWeight = max(coastProximity, smoothstep(-1.6f, 0.4f, baseElevKm) * 0.40f);
+        deltaKm += ShapingConstants.CoastalDetailKm * shelfWeight * (swissVal - 0.12f);
+
+        if (reliefKm > 0.05f || baseElevKm > -0.25f)
+        {
+            RidgedMulti ridgeRule;
+            ridgeRule.offset = 1.0f;
+            ridgeRule.gain = 2.0f;
+            ridgeRule.spectralExponent = 0.9f;
+
+            Fractal<Perlin3, RidgedMulti> ridgeField;
+            ridgeField.rule = ridgeRule;
+            ridgeField.frequency = freq * 1.45f;
+            ridgeField.lacunarity = 2.1f;
+            ridgeField.octaveCount = 4;
+            ridgeField.seed = seed + 97u;
+            ridgeField.rotateOctaves = 1;
+            const float ridgeVal = ridgeField.eval(warpedDir);
+            const float alpineWeight = saturate(reliefKm / 2.2f);
+            deltaKm += ShapingConstants.CoastalDetailKm * (0.28f + 0.85f * alpineWeight) * max(ridgeVal, -0.30f);
+        }
+    }
+
+    if (atollEnabled && ShapingConstants.AtollLagoonStrength > 0.0f &&
+        baseElevKm > -0.85f && reliefKm < 2.2f)
+    {
+        Cellular3 cellField;
+        cellField.frequency = freq * 2.35f;
+        cellField.jitter = 0.85f;
+        cellField.density = 1.4f;
+        cellField.metric = k_CellularEuclidean;
+        cellField.minkowskiExponent = 2.0f;
+        cellField.output = k_CellularF1;
+        cellField.seed = seed + 313u;
+
+        // Warp cellular distance with Swiss fractal noise so lagoons form jagged embayments, not circular polka-dots.
+        const float f1 = cellField.eval(warpedDir) + 0.14f * swissVal;
+        const float mountainMask = 1.0f - smoothstep(0.65f, 1.8f, reliefKm);
+        const float landMask = smoothstep(-0.65f, 0.35f, baseElevKm);
+        const float lagoonMask = smoothstep(0.28f, 0.08f, f1) * saturate(0.55f - 0.65f * swissVal);
+        const float rimWave = exp(-pow((f1 - 0.44f) / 0.13f, 2.0f));
+        const float gapCarve = saturate(0.45f + 0.55f * swissVal);
+
+        deltaKm += ShapingConstants.AtollLagoonStrength * mountainMask * landMask *
+                   (-1.45f * lagoonMask + 0.40f * rimWave * gapCarve);
+    }
+
+    return deltaKm;
+}
+
+internal float3 SculptedAtollSurfaceColor(in float elevKm, in bool isContinental, in bool isSubduction, in float reliefKm)
+{
+    if ((ShapingConstants.Flags & ShapingFlagAtollShapingEnabled) == 0u)
+    {
+        return BathymetryTopographyColor(elevKm, isContinental, isSubduction, reliefKm);
+    }
+
+    float3 color;
+    if (!isContinental && reliefKm > 0.45f)
+    {
+        return BathymetryTopographyColor(elevKm, isContinental, isSubduction, reliefKm);
+    }
+    else if (elevKm < 0.0f)
+    {
+        const float3 abyssal = float3(0.01f, 0.04f, 0.14f);
+        const float3 deepBlue = float3(0.02f, 0.10f, 0.28f);
+        const float3 shelf = float3(0.04f, 0.28f, 0.48f);
+        const float3 lagoon = float3(0.10f, 0.52f, 0.64f);
+
+        if (elevKm < -3.6f)
+        {
+            color = lerp(abyssal, deepBlue, saturate((elevKm + 6.0f) / 2.4f));
+        }
+        else if (elevKm < -1.0f)
+        {
+            color = lerp(deepBlue, shelf, saturate((elevKm + 3.6f) / 2.6f));
+        }
+        else
+        {
+            color = lerp(shelf, lagoon, saturate((elevKm + 1.0f) / 1.0f));
+        }
+    }
+    else
+    {
+        const float3 littoral = float3(0.24f, 0.38f, 0.14f);
+        const float3 lushForest = float3(0.14f, 0.34f, 0.12f);
+        const float3 uplandOlive = float3(0.32f, 0.42f, 0.16f);
+        const float3 highland = float3(0.56f, 0.48f, 0.28f);
+        const float3 alpine = float3(0.52f, 0.44f, 0.38f);
+        const float3 snow = float3(0.92f, 0.94f, 0.96f);
+
+        if (elevKm < 0.35f)
+        {
+            color = lerp(littoral, lushForest, saturate(elevKm / 0.35f));
+        }
+        else if (elevKm < 1.3f)
+        {
+            color = lerp(lushForest, uplandOlive, saturate((elevKm - 0.35f) / 0.95f));
+        }
+        else if (elevKm < 2.8f)
+        {
+            color = lerp(uplandOlive, highland, saturate((elevKm - 1.3f) / 1.5f));
+        }
+        else if (elevKm < 5.0f)
+        {
+            color = lerp(highland, alpine, saturate((elevKm - 2.8f) / 2.2f));
+        }
+        else
+        {
+            color = lerp(alpine, snow, saturate((elevKm - 5.0f) / 2.5f));
+        }
+    }
+
+    if (isSubduction)
+    {
+        color = lerp(color, float3(0.01f, 0.02f, 0.09f), 0.55f);
+    }
+
+    return color;
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
@@ -208,66 +447,87 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
     const uint mode = RenderMapConstants.Mode;
     if (mode == RenderModeElevation)
     {
-        uint baseFace = 0u;
-        float2 faceUV = float2(0.0f, 0.0f);
-        HealpixVecToFaceUV(worldPoint, StepParams.HealpixOrder, baseFace, faceUV);
+        const bool shapingNoiseActive =
+            (ShapingConstants.Flags & (ShapingFlagCoastalNoiseEnabled | ShapingFlagAtollShapingEnabled)) != 0u;
 
-        const float2 shifted = faceUV - 0.5f;
-        const int2 baseXY = int2(floor(shifted));
-        const float2 fracUV = shifted - float2(baseXY);
-
-        const int p00 = HealpixSampleIndex(baseFace, baseXY.x, baseXY.y, StepParams.HealpixOrder);
-        const int p10 = HealpixSampleIndex(baseFace, baseXY.x + 1, baseXY.y, StepParams.HealpixOrder);
-        const int p01 = HealpixSampleIndex(baseFace, baseXY.x, baseXY.y + 1, StepParams.HealpixOrder);
-        const int p11 = HealpixSampleIndex(baseFace, baseXY.x + 1, baseXY.y + 1, StepParams.HealpixOrder);
-
-        float4 s00 = (p00 >= 0) ? SampleElevationCorner(p00) : float4(0.0f);
-        float4 s10 = (p10 >= 0) ? SampleElevationCorner(p10) : float4(0.0f);
-        float4 s01 = (p01 >= 0) ? SampleElevationCorner(p01) : float4(0.0f);
-        float4 s11 = (p11 >= 0) ? SampleElevationCorner(p11) : float4(0.0f);
-
-        // Karlbauer et al. (2024) 24-corner bridge across missing rhombic-dodecahedron diagonal corners
-        if (p00 < 0) s00 = 0.5f * (s10 + s01);
-        if (p10 < 0) s10 = 0.5f * (s00 + s11);
-        if (p01 < 0) s01 = 0.5f * (s00 + s11);
-        if (p11 < 0) s11 = 0.5f * (s10 + s01);
-
-        const float4 s = lerp(lerp(s00, s10, fracUV.x), lerp(s01, s11, fracUV.x), fracUV.y);
-        const bool isLand = s.y >= 0.5f;
-        float3 rgb = BathymetryTopographyColor(s.x, isLand, s.z >= 0.35f, s.w);
-        if (!isLand && s.y > 0.02f)
+        if (!shapingNoiseActive && ShapingConstants.TrenchDepthKm <= 0.0f)
         {
-            rgb = lerp(rgb, float3(0.24f, 0.62f, 0.72f), saturate(s.y * 1.6f) * 0.55f);
+            float dEdU, dEdV;
+            float3 tU, tV;
+            const float4 s = SampleBilinearElevationAtPoint(worldPoint, dEdU, dEdV, tU, tV);
+            const bool isLand = s.y >= 0.5f;
+            float3 rgb = BathymetryTopographyColor(s.x, isLand, s.z >= 0.35f, s.w);
+            if (!isLand && s.y > 0.02f)
+            {
+                rgb = lerp(rgb, float3(0.24f, 0.62f, 0.72f), saturate(s.y * 1.6f) * 0.55f);
+            }
+
+            const float3 perpA = cross(worldPoint, tU);
+            const float3 perpB = cross(worldPoint, tV);
+            const float det = dot(tU, perpB);
+
+            float shade = 1.0f;
+            if (abs(det) > 1e-12f)
+            {
+                const float3 gradWorld = (dEdU * perpB - dEdV * perpA) / det;
+                const float cellScale = sqrt(4.0f * Pi / float(StepParams.PointCount));
+                const float3 sunDir = normalize(float3(0.6f, 0.4f, 0.7f));
+                shade = clamp(1.0f - 0.14f * dot(gradWorld * cellScale, sunDir), 0.78f, 1.22f);
+            }
+            rgb *= shade;
+
+            MapOutput[threadId.xy] = float4(rgb, 1.0f);
+            return;
         }
 
-        const float dEdU = lerp(s10.x - s00.x, s11.x - s01.x, fracUV.y);
-        const float dEdV = lerp(s01.x - s00.x, s11.x - s10.x, fracUV.x);
+        const float3 warpedPoint = shapingNoiseActive
+            ? WarpSphereDirection(worldPoint, ShapingConstants.CoastalWarpAmplitude,
+                                  ShapingConstants.NoiseFrequency, ShapingConstants.NoiseSeed)
+            : worldPoint;
 
-        float3 v00 = (p00 >= 0) ? HealpixPixToVec(uint(p00), StepParams.HealpixOrder) : float3(0.0f);
-        float3 v10 = (p10 >= 0) ? HealpixPixToVec(uint(p10), StepParams.HealpixOrder) : float3(0.0f);
-        float3 v01 = (p01 >= 0) ? HealpixPixToVec(uint(p01), StepParams.HealpixOrder) : float3(0.0f);
-        float3 v11 = (p11 >= 0) ? HealpixPixToVec(uint(p11), StepParams.HealpixOrder) : float3(0.0f);
-        if (p00 < 0) v00 = normalize(v10 + v01);
-        if (p10 < 0) v10 = normalize(v00 + v11);
-        if (p01 < 0) v01 = normalize(v00 + v11);
-        if (p11 < 0) v11 = normalize(v10 + v01);
+        float dEdU, dEdV;
+        float3 tU, tV;
+        const float4 s = SampleBilinearElevationAtPoint(warpedPoint, dEdU, dEdV, tU, tV);
+        const bool isSubduction = s.z >= 0.35f;
+        const float trenchDepress = ShapingConstants.TrenchDepthKm * saturate((s.z - 0.25f) / 0.75f);
+        const float rawElev = s.x + ShapingConstants.AtollLandBias - trenchDepress;
+        const float detailDelta = EvaluateSculptedDetailKm(warpedPoint, rawElev, s.w);
+        const float sculptedElev = rawElev + detailDelta;
+        const bool isContCrust = s.y >= 0.5f;
+        const bool isEmergentLand = isContCrust ? (sculptedElev >= 0.0f) : (sculptedElev >= 0.0f && s.w <= 0.45f);
 
-        const float3 dPdU = lerp(v10 - v00, v11 - v01, fracUV.y);
-        const float3 dPdV = lerp(v01 - v00, v11 - v10, fracUV.x);
-        const float3 tU = dPdU - worldPoint * dot(worldPoint, dPdU);
-        const float3 tV = dPdV - worldPoint * dot(worldPoint, dPdV);
-        const float3 perpA = cross(worldPoint, tU);
-        const float3 perpB = cross(worldPoint, tV);
+        float3 rgb = SculptedAtollSurfaceColor(sculptedElev, isContCrust && (sculptedElev >= 0.0f || s.w > 0.45f),
+                                               isSubduction, s.w);
+        if (!isContCrust && s.y > 0.02f && sculptedElev < 0.0f)
+        {
+            rgb = lerp(rgb, float3(0.14f, 0.50f, 0.62f), saturate(s.y * 1.4f) * 0.45f);
+        }
+
+        // Combine HEALPix tectonic slope with a tangent-frame finite difference on the noise field.
+        float3 gradWorld = float3(0.0f, 0.0f, 0.0f);
+        const float3 perpA = cross(warpedPoint, tU);
+        const float3 perpB = cross(warpedPoint, tV);
         const float det = dot(tU, perpB);
-
-        float shade = 1.0f;
         if (abs(det) > 1e-12f)
         {
-            const float3 gradWorld = (dEdU * perpB - dEdV * perpA) / det;
-            const float cellScale = sqrt(4.0f * Pi / float(StepParams.PointCount));
-            const float3 sunDir = normalize(float3(0.6f, 0.4f, 0.7f));
-            shade = clamp(1.0f - 0.14f * dot(gradWorld * cellScale, sunDir), 0.78f, 1.22f);
+            gradWorld = (dEdU * perpB - dEdV * perpA) / det;
         }
+
+        const float cellScale = sqrt(4.0f * Pi / float(StepParams.PointCount));
+        if (shapingNoiseActive && (rawElev > -2.8f || s.w > 0.25f))
+        {
+            const float3 refUp = (abs(warpedPoint.z) < 0.9f) ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
+            const float3 eastAxis = normalize(cross(refUp, warpedPoint));
+            const float3 northAxis = cross(warpedPoint, eastAxis);
+            const float eps = max(0.35f * cellScale, 0.002f);
+            const float detailE = EvaluateSculptedDetailKm(normalize(warpedPoint + eastAxis * eps), rawElev, s.w);
+            const float detailN = EvaluateSculptedDetailKm(normalize(warpedPoint + northAxis * eps), rawElev, s.w);
+            gradWorld += eastAxis * ((detailE - detailDelta) / eps) + northAxis * ((detailN - detailDelta) / eps);
+        }
+
+        const float3 sunDir = normalize(float3(0.6f, 0.4f, 0.7f));
+        const float hillScale = isEmergentLand ? 0.18f : 0.10f;
+        const float shade = clamp(1.0f - hillScale * dot(gradWorld * cellScale, sunDir), 0.68f, 1.28f);
         rgb *= shade;
 
         MapOutput[threadId.xy] = float4(rgb, 1.0f);

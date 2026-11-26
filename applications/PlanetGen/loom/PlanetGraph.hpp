@@ -7,6 +7,7 @@
 #include "LoomKeys.hpp"
 #include "MantlePlumes.hpp"
 #include "PassBuilders.hpp"
+#include "PlanetPresets.hpp"
 #include "RecordContext.hpp"
 #include "ResourceTypes.hpp"
 #include "SequenceBuilder.hpp"
@@ -42,6 +43,7 @@ namespace planet_loom
     inline constexpr loom::ResourceKey<loom::Buffer> k_StepParams{ "Planet.StepParams" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_Pass3Constants{ "Planet.Pass3Constants" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_UpliftConstants{ "Planet.UpliftConstants" };
+    inline constexpr loom::ResourceKey<loom::Buffer> k_ShapingConstants{ "Planet.ShapingConstants" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_MovePlatesConstants{ "Planet.MovePlatesConstants" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_PlumeConstants{ "Planet.PlumeConstants" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_RenderMapConstants{ "Planet.RenderMapConstants" };
@@ -146,6 +148,7 @@ namespace planet_loom
         GraphicsResource StepParams;
         GraphicsResource Pass3Constants;
         GraphicsResource UpliftConstants;
+        GraphicsResource ShapingConstants;
         GraphicsResource MovePlatesConstants;
         GraphicsResource PlumeConstants;
         GraphicsResource RenderMapConstants;
@@ -169,7 +172,8 @@ namespace planet_loom
                                      uint32_t height,
                                      uint32_t mode,
                                      bool use_bytes,
-                                     const PlumeSystemState& plumes);
+                                     const PlumeSystemState& plumes,
+                                     const ShapingState& shaping);
 
         [[nodiscard]] bool SupplyPresentConstants(loom::Graph& graph,
                                                   ResourceContext& resources,
@@ -180,7 +184,8 @@ namespace planet_loom
                                           uint32_t width,
                                           uint32_t height,
                                           uint32_t mode,
-                                          const PlumeSystemState& plumes);
+                                          const PlumeSystemState& plumes,
+                                          const ShapingState& shaping);
 
         [[nodiscard]] bool UpdatePresentConstants(ResourceContext& resources,
                                                   const PresentMapParamsHost& params);
@@ -199,7 +204,8 @@ namespace planet_loom
                                                 uint32_t height,
                                                 uint32_t mode,
                                                 bool use_bytes,
-                                                const PlumeSystemState& plumes);
+                                                const PlumeSystemState& plumes,
+                                                const ShapingState& shaping);
 
         void Destroy(ResourceContext& resources);
     };

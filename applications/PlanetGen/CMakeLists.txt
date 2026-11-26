@@ -6,6 +6,7 @@ lodestone_add_shader_cook(planet_gen_shaders
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
     HOST_TYPES "math/ShaderHostTypes.hpp"
     TARGETS spirv
+    INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/assets/shaders/compute/Noise"
     OPTIONS --O3 --g3
     MODULES "${PLANET_GEN_SHADER_DIR}/PlanetLab.slang"
             "${PLANET_GEN_SHADER_DIR}/PlanetPresent.slang")
@@ -44,8 +45,11 @@ add_library(planet_reference STATIC
     "check/StepState.cpp"
     "check/StepState.hpp")
 target_include_directories(planet_reference PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/check")
-target_include_directories(planet_reference PRIVATE "${PROJECT_SOURCE_DIR}/third_party/json/include")
+target_include_directories(planet_reference PRIVATE
+    "${PROJECT_SOURCE_DIR}/third_party/json/include"
+    "${CMAKE_CURRENT_BINARY_DIR}/cooked")
 target_link_libraries(planet_reference PUBLIC planet_gpu)
+add_dependencies(planet_reference planet_gen_shaders)
 set_target_properties(planet_reference PROPERTIES FOLDER "Applications/PlanetGen" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(planet_reference LIBRARY)
 
@@ -93,6 +97,8 @@ add_executable(PlanetGenLoom
     "loom/PlanetLiveApp.hpp"
     "loom/PlanetLoomTools.cpp"
     "loom/PlanetLoomTools.hpp"
+    "loom/PlanetPresets.cpp"
+    "loom/PlanetPresets.hpp"
     "${PROJECT_SOURCE_DIR}/tests/integration_tests/fixtures/FrameLimit.cpp"
     "${PROJECT_SOURCE_DIR}/tests/integration_tests/fixtures/FrameLimit.hpp"
     "${PROJECT_SOURCE_DIR}/tests/integration_tests/fixtures/HeadlessBoot.cpp"

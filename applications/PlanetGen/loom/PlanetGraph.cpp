@@ -401,6 +401,7 @@ namespace planet_loom
         graph.Import(loom::BufferImportDeclaration{ .Key = k_StepParams, .ByteSize = static_cast<int64_t>(sizeof(StepParamsHost)) });
         graph.Import(loom::BufferImportDeclaration{ .Key = k_Pass3Constants, .ByteSize = static_cast<int64_t>(sizeof(Pass3ParamsHost)) });
         graph.Import(loom::BufferImportDeclaration{ .Key = k_UpliftConstants, .ByteSize = static_cast<int64_t>(sizeof(UpliftParamsHost)) });
+        graph.Import(loom::BufferImportDeclaration{ .Key = k_ShapingConstants, .ByteSize = static_cast<int64_t>(sizeof(ShapingParamsHost)) });
         graph.Import(loom::BufferImportDeclaration{ .Key = k_MovePlatesConstants, .ByteSize = static_cast<int64_t>(sizeof(MovePlatesParamsHost)) });
         graph.Import(loom::BufferImportDeclaration{ .Key = k_PlumeConstants, .ByteSize = static_cast<int64_t>(sizeof(PlumeParamsHost)) });
         graph.Import(loom::BufferImportDeclaration{ .Key = k_RenderMapConstants, .ByteSize = static_cast<int64_t>(sizeof(RenderMapParamsHost)) });
@@ -970,6 +971,7 @@ namespace planet_loom
                 pass.Shader(k_Module, "FrontDistanceAndUpliftCS");
                 pass.Bind(ep::StepParams, k_StepParams);
                 pass.Bind(ep::UpliftConstants, k_UpliftConstants);
+                pass.Bind(ep::ShapingConstants, k_ShapingConstants);
                 pass.Bind(ep::SomeVariants::CrustFlags, k_CrustFlags);
                 pass.Bind(ep::SomeVariants::CrustFlagsWords, k_CrustFlags);
                 pass.Bind(ep::CellFronts, k_CellFronts, loom::AccessModifier::WriteOnly);
@@ -1036,6 +1038,7 @@ namespace planet_loom
                 pass.Bind(ep::StepParams, k_StepParams);
                 pass.Bind(ep::RenderMapConstants, k_RenderMapConstants);
                 pass.Bind(ep::PlumeConstants, k_PlumeConstants);
+                pass.Bind(ep::ShapingConstants, k_ShapingConstants);
                 pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
                 pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
                 pass.Bind(ep::CellFronts, k_CellFronts, loom::AccessModifier::ReadOnly);
@@ -1096,7 +1099,8 @@ namespace planet_loom
                                        uint32_t height,
                                        uint32_t mode,
                                        bool use_bytes,
-                                       const PlumeSystemState& plumes)
+                                       const PlumeSystemState& plumes,
+                                       const ShapingState& shaping)
     {
         const size_t expectedFlagBytes = static_cast<size_t>(initial.PointCount) *
                                          static_cast<size_t>(initial.PlateCount) *
@@ -1118,6 +1122,7 @@ namespace planet_loom
         };
         const Pass3ParamsHost pass3Params{ .Time = initial.InitialTime };
         const UpliftParamsHost upliftParams{ .Time = initial.InitialTime };
+        const ShapingParamsHost shapingParams = PackShapingUniform(shaping);
         const MovePlatesParamsHost movePlatesParams{ .Time = initial.InitialTime };
         const PlumeParamsHost plumeParams = PackPlumeUniform(plumes, initial.InitialTime);
         const RenderMapParamsHost renderMapParams
@@ -1133,6 +1138,7 @@ namespace planet_loom
         return CreateAndSupplyUniform(graph, resources, k_StepParams, BufferUsageBits::ComputeShaderUBO, stepParams, StepParams) &&
                CreateAndSupplyUniform(graph, resources, k_Pass3Constants, BufferUsageBits::ComputeShaderUBO, pass3Params, Pass3Constants) &&
                CreateAndSupplyUniform(graph, resources, k_UpliftConstants, BufferUsageBits::ComputeShaderUBO, upliftParams, UpliftConstants) &&
+               CreateAndSupplyUniform(graph, resources, k_ShapingConstants, BufferUsageBits::ComputeShaderUBO, shapingParams, ShapingConstants) &&
                CreateAndSupplyUniform(graph, resources, k_MovePlatesConstants, BufferUsageBits::ComputeShaderUBO, movePlatesParams, MovePlatesConstants) &&
                CreateAndSupplyUniform(graph, resources, k_PlumeConstants, BufferUsageBits::ComputeShaderUBO, plumeParams, PlumeConstants) &&
                CreateAndSupplyUniform(graph, resources, k_RenderMapConstants, BufferUsageBits::ComputeShaderUBO, renderMapParams, RenderMapConstants) &&
@@ -1160,10 +1166,12 @@ namespace planet_loom
                                             uint32_t width,
                                             uint32_t height,
                                             uint32_t mode,
-                                            const PlumeSystemState& plumes)
+                                            const PlumeSystemState& plumes,
+                                            const ShapingState& shaping)
     {
         const Pass3ParamsHost pass3Params{ .Time = time };
         const UpliftParamsHost upliftParams{ .Time = time };
+        const ShapingParamsHost shapingParams = PackShapingUniform(shaping);
         const MovePlatesParamsHost movePlatesParams{ .Time = time };
         const PlumeParamsHost plumeParams = PackPlumeUniform(plumes, time);
         const RenderMapParamsHost renderMapParams
@@ -1176,6 +1184,7 @@ namespace planet_loom
 
         return UpdateUniformBuffer(resources, Pass3Constants, k_Pass3Constants.Name, pass3Params) &&
                UpdateUniformBuffer(resources, UpliftConstants, k_UpliftConstants.Name, upliftParams) &&
+               UpdateUniformBuffer(resources, ShapingConstants, k_ShapingConstants.Name, shapingParams) &&
                UpdateUniformBuffer(resources, MovePlatesConstants, k_MovePlatesConstants.Name, movePlatesParams) &&
                UpdateUniformBuffer(resources, PlumeConstants, k_PlumeConstants.Name, plumeParams) &&
                UpdateUniformBuffer(resources, RenderMapConstants, k_RenderMapConstants.Name, renderMapParams);
@@ -1211,7 +1220,8 @@ namespace planet_loom
                                                   uint32_t height,
                                                   uint32_t mode,
                                                   bool use_bytes,
-                                                  const PlumeSystemState& plumes)
+                                                  const PlumeSystemState& plumes,
+                                                  const ShapingState& shaping)
     {
         const size_t expectedFlagBytes = static_cast<size_t>(initial.PointCount) *
                                          static_cast<size_t>(initial.PlateCount) *
@@ -1227,7 +1237,7 @@ namespace planet_loom
         const std::vector<math::Float4> zeroRift(initial.PlateCount, math::Float4{ 0.0f, 0.0f, 0.0f, 0.0f });
 
         return UpdateStepDt(resources, initial, dt, order) &&
-               UpdateUniforms(resources, initial.InitialTime, width, height, mode, plumes) &&
+               UpdateUniforms(resources, initial.InitialTime, width, height, mode, plumes, shaping) &&
                ResetStorageBuffer(resources, afterGraph, last.Submitted, CrustFlags, k_CrustFlags.Name, initial.CrustFlags) &&
                ResetStorageBuffer(resources, afterGraph, last.Submitted, CrustState, k_CrustState.Name, std::as_bytes(std::span{ initial.CrustState })) &&
                ResetStorageBuffer(resources, afterGraph, last.Submitted, Rotations, k_Rotations.Name, std::as_bytes(std::span{ initial.Rotations })) &&
@@ -1243,6 +1253,7 @@ namespace planet_loom
         DestroyHandle(resources, StepParams);
         DestroyHandle(resources, Pass3Constants);
         DestroyHandle(resources, UpliftConstants);
+        DestroyHandle(resources, ShapingConstants);
         DestroyHandle(resources, MovePlatesConstants);
         DestroyHandle(resources, PlumeConstants);
         DestroyHandle(resources, RenderMapConstants);

@@ -27,6 +27,7 @@
 #include "RhiResult.hpp"
 #include "PlanetGraph.hpp"
 #include "PlanetLiveApp.hpp"
+#include "PlanetPresets.hpp"
 #include "PlanetSession.hpp"
 #include "PlanetShaders.hpp"
 #include "PlanetStep.hpp"
@@ -81,6 +82,10 @@ namespace
     {
         std::filesystem::path Reference;
         std::filesystem::path CaptureDir;
+        planet_loom::PlanetPreset Preset{ planet_loom::PlanetPreset::Reference };
+        std::optional<planet_loom::ShapingPreset> Shaping;
+        uint64_t Seed{ 42ull };
+        uint32_t PlateCount{ 0u };
         uint32_t Order{ 7u };
         uint32_t Steps{ 10u };
         float Dt{ 0.5f };
@@ -111,6 +116,12 @@ namespace
     };
 
     [[nodiscard]] bool ParseUint(std::string_view text, uint32_t& value)
+    {
+        const std::from_chars_result parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+        return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size();
+    }
+
+    [[nodiscard]] bool ParseUint64(std::string_view text, uint64_t& value)
     {
         const std::from_chars_result parsed = std::from_chars(text.data(), text.data() + text.size(), value);
         return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size();
@@ -156,6 +167,42 @@ namespace
             if (text.starts_with("--reference="))
             {
                 options.Reference = text.substr(12u);
+            }
+            else if (text.starts_with("--preset="))
+            {
+                const std::optional<planet_loom::PlanetPreset> parsed =
+                    planet_loom::ParsePlanetPreset(text.substr(9u));
+                if (parsed.has_value())
+                {
+                    options.Preset = *parsed;
+                }
+                else
+                {
+                    valid = false;
+                }
+            }
+            else if (text.starts_with("--shaping="))
+            {
+                const std::optional<planet_loom::ShapingPreset> parsed =
+                    planet_loom::ParseShapingPreset(text.substr(10u));
+                if (parsed.has_value())
+                {
+                    options.Shaping = *parsed;
+                }
+                else
+                {
+                    valid = false;
+                }
+            }
+            else if (text.starts_with("--seed="))
+            {
+                valid = ParseUint64(text.substr(7u), options.Seed);
+            }
+            else if (text.starts_with("--plates="))
+            {
+                valid = ParseUint(text.substr(9u), options.PlateCount) &&
+                        options.PlateCount >= 4u &&
+                        options.PlateCount <= 32u;
             }
             else if (text.starts_with("--order="))
             {
@@ -255,15 +302,38 @@ namespace
             }
         }
 
-        if (options.Live && !options.PlumesExplicit)
+        if ((options.Live || options.Preset == planet_loom::PlanetPreset::Atoll) &&
+            !options.PlumesExplicit &&
+            !options.Verify)
         {
             options.PlumesEnabled = true;
         }
 
-        if (options.Reference.empty())
+        if (!options.Shaping.has_value())
+        {
+            if (options.Verify)
+            {
+                options.Shaping = planet_loom::ShapingPreset::Legacy;
+            }
+            else if (options.Preset == planet_loom::PlanetPreset::Atoll)
+            {
+                options.Shaping = planet_loom::ShapingPreset::Atoll;
+            }
+            else if (options.Preset == planet_loom::PlanetPreset::Earth)
+            {
+                options.Shaping = planet_loom::ShapingPreset::Earth;
+            }
+            else
+            {
+                options.Shaping = planet_loom::ShapingPreset::Legacy;
+            }
+        }
+
+        if (options.Preset == planet_loom::PlanetPreset::Reference && options.Reference.empty())
         {
             std::println(stderr,
-                         "usage: PlanetGenLoom --reference=<dir> [--order=4..9] [--steps=N] [--dt=F] "
+                         "usage: PlanetGenLoom (--reference=<dir> | --preset=earth|atoll) [--shaping=legacy|earth|atoll] "
+                         "[--seed=N] [--plates=4..32] [--order=4..9] [--steps=N] [--dt=F] "
                          "[--width=N] [--height=N] [--mode=0..6|name] [--plumes=default|none] [--words] "
                          "[--verify] [--self-verify] [--timestamps] [--explain] [--capture-dir=<dir>] "
                          "[--live] [--paused] [--frames=N] [--tool-port=0..65535] [--validation=full|none]");
@@ -287,6 +357,9 @@ namespace
         return planet_loom::PlanetLiveOptions
         {
             .CaptureDir = options.CaptureDir,
+            .Preset = options.Preset,
+            .Shaping = options.Shaping.value_or(planet_loom::ShapingPreset::Legacy),
+            .Seed = options.Seed,
             .Order = options.Order,
             .Dt = options.Dt,
             .Width = options.Width,
@@ -386,7 +459,6 @@ namespace
 
     [[nodiscard]] bool RunLoomSimulation(std::span<char* const> arguments,
                                          const LoomOptions& options,
-                                         const planet::ReferenceSet& reference,
                                          const planet::HealpixInitialState& initial,
                                          VerifySnapshot* out_snapshot)
     {
@@ -482,11 +554,14 @@ namespace
         std::unique_ptr<loom::Graph> graph = std::move(*realized);
         planet_loom::PlanetGraphImports imports;
         const planet_loom::PlumeSystemState plumeState = options.PlumesEnabled
-            ? planet_loom::DefaultPresetPlumes(initial.InitialTime)
+            ? planet_loom::PresetPlumes(options.Preset, initial.InitialTime, options.Seed)
             : planet_loom::EmptyPlumeSystem();
+        const planet_loom::ShapingState shapingState = planet_loom::ShapingStateForPreset(
+            options.Shaping.value_or(planet_loom::ShapingPreset::Legacy),
+            static_cast<uint32_t>(options.Seed));
 
         if (!imports.SupplyAll(*graph, resources, initial, options.Dt, options.Order,
-                               options.Width, options.Height, options.Mode, useBytes, plumeState))
+                               options.Width, options.Height, options.Mode, useBytes, plumeState, shapingState))
         {
             graph.reset();
             imports.Destroy(resources);
@@ -509,9 +584,9 @@ namespace
                 return false;
             }
 
-            const float stepTime = reference.Time() + static_cast<float>(step + 1u) * options.Dt;
+            const float stepTime = initial.InitialTime + static_cast<float>(step + 1u) * options.Dt;
 
-            if (!imports.UpdateUniforms(resources, stepTime, options.Width, options.Height, options.Mode, plumeState))
+            if (!imports.UpdateUniforms(resources, stepTime, options.Width, options.Height, options.Mode, plumeState, shapingState))
             {
                 graph.reset();
                 imports.Destroy(resources);
@@ -912,39 +987,58 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    const std::optional<planet::ReferenceSet> reference = planet::ReferenceSet::Open(options->Reference);
-
-    if (!reference.has_value())
-    {
-        return 1;
-    }
-
     const planet::CrustFlagStorage storage = options->Words
         ? planet::CrustFlagStorage::Words
         : planet::CrustFlagStorage::Bytes;
-    const std::optional<planet::HealpixInitialState> initial =
-        planet::ResampleHealpixState(*reference, options->Order, storage);
 
-    if (!initial.has_value())
+    std::optional<planet::ReferenceSet> reference;
+    std::optional<planet::HealpixInitialState> initial;
+
+    if (options->Preset == planet_loom::PlanetPreset::Reference)
     {
-        std::println(stderr, "PlanetGenLoom: failed to resample reference state at order {}", options->Order);
-        return 1;
+        reference = planet::ReferenceSet::Open(options->Reference);
+        if (!reference.has_value())
+        {
+            return 1;
+        }
+
+        initial = planet::ResampleHealpixState(*reference, options->Order, storage);
+        if (!initial.has_value())
+        {
+            std::println(stderr, "PlanetGenLoom: failed to resample reference state at order {}", options->Order);
+            return 1;
+        }
+    }
+    else
+    {
+        const uint32_t plateCount = options->PlateCount != 0u
+            ? options->PlateCount
+            : (options->Preset == planet_loom::PlanetPreset::Atoll ? 28u : 20u);
+
+        initial = planet_loom::GenerateProceduralHealpixState(
+            options->Preset, options->Order, plateCount, options->Seed, storage);
+        if (!initial.has_value())
+        {
+            std::println(stderr, "PlanetGenLoom: failed to generate procedural state for preset '{}'",
+                         planet_loom::PlanetPresetName(options->Preset));
+            return 1;
+        }
     }
 
     if (options->Live)
     {
-        return planet_loom::RunLivePlanetApp(arguments, ToLiveOptions(*options), *reference, *initial);
+        return planet_loom::RunLivePlanetApp(arguments, ToLiveOptions(*options), *initial);
     }
 
     if (options->ToolPort >= 0)
     {
-        return planet_loom::RunHeadlessToolApp(arguments, ToLiveOptions(*options), *reference, *initial);
+        return planet_loom::RunHeadlessToolApp(arguments, ToLiveOptions(*options), *initial);
     }
 
     const bool needSnapshot = options->Verify || options->SelfVerify;
     VerifySnapshot loomSnapshot;
 
-    if (!RunLoomSimulation(arguments, *options, *reference, *initial, needSnapshot ? &loomSnapshot : nullptr))
+    if (!RunLoomSimulation(arguments, *options, *initial, needSnapshot ? &loomSnapshot : nullptr))
     {
         return 1;
     }
@@ -958,10 +1052,15 @@ int main(int argc, char* argv[])
 
     if (options->SelfVerify)
     {
-        if (!RunLoomSimulation(arguments, *options, *reference, *initial, &legacySnapshot))
+        if (!RunLoomSimulation(arguments, *options, *initial, &legacySnapshot))
         {
             return 1;
         }
+    }
+    else if (!reference.has_value())
+    {
+        std::println(stderr, "PlanetGenLoom: --verify against Legacy requires --reference (use --self-verify for procedural presets)");
+        return 1;
     }
     else if (!RunLegacySimulation(arguments, *options, *reference, legacySnapshot))
     {

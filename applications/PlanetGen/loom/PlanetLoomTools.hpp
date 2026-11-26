@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_PLANET_LOOM_TOOLS_HPP
 
 #include "MantlePlumes.hpp"
+#include "PlanetPresets.hpp"
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -63,8 +64,11 @@ namespace planet_loom
     {
         PlanetSimState& Sim;
         PlumeSystemState& Plumes;
+        ShapingState& Shaping;
         std::function<void(std::string_view field_path)> OnSimChanged;
         std::function<void()> OnPlumesChanged;
+        std::function<void(std::string_view field_path)> OnShapingChanged;
+        std::function<std::optional<std::string>(ShapingPreset preset)> ApplyShapingPreset;
         std::function<std::optional<std::string>(int32_t steps, float dt)> Step;
         std::function<std::optional<std::string>()> Reset;
         std::function<CaptureOutput(int32_t x,

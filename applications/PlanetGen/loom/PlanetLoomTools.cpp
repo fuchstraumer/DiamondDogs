@@ -157,6 +157,19 @@ namespace planet_loom
         float Time{ 0.0f };
     };
 
+    struct SetShapingPresetParams
+    {
+        std::string Preset;
+    };
+
+    struct ShapingPresetReply
+    {
+        std::string Preset;
+        bool SlabDipEnabled{ false };
+        bool CoastalNoiseEnabled{ false };
+        bool AtollShapingEnabled{ false };
+    };
+
     struct TimingsReply
     {
         bool HasData{ false };
@@ -428,6 +441,65 @@ struct foundation::reflect::Describe<planet_loom::PassTimingEntry>
 };
 
 template<>
+struct foundation::reflect::Describe<planet_loom::ShapingState>
+{
+    using State = planet_loom::ShapingState;
+
+    static constexpr std::string_view Name{ "planet.ShapingState" };
+    static constexpr std::string_view Doc{ "Cortial (2019) slab-dip uplift, spherical NoiseGraph coastline/ridge shaping, and Atoll World controls." };
+    static constexpr std::tuple Fields
+    {
+        Field<State, bool>{ "SlabDipEnabled", &State::SlabDipEnabled },
+        Field<State, bool>{ "CoastalNoiseEnabled", &State::CoastalNoiseEnabled },
+        Field<State, bool>{ "AtollShapingEnabled", &State::AtollShapingEnabled },
+        Field<State, bool>{ "CustomProfileLut", &State::CustomProfileLut },
+        Field<State, float>{ "BaseUplift", &State::BaseUplift, { .Unit = "km/My", .Range = FieldRange{ 0.0, 5.0 } } },
+        Field<State, float>{ "ContinentErosion", &State::ContinentErosion, { .Range = FieldRange{ 0.0, 1.0 } } },
+        Field<State, float>{ "AccretionRelief", &State::AccretionRelief, { .Unit = "km", .Range = FieldRange{ 0.2, 6.0 } } },
+        Field<State, float>{ "AccretionStartRelief", &State::AccretionStartRelief, { .Unit = "km", .Range = FieldRange{ 0.0, 2.0 } } },
+        Field<State, float>{ "ContinentalReachKm", &State::ContinentalReachKm, { .Unit = "km", .Range = FieldRange{ 100.0, 3000.0 } } },
+        Field<State, float>{ "IslandArcReachKm", &State::IslandArcReachKm, { .Unit = "km", .Range = FieldRange{ 50.0, 1500.0 } } },
+        Field<State, float>{ "ArcDistanceKm", &State::ArcDistanceKm, { .Unit = "km", .Range = FieldRange{ 40.0, 800.0 } } },
+        Field<State, float>{ "CollisionReachKm", &State::CollisionReachKm, { .Unit = "km", .Range = FieldRange{ 100.0, 2000.0 } } },
+        Field<State, float>{ "CollisionUpliftScale", &State::CollisionUpliftScale, { .Range = FieldRange{ 0.0, 3.0 } } },
+        Field<State, float>{ "SlabDipAgeWeight", &State::SlabDipAgeWeight, { .Range = FieldRange{ 0.0, 3.0 } } },
+        Field<State, float>{ "SlabDipSpeedWeight", &State::SlabDipSpeedWeight, { .Range = FieldRange{ 0.0, 3.0 } } },
+        Field<State, float>{ "TrenchDepthKm", &State::TrenchDepthKm, { .Unit = "km", .Range = FieldRange{ 0.0, 5.0 } } },
+        Field<State, float>{ "CoastalWarpAmplitude", &State::CoastalWarpAmplitude, { .Range = FieldRange{ 0.0, 0.2 } } },
+        Field<State, float>{ "CoastalDetailKm", &State::CoastalDetailKm, { .Unit = "km", .Range = FieldRange{ 0.0, 4.0 } } },
+        Field<State, float>{ "AtollLagoonStrength", &State::AtollLagoonStrength, { .Range = FieldRange{ 0.0, 4.0 } } },
+        Field<State, float>{ "NoiseFrequency", &State::NoiseFrequency, { .Range = FieldRange{ 0.5, 40.0 } } },
+        Field<State, uint32_t>{ "NoiseSeed", &State::NoiseSeed },
+        Field<State, float>{ "AtollLandBias", &State::AtollLandBias, { .Unit = "km", .Range = FieldRange{ -3.0, 3.0 } } },
+    };
+};
+
+template<>
+struct foundation::reflect::Describe<planet_loom::SetShapingPresetParams>
+{
+    using Params = planet_loom::SetShapingPresetParams;
+    static constexpr std::string_view Name{ "planet.SetShapingPresetParams" };
+    static constexpr std::tuple Fields
+    {
+        Field<Params, std::string>{ "Preset", &Params::Preset, { .Doc = "legacy|earth|atoll", .Required = true } },
+    };
+};
+
+template<>
+struct foundation::reflect::Describe<planet_loom::ShapingPresetReply>
+{
+    using Reply = planet_loom::ShapingPresetReply;
+    static constexpr std::string_view Name{ "planet.ShapingPresetReply" };
+    static constexpr std::tuple Fields
+    {
+        Field<Reply, std::string>{ "Preset", &Reply::Preset },
+        Field<Reply, bool>{ "SlabDipEnabled", &Reply::SlabDipEnabled },
+        Field<Reply, bool>{ "CoastalNoiseEnabled", &Reply::CoastalNoiseEnabled },
+        Field<Reply, bool>{ "AtollShapingEnabled", &Reply::AtollShapingEnabled },
+    };
+};
+
+template<>
 struct foundation::reflect::Describe<planet_loom::TimingsReply>
 {
     using Reply = planet_loom::TimingsReply;
@@ -473,6 +545,14 @@ namespace
             if (Host.OnSimChanged)
             {
                 Host.OnSimChanged(field_path);
+            }
+        }
+
+        void OnShapingChanged(std::string_view field_path)
+        {
+            if (Host.OnShapingChanged)
+            {
+                Host.OnShapingChanged(field_path);
             }
         }
 
@@ -884,6 +964,50 @@ namespace
         ToolBridge& Bridge;
     };
 
+    struct SetShapingPresetCommand
+    {
+        static constexpr std::string_view Name{ "planet.shaping.preset" };
+        static constexpr std::string_view Doc{ "Applies a named shaping preset (legacy, earth, or atoll) and re-renders MapOutput." };
+        using Params = planet_loom::SetShapingPresetParams;
+        using Reply = planet_loom::ShapingPresetReply;
+
+        void Run(const Params& params, agent::ReplyToken<Reply> token)
+        {
+            const std::optional<planet_loom::ShapingPreset> preset = planet_loom::ParseShapingPreset(params.Preset);
+
+            if (!preset.has_value())
+            {
+                token.Fail(std::format("unknown shaping preset '{}'; expected legacy, earth, or atoll", params.Preset));
+                return;
+            }
+
+            if (Bridge.Host.ApplyShapingPreset)
+            {
+                const std::optional<std::string> error = Bridge.Host.ApplyShapingPreset(*preset);
+                if (error.has_value())
+                {
+                    token.Fail(*error);
+                    return;
+                }
+            }
+            else
+            {
+                Bridge.Host.Shaping = planet_loom::ShapingStateForPreset(*preset, Bridge.Host.Shaping.NoiseSeed);
+                Bridge.OnShapingChanged("");
+            }
+
+            token.Complete(Reply
+            {
+                .Preset = params.Preset,
+                .SlabDipEnabled = Bridge.Host.Shaping.SlabDipEnabled,
+                .CoastalNoiseEnabled = Bridge.Host.Shaping.CoastalNoiseEnabled,
+                .AtollShapingEnabled = Bridge.Host.Shaping.AtollShapingEnabled,
+            });
+        }
+
+        ToolBridge& Bridge;
+    };
+
     struct TimingsCommand
     {
         static constexpr std::string_view Name{ "planet.timings" };
@@ -1054,6 +1178,7 @@ namespace planet_loom
             , PlumeClearCmd{ Bridge }
             , CaptureCmd{ Bridge }
             , CaptureRegionCmd{ Bridge }
+            , ShapingPresetCmd{ Bridge }
             , TimingsCmd{ Bridge }
             , QuitCmd{ Bridge }
         {
@@ -1071,6 +1196,7 @@ namespace planet_loom
         PlumeClearCommand PlumeClearCmd;
         CaptureCommand CaptureCmd;
         CaptureRegionCommand CaptureRegionCmd;
+        SetShapingPresetCommand ShapingPresetCmd;
         TimingsCommand TimingsCmd;
         QuitCommand QuitCmd;
         agent::ToolRegistry Registry;
@@ -1082,10 +1208,13 @@ namespace planet_loom
     {
         const agent::ObjectChanged changed =
             agent::ObjectChanged::Create<ToolBridge, &ToolBridge::OnSimChanged>(&state->Bridge);
+        const agent::ObjectChanged shapingChanged =
+            agent::ObjectChanged::Create<ToolBridge, &ToolBridge::OnShapingChanged>(&state->Bridge);
 
         const std::array errors
         {
             state->Registry.AddObject("planet.sim", state->Bridge.Host.Sim, changed),
+            state->Registry.AddObject("planet.shaping", state->Bridge.Host.Shaping, shapingChanged),
             state->Registry.AddCommand(state->PauseCmd),
             state->Registry.AddCommand(state->StepCmd),
             state->Registry.AddCommand(state->ResetCmd),
@@ -1097,6 +1226,7 @@ namespace planet_loom
             state->Registry.AddCommand(state->PlumeClearCmd),
             state->Registry.AddCommand(state->CaptureCmd),
             state->Registry.AddCommand(state->CaptureRegionCmd),
+            state->Registry.AddCommand(state->ShapingPresetCmd),
             state->Registry.AddCommand(state->TimingsCmd),
             state->Registry.AddCommand(state->QuitCmd),
         };

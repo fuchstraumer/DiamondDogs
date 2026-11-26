@@ -18,7 +18,7 @@ namespace planet_loom
         state.Enabled = true;
         state.DriftEnabled = true;
         state.GlobalStrength = 1.0f;
-        state.OceanicErosionRate = 0.015f;
+        state.OceanicErosionRate = 0.045f;
         state.SwellScale = 1.0f;
         state.AccretionThresholdKm = 0.0f;
 
@@ -26,68 +26,102 @@ namespace planet_loom
         {
             .LatDeg = 22.0f,
             .LonDeg = -35.0f,
-            .ConduitRadiusKm = 95.0f,
-            .SwellRadiusKm = 520.0f,
-            .PeakSwellKm = 1.4f,
-            .BuoyancyFlux = 6.5f,
-            .VolcanicUpliftRate = 2.2f,
+            .ConduitRadiusKm = 54.0f,
+            .SwellRadiusKm = 360.0f,
+            .PeakSwellKm = 0.95f,
+            .BuoyancyFlux = 6.2f,
+            .VolcanicUpliftRate = 2.6f,
             .DriftAzimuthDeg = 45.0f,
             .DriftSpeedKmPerMy = 12.0f,
             .BirthTimeMy = initial_time,
             .LifetimeMy = 0.0f,
-            .PulsePeriodMy = 14.0f,
-            .PulseAmplitude = 0.48f,
+            .PulsePeriodMy = 6.5f,
+            .PulseAmplitude = 0.92f,
         });
 
         state.Plumes.push_back(MantlePlumeDesc
         {
             .LatDeg = -28.0f,
             .LonDeg = 15.0f,
-            .ConduitRadiusKm = 90.0f,
-            .SwellRadiusKm = 480.0f,
-            .PeakSwellKm = 1.3f,
-            .BuoyancyFlux = 6.0f,
-            .VolcanicUpliftRate = 2.0f,
+            .ConduitRadiusKm = 50.0f,
+            .SwellRadiusKm = 340.0f,
+            .PeakSwellKm = 0.90f,
+            .BuoyancyFlux = 5.8f,
+            .VolcanicUpliftRate = 2.4f,
             .DriftAzimuthDeg = 120.0f,
             .DriftSpeedKmPerMy = 10.0f,
             .BirthTimeMy = initial_time,
             .LifetimeMy = 0.0f,
-            .PulsePeriodMy = 11.0f,
-            .PulseAmplitude = 0.50f,
+            .PulsePeriodMy = 5.5f,
+            .PulseAmplitude = 0.90f,
         });
 
         state.Plumes.push_back(MantlePlumeDesc
         {
             .LatDeg = -8.0f,
             .LonDeg = 155.0f,
-            .ConduitRadiusKm = 85.0f,
-            .SwellRadiusKm = 450.0f,
-            .PeakSwellKm = 1.2f,
+            .ConduitRadiusKm = 48.0f,
+            .SwellRadiusKm = 320.0f,
+            .PeakSwellKm = 0.85f,
             .BuoyancyFlux = 5.5f,
-            .VolcanicUpliftRate = 1.9f,
+            .VolcanicUpliftRate = 2.3f,
             .DriftAzimuthDeg = 310.0f,
-            .DriftSpeedKmPerMy = 15.0f,
+            .DriftSpeedKmPerMy = 14.0f,
             .BirthTimeMy = initial_time,
-            .LifetimeMy = 0.0f,
-            .PulsePeriodMy = 10.0f,
-            .PulseAmplitude = 0.45f,
+            .LifetimeMy = 110.0f,
+            .PulsePeriodMy = 6.0f,
+            .PulseAmplitude = 0.94f,
         });
 
         state.Plumes.push_back(MantlePlumeDesc
         {
             .LatDeg = 42.0f,
             .LonDeg = 65.0f,
-            .ConduitRadiusKm = 110.0f,
-            .SwellRadiusKm = 600.0f,
-            .PeakSwellKm = 1.6f,
-            .BuoyancyFlux = 7.0f,
-            .VolcanicUpliftRate = 1.8f,
+            .ConduitRadiusKm = 60.0f,
+            .SwellRadiusKm = 420.0f,
+            .PeakSwellKm = 1.05f,
+            .BuoyancyFlux = 6.5f,
+            .VolcanicUpliftRate = 2.2f,
             .DriftAzimuthDeg = 225.0f,
             .DriftSpeedKmPerMy = 8.0f,
             .BirthTimeMy = initial_time,
+            .LifetimeMy = 90.0f,
+            .PulsePeriodMy = 8.0f,
+            .PulseAmplitude = 0.88f,
+        });
+
+        state.Plumes.push_back(MantlePlumeDesc
+        {
+            .LatDeg = 8.0f,
+            .LonDeg = 105.0f,
+            .ConduitRadiusKm = 52.0f,
+            .SwellRadiusKm = 350.0f,
+            .PeakSwellKm = 0.90f,
+            .BuoyancyFlux = 5.9f,
+            .VolcanicUpliftRate = 2.5f,
+            .DriftAzimuthDeg = 195.0f,
+            .DriftSpeedKmPerMy = 11.0f,
+            .BirthTimeMy = initial_time + 15.0f,
             .LifetimeMy = 0.0f,
-            .PulsePeriodMy = 18.0f,
-            .PulseAmplitude = 0.35f,
+            .PulsePeriodMy = 7.0f,
+            .PulseAmplitude = 0.91f,
+        });
+
+        state.Plumes.push_back(MantlePlumeDesc
+        {
+            .LatDeg = -46.0f,
+            .LonDeg = -110.0f,
+            .ConduitRadiusKm = 56.0f,
+            .SwellRadiusKm = 390.0f,
+            .PeakSwellKm = 1.00f,
+            .BuoyancyFlux = 6.0f,
+            .VolcanicUpliftRate = 2.3f,
+            .DriftAzimuthDeg = 75.0f,
+            .DriftSpeedKmPerMy = 9.0f,
+            .BirthTimeMy = initial_time,
+            .LifetimeMy = 75.0f,
+            .PulsePeriodMy = 7.5f,
+            .PulseAmplitude = 0.89f,
         });
 
         return state;

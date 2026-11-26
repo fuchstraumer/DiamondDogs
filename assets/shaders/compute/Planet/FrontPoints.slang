@@ -574,7 +574,10 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
     GroupMemoryBarrierWithGroupSync();
 
     const float groupAngle = SharedGroupAngle;
-    const float groupReachRad = groupHasContinent ? (1850.0f / 6370.0f) : (500.0f / 6370.0f);
+    const float reachMarginMult = ((ShapingConstants.Flags & ShapingFlagSlabDipEnabled) != 0u) ? 1.45f : 1.0f;
+    const float maxGroupContKm = max(ShapingConstants.ContinentalReachKm * reachMarginMult + 50.0f, 1850.0f);
+    const float maxGroupArcKm = max(ShapingConstants.IslandArcReachKm * reachMarginMult + 50.0f, 500.0f);
+    const float groupReachRad = groupHasContinent ? (maxGroupContKm / 6370.0f) : (maxGroupArcKm / 6370.0f);
 
     NearestCandidate nearest0 = NoCandidate();
     NearestCandidate nearest1 = NoCandidate();
@@ -656,10 +659,10 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
         {
             if (isContinental)
             {
-                const float collisionReachKm = 900.0f;
-                const float u = clamp(distance / collisionReachKm, 0.0f, 1.0f);
+                const float collisionReachKm = ShapingConstants.CollisionReachKm;
+                const float u = clamp(distance / max(collisionReachKm, 1.0f), 0.0f, 1.0f);
                 const float foldProfile = (1.0f - u * u) * (1.0f - u * u);
-                const float rate = 0.65f * BaseUplift * foldProfile * frontState.GetStrength();
+                const float rate = ShapingConstants.CollisionUpliftScale * ShapingConstants.BaseUplift * foldProfile * frontState.GetStrength();
                 relief += rate * dt;
 
                 if (rate > ActiveUplift)
@@ -671,9 +674,13 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
         }
         else
         {
-            const float reach = isContinental ? ContinentalReachKm : IslandArcReachKm;
-            const float shape = SubductionProfile(distance, reach);
-            const float rate = BaseUplift * shape * frontState.GetStrength();
+            const float baseReach = isContinental ? ShapingConstants.ContinentalReachKm : ShapingConstants.IslandArcReachKm;
+            float reach = baseReach;
+            float peakKm = min(ShapingConstants.ArcDistanceKm, 0.4f * baseReach);
+            ComputeEffectiveSubductionReach(baseReach, frontState.GetSlabAge(), frontState.GetSpeed(), reach, peakKm);
+
+            const float shape = SubductionProfile(distance, reach, peakKm);
+            const float rate = ShapingConstants.BaseUplift * shape * frontState.GetStrength();
             relief += rate * dt;
 
             if (rate > ActiveUplift)
@@ -687,16 +694,16 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
 
     if (isContinental)
     {
-        relief *= 1.0f - ContinentErosion * StepParams.TimeStepMy / PeakElevation;
+        relief *= 1.0f - ShapingConstants.ContinentErosion * StepParams.TimeStepMy / PeakElevation;
     }
 
     relief = min(relief, PeakElevation);
 
-    if (!isContinental && (relief > AccretionRelief))
+    if (!isContinental && crustState.GetOrogenyType() != OrogenyVolcanic && (relief > ShapingConstants.AccretionRelief))
     {
         const uint flagBits = PackCrustFlags(crustFlags.IsAlive(), true);
         StoreCrustFlags(flattenedPoint, flagBits);
-        relief = AccretionStartRelief;
+        relief = ShapingConstants.AccretionStartRelief;
     }
 
     crustState.SetRelief(relief);
