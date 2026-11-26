@@ -94,3 +94,26 @@ void VolumeCS(uint3 threadId : SV_DispatchThreadID)
 {
     Lit[threadId.xy] = Volume.Load(int4(threadId.xy, 0, 0));
 }
+
+// Array images. The third value of ls_extent_3d on an array texture is its layer count (Lodestone C31): Layered states
+// 16x16 with 3 layers, and Layered4 the same extent with 4 layers.
+
+[ls_extent_3d("16", "16", "3")]
+Texture2DArray<float4> Layered;
+
+[ls_extent_3d("16", "16", "4")]
+Texture2DArray<float4> Layered4;
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void LayeredCS(uint3 threadId : SV_DispatchThreadID)
+{
+    Lit[threadId.xy] = Layered.Load(int4(threadId.xy, 2, 0));
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void Layered4CS(uint3 threadId : SV_DispatchThreadID)
+{
+    Lit[threadId.xy] = Layered4.Load(int4(threadId.xy, 3, 0));
+}

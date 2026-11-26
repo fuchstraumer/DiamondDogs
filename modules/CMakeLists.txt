@@ -63,6 +63,8 @@ else()
     # This module provides imgui as a basic debugging UI
     # that sits just BARELY over the resource and rendering contexts
     add_subdirectory(ImGuiModule)
+    # RAII layout containers, telemetry theme, and reusable editor controls over ImGui
+    add_subdirectory(EditorUi)
     # the self-describing tool surface for agents; depends on foundation only
     add_subdirectory(AgentTools)
 endif()
