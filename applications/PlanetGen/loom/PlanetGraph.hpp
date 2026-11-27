@@ -193,7 +193,9 @@ namespace planet_loom
     inline constexpr loom::PassKey k_DumpHealpixStatePass{ "Planet.DumpHealpixState" };
 
     // The same dump, placed inside the step right after a pass that kills, creates or reassigns cells. A stage dump
-    // runs one simulation step and captures the state at that point of it.
+    // runs one simulation step and captures the state at that point of it. Note: stages before RemoveSubductedCS
+    // (after_swap_to_majority, after_fill_gaps) capture k_FrontData from step N-1; after_remove_subducted and later
+    // capture step N's fronts.
     inline constexpr loom::PassKey k_DumpAfterSwapToMajorityPass{ "Planet.DumpHealpixState.AfterSwapToMajority" };
     inline constexpr loom::PassKey k_DumpAfterFillGapsPass{ "Planet.DumpHealpixState.AfterFillGaps" };
     inline constexpr loom::PassKey k_DumpAfterRemoveSubductedPass{ "Planet.DumpHealpixState.AfterRemoveSubducted" };

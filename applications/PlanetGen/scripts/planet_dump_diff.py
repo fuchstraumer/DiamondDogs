@@ -46,7 +46,15 @@ def classify(a: np.ndarray, b: np.ndarray, dt_my: float, plate_slots: int) -> np
     age_b = b["crust_age_my"].astype(np.float64)
     mismatch = np.abs(age_b - (age_a + dt_my))
     alive_b = (b["flags"] & PGHP_FLAG_ALIVE) != 0
-    born = owned_b & (age_b <= dt_my + AGE_TOLERANCE_MY) & (~owned_a | (age_a > age_b + AGE_TOLERANCE_MY))
+
+    if dt_my > AGE_TOLERANCE_MY:
+        # Crust born strictly after t_A has age_b <= dt_my - step_dt < dt_my; cells already born at t_A have
+        # age_b == dt_my and must not be double-counted when a neighbouring world point resamples onto them.
+        born = owned_b & (age_b < dt_my - AGE_TOLERANCE_MY)
+    else:
+        # Same-step stage diff (dt_my == 0): a cell created between stage A and stage B has age_b == 0 where A
+        # either had no owner or older crust.
+        born = owned_b & (age_b <= AGE_TOLERANCE_MY) & (~owned_a | (age_a > AGE_TOLERANCE_MY))
 
     out = np.full(a.shape[0], CLASSES.index("aged"), dtype=np.int8)
     out[same_owner & (mismatch > AGE_TOLERANCE_MY)] = CLASSES.index("resampled")
@@ -59,7 +67,7 @@ def classify(a: np.ndarray, b: np.ndarray, dt_my: float, plate_slots: int) -> np
 
 
 def interior_births(b: np.ndarray, born: np.ndarray, neighbors4: np.ndarray) -> np.ndarray:
-    """Births with 2 or more same-plate ocean neighbours older than JUMP_MY: new crust inside old crust."""
+    """Ocean births with 2 or more same-plate ocean neighbours older than JUMP_MY: new crust inside old crust."""
     ocean = (b["flags"] & PGHP_FLAG_CONTINENTAL) == 0
     age = b["crust_age_my"].astype(np.float64)
     owner = b["owner_plate"]
@@ -69,7 +77,7 @@ def interior_births(b: np.ndarray, born: np.ndarray, neighbors4: np.ndarray) -> 
         n = neighbors4[:, k]
         old_neighbours += (ocean[n] & (owner[n] == owner) & (age[n] > JUMP_MY)).astype(np.int8)
 
-    return born & (old_neighbours >= 2)
+    return born & ocean & (old_neighbours >= 2)
 
 
 def region_mask(order: int, box: list[float] | None) -> np.ndarray:
@@ -92,6 +100,9 @@ def diff(path_a: str, path_b: str, box: list[float] | None, plate: int | None, e
         raise ValueError("the two dumps have different HEALPix orders")
 
     dt_my = hb["time_my"] - ha["time_my"]
+
+    if dt_my < -AGE_TOLERANCE_MY:
+        raise ValueError(f"dump A ({ha['time_my']:.2f} My) is later than dump B ({hb['time_my']:.2f} My); pass earlier dump first")
     slots = max(ha["plate_slot_count"], hb["plate_slot_count"])
     cls = classify(a, b, dt_my, slots)
     mask = region_mask(ha["order"], box)

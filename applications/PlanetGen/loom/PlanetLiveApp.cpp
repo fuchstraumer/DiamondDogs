@@ -949,7 +949,8 @@ namespace planet_loom
             const int32_t savedMode = Sim.RenderMode;
             const int32_t savedProjection = Sim.RenderProjection;
             const bool overrideMode = mode >= 0 && mode <= 8 && mode != savedMode;
-            const bool overrideProjection = projection >= 0 && projection <= 5 && projection != savedProjection;
+            const bool overrideProjection = ShaderIndexToProjection(projection) != RenderProjection::Invalid &&
+                                            projection != savedProjection;
 
             if (overrideMode)
             {

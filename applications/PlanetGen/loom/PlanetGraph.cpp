@@ -533,10 +533,12 @@ namespace planet_loom
         DeclareBuffer(graph, k_PlateIncubation, loom::ResourceLifetime::Persistent, planet::BufferExtent::Plates, size);
 
         const bool interactive = config.LiveMode || config.InteractiveControl;
+        const bool persistDisplayBuffers = interactive || config.EnableStateDump;
 
-        // When interactive, RenderMapCS reads Owners/FrontData/CellFronts on paused frames so keep them persistent.
+        // When interactive or state dumps are enabled, RenderMapCS / pre-subduction stage dumps read
+        // Owners/FrontData/CellFronts before RemoveSubductedCS writes them, so keep them persistent.
         const loom::ResourceLifetime displayLifetime =
-            interactive ? loom::ResourceLifetime::Persistent : loom::ResourceLifetime::Frame;
+            persistDisplayBuffers ? loom::ResourceLifetime::Persistent : loom::ResourceLifetime::Frame;
 
         // 21 declared scratch / live-persistent buffers
         DeclareBuffer(graph, k_Owners, displayLifetime, planet::BufferExtent::PointsTimes4, size, loom::CpuAccess::Readback);
@@ -641,21 +643,21 @@ namespace planet_loom
 
         if (callbacks.ZeroCounters != nullptr)
         {
-            callbacks.ZeroCounters->SetIncludeLiveDisplayBuffers(interactive);
+            callbacks.ZeroCounters->SetIncludeLiveDisplayBuffers(persistDisplayBuffers);
             callbacks.ZeroCounters->SetIncludeTelemetryBuffers(telemetryEnabled);
         }
 
         const auto buildSequence = [&](loom::SequenceBuilder& seq)
         {
-            // 0. Zero persistent counters (plus interactive display and telemetry buffers)
-            const auto initPass = [interactive, telemetryEnabled, &callbacks](loom::RecordBuilder& pass)
+            // 0. Zero persistent counters (plus interactive/dump display and telemetry buffers)
+            const auto initPass = [persistDisplayBuffers, telemetryEnabled, &callbacks](loom::RecordBuilder& pass)
             {
                 for (const loom::ResourceKey<loom::Buffer>& counter : k_PersistentCounters)
                 {
                     pass.Uses(counter, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
                 }
 
-                if (interactive)
+                if (persistDisplayBuffers)
                 {
                     pass.Uses(k_FrontData, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
                     pass.Uses(k_CellFronts, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
@@ -675,6 +677,8 @@ namespace planet_loom
 
             // The 1D HEALPix state dump (planet.dump_state): one pass at the end of the sequence, and one stage pass
             // after each pass that kills, creates or reassigns cells. All are OnTrigger and write the same buffer.
+            // Note: stages placed before RemoveSubductedCS (after_swap_to_majority, after_fill_gaps) read k_FrontData
+            // from step N-1 because k_FrontData is Persistent and written in RemoveSubductedCS.
             const auto dumpState = [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::DumpHealpixStateCS;

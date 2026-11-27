@@ -4,9 +4,9 @@ RhiSystem is the Vulkan layer of DiamondDogs. It owns the instance, the device, 
 
 ## The start path: a device from its needs
 
-`RhiSystem` has two ways to start. The old constructor (`RhiSystem(const RhiSystemCreateInfo&)`) enables every
-feature that the device supports. The start path enables only what it is asked for. The boot stages use the start
-path; the old constructor goes away when every executable moves to the stages.
+`RhiSystem` starts in two steps, and enables only what it is asked for. The boot stages call these steps. The old
+constructor, which enabled every feature that the device supported, was deleted when every executable moved to the
+stages.
 
 ```cpp
 rhi::RhiSystem system;

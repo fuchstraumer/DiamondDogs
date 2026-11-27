@@ -4,6 +4,8 @@
 #include "DeviceCapability.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
+#include "LoomKeys.hpp"
+#include "PassStatements.hpp"
 #include "Records.hpp"
 #include "compile/CompiledData.hpp"
 #include "compile/PathChoice.hpp"
@@ -15,10 +17,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <iterator>
 #include <optional>
 #include <ranges>
+#include <source_location>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 

@@ -1269,7 +1269,7 @@ namespace
         static constexpr std::string_view Doc{ "Exports a compact binary snapshot (.pghp) of all 1D nested-HEALPix cells without 2D map projection. "
                                                "Stage 'end' captures the state now. A stage name (after_swap_to_majority, after_fill_gaps, "
                                                "after_remove_subducted, after_collision, after_erosion, after_rift) runs one step and "
-                                               "captures the state right after that pass." };
+                                               "captures the state right after that pass (front is from step N-1 before after_remove_subducted)." };
         using Params = planet_loom::DumpStateParams;
         using Reply = planet_loom::DumpStateReply;
 
