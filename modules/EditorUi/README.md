@@ -10,3 +10,5 @@
   - Non-copyable RAII layout scopes (`VBox`, `HBox`, `Grid`, `Card`, `PropertyRow`) backed by a compact `foundation::SmallVector` scope stack so nested containers inherit active slot bounds without heap allocations on normal UI depths.
   - Each `Slot()`, `Next()`, or `NextCell()` sets the ImGui cursor position, pushes item width for stock widgets, and returns a `Rect` for custom `ImDrawList` widgets.
 - **`UiControls`:** Telemetry-styled headers, key-value readouts, toggles, segmented selectors, artist sliders (with logarithmic scale and Ctrl-click text entry), and snapped angle sliders.
+- **`EditProposal`:** Deferred UI mutation records (`CommitKind`, `ProposalOp`, `EditProposal`, `EditProposalSink`, `ProposalBuffer`, and `ApplyEditProposal`) so inspector controls never write runtime structs directly.
+- **`Inspector` & `WidgetRegistry`:** Read-only reflection walker over `foundation::reflect::TypeInfo` and `FieldUiMetadata`, with extensible widget tag / type name overrides and optional `FieldDecorator` readouts for derived runtime values.
