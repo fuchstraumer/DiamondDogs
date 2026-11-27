@@ -1,3 +1,5 @@
+#include "BootResult.hpp"
+#include "DeviceRequirements.hpp"
 #include "DeviceConfig.hpp"
 #include "ImageDataFormats.hpp"
 #include "ResourceContext.hpp"
@@ -147,7 +149,9 @@ int main()
     deviceConfig.Validation = rhi::ValidationLayers::BaseOnly;
     deviceConfig.ApplicationName = "WebGpuResourceContextTest";
 
-    state.DeviceStage.StartHeadless(deviceConfig);
+    const bootstrap::DeviceRequirements requirements{};
+
+    state.DeviceStage.StartHeadless(requirements, deviceConfig);
     emscripten_set_main_loop_arg(&MainLoopTick, &state, 0, 1);
     return 0;
 }
@@ -1391,7 +1395,7 @@ void StepBooting(AppState& state)
     if (state.DeviceStage.HasFailed())
     {
         state.StatusLog = std::format("WebGpuResourceContextTest: device boot failed: {}",
-                                      state.DeviceStage.FailureMessage());
+                                      bootstrap::FormatFailure(state.DeviceStage.Failure()));
         FinishAllCases(state);
         return;
     }

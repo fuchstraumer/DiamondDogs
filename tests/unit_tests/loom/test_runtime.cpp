@@ -37,6 +37,12 @@ using namespace freeze_tests;
 
 namespace
 {
+    // Every pipeline made: the tests that are not about pipeline readiness
+    std::vector<loom::PipelineReadiness> ReadyPipelines(const loom::CompiledGraph& compiled)
+    {
+        return std::vector<loom::PipelineReadiness>(static_cast<size_t>(compiled.PipelineCount()),
+                                                    loom::PipelineReadiness::Ready);
+    }
 
     // these tests place nothing: every row has its own memory
     const loom::AliasLayout k_NoAliasing{};
@@ -171,7 +177,7 @@ namespace
                                          std::span<loom::PassControl> controls,
                                          loom::FramePlan& plan)
     {
-        loom::DecideRuns(compiled, resources, controls, {}, 0, plan);
+        loom::DecideRuns(compiled, resources, ReadyPipelines(compiled), controls, {}, 0, plan);
         loom::CommitRuns(compiled, plan, controls);
         return plan.Runs;
     }
@@ -335,7 +341,7 @@ namespace
                   std::span<loom::ResourceSync> sync,
                   loom::FramePlan& plan)
     {
-        loom::DecideRuns(compiled, resources, controls, {}, 0, plan);
+        loom::DecideRuns(compiled, resources, ReadyPipelines(compiled), controls, {}, 0, plan);
         loom::PlanBarriers(compiled, resources, sync, k_NoAliasing, 0, plan);
     }
 
@@ -396,7 +402,7 @@ TEST(Runtime, EveryPassRunsWhenEveryRowIsReady)
     loom::PrepareFramePlan(*compiled, plan);
     const std::vector<loom::ResourceState> resources = AllComplete(*compiled);
     const std::vector<loom::PassControl> controls(compiled->PassCount());
-    loom::DecideRuns(*compiled, resources, controls, {}, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, {}, 0, plan);
 
     EXPECT_EQ(plan.Runs, (std::vector<int32_t>{ k_FillPass, k_AgainPass }));
     EXPECT_EQ(plan.Decisions[k_FillPass].Reason, loom::SkipReason::Ran);
@@ -419,7 +425,7 @@ TEST(Runtime, APendingRowSkipsItsPasses)
     std::vector<loom::ResourceState> resources = AllComplete(*compiled);
     resources[output].Readiness = loom::ResourceReadiness::Created;
     resources[output2].Readiness = loom::ResourceReadiness::Pending;
-    loom::DecideRuns(*compiled, resources, controls, {}, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, {}, 0, plan);
 
     EXPECT_EQ(plan.Runs, (std::vector<int32_t>{ k_FillPass }));
     EXPECT_EQ(plan.Decisions[k_AgainPass].Reason, loom::SkipReason::NotCreated);
@@ -439,11 +445,69 @@ TEST(Runtime, AFailedRowStopsItsPasses)
 
     std::vector<loom::ResourceState> resources = AllComplete(*compiled);
     resources[output].Readiness = loom::ResourceReadiness::Failed;
-    loom::DecideRuns(*compiled, resources, controls, {}, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, {}, 0, plan);
 
     EXPECT_TRUE(plan.Runs.empty());
     EXPECT_EQ(plan.Decisions[k_FillPass].Reason, loom::SkipReason::Failed);
     EXPECT_EQ(plan.Decisions[k_FillPass].Cause, output);
+}
+
+// A pipeline that is still compiling stops its pass this Tick and names the pipeline. Fill initializes Output, so
+// Again, its reader, skips too (Q3g), as for a row that does not exist yet. Explain names the pipeline.
+TEST(Runtime, APendingPipelineSkipsItsPassAndItsReaders)
+{
+    loom::CollectingSink sink;
+    const std::optional<loom::CompiledGraph> compiled = CompileHashGraph(k_EveryFrame, sink);
+    ASSERT_TRUE(compiled.has_value());
+
+    const loom::CompiledData& data = compiled->Data();
+    const int32_t fillPipeline = data.LaidOut.Passes[k_FillPass].Pipeline;
+    ASSERT_NE(fillPipeline, data.LaidOut.Passes[k_AgainPass].Pipeline);
+
+    loom::FramePlan plan;
+    loom::PrepareFramePlan(*compiled, plan);
+    const std::vector<loom::ResourceState> resources = AllComplete(*compiled);
+    const std::vector<loom::PassControl> controls(compiled->PassCount());
+
+    std::vector<loom::PipelineReadiness> pipelines = ReadyPipelines(*compiled);
+    pipelines[fillPipeline] = loom::PipelineReadiness::Pending;
+    loom::DecideRuns(*compiled, resources, pipelines, controls, {}, 0, plan);
+
+    EXPECT_TRUE(plan.Runs.empty());
+    EXPECT_EQ(plan.Decisions[k_FillPass].Reason, loom::SkipReason::PipelinePending);
+    EXPECT_EQ(plan.Decisions[k_FillPass].Cause, fillPipeline);
+    EXPECT_EQ(plan.Decisions[k_AgainPass].Reason, loom::SkipReason::Propagated);
+    EXPECT_EQ(plan.Decisions[k_AgainPass].Cause, k_FillPass);
+    EXPECT_NE(loom::ExplainLastTick(*compiled, plan).find("is still being made"), std::string::npos);
+
+    // once it is made, both run
+    pipelines[fillPipeline] = loom::PipelineReadiness::Ready;
+    loom::DecideRuns(*compiled, resources, pipelines, controls, {}, 0, plan);
+    EXPECT_EQ(plan.Runs, (std::vector<int32_t>{ k_FillPass, k_AgainPass }));
+}
+
+// A failed pipeline stops its pass with its own reason; a pass with another pipeline is not affected by it directly.
+TEST(Runtime, AFailedPipelineStopsItsPass)
+{
+    loom::CollectingSink sink;
+    const std::optional<loom::CompiledGraph> compiled = CompileHashGraph(k_EveryFrame, sink);
+    ASSERT_TRUE(compiled.has_value());
+
+    const loom::CompiledData& data = compiled->Data();
+    const int32_t againPipeline = data.LaidOut.Passes[k_AgainPass].Pipeline;
+    loom::FramePlan plan;
+    loom::PrepareFramePlan(*compiled, plan);
+    const std::vector<loom::ResourceState> resources = AllComplete(*compiled);
+    const std::vector<loom::PassControl> controls(compiled->PassCount());
+
+    std::vector<loom::PipelineReadiness> pipelines = ReadyPipelines(*compiled);
+    pipelines[againPipeline] = loom::PipelineReadiness::Failed;
+    loom::DecideRuns(*compiled, resources, pipelines, controls, {}, 0, plan);
+
+    EXPECT_EQ(plan.Runs, (std::vector<int32_t>{ k_FillPass }));
+    EXPECT_EQ(plan.Decisions[k_AgainPass].Reason, loom::SkipReason::PipelineFailed);
+    EXPECT_EQ(plan.Decisions[k_AgainPass].Cause, againPipeline);
+    EXPECT_NE(loom::ExplainLastTick(*compiled, plan).find("failed"), std::string::npos);
 }
 
 // Q3g: Fill writes Output and never reads it, so it initializes it. A disabled Fill skips Again, its reader.
@@ -458,7 +522,7 @@ TEST(Runtime, ASkippedInitializingWriterSkipsItsReaders)
     const std::vector<loom::ResourceState> resources = AllComplete(*compiled);
     std::vector<loom::PassControl> controls(compiled->PassCount());
     controls[k_FillPass].Enabled = false;
-    loom::DecideRuns(*compiled, resources, controls, {}, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, {}, 0, plan);
 
     EXPECT_TRUE(plan.Runs.empty());
     EXPECT_EQ(plan.Decisions[k_FillPass].Reason, loom::SkipReason::Disabled);
@@ -478,11 +542,11 @@ TEST(Runtime, AOncePassRunsOnceAndKeepsItsReaders)
     const std::vector<loom::ResourceState> resources = AllComplete(*compiled);
     std::vector<loom::PassControl> controls(compiled->PassCount());
 
-    loom::DecideRuns(*compiled, resources, controls, {}, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, {}, 0, plan);
     EXPECT_EQ(plan.Runs, (std::vector<int32_t>{ k_FillPass, k_AgainPass }));
     loom::CommitRuns(*compiled, plan, controls);
 
-    loom::DecideRuns(*compiled, resources, controls, {}, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, {}, 0, plan);
     EXPECT_EQ(plan.Runs, (std::vector<int32_t>{ k_AgainPass }));
     EXPECT_EQ(plan.Decisions[k_FillPass].Reason, loom::SkipReason::Policy);
 }
@@ -619,7 +683,7 @@ TEST(Runtime, UnsetParamsAreLM703)
     loom::PrepareFramePlan(*compiled, plan);
     const std::vector<loom::ResourceState> resources = AllComplete(*compiled);
     const std::vector<loom::PassControl> controls(compiled->PassCount());
-    loom::DecideRuns(*compiled, resources, controls, {}, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, {}, 0, plan);
 
     loom::ParamsStore store;
     store.Prepare(*compiled);
@@ -785,7 +849,7 @@ TEST(Runtime, ExplainLastTickNamesEachDecision)
     std::vector<loom::ResourceState> resources = AllComplete(*compiled);
     const std::vector<loom::PassControl> controls(compiled->PassCount());
     resources[compiled->ResourceIndexOf(k_Output2.ToRef())].Readiness = loom::ResourceReadiness::Pending;
-    loom::DecideRuns(*compiled, resources, controls, {}, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, {}, 0, plan);
 
     const std::string text = loom::ExplainLastTick(*compiled, plan);
     EXPECT_EQ(text, "Runtime.Fill: ran\nRuntime.Again: skipped, 'Runtime.Output2' does not exist yet\n");
@@ -853,7 +917,7 @@ TEST(Runtime, ImageLayoutsChangeAtTheBatches)
     std::vector<loom::PassControl> controls(compiled->PassCount());
     std::vector<loom::ResourceSync> sync(compiled->Data().CopyRows.size());
 
-    loom::DecideRuns(*compiled, resources, controls, sync, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, sync, 0, plan);
     loom::PlanBarriers(*compiled, resources, sync, k_NoAliasing, 0, plan);
 
     ASSERT_GE(plan.Batches.size(), 3u);     // the clears, frame start, before Sample
@@ -879,7 +943,7 @@ TEST(Runtime, ImageLayoutsChangeAtTheBatches)
     }
 
     loom::CommitRuns(*compiled, plan, controls);
-    loom::DecideRuns(*compiled, resources, controls, sync, 1, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, sync, 1, plan);
     loom::PlanBarriers(*compiled, resources, sync, k_NoAliasing, 1, plan);
 
     ASSERT_FALSE(plan.Batches.empty());
@@ -938,7 +1002,7 @@ TEST(Runtime, AnEmptyHistoryCopyIsClearedFirst)
     std::vector<loom::PassControl> controls(compiled->PassCount());
     std::vector<loom::ResourceSync> sync(data.CopyRows.size());
 
-    loom::DecideRuns(*compiled, resources, controls, sync, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, sync, 0, plan);
     EXPECT_EQ(plan.Decisions[k_AccumulatePass].Reason, loom::SkipReason::Ran);
     EXPECT_EQ(plan.Clears, (std::vector<int32_t>{ previousCopy }));
 
@@ -957,7 +1021,7 @@ TEST(Runtime, AnEmptyHistoryCopyIsClearedFirst)
     EXPECT_EQ(toRead->Before.Accesses, rhi::Access::TransferWrite);
 
     loom::CommitRuns(*compiled, plan, controls);
-    loom::DecideRuns(*compiled, resources, controls, sync, 1, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, sync, 1, plan);
     EXPECT_TRUE(plan.Clears.empty());
 }
 
@@ -977,13 +1041,13 @@ TEST(Runtime, AnEmptyHistoryCopySkipsWithNoHistory)
     const std::vector<loom::PassControl> controls(compiled->PassCount());
     std::vector<loom::ResourceSync> sync(data.CopyRows.size());
 
-    loom::DecideRuns(*compiled, resources, controls, sync, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, sync, 0, plan);
     EXPECT_EQ(plan.Decisions[k_AccumulatePass].Reason, loom::SkipReason::NoHistory);
     EXPECT_EQ(plan.Decisions[k_AccumulatePass].Cause, counter);
     EXPECT_TRUE(plan.Clears.empty());
 
     sync[loom::CopyOf(data, counter, 0, true)].HasContents = true;
-    loom::DecideRuns(*compiled, resources, controls, sync, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, sync, 0, plan);
     EXPECT_EQ(plan.Decisions[k_AccumulatePass].Reason, loom::SkipReason::Ran);
 }
 
@@ -1209,7 +1273,7 @@ TEST(Alias, FirstUseWaitsForTheRowsThatShareItsBytes)
     std::vector<loom::PassControl> controls(compiled->PassCount());
     std::vector<loom::ResourceSync> sync(data.CopyRows.size());
 
-    loom::DecideRuns(*compiled, resources, controls, sync, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, sync, 0, plan);
     loom::PlanBarriers(*compiled, resources, sync, layout, 0, plan);
     ASSERT_EQ(plan.Runs.size(), 4u);
 
@@ -1233,7 +1297,7 @@ TEST(Alias, FirstUseWaitsForTheRowsThatShareItsBytes)
 
     // frame 1: ScratchA at level 0 waits for frame 0's last accesses of ScratchB
     loom::CommitRuns(*compiled, plan, controls);
-    loom::DecideRuns(*compiled, resources, controls, sync, 1, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, sync, 1, plan);
     loom::PlanBarriers(*compiled, resources, sync, layout, 1, plan);
 
     const loom::BarrierBatch* frameStart = batchBefore(0);
@@ -1257,7 +1321,7 @@ TEST(Alias, NoTakeoverWithoutAliasing)
     std::vector<loom::PassControl> controls(compiled->PassCount());
     std::vector<loom::ResourceSync> sync(compiled->Data().CopyRows.size());
 
-    loom::DecideRuns(*compiled, resources, controls, sync, 0, plan);
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, sync, 0, plan);
     loom::PlanBarriers(*compiled, resources, sync, k_NoAliasing, 0, plan);
 
     // FillB is run 2; ScratchB's read-after-write barrier before AgainB (run 3) is the normal one
@@ -1268,4 +1332,46 @@ TEST(Alias, NoTakeoverWithoutAliasing)
             EXPECT_EQ(BarrierOf(plan, batch, scratchB), nullptr);
         }
     }
+}
+
+// The takeover barrier is marked, so the backend knows where to put a poison fill. With poison on, even a takeover
+// that owes nothing (frame 0, no row touched the bytes yet) gets a barrier: the fill needs one before and after it.
+TEST(Alias, PoisonMarksEveryTakeover)
+{
+    loom::CollectingSink sink;
+    const std::optional<loom::CompiledGraph> compiled = CompileAliasGraph(sink);
+    ASSERT_TRUE(compiled.has_value()) << sink.Diagnostics().size() << " diagnostics";
+
+    const loom::CompiledData& data = compiled->Data();
+    const int32_t scratchA = compiled->ResourceIndexOf(k_ScratchA.ToRef());
+    loom::AliasLayout layout = loom::PackAliases(data.AliasCandidates, SameNeeds(2u, static_cast<uint64_t>(k_Bytes)), data.RowCount);
+    loom::FramePlan plan;
+    loom::PrepareFramePlan(*compiled, plan);
+    const std::vector<loom::ResourceState> resources = AllComplete(*compiled);
+    std::vector<loom::PassControl> controls(compiled->PassCount());
+
+    // without poison, ScratchA's first write on frame 0 owes nothing
+    std::vector<loom::ResourceSync> plain(data.CopyRows.size());
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, plain, 0, plan);
+    loom::PlanBarriers(*compiled, resources, plain, layout, 0, plan);
+
+    const auto takeoverOf = [&plan](int32_t row)
+    {
+        const auto matches = [row](const loom::PlannedBarrier& barrier)
+        {
+            return barrier.Resource == row && barrier.Takeover;
+        };
+
+        return std::ranges::any_of(plan.Barriers, matches);
+    };
+
+    EXPECT_FALSE(takeoverOf(scratchA));
+
+    layout.Poison = true;
+    std::vector<loom::ResourceSync> poisoned(data.CopyRows.size());
+    loom::DecideRuns(*compiled, resources, ReadyPipelines(*compiled), controls, poisoned, 0, plan);
+    loom::PlanBarriers(*compiled, resources, poisoned, layout, 0, plan);
+
+    EXPECT_TRUE(takeoverOf(scratchA));
+    EXPECT_TRUE(takeoverOf(compiled->ResourceIndexOf(k_ScratchB.ToRef())));
 }

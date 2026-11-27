@@ -9,6 +9,8 @@ set(BOOTSTRAP_VULKAN_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DeviceStage.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GpuStage.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/SpineNeeds.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/VulkanCapabilities.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/VulkanCapabilities.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/WindowStage.cpp"
 )
 

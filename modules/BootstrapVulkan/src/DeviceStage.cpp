@@ -3,7 +3,10 @@
 #include "BootTimings.hpp"
 #include "ContentStage.hpp"
 #include "CoreStage.hpp"
+#include "Device.hpp"
+#include "DeviceCapability.hpp"
 #include "DeviceConfig.hpp"
+#include "DeviceFilter.hpp"
 #include "DeviceRequirements.hpp"
 #include "LaunchStage.hpp"
 #include "PlatformSystem.hpp"
@@ -12,6 +15,7 @@
 #include "RhiFlags.hpp"
 #include "RhiSystem.hpp"
 #include "RhiSystemStart.hpp"
+#include "VulkanCapabilities.hpp"
 #include "WindowStage.hpp"
 #include <algorithm>
 #include <cstdint>
@@ -37,11 +41,27 @@ namespace
         std::vector<std::string_view> Declined;
     };
 
+    // a failure in the words of the needs: a Vulkan name that only a neutral capability asked for is reported as
+    // that capability, with the Vulkan name in the detail
+    struct NamedFailure
+    {
+        std::string Subject;
+        std::string Source;
+        std::string Detail;
+    };
+
     [[nodiscard]] RhiNeeds ToRhiNeeds(const bootstrap::DeviceRequirements& requirements, const bootstrap::DeviceConfig& config);
     [[nodiscard]] std::vector<rhi::DeviceNeed> ToRhiNeeds(std::span<const bootstrap::Need> needs);
+    [[nodiscard]] rhi::DeviceNeedLevel ToRhiLevel(bootstrap::NeedLevel level) noexcept;
+    // adds the need, or raises the level of the entry with its name: Required wins, as in GatherDeviceRequirements
+    void MergeRhiNeed(std::vector<rhi::DeviceNeed>& needs, std::string_view name, rhi::DeviceNeedLevel level);
+    void AddNeutralNeeds(RhiNeeds& needs, const bootstrap::DeviceRequirements& requirements, const bootstrap::DeviceConfig& config);
+    // the neutral capabilities whose Vulkan needs were all enabled, sorted
+    [[nodiscard]] std::vector<bootstrap::DeviceCapability> EnabledCapabilities(const bootstrap::DeviceRequirements& requirements,
+                                                                              const rhi::Device& device);
     // the source of the first need with this name, as "bundle/module/entry point", a module name, or "spine"
     [[nodiscard]] std::string SourceOf(const bootstrap::DeviceRequirements& requirements, std::string_view name);
-    [[nodiscard]] std::string FormatSource(const bootstrap::NeedSource& source);
+    [[nodiscard]] NamedFailure NameFailure(const bootstrap::DeviceRequirements& requirements, std::string subject, std::string detail);
     [[nodiscard]] bootstrap::BootResultCode DeviceFailureCode(rhi::RhiSystemResultCode code) noexcept;
     [[nodiscard]] bootstrap::BootResult DeviceFailure(bootstrap::BootResultCode code, std::string subject, std::string source, std::string detail);
 }
@@ -83,6 +103,7 @@ namespace bootstrap
         window = nullptr;
         content = nullptr;
         validation = rhi::ValidationLayers::None;
+        capabilities.clear();
     }
 
     bool DeviceStage::Started() const noexcept
@@ -117,6 +138,7 @@ namespace bootstrap
             .Supports = &rhi::RhiSystem::SupportsCapabilityFn,
             .User = rhi.get(),
             .Limits = rhi->Limits(),
+            .Capabilities = capabilities,
         };
     }
 
@@ -154,13 +176,13 @@ namespace bootstrap
 
         if (!instanceStarted.Succeeded())
         {
-            std::string source = SourceOf(requirements, instanceStarted.Subject);
+            NamedFailure named = NameFailure(requirements, std::move(instanceStarted.Subject), std::move(instanceStarted.Detail));
 
             Stop();
             return DeviceFailure(BootResultCode::InstanceCreateFailed,
-                                 std::move(instanceStarted.Subject),
-                                 std::move(source),
-                                 std::move(instanceStarted.Detail));
+                                 std::move(named.Subject),
+                                 std::move(named.Source),
+                                 std::move(named.Detail));
         }
 
         uint64_t presentSurface = 0u;
@@ -197,15 +219,14 @@ namespace bootstrap
 
         if (!deviceStarted.Succeeded())
         {
-            std::string source = SourceOf(requirements, deviceStarted.Subject);
+            const BootResultCode code = DeviceFailureCode(deviceStarted.Code);
+            NamedFailure named = NameFailure(requirements, std::move(deviceStarted.Subject), std::move(deviceStarted.Detail));
 
             Stop();
-            return DeviceFailure(DeviceFailureCode(deviceStarted.Code),
-                                 std::move(deviceStarted.Subject),
-                                 std::move(source),
-                                 std::move(deviceStarted.Detail));
+            return DeviceFailure(code, std::move(named.Subject), std::move(named.Source), std::move(named.Detail));
         }
 
+        capabilities = EnabledCapabilities(requirements, *rhi->GetDevice());
         context = rhi::MakeVulkanRhiContext(*rhi, validation != rhi::ValidationLayers::None);
 
         return SuccessIn(Stage::Device);
@@ -250,7 +271,90 @@ namespace
             needs.Declined.emplace_back(name);
         }
 
+        AddNeutralNeeds(needs, requirements, config);
         return needs;
+    }
+
+    rhi::DeviceNeedLevel ToRhiLevel(bootstrap::NeedLevel level) noexcept
+    {
+        if (level == bootstrap::NeedLevel::Required)
+        {
+            return rhi::DeviceNeedLevel::Required;
+        }
+
+        return rhi::DeviceNeedLevel::Wanted;
+    }
+
+    void MergeRhiNeed(std::vector<rhi::DeviceNeed>& needs, std::string_view name, rhi::DeviceNeedLevel level)
+    {
+        const auto found = std::ranges::find(needs, name, &rhi::DeviceNeed::Name);
+
+        if (found == needs.end())
+        {
+            needs.push_back(rhi::DeviceNeed{ .Name = name, .Level = level });
+            return;
+        }
+
+        if (level == rhi::DeviceNeedLevel::Required)
+        {
+            found->Level = rhi::DeviceNeedLevel::Required;
+        }
+    }
+
+    void AddNeutralNeeds(RhiNeeds& needs, const bootstrap::DeviceRequirements& requirements, const bootstrap::DeviceConfig& config)
+    {
+        for (const bootstrap::Need& need : requirements.NeutralCapabilities)
+        {
+            const rhi::DeviceNeedLevel level = ToRhiLevel(need.Level);
+            // a declined neutral name declines its Vulkan names. Declined has no effect on a Required need
+            const bool declined = level == rhi::DeviceNeedLevel::Wanted && std::ranges::contains(config.Declined, need.Name);
+
+            for (const bootstrap::VulkanEnable& enable : bootstrap::VulkanEnablesOf(need.Neutral))
+            {
+                std::vector<rhi::DeviceNeed>& kind = enable.Kind == bootstrap::NeedKind::DeviceExtension ?
+                                                     needs.DeviceExtensions :
+                                                     needs.DeviceFeatures;
+
+                MergeRhiNeed(kind, enable.Name, level);
+
+                if (declined)
+                {
+                    needs.Declined.push_back(enable.Name);
+                }
+            }
+        }
+    }
+
+    std::vector<bootstrap::DeviceCapability> EnabledCapabilities(const bootstrap::DeviceRequirements& requirements,
+                                                                 const rhi::Device& device)
+    {
+        std::vector<bootstrap::DeviceCapability> enabled;
+
+        for (const bootstrap::Need& need : requirements.NeutralCapabilities)
+        {
+            const auto isEnabled = [&device](const bootstrap::VulkanEnable& enable)
+            {
+                if (enable.Kind == bootstrap::NeedKind::DeviceExtension)
+                {
+                    return device.HasExtension(enable.Name);
+                }
+
+                return device.IsFeatureEnabled(enable.Name);
+            };
+            const std::span<const bootstrap::VulkanEnable> enables = bootstrap::VulkanEnablesOf(need.Neutral);
+
+            if (!enables.empty() && std::ranges::all_of(enables, isEnabled))
+            {
+                enabled.push_back(need.Neutral);
+            }
+        }
+
+        std::ranges::sort(enabled);
+
+        const auto [first, last] = std::ranges::unique(enabled);
+
+        enabled.erase(first, last);
+        return enabled;
     }
 
     std::vector<rhi::DeviceNeed> ToRhiNeeds(std::span<const bootstrap::Need> needs)
@@ -287,7 +391,7 @@ namespace
 
             if (found != needs.end())
             {
-                return FormatSource(found->Source);
+                return bootstrap::FormatNeedSource(found->Source);
             }
         }
 
@@ -295,19 +399,31 @@ namespace
         return "";
     }
 
-    std::string FormatSource(const bootstrap::NeedSource& source)
+    NamedFailure NameFailure(const bootstrap::DeviceRequirements& requirements, std::string subject, std::string detail)
     {
-        if (!source.BundleFile.empty())
+        std::string source = SourceOf(requirements, subject);
+
+        if (!source.empty())
         {
-            return std::format("{}/{}/{}", source.BundleFile, source.ShaderModule, source.EntryPoint);
+            return NamedFailure{ .Subject = std::move(subject), .Source = std::move(source), .Detail = std::move(detail) };
         }
 
-        if (!source.Module.empty())
+        for (const bootstrap::Need& need : requirements.NeutralCapabilities)
         {
-            return std::string{ source.Module };
+            const std::span<const bootstrap::VulkanEnable> enables = bootstrap::VulkanEnablesOf(need.Neutral);
+
+            if (std::ranges::contains(enables, std::string_view{ subject }, &bootstrap::VulkanEnable::Name))
+            {
+                return NamedFailure
+                {
+                    .Subject = std::string{ need.Name },
+                    .Source = bootstrap::FormatNeedSource(need.Source),
+                    .Detail = std::format("{}: {}", subject, detail),
+                };
+            }
         }
 
-        return "spine";
+        return NamedFailure{ .Subject = std::move(subject), .Source = "", .Detail = std::move(detail) };
     }
 
     bootstrap::BootResultCode DeviceFailureCode(rhi::RhiSystemResultCode code) noexcept

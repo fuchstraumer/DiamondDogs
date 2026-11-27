@@ -1,10 +1,12 @@
 #pragma once
 #ifndef DIAMOND_DOGS_BOOTSTRAP_DEVICE_STAGE_HPP
 #define DIAMOND_DOGS_BOOTSTRAP_DEVICE_STAGE_HPP
+#include "DeviceCapability.hpp"
+#include "DeviceFilter.hpp"
 #include "RhiContext.hpp"
 #include "RhiFlags.hpp"
-#include "ShaderManifestDevice.hpp"
 #include <memory>
+#include <vector>
 
 namespace rhi
 {
@@ -18,15 +20,6 @@ namespace bootstrap
     struct DeviceRequirements;
     class ContentStage;
     class WindowStage;
-
-    /** The device filter that a variant choice (ShaderLibrary, Loom's Resolve) takes. It answers from the enabled
-     *  set, never from the physical device. */
-    struct DeviceFilter
-    {
-        lodestone::manifest::CapabilitySupportFn Supports{ nullptr };
-        void* User{ nullptr };
-        lodestone::manifest::DeviceLimits Limits;
-    };
 
     /** @brief The stage that creates the instance, the window surface, and the device with only the enables that
      *  the requirements ask for. */
@@ -78,6 +71,8 @@ namespace bootstrap
         std::unique_ptr<rhi::RhiSystem> rhi;
         rhi::RhiContext context;
         rhi::ValidationLayers validation{ rhi::ValidationLayers::None };
+        // the neutral capabilities that the device was created with, sorted
+        std::vector<DeviceCapability> capabilities;
     };
 }
 

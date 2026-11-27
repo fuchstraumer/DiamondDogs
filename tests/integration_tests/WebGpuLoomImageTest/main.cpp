@@ -1,3 +1,5 @@
+#include "BootResult.hpp"
+#include "DeviceRequirements.hpp"
 #include "Compile.hpp"
 #include "CompiledGraph.hpp"
 #include "Declarations.hpp"
@@ -654,9 +656,8 @@ namespace
 
         if (state.DeviceStage.HasFailed())
         {
-            FinishTest(state, false, std::format("WebGpuLoomImageTest: device boot failed ({}): {}",
-                                                 static_cast<uint32_t>(state.DeviceStage.FailureCode()),
-                                                 state.DeviceStage.FailureMessage()));
+            FinishTest(state, false, std::format("WebGpuLoomImageTest: device boot failed: {}",
+                                                 bootstrap::FormatFailure(state.DeviceStage.Failure())));
             return;
         }
 
@@ -892,7 +893,9 @@ int main()
     deviceConfig.Validation = rhi::ValidationLayers::BaseOnly;
     deviceConfig.ApplicationName = "WebGpuLoomImageTest";
 
-    state.DeviceStage.StartHeadless(deviceConfig);
+    const bootstrap::DeviceRequirements requirements{};
+
+    state.DeviceStage.StartHeadless(requirements, deviceConfig);
     emscripten_set_main_loop_arg(&MainLoopTick, &state, 0, 1);
     return 0;
 }

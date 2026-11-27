@@ -100,4 +100,21 @@ namespace loom
         record->Sequences.push_back(std::move(*sequenceRecord));
     }
 
+    // Every path's passes get a declaration order, chosen or not: ChoosePaths drops the others, and Freeze sorts by the
+    // order and renumbers, so the gaps cost nothing.
+    void GraphBuilder::commitPaths(PathListBuilder& paths)
+    {
+        std::unique_ptr<PathListRecord> listRecord = paths.takeRecord();
+
+        for (PathRecord& path : listRecord->Paths)
+        {
+            for (PassRecord& pass : path.Body.Passes)
+            {
+                pass.DeclarationOrder = record->NextDeclarationOrder++;
+            }
+        }
+
+        record->PathLists.push_back(std::move(*listRecord));
+    }
+
 }

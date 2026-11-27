@@ -571,6 +571,7 @@ namespace
             .Device = device,
             .FrameSlots = 1,
             .Timestamps = options.Timestamps ? loom::PassTimestamps::On : loom::PassTimestamps::Off,
+            .Aliasing = loom::MemoryAliasing::Off,
             .Sink = sink,
             .FrameTargets = {},
             .TargetSettleSeconds = 0.0,
@@ -610,6 +611,22 @@ namespace
                      useBytes ? "bytes" : "words", options.PlumesEnabled ? "default" : "none");
 
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(k_TimeoutNs);
+
+        // a Tick before every row and pipeline exists skips the passes that need them, and that is not a whole step
+        while (!graph->Ready() && std::chrono::steady_clock::now() < deadline)
+        {
+            const ConsumerTimelineValue pending{ graph->Timeline(), graph->PendingValue() };
+            resources.Tick(std::span{ &pending, 1u });
+            std::this_thread::yield();
+        }
+
+        if (!graph->Ready())
+        {
+            std::println(stderr, "PlanetGenLoom: the graph resources did not come to exist before the first step");
+            graph.reset();
+            imports.Destroy(resources);
+            return false;
+        }
 
         for (uint32_t step = 0u; step < options.Steps; ++step)
         {

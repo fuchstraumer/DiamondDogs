@@ -16,6 +16,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <iterator>
 #include <limits>
 #include <span>
@@ -37,12 +38,20 @@ namespace
                   bootstrap::NeedKind kind,
                   bootstrap::NeedLevel level,
                   std::string_view module);
+    void AddNeutral(bootstrap::DeviceRequirements& requirements,
+                    std::span<const bootstrap::DeviceCapability> capabilities,
+                    bootstrap::NeedLevel level,
+                    std::string_view module);
     void AddModuleNeeds(bootstrap::DeviceRequirements& requirements, const bootstrap::ModuleDescriptor& descriptor);
-    void AddBundleNeeds(bootstrap::DeviceRequirements& requirements, const bootstrap::LoadedBundle& loaded);
+    void AddBundleNeeds(bootstrap::DeviceRequirements& requirements,
+                        const bootstrap::LoadedBundle& loaded,
+                        std::span<const bootstrap::EntryPointRef> wanted_only);
     void AddEntryPointNeeds(bootstrap::DeviceRequirements& requirements,
                             const bootstrap::LoadedBundle& loaded,
                             const manifest::EnvironmentView& environment,
-                            int32_t entry_point);
+                            int32_t entry_point,
+                            std::span<const bootstrap::EntryPointRef> wanted_only);
+    [[nodiscard]] bool IsWantedOnly(std::span<const bootstrap::EntryPointRef> wanted_only, const bootstrap::NeedSource& source) noexcept;
     [[nodiscard]] manifest::DeviceLimits InstanceLimits(const manifest::EntryPointInstanceView& instance) noexcept;
     // not actually smallest limits: one where each field is set to max, so KeepSmaller() sets values
     [[nodiscard]] manifest::DeviceLimits SmallestLimits() noexcept;
@@ -54,9 +63,16 @@ namespace bootstrap
 {
     DeviceRequirements GatherDeviceRequirements(const ContentStage& content, std::span<const Need> spine_needs)
     {
+        return GatherDeviceRequirements(content, spine_needs, std::span<const EntryPointRef>{});
+    }
+
+    DeviceRequirements GatherDeviceRequirements(const ContentStage& content,
+                                                std::span<const Need> extra_needs,
+                                                std::span<const EntryPointRef> wanted_only)
+    {
         DeviceRequirements requirements;
 
-        for (const Need& need : spine_needs)
+        for (const Need& need : extra_needs)
         {
             AddNeed(requirements, need);
         }
@@ -68,10 +84,25 @@ namespace bootstrap
 
         for (const LoadedBundle& loaded : content.Bundles())
         {
-            AddBundleNeeds(requirements, loaded);
+            AddBundleNeeds(requirements, loaded, wanted_only);
         }
 
         return requirements;
+    }
+
+    std::string FormatNeedSource(const NeedSource& source)
+    {
+        if (!source.BundleFile.empty())
+        {
+            return std::format("{}/{}/{}", source.BundleFile, source.ShaderModule, source.EntryPoint);
+        }
+
+        if (!source.Module.empty())
+        {
+            return std::string{ source.Module };
+        }
+
+        return "spine";
     }
 
     std::string_view ToString(NeedKind kind) noexcept
@@ -86,6 +117,8 @@ namespace bootstrap
             return "DeviceFeature";
         case NeedKind::Capability:
             return "Capability";
+        case NeedKind::NeutralCapability:
+            return "NeutralCapability";
         default:
             return "Invalid";
         }
@@ -117,6 +150,8 @@ namespace
             return requirements.DeviceExtensions;
         case bootstrap::NeedKind::DeviceFeature:
             return requirements.DeviceFeatures;
+        case bootstrap::NeedKind::NeutralCapability:
+            return requirements.NeutralCapabilities;
         default:
             return requirements.Capabilities;
         }
@@ -126,6 +161,8 @@ namespace
     {
         assert(need.Kind != bootstrap::NeedKind::Invalid && "a need must set its kind");
         assert(need.Level != bootstrap::NeedLevel::Invalid && "a need must set its level");
+        assert((need.Kind == bootstrap::NeedKind::NeutralCapability) == (need.Neutral != bootstrap::DeviceCapability::Invalid) &&
+               "a neutral need sets Neutral, and no other need does");
 
         std::vector<bootstrap::Need>& needs = NeedsOfKind(requirements, need.Kind);
         // tens of names per kind, so a linear search is cheaper than a map
@@ -177,9 +214,27 @@ namespace
         AddNames(requirements, needs.WantedDeviceExtensions, NeedKind::DeviceExtension, NeedLevel::Wanted, module);
         AddNames(requirements, needs.RequiredCapabilities, NeedKind::Capability, NeedLevel::Required, module);
         AddNames(requirements, needs.WantedCapabilities, NeedKind::Capability, NeedLevel::Wanted, module);
+        AddNeutral(requirements, needs.RequiredNeutralCapabilities, NeedLevel::Required, module);
+        AddNeutral(requirements, needs.WantedNeutralCapabilities, NeedLevel::Wanted, module);
     }
 
-    void AddBundleNeeds(bootstrap::DeviceRequirements& requirements, const bootstrap::LoadedBundle& loaded)
+    void AddNeutral(bootstrap::DeviceRequirements& requirements,
+                    std::span<const bootstrap::DeviceCapability> capabilities,
+                    bootstrap::NeedLevel level,
+                    std::string_view module)
+    {
+        for (const bootstrap::DeviceCapability capability : capabilities)
+        {
+            bootstrap::Need need = bootstrap::NeutralNeed(capability, level);
+
+            need.Source = bootstrap::NeedSource{ .Module = module };
+            AddNeed(requirements, need);
+        }
+    }
+
+    void AddBundleNeeds(bootstrap::DeviceRequirements& requirements,
+                        const bootstrap::LoadedBundle& loaded,
+                        std::span<const bootstrap::EntryPointRef> wanted_only)
     {
         for (const std::string_view moduleName : loaded.Bundle.ModuleNames())
         {
@@ -192,7 +247,7 @@ namespace
 
             for (int32_t entryPoint = 0; entryPoint < entryPointCount; ++entryPoint)
             {
-                AddEntryPointNeeds(requirements, loaded, **environment, entryPoint);
+                AddEntryPointNeeds(requirements, loaded, **environment, entryPoint, wanted_only);
             }
         }
     }
@@ -200,7 +255,8 @@ namespace
     void AddEntryPointNeeds(bootstrap::DeviceRequirements& requirements,
                             const bootstrap::LoadedBundle& loaded,
                             const manifest::EnvironmentView& environment,
-                            int32_t entry_point)
+                            int32_t entry_point,
+                            std::span<const bootstrap::EntryPointRef> wanted_only)
     {
         const int32_t variantCount = static_cast<int32_t>(std::ssize(environment.Variants()));
 
@@ -257,8 +313,6 @@ namespace
             KeepLarger(requirements.WantedLimits, limits);
         }
 
-        KeepLarger(requirements.RequiredLimits, smallest);
-
         const manifest::ModuleView& module = environment.Module();
         const manifest::EntryPoint& entryPointRecord = module.EntryPoints()[static_cast<size_t>(entry_point)];
         const bootstrap::NeedSource source
@@ -268,6 +322,13 @@ namespace
             .ShaderModule = module.Name(),
             .EntryPoint = module.Bundle().String(entryPointRecord.NameString),
         };
+        // a higher-tier entry point: a device below it must still boot, so it sets no Required need and no limit
+        const bool wantedOnly = IsWantedOnly(wanted_only, source);
+
+        if (!wantedOnly)
+        {
+            KeepLarger(requirements.RequiredLimits, smallest);
+        }
 
         // Now translate the bitsets into actual capability names that we can query and act on 
         // instead of just the lodestone-local indices into the capability table
@@ -280,7 +341,7 @@ namespace
                 const int32_t bit = std::countr_zero(remaining);
                 const uint64_t bitMask = uint64_t{ 1 } << bit;
                 const int32_t capability = (word * k_MaskWordBits) + bit;
-                const bool everyVariant = (every[static_cast<size_t>(word)] & bitMask) != 0u;
+                const bool everyVariant = (every[static_cast<size_t>(word)] & bitMask) != 0u && !wantedOnly;
 
                 AddNeed(requirements, bootstrap::Need
                 {
@@ -293,6 +354,18 @@ namespace
                 remaining &= ~bitMask;
             }
         }
+    }
+
+    bool IsWantedOnly(std::span<const bootstrap::EntryPointRef> wanted_only, const bootstrap::NeedSource& source) noexcept
+    {
+        const auto matches = [&source](const bootstrap::EntryPointRef& reference)
+        {
+            return reference.BundleFile == source.BundleFile &&
+                   reference.ShaderModule == source.ShaderModule &&
+                   reference.EntryPoint == source.EntryPoint;
+        };
+
+        return std::ranges::any_of(wanted_only, matches);
     }
 
     manifest::DeviceLimits InstanceLimits(const manifest::EntryPointInstanceView& instance) noexcept

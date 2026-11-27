@@ -4,6 +4,8 @@ set(BOOTSTRAP_WEBGPU_HEADERS
 )
 
 set(BOOTSTRAP_WEBGPU_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/WebGpuCapabilities.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/WebGpuCapabilities.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/WebGpuDeviceStage.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/WebGpuDisplay.cpp"
 )

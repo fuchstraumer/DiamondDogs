@@ -4,6 +4,7 @@
 #include "LoomKeys.hpp"
 #include "Declarations.hpp"
 #include "PassBuilders.hpp"
+#include "PathListBuilder.hpp"
 #include "SequenceBuilder.hpp"
 #include <memory>
 #include <string_view>
@@ -93,6 +94,16 @@ namespace loom
             commitSequence(builder);
         }
 
+        // Step 5: alternative bodies, one per device tier. The lambda gets a PathListBuilder; Compile keeps the first
+        // path that the device satisfies (or the one CompileInputs::ForcedPaths names).
+        template<typename Build>
+        void AddPaths(PathListKey list, Build&& build, std::source_location where = std::source_location::current())
+        {
+            PathListBuilder builder{ list, where };
+            std::forward<Build>(build)(builder);
+            commitPaths(builder);
+        }
+
         // What the builder recorded, for Freeze and for tests. GraphRecord is defined in src/Records.hpp.
         [[nodiscard]] const GraphRecord& Record() const noexcept;
 
@@ -100,6 +111,7 @@ namespace loom
         // The committers take the child builder, not its record: the records are incomplete in this header.
         void commitPass(PassBuilder& pass);
         void commitSequence(SequenceBuilder& sequence);
+        void commitPaths(PathListBuilder& paths);
 
         std::unique_ptr<GraphRecord> record;
     };

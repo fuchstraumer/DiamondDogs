@@ -249,6 +249,13 @@ namespace
     }
 
     // Every row complete; the frame target hands back in `final_layout`
+    // Every pipeline made: the tests that are not about pipeline readiness
+    std::vector<loom::PipelineReadiness> ReadyPipelines(const loom::CompiledGraph& compiled)
+    {
+        return std::vector<loom::PipelineReadiness>(static_cast<size_t>(compiled.PipelineCount()),
+                                                    loom::PipelineReadiness::Ready);
+    }
+
     std::vector<loom::ResourceState> ReadyStates(const loom::CompiledGraph& compiled, rhi::ImageLayout final_layout)
     {
         std::vector<loom::ResourceState> states(compiled.RowCount(),
@@ -324,7 +331,7 @@ namespace
         PlannedTick tick;
         loom::PrepareFramePlan(compiled, tick.Plan);
         tick.Sync.assign(compiled.Data().CopyRows.size(), loom::ResourceSync{});
-        loom::DecideRuns(compiled, states, controls, tick.Sync, 0, tick.Plan);
+        loom::DecideRuns(compiled, states, ReadyPipelines(compiled), controls, tick.Sync, 0, tick.Plan);
         loom::PlanBarriers(compiled, states, tick.Sync, k_NoAliasing, 0, tick.Plan);
         return tick;
     }

@@ -27,6 +27,7 @@ namespace bootstrap
         std::string ApplicationName{ "DiamondDogs Application" };
         // Wanted needs of any kind to leave off, so that the fallback paths run on a device that has them
         std::vector<std::string> Declined;
+        // WebGPU: Default is HighPerformance, because the device gets the adapter's own limits. Vulkan ignores it
         PowerPreference Power{ PowerPreference::Default };
     };
 

@@ -115,8 +115,9 @@ that was opened, and the `rhi::ShaderBundle`. `ContentStage.hpp` only forward-de
 
 `GatherDeviceRequirements(content, spine_needs)` is a pure function. It reads no device. It returns the union of three
 sources, in this order: the spine needs (each one sets its `NeedKind`), the `ModuleNeeds` of each selected module, and
-every entry point of every open bundle. The needs go in four lists by kind: instance extensions, device extensions,
-device features (`Struct.member`, for example `VkPhysicalDeviceVulkan13Features.synchronization2`) and capabilities.
+every entry point of every open bundle. The needs go in five lists by kind: instance extensions, device extensions,
+device features (`Struct.member`, for example `VkPhysicalDeviceVulkan13Features.synchronization2`), shader
+capabilities, and neutral capabilities.
 
 For one entry point, the rule comes from the capability masks in the manifest:
 
@@ -143,6 +144,46 @@ Two sets of limits:
 
 Push constant bytes count only for an entry point whose constants are push constants. The workgroup size and the
 invocations count only for compute.
+
+**Entry points of a fallback path.** A path list (Loom) has one body per device tier, and chooses one when the device
+exists. The rule above makes a capability of every variant `Required`, so an entry point that only the higher tier
+runs would stop a device without it from booting, before Loom can choose the lower path. The overload
+`GatherDeviceRequirements(content, extra_needs, wanted_only)` takes those entry points as `EntryPointRef` (the bundle's
+request file name, the shader module and the entry point, as `NeedSource` spells them). Their capabilities are
+`Wanted`, and their limits raise `WantedLimits` only. A `Required` need from another entry point or from `extra_needs`
+stays `Required`: the caller lists the last path's needs as `Required` there. The two-argument function is the same
+call with no entry point listed.
+
+### Neutral capabilities
+
+`DeviceCapability` (`DeviceCapability.hpp`) names a capability in no API's vocabulary: `DrawIndirectCount` today, and
+mesh shaders, ray query and others as Loom's tiers arrive. The header includes no graphics API and no other Bootstrap
+header, so Loom's core reads it and still links no RHI.
+
+- A need carries one as `NeedKind::NeutralCapability`, with `Need::Neutral` set and `Name` set to its neutral name.
+  `NeutralNeed(capability, level)` builds one. `ModuleNeeds` has `RequiredNeutralCapabilities` and
+  `WantedNeutralCapabilities`.
+- Each device stage maps the value to its own API's needs, at the same level, through its own table: Vulkan
+  `VkPhysicalDeviceVulkan12Features.drawIndirectCount`, WebGPU `MultiDrawIndirect` (Chrome offers it only with the
+  unsafe-WebGPU flag today). A table entry is a list, because one capability can need an extension and several
+  features. The device has the capability only when it has every entry.
+- `Declined` takes the neutral name, and the stage then declines every API name that it maps to. One switch tests a
+  fallback path on both backends.
+- A failure names the neutral capability: `Subject` is the neutral name, `Source` is where the need came from, and
+  `Detail` names the API need that the device lacks.
+- `DeviceFilter::Capabilities` lists the neutral capabilities that the device was created with, sorted.
+  `HasCapability(filter, capability)` answers from it, so a path choice never asks the device again.
+
+No neutral name may also be a shader capability name, because `Declined` matches names of every kind.
+`bootstrap_vulkan_tests` checks the names against Lodestone's Vulkan capability table.
+
+### DeviceFilter
+
+`DeviceFilter` (`DeviceFilter.hpp`) is what the device was created with, in the shape that a variant choice
+(`ShaderLibrary`, Loom's Compile) takes: the supports function and its user pointer, the limits, and the neutral
+capabilities. It holds no graphics API type, so every device stage returns the same type. It answers from the enabled
+set, never from the physical device, so a choice cannot pick code that needs something the device was created without.
+Its views point into the stage, so it must not outlive the stage's `Stop`.
 
 ## The device stages (`bootstrap_vulkan`)
 
@@ -196,14 +237,12 @@ pass in silence.
 }
 ```
 
-`Declined` takes Wanted needs of every kind: extensions, features and capabilities. The device is then created
+`Declined` takes Wanted needs of every kind: extensions, features, capabilities and neutral names. The device is then created
 without them, so the fallback paths run on a device that has them, for example on the RTX 4080. A declined name has no
 effect on a Required need. It also does not stop an enable that another need pulls in: a capability whose enable is
 the declined extension still enables it.
 
-**`DeviceFilter`.** `DeviceStage::Filter()` returns the supports function, its user pointer and the device limits,
-in the shape that Lodestone's variant filter and Loom's Resolve take. It answers from the enabled set, never from the
-physical device, so a variant choice cannot pick code that needs something the device was created without.
+**`DeviceFilter`.** `DeviceStage::Filter()` returns the `DeviceFilter` that the section above describes.
 
 **A failure names the need and where it came from.** `NoDeviceMeetsRequirements` sets `Subject` to the unmet need,
 `Source` to where it came from (`bundle/module/entry point`, a module name, or `spine`) and `Detail` to the closest
@@ -212,6 +251,34 @@ device and the reason. For a limit or present support, `Subject` is the limit's 
 
 `GpuStartContext` gives a GPU module every stage. `Core()` is `const`, as `ContentStage` holds it, so a GPU module does
 not reach the Scheduler. `Require` finds a dependency among the GPU modules first, then among the core modules.
+
+## The WebGPU device stage (`bootstrap_webgpu`)
+
+`WebGpuDeviceStage` is built only in the Emscripten configuration. The browser answers the adapter and device
+requests asynchronously, so the stage is a state machine: `Start` (or `StartHeadless`) requests the adapter, and
+`Step`, called each frame, moves it on until `IsReady` or `HasFailed`. It takes the same `DeviceRequirements` and
+`DeviceConfig` as the Vulkan stage, and applies the same rules:
+
+- A Required need that the adapter lacks fails the boot. A Wanted need is requested when the adapter has it. A
+  declined Wanted need is left off.
+- The kinds map as follows. A shader capability is a WGSL `enable` name (`f16` needs `shader-f16`). A device feature
+  is a WebGPU feature name in the JavaScript spelling (`timestamp-query`). A neutral capability maps through the
+  stage's table. WebGPU has no extensions, so a Required Vulkan extension fails the boot, and a Wanted one is skipped.
+  A Required name that WebGPU has no feature for also fails.
+- **Limits.** The device gets the adapter's own limits, not WebGPU's defaults. On the RTX 4080 that is 32768 bytes of
+  workgroup storage and 1024 invocations, where the defaults are 16384 and 256. Loom's Compile and the variant filter
+  then check against what the hardware has. The boot fails when `RequiredLimits` is above the adapter. WGSL has no
+  push constants (Lodestone delivers them in a uniform buffer), so `MaxPushConstantBytes` is not checked.
+- **The adapter.** `PowerPreference::Default` asks for the high-performance adapter, because the limits come from
+  the adapter. Chrome on Windows ignores the preference today (crbug.com/369219127), so there the system chooses the
+  GPU.
+- A failure is a `BootResult` (`Failure()`), with the same `Subject`, `Source` and `Detail` as the Vulkan stage.
+  `AdapterRequestFailed` is the code when the browser gives no adapter.
+- `Filter()` returns the `DeviceFilter`. Its supports function answers for the WGSL enable names whose features the
+  device has. The stage keeps that set on the heap, so the filter stays valid when the stage moves.
+
+`WebGpuBootTest` (`tests/integration_tests/WebGpuBootTest`) proves the rules in the browser. Serve
+`build/emscripten/tests/integration_tests` on 127.0.0.1, open the page, and read `window.__ddTestPassed`.
 
 ## Modules
 

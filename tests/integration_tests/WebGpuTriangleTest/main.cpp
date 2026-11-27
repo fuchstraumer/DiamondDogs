@@ -1,3 +1,5 @@
+#include "BootResult.hpp"
+#include "DeviceRequirements.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceContextWebGpu.hpp"
 #include "RhiContext.hpp"
@@ -95,7 +97,9 @@ int main()
     surfaceConfig.Width = 800u;
     surfaceConfig.Height = 600u;
 
-    state.DeviceStage.Start(deviceConfig, surfaceConfig);
+    const bootstrap::DeviceRequirements requirements{};
+
+    state.DeviceStage.Start(requirements, deviceConfig, surfaceConfig);
     emscripten_set_main_loop_arg(&MainLoopTick, &state, 0, 1);
     return 0;
 }
@@ -307,9 +311,8 @@ void MainLoopTick(void* user_data)
         if (state.DeviceStage.HasFailed())
         {
             std::println(stderr,
-                         "[WebGpuTriangleTest] boot failed ({}): {}",
-                         static_cast<uint32_t>(state.DeviceStage.FailureCode()),
-                         state.DeviceStage.FailureMessage());
+                         "[WebGpuTriangleTest] boot failed: {}",
+                         bootstrap::FormatFailure(state.DeviceStage.Failure()));
             state.Failed = true;
             EM_ASM(
                 window['__ddWebGpuError'] = true;
@@ -322,6 +325,13 @@ void MainLoopTick(void* user_data)
         {
             return;
         }
+
+        // the device gets the adapter's own limits: WebGPU's defaults are 16384 bytes and 256 invocations
+        const bootstrap::DeviceFilter filter = state.DeviceStage.Filter();
+
+        std::println("[WebGpuTriangleTest] device limits: workgroup storage {} bytes, {} invocations per workgroup",
+                     filter.Limits.MaxWorkgroupMemoryBytes,
+                     filter.Limits.MaxInvocationsPerWorkgroup);
     }
 
     if (!state.InitializedPipeline)

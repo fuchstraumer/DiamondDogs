@@ -1,6 +1,7 @@
 #include "BootResult.hpp"
 #include "ContentStage.hpp"
 #include "CoreStage.hpp"
+#include "DeviceCapability.hpp"
 #include "DeviceRequirements.hpp"
 #include "LaunchStage.hpp"
 #include "LoadedBundle.hpp"
@@ -17,6 +18,7 @@
 using bootstrap::BundleRequest;
 using bootstrap::ContentStage;
 using bootstrap::CoreStage;
+using bootstrap::DeviceCapability;
 using bootstrap::DeviceRequirements;
 using bootstrap::LaunchStage;
 using bootstrap::ModuleDescriptor;
@@ -231,6 +233,96 @@ TEST(DeviceRequirements, LimitsComeFromTheEntryPoints)
     EXPECT_EQ(wanted.MaxWorkgroupSizeY, required.MaxWorkgroupSizeY);
     EXPECT_EQ(wanted.MaxWorkgroupSizeZ, required.MaxWorkgroupSizeZ);
     EXPECT_EQ(wanted.MaxPushConstantBytes, required.MaxPushConstantBytes);
+}
+
+TEST(DeviceRequirements, ANeutralNeedGoesToTheNeutralList)
+{
+    const std::array<Need, 1> spine{ bootstrap::NeutralNeed(DeviceCapability::DrawIndirectCount, NeedLevel::Wanted) };
+    const BootedContent booted(std::span<const ModuleDescriptor>{}, std::span<const BundleRequest>{});
+    const DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(booted.content, spine);
+
+    ASSERT_EQ(requirements.NeutralCapabilities.size(), 1u);
+    EXPECT_EQ(requirements.NeutralCapabilities[0].Name, "DrawIndirectCount");
+    EXPECT_EQ(requirements.NeutralCapabilities[0].Kind, NeedKind::NeutralCapability);
+    EXPECT_EQ(requirements.NeutralCapabilities[0].Neutral, DeviceCapability::DrawIndirectCount);
+    EXPECT_EQ(requirements.NeutralCapabilities[0].Level, NeedLevel::Wanted);
+    EXPECT_TRUE(requirements.Capabilities.empty());
+    EXPECT_TRUE(requirements.DeviceFeatures.empty());
+}
+
+TEST(DeviceRequirements, EveryNeutralNameReadsBack)
+{
+    for (uint16_t value = 1u; value <= static_cast<uint16_t>(bootstrap::k_LastDeviceCapability); ++value)
+    {
+        const DeviceCapability capability = static_cast<DeviceCapability>(value);
+
+        EXPECT_NE(bootstrap::ToString(capability), "Invalid") << value;
+        EXPECT_EQ(bootstrap::DeviceCapabilityFromName(bootstrap::ToString(capability)), capability) << value;
+    }
+
+    EXPECT_EQ(bootstrap::DeviceCapabilityFromName("drawIndirectCount"), DeviceCapability::Invalid);
+}
+
+// the higher-tier entry point of a path list: its needs must not stop a device without them from booting
+TEST(DeviceRequirements, AWantedOnlyEntryPointSetsNoRequiredNeed)
+{
+    const std::array<bootstrap::EntryPointRef, 1> wantedOnly
+    {
+        bootstrap::EntryPointRef
+        {
+            .BundleFile = bootstrap_tests::k_BootNeedsRequest.FileName,
+            .ShaderModule = "BootNeedsWave",
+            .EntryPoint = "WaveSumCS",
+        },
+    };
+    const BootedContent booted(std::span<const ModuleDescriptor>{}, k_AppBundles);
+    const DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(booted.content, std::span<const Need>{}, wantedOnly);
+    const Need* int64 = FindNeed(requirements.Capabilities, k_Int64Capability);
+
+    // PlainFillCS still needs Int64 in every variant, so it stays Required, with that entry point's source
+    ASSERT_NE(int64, nullptr) << DescribeNeeds(requirements.Capabilities);
+    EXPECT_EQ(int64->Level, NeedLevel::Required);
+    EXPECT_EQ(int64->Source.EntryPoint, "PlainFillCS");
+
+    // WaveSumCS's 256 bytes of workgroup memory are Wanted only. PlainFillCS uses none
+    EXPECT_EQ(requirements.RequiredLimits.MaxWorkgroupMemoryBytes, 0u);
+    EXPECT_EQ(requirements.WantedLimits.MaxWorkgroupMemoryBytes, 256u);
+    EXPECT_EQ(requirements.RequiredLimits.MaxWorkgroupSizeX, 8u);
+}
+
+TEST(DeviceRequirements, EveryEntryPointWantedOnlyMakesEveryCapabilityWanted)
+{
+    const std::array<bootstrap::EntryPointRef, 2> wantedOnly
+    {
+        bootstrap::EntryPointRef
+        {
+            .BundleFile = bootstrap_tests::k_BootNeedsRequest.FileName,
+            .ShaderModule = "BootNeedsWave",
+            .EntryPoint = "WaveSumCS",
+        },
+        bootstrap::EntryPointRef
+        {
+            .BundleFile = bootstrap_tests::k_BootNeedsRequest.FileName,
+            .ShaderModule = "BootNeedsPlain",
+            .EntryPoint = "PlainFillCS",
+        },
+    };
+    const std::array<Need, 1> extra
+    {
+        Need{ .Name = k_WaveCapability, .Kind = NeedKind::Capability, .Level = NeedLevel::Required },
+    };
+    const BootedContent booted(std::span<const ModuleDescriptor>{}, k_AppBundles);
+    const DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(booted.content, extra, wantedOnly);
+    const Need* int64 = FindNeed(requirements.Capabilities, k_Int64Capability);
+    const Need* wave = FindNeed(requirements.Capabilities, k_WaveCapability);
+
+    ASSERT_NE(int64, nullptr) << DescribeNeeds(requirements.Capabilities);
+    EXPECT_EQ(int64->Level, NeedLevel::Wanted);
+    // a Required extra need stays Required: the caller's last path needs it
+    ASSERT_NE(wave, nullptr);
+    EXPECT_EQ(wave->Level, NeedLevel::Required);
+    EXPECT_EQ(requirements.RequiredLimits.MaxWorkgroupSizeX, 0u);
+    EXPECT_EQ(requirements.WantedLimits.MaxWorkgroupSizeX, 64u);
 }
 
 namespace

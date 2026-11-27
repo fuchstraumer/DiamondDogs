@@ -1,3 +1,5 @@
+#include "BootResult.hpp"
+#include "DeviceRequirements.hpp"
 #include "Compile.hpp"
 #include "CompiledGraph.hpp"
 #include "Declarations.hpp"
@@ -131,7 +133,9 @@ int main()
     deviceConfig.Validation = rhi::ValidationLayers::BaseOnly;
     deviceConfig.ApplicationName = "WebGpuLoomComputeTest";
 
-    state.DeviceStage.StartHeadless(deviceConfig);
+    const bootstrap::DeviceRequirements requirements{};
+
+    state.DeviceStage.StartHeadless(requirements, deviceConfig);
     emscripten_set_main_loop_arg(&MainLoopTick, &state, 0, 1);
     return 0;
 }
@@ -440,9 +444,8 @@ void StepBooting(AppState& state)
     {
         FinishTest(state,
                    false,
-                   std::format("WebGpuLoomComputeTest: device boot failed ({}): {}",
-                               static_cast<uint32_t>(state.DeviceStage.FailureCode()),
-                               state.DeviceStage.FailureMessage()));
+                   std::format("WebGpuLoomComputeTest: device boot failed: {}",
+                               bootstrap::FormatFailure(state.DeviceStage.Failure())));
         return;
     }
 

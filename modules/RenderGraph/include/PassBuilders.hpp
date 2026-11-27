@@ -16,6 +16,7 @@ namespace loom
     struct PassRecord;
     class GraphBuilder;
     class SequenceBuilder;
+    class PathBuilder;
 
     // What every pass builder has: the record, and its place among the anchors. Every call records; none checks or
     // fails (Freeze judges). Only GraphBuilder and SequenceBuilder can make a builder, so a builder cannot exist
@@ -42,6 +43,7 @@ namespace loom
     private:
         friend class GraphBuilder;
         friend class SequenceBuilder;
+        friend class PathBuilder;
 
         // Hands the finished record to the committer. The builder is empty afterwards.
         [[nodiscard]] std::unique_ptr<PassRecord> takeRecord() noexcept;
@@ -117,6 +119,7 @@ namespace loom
     private:
         friend class GraphBuilder;
         friend class SequenceBuilder;
+        friend class PathBuilder;
 
         DispatchBuilder(PassKey pass, RunPolicy run_policy, QueueAffinity queue_affinity, std::source_location where);
     };
@@ -168,6 +171,7 @@ namespace loom
     private:
         friend class GraphBuilder;
         friend class SequenceBuilder;
+        friend class PathBuilder;
 
         DrawBuilder(PassKey pass, RunPolicy run_policy, QueueAffinity queue_affinity, std::source_location where);
     };
@@ -193,6 +197,7 @@ namespace loom
     private:
         friend class GraphBuilder;
         friend class SequenceBuilder;
+        friend class PathBuilder;
 
         RecordBuilder(PassKey pass, RunPolicy run_policy, QueueAffinity queue_affinity, std::source_location where);
     };

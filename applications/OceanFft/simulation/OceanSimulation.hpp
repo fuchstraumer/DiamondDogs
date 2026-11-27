@@ -77,6 +77,7 @@ namespace ocean
         float SwellSpread{ 2.0f };               // narrows the swell's spreading lobe, like SwellAmount for the wind sea
         float SwellFadeLength{ 1.0f };           // m: a swell has no short waves
         uint32_t EnergySpectrumModel{ 0u };      // 0 JONSWAP, 1 Elfouhaily, 2 Bringer
+        uint32_t Pad0{0u};
     };
 
     /** @brief CascadeParameters in OceanFftCommon.slang, std140. Each per-cascade array is float4[2] in the shader, so

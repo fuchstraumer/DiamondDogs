@@ -89,7 +89,7 @@ namespace
         static_assert(std::is_trivially_copyable_v<T> && !std::is_pointer_v<T>,
                       "StartLifetimeAsArray requires trivially copyable non-pointer types");
 
-#if defined(__cpp_lib_start_lifetime_as)
+#ifdef __cpp_lib_start_lifetime_as
         return std::start_lifetime_as_array<T>(data, count);
 #else
         static_cast<void>(count);

@@ -73,6 +73,8 @@ namespace bootstrap
             return "NoDeviceMeetsRequirements";
         case BootResultCode::DeviceCreateFailed:
             return "DeviceCreateFailed";
+        case BootResultCode::AdapterRequestFailed:
+            return "AdapterRequestFailed";
         case BootResultCode::SwapchainCreateFailed:
             return "SwapchainCreateFailed";
         case BootResultCode::ResourceContextFailed:

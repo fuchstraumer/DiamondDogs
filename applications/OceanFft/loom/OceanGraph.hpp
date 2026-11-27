@@ -2,16 +2,30 @@
 #ifndef DIAMOND_DOGS_OCEAN_LOOM_GRAPH_HPP
 #define DIAMOND_DOGS_OCEAN_LOOM_GRAPH_HPP
 #include "LoomKeys.hpp"
+#include "ResourceTypes.hpp"
 
 namespace loom
 {
     class GraphBuilder;
+    class Graph;
 }
+
+class ResourceContext;
 
 // The OceanFft frame as one Loom graph. Each Register function adds one stage of the frame. The shell fills in only
 // RegisterUi; the other stages are empty, and the port fills them in.
 namespace ocean_loom
 {
+    struct SimulationImports
+    {
+        GraphicsResource CascadeParams;
+        GraphicsResource SpectrumParams;
+        GraphicsResource NormalizationLut;
+    };
+
+    [[nodiscard]] SimulationImports SupplySimulation(loom::Graph& graph, ResourceContext& resource_context);
+    void SetSimulationParams(loom::Graph& graph, float time_seconds, float choppiness);
+
     inline constexpr loom::FrameTargetKey k_Screen{ "Ocean.Screen" };
 
     // Declares the screen target and its Output. Without a writer that runs, the screen is cleared to this color.

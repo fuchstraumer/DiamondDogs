@@ -161,6 +161,9 @@ namespace loom
     using PassKey = BaseKey<struct PassTag>;
     using SequenceKey = BaseKey<struct SequenceTag>;
     using FrameTargetKey = BaseKey<struct FrameTargetTag>;
+    // Path lists (step 5): a list of alternative bodies, and one alternative in it
+    using PathListKey = BaseKey<struct PathListTag>;
+    using PathKey = BaseKey<struct PathTag>;
 
     template<typename T>
     struct ParamsKey

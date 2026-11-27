@@ -2,7 +2,9 @@
 #include "ContentStage.hpp"
 #include "CoreStage.hpp"
 #include "Device.hpp"
+#include "DeviceCapability.hpp"
 #include "DeviceConfig.hpp"
+#include "DeviceFilter.hpp"
 #include "DeviceRequirements.hpp"
 #include "DeviceStage.hpp"
 #include "GpuStage.hpp"
@@ -17,6 +19,7 @@
 #include "ResourceTypes.hpp"
 #include "RhiSystem.hpp"
 #include "SpineNeeds.hpp"
+#include "VulkanCapabilityTable.hpp"
 #include "Swapchain.hpp"
 #include "WindowStage.hpp"
 #include <gtest/gtest.h>
@@ -35,6 +38,7 @@ using bootstrap::BootResult;
 using bootstrap::BootResultCode;
 using bootstrap::ContentStage;
 using bootstrap::CoreStage;
+using bootstrap::DeviceCapability;
 using bootstrap::DeviceConfig;
 using bootstrap::DeviceRequirements;
 using bootstrap::DeviceStage;
@@ -42,6 +46,7 @@ using bootstrap::GpuStage;
 using bootstrap::LaunchStage;
 using bootstrap::ModuleDescriptor;
 using bootstrap::Need;
+using bootstrap::NeedLevel;
 using bootstrap::Stage;
 
 namespace
@@ -50,6 +55,7 @@ namespace
     constexpr std::string_view k_TimelineFeature{ "VkPhysicalDeviceVulkan12Features.timelineSemaphore" };
     constexpr std::string_view k_Sync2Feature{ "VkPhysicalDeviceVulkan13Features.synchronization2" };
     constexpr std::string_view k_MemoryBudget{ "VK_EXT_memory_budget" };
+    constexpr std::string_view k_DrawIndirectCountFeature{ "VkPhysicalDeviceVulkan12Features.drawIndirectCount" };
 
     struct CoreObject
     {
@@ -227,6 +233,62 @@ TEST(BootstrapVulkan, ADeclinedWantedExtensionIsLeftOff)
 
     ASSERT_TRUE(declinedStarted.Succeeded()) << bootstrap::FormatFailure(declinedStarted);
     EXPECT_FALSE(declined.Rhi().GetDevice()->HasExtension(k_MemoryBudget));
+}
+
+TEST(BootstrapVulkan, ANeutralCapabilityMapsToItsFeatureAndReachesTheFilter)
+{
+    const BootedContent booted(std::span<const ModuleDescriptor>{}, {});
+    std::vector<Need> spine = bootstrap::HeadlessSpineNeeds();
+
+    spine.push_back(bootstrap::NeutralNeed(DeviceCapability::DrawIndirectCount, NeedLevel::Wanted));
+
+    const DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(booted.content, spine);
+    DeviceStage wanted;
+    const BootResult wantedStarted = wanted.StartHeadless(booted.content, requirements, ValidatedConfig());
+
+    ASSERT_TRUE(wantedStarted.Succeeded()) << bootstrap::FormatFailure(wantedStarted);
+
+    // ask the physical device, not the enabled set: a broken mapping must fail here, not skip
+    VkPhysicalDeviceVulkan12Features features12{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+    VkPhysicalDeviceFeatures2 features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &features12 };
+
+    vkGetPhysicalDeviceFeatures2(wanted.Rhi().GetDevice()->GetPhysicalDevice().As<VkPhysicalDevice>(), &features);
+
+    if (features12.drawIndirectCount != VK_TRUE)
+    {
+        GTEST_SKIP() << "this device has no drawIndirectCount, so the mapping cannot be seen";
+    }
+
+    EXPECT_TRUE(wanted.Rhi().GetDevice()->IsFeatureEnabled(k_DrawIndirectCountFeature));
+    EXPECT_TRUE(bootstrap::HasCapability(wanted.Filter(), DeviceCapability::DrawIndirectCount));
+    EXPECT_EQ(wanted.Filter().Capabilities.size(), 1u);
+
+    wanted.Stop();
+
+    // one neutral name declines the Vulkan feature it maps to
+    DeviceConfig config = ValidatedConfig();
+
+    config.Declined.emplace_back("DrawIndirectCount");
+
+    DeviceStage declined;
+    const BootResult declinedStarted = declined.StartHeadless(booted.content, requirements, config);
+
+    ASSERT_TRUE(declinedStarted.Succeeded()) << bootstrap::FormatFailure(declinedStarted);
+    EXPECT_FALSE(declined.Rhi().GetDevice()->IsFeatureEnabled(k_DrawIndirectCountFeature));
+    EXPECT_FALSE(bootstrap::HasCapability(declined.Filter(), DeviceCapability::DrawIndirectCount));
+    EXPECT_TRUE(declined.Filter().Capabilities.empty());
+}
+
+TEST(BootstrapVulkan, NoNeutralNameIsASpirvCapabilityName)
+{
+    for (uint16_t value = 1u; value <= static_cast<uint16_t>(bootstrap::k_LastDeviceCapability); ++value)
+    {
+        const std::string_view name = bootstrap::ToString(static_cast<DeviceCapability>(value));
+
+        // Declined matches names of every kind, so a neutral name must not also decline a shader capability
+        EXPECT_FALSE(lodestone::vulkan::FindCapability(name).has_value()) << name;
+        EXPECT_EQ(lodestone::vulkan::PrimaryCapabilityName(name), name) << name;
+    }
 }
 
 TEST(BootstrapVulkan, DecliningDebugUtilsLeavesItOff)

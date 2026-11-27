@@ -1,11 +1,25 @@
 #include "OceanGraph.hpp"
+#include "../simulation/OceanSimulation.hpp"
+#include "DonelanBannerNormLUT.hpp"
+#include "LoomGraph.hpp"
 #include "Declarations.hpp"
 #include "GraphBuilder.hpp"
 #include "OceanFft.host.hpp"
 #include "PassBuilders.hpp"
 #include "LoomKeys.hpp"
+#include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
+#include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
+#include "RhiResourceFlags.hpp"
+#include "ShaderLibraryTypes.hpp"
+#include <bit>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <optional>
+#include <span>
+#include <utility>
 
 namespace ocean_loom
 {  
@@ -78,7 +92,105 @@ namespace ocean_loom
             };
         }
 
+        CascadeParameters MakeCascadeParameters() noexcept
+        {
+            static_assert(sizeof(ocean::CascadeParameters) == sizeof(CascadeParameters));
+            static_assert(offsetof(ocean::CascadeParameters, LengthScales) == offsetof(CascadeParameters, LengthScales));
+            static_assert(sizeof(ocean::CascadeParameters::LengthScales) == sizeof(CascadeParameters::LengthScales));
+            static_assert(offsetof(ocean::CascadeParameters, CutoffsHigh) == offsetof(CascadeParameters, CutoffsHigh));
+            static_assert(sizeof(ocean::CascadeParameters::CutoffsHigh) == sizeof(CascadeParameters::CutoffsHigh));
+            static_assert(offsetof(ocean::CascadeParameters, CutoffsLow) == offsetof(CascadeParameters, CutoffsLow));
+            static_assert(sizeof(ocean::CascadeParameters::CutoffsLow) == sizeof(CascadeParameters::CutoffsLow));
+            static_assert(offsetof(ocean::CascadeParameters, Dimensions) == offsetof(CascadeParameters, Dimensions));
+            static_assert(sizeof(ocean::CascadeParameters::Dimensions) == sizeof(CascadeParameters::Dimensions));
+            static_assert(offsetof(ocean::CascadeParameters, Pad0) == offsetof(CascadeParameters, Pad0));
+            static_assert(sizeof(ocean::CascadeParameters::Pad0) == sizeof(CascadeParameters::Pad0));
+            
+            CascadeParameters cascadeParams{};
+            ocean::CascadeParameters legacyParams = ocean::MakeCascadeParameters(IfftSize);
+            std::memcpy(&cascadeParams, &legacyParams, sizeof(CascadeParameters));
+            return cascadeParams;
+        }
 
+        rhi::ResourceFuture<GraphicsResource> CreateUniform(ResourceContext& rsrc_context,
+                                                            std::span<const std::byte> data_bytes,
+                                                            const size_t size,
+                                                            const char* name)
+        {
+            const RhiBufferResourceData data
+            {
+                .Data = data_bytes,
+                .DestinationOffset = 0u
+            };
+
+            BufferCreateInfo bufferInfo
+            {
+                .Domain = ResourceDomain::CPUToGPU,
+                .Flags = {},
+                .ViewFormat = std::nullopt,
+                .Size = size,
+                .Name = name
+            };
+
+            return rsrc_context.CreateBuffer(bufferInfo, std::span{ &data, 1 });
+        }
+
+        rhi::ResourceFuture<GraphicsResource> CreateNormalizationLut(ResourceContext& rsrc_context)
+        {
+            RhiImageResourceData imageData
+            {
+                .Data = std::as_bytes(std::span{ DonelanBannerNormLUT }),
+                .Width = DonelanBannerNormLUTWidth,
+                .Height = DonelanBannerNormLUTHeight
+            };
+
+            ImageCreateInfo imageInfo
+            {
+                .Domain = ResourceDomain::GPUOnly,
+                .Flags = {},
+                .Type = ImageType::Type2D,
+                .Format = CommonFormats::R32_Float,
+                .Usage = ImageUsageBits::SampledImage | ImageUsageBits::ComputeShaderSRV,
+                .Width = DonelanBannerNormLUTWidth,
+                .Height = DonelanBannerNormLUTHeight,
+                .Depth = 1u,
+                .MipLevels = 1u,
+                .ArrayLayers = 1u,
+                .SampleCount = 1u,
+                .ViewInfo = ImageViewCreateInfo{},
+                .SamplerInfo = std::nullopt,
+                .Name = "Ocean.NormalizationLut"
+            };
+
+            return rsrc_context.CreateImage(imageInfo, std::span{ &imageData, 1 }, ImageUsageBits::ComputeShaderSRV);
+        }
+
+    }
+
+    SimulationImports SupplySimulation(loom::Graph& graph, ResourceContext& rsrc_context)
+    {
+        const CascadeParameters cascade = MakeCascadeParameters();
+        const SpectrumParameters spectrum = std::bit_cast<SpectrumParameters>(ocean::SpectrumParameters{});
+
+        rhi::ResourceFuture<GraphicsResource> cascadeReply =
+            CreateUniform(rsrc_context, std::as_bytes(std::span{ &cascade, 1 }), sizeof(cascade), "Ocean.CascadeParams");
+        rhi::ResourceFuture<GraphicsResource> spectrumReply =
+            CreateUniform(rsrc_context, std::as_bytes(std::span{ &spectrum, 1 }), sizeof(spectrum), "Ocean.SpectrumParams");
+        rhi::ResourceFuture<GraphicsResource> lutReply = CreateNormalizationLut(rsrc_context);
+
+        // Supply takes the future and does not block: the graph waits for it to be ready itself.
+        // But SimulationImports needs the handles for teardown, so read them first.
+        SimulationImports imports
+        {
+            .CascadeParams = graph.BufferOf(CascadeParams),
+            .SpectrumParams = graph.BufferOf(SpectrumParams),
+            .NormalizationLut = graph.ImageOf(NormalizationLut),
+        };
+
+        graph.Supply(CascadeParams, std::move(cascadeReply));
+        graph.Supply(SpectrumParams, std::move(spectrumReply));
+        graph.Supply(NormalizationLut, std::move(lutReply), ImageUsageBits::ComputeShaderSRV);
+        return imports;
     }
 
     void RegisterScreen(loom::GraphBuilder& graph)

@@ -1,6 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_BOOTSTRAP_MODULE_DESCRIPTOR_HPP
 #define DIAMOND_DOGS_BOOTSTRAP_MODULE_DESCRIPTOR_HPP
+#include "DeviceCapability.hpp"
 #include <memory>
 #include <span>
 #include <string_view>
@@ -37,6 +38,9 @@ namespace bootstrap
         // capability names in Lodestone's vocabulary (SPIR-V capability and extension names)
         std::span<const std::string_view> RequiredCapabilities;
         std::span<const std::string_view> WantedCapabilities;
+        // capabilities in no API's vocabulary. Each device stage maps them to its own API's needs
+        std::span<const DeviceCapability> RequiredNeutralCapabilities;
+        std::span<const DeviceCapability> WantedNeutralCapabilities;
         std::span<const BundleRequest> Bundles;
     };
 

@@ -40,6 +40,8 @@ namespace bootstrap
         SurfaceCreateFailed,
         NoDeviceMeetsRequirements,
         DeviceCreateFailed,
+        // WebGPU: the browser or Dawn gave no adapter
+        AdapterRequestFailed,
         // gpu
         SwapchainCreateFailed,
         ResourceContextFailed,

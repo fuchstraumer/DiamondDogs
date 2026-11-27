@@ -31,3 +31,7 @@ assets/shaders/compute/Ocean/OceanFftGenerated.slang
 applications/PlanetLab/
 # local cache for alien planets
 applications/AlienPlanets
+assets/scripts/verify_ocean_deferred_math.py
+assets/scripts/make_card_donelan_math.py
+assets/scripts/plot_spreading_comparison.py
+assets/scripts/generate_bluesky_media_pack.py

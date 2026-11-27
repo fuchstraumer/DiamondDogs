@@ -279,6 +279,40 @@ namespace loom
         std::source_location Where;
     };
 
+    // Path lists (step 5). A path is one alternative body: a sequence, and the resources that only it declares or
+    // imports. ChoosePaths (the first step of Compile) replaces each list with its chosen path: the body becomes an
+    // ordinary sequence under the list's key, and the path's declarations join the graph's.
+    struct PathRecord
+    {
+        KeyRef Key;
+        std::source_location Where;
+        SequenceRecord Body;
+
+        std::vector<DeclarationRecord<BufferDeclaration>> Buffers;
+        std::vector<DeclarationRecord<ImageDeclaration>> Images;
+        std::vector<DeclarationRecord<SamplerDeclaration>> Samplers;
+        std::vector<DeclarationRecord<ImportDeclaration>> Imports;
+        std::vector<DeclarationRecord<BufferImportDeclaration>> BufferImports;
+    };
+
+    // A key that the list hands to the rest of the graph: every path must write it, and a path writes no outside key
+    // that the list does not produce.
+    struct ProducesRecord
+    {
+        KeyRef Resource;
+        std::source_location Where;
+    };
+
+    struct PathListRecord
+    {
+        KeyRef Key;
+        std::source_location Where;
+        std::vector<AnchorUseRecord> After;
+        std::vector<AnchorUseRecord> Before;
+        std::vector<ProducesRecord> Produces;
+        std::vector<PathRecord> Paths;      // in order of preference
+    };
+
     struct FrameTargetImportRecord
     {
         KeyRef Target;
@@ -319,6 +353,7 @@ namespace loom
 
         std::vector<PassRecord> Passes;     // top-level passes only; nested passes live in their sequence
         std::vector<SequenceRecord> Sequences;
+        std::vector<PathListRecord> PathLists;  // empty after ChoosePaths: each chosen path is in Sequences
 
         int32_t NextDeclarationOrder{ 0 };  // the next PassRecord::DeclarationOrder; 0 is the first real value
     };
