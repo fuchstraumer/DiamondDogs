@@ -22,9 +22,11 @@ namespace planet_loom
         uint32_t Width{ 1024u };
         uint32_t Height{ 512u };
         uint32_t Mode{ 0u };
+        uint32_t Projection{ 0u };
         bool Words{ false };
         bool ValidationFull{ true };
         bool Timestamps{ true };
+        bool Telemetry{ false };
         bool PlumesEnabled{ true };
         bool StartPaused{ false };
         int32_t ToolPort{ -1 };

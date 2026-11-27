@@ -92,10 +92,12 @@ namespace
         uint32_t Width{ 1024u };
         uint32_t Height{ 512u };
         uint32_t Mode{ 0u };
+        uint32_t Projection{ 0u };
         bool Words{ false };
         bool Verify{ false };
         bool SelfVerify{ false };
         bool Timestamps{ false };
+        std::optional<bool> Telemetry;
         bool Explain{ false };
         bool PlumesEnabled{ false };
         bool PlumesExplicit{ false };
@@ -156,6 +158,52 @@ namespace
         if (text == "plumes")    { mode = 6u; return true; }
         if (text == "atlas")     { mode = 7u; return true; }
         if (text == "raw")       { mode = 8u; return true; }
+        return false;
+    }
+
+    [[nodiscard]] bool ParseProjection(std::string_view text, uint32_t& projection)
+    {
+        if (ParseUint(text, projection) && projection <= 5u)
+        {
+            return true;
+        }
+
+        if (text == "equirectangular" || text == "equirect")
+        {
+            projection = 0u;
+            return true;
+        }
+
+        if (text == "equal_earth" || text == "equal-earth")
+        {
+            projection = 1u;
+            return true;
+        }
+
+        if (text == "mollweide")
+        {
+            projection = 2u;
+            return true;
+        }
+
+        if (text == "orthographic" || text == "globe")
+        {
+            projection = 3u;
+            return true;
+        }
+
+        if (text == "polar_north" || text == "north")
+        {
+            projection = 4u;
+            return true;
+        }
+
+        if (text == "polar_south" || text == "south")
+        {
+            projection = 5u;
+            return true;
+        }
+
         return false;
     }
 
@@ -233,6 +281,18 @@ namespace
             else if (text.starts_with("--mode="))
             {
                 valid = ParseMode(text.substr(7u), options.Mode);
+            }
+            else if (text.starts_with("--projection="))
+            {
+                valid = ParseProjection(text.substr(13u), options.Projection);
+            }
+            else if (text == "--telemetry")
+            {
+                options.Telemetry = true;
+            }
+            else if (text == "--no-telemetry")
+            {
+                options.Telemetry = false;
             }
             else if (text == "--words")
             {
@@ -385,6 +445,12 @@ namespace
             validation = *options.ValidationFull;
         }
 
+        bool telemetry = options.ToolPort >= 0;
+        if (options.Telemetry.has_value())
+        {
+            telemetry = *options.Telemetry;
+        }
+
         return planet_loom::PlanetLiveOptions
         {
             .CaptureDir = options.CaptureDir,
@@ -396,9 +462,11 @@ namespace
             .Width = options.Width,
             .Height = options.Height,
             .Mode = options.Mode,
+            .Projection = options.Projection,
             .Words = options.Words,
             .ValidationFull = validation,
             .Timestamps = options.Timestamps || options.Live,
+            .Telemetry = telemetry,
             .PlumesEnabled = options.PlumesEnabled,
             .StartPaused = options.Paused,
             .ToolPort = options.ToolPort,
@@ -598,8 +666,14 @@ namespace
 
         imports.RiftEnabled = RiftWanted(options);
 
+        const planet_loom::RenderMapView mapView
+        {
+            .Mode = options.Mode,
+            .Projection = planet_loom::ShaderIndexToProjection(static_cast<int32_t>(options.Projection)),
+        };
+
         if (!imports.SupplyAll(*graph, resources, initial, options.Dt, options.Order,
-                               options.Width, options.Height, options.Mode, useBytes, plumeState, shapingState))
+                               options.Width, options.Height, mapView, useBytes, plumeState, shapingState))
         {
             graph.reset();
             imports.Destroy(resources);
@@ -645,7 +719,7 @@ namespace
                 graph->Trigger(planet_loom::k_RenderMapPass);
             }
 
-            if (!imports.UpdateUniforms(resources, stepTime, options.Width, options.Height, options.Mode, plumeState, shapingState))
+            if (!imports.UpdateUniforms(resources, stepTime, options.Width, options.Height, mapView, plumeState, shapingState))
             {
                 graph.reset();
                 imports.Destroy(resources);

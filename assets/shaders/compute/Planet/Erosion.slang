@@ -27,15 +27,7 @@ FloatsIn ErodedReliefIn;
 
 internal float CellElevationKm(in CrustFlagBits flags, in CrustStateData state, in float timeMy)
 {
-    float base = 0.5f;
-
-    if (!flags.IsContinental())
-    {
-        const float age = max(timeMy - state.GetBirth(), 0.0f);
-        base = max(-(2.6f + 0.345f * sqrt(age)), -6.0f);
-    }
-
-    return base + state.GetRelief();
+    return TectonicCellElevationKm(flags, state, timeMy);
 }
 
 [shader("compute")]

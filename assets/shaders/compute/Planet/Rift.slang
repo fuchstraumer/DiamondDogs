@@ -29,7 +29,16 @@ static const uint RiftJobTarget = 2u;
 static const uint RiftJobSeed = 3u;
 static const uint RiftJobFirst = 4u;   // 3 words: the first pick, a plate-frame unit vector as float bits
 static const uint RiftJobSecond = 7u;  // 3 words: the second pick
+static const uint RiftJobOutcome = 10u; // telemetry outcome code (RiftOutcome*)
 static const uint NoPlate = 0xffffffffu;
+
+static const uint RiftOutcomeNone = 0u;
+static const uint RiftOutcomeCompleted = 1u;
+static const uint RiftOutcomeNoFreeSlot = 2u;
+static const uint RiftOutcomeNotWarm = 3u;
+static const uint RiftOutcomeTooSmall = 4u;
+static const uint RiftOutcomePickFailed = 5u;
+static const uint RiftOutcomeTrialSkipped = 6u;
 
 // incubation time of each plate, in My of warm mantle
 Floats PlateIncubation;
@@ -100,9 +109,10 @@ internal float3x3 LoadRotationRW(uint plate)
                     RotationsRW.Load(plate * 3u + 2u).xyz);
 }
 
-internal void ClearRiftJob()
+internal void ClearRiftJob(uint outcome)
 {
     RiftJob.Store(RiftJobActive, 0u);
+    RiftJob.Store(RiftJobOutcome, outcome);
     RiftDispatch.Store(0u, 0u);
     RiftDispatch.Store(1u, 1u);
     RiftDispatch.Store(2u, 1u);
@@ -145,8 +155,14 @@ void DecideRiftCS(uint3 threadId : SV_DispatchThreadID)
     const bool large = float(cellCount) > RiftMinimumArea * float(pointCount);
     const bool trial = RiftHash01(timeSeed ^ (plate * 0x85ebca6bu)) < dt * MantleVigor / RiftWaitMy;
     const bool enabled = MovePlatesConstants.RiftEnabled != 0u;
-    const bool eligible = enabled && isPlate && warm && large && continentalCount >= 2u && trial;
+    const bool hasContinent = isPlate && continentalCount >= 2u;
+    const bool warmAndLarge = enabled && hasContinent && warm && large;
+    const bool eligible = warmAndLarge && trial;
     const bool isFree = isPlate && cellCount == 0 && continentalCount == 0u;
+
+    const bool anyWarmAndLarge = WaveActiveAnyTrue(warmAndLarge);
+    const bool anyColdLarge = WaveActiveAnyTrue(enabled && hasContinent && large && !warm);
+    const bool anySmallContinent = WaveActiveAnyTrue(enabled && hasContinent && !large);
 
     // one rift for each step. Rotate the lane order with the time, so that low plate ids get no preference
     const uint rotation = timeSeed & (RiftGroupSize - 1u);
@@ -227,7 +243,33 @@ void DecideRiftCS(uint3 threadId : SV_DispatchThreadID)
 
     if (!splits)
     {
-        ClearRiftJob();
+        uint outcome = RiftOutcomeNone;
+
+        if (enabled)
+        {
+            if (sourcePlate != NoPlate)
+            {
+                outcome = RiftOutcomePickFailed;
+            }
+            else if (anyWarmAndLarge && targetPlate == NoPlate)
+            {
+                outcome = RiftOutcomeNoFreeSlot;
+            }
+            else if (anyWarmAndLarge)
+            {
+                outcome = RiftOutcomeTrialSkipped;
+            }
+            else if (anyColdLarge)
+            {
+                outcome = RiftOutcomeNotWarm;
+            }
+            else if (anySmallContinent)
+            {
+                outcome = RiftOutcomeTooSmall;
+            }
+        }
+
+        ClearRiftJob(outcome);
         return;
     }
 
@@ -252,6 +294,7 @@ void DecideRiftCS(uint3 threadId : SV_DispatchThreadID)
     RiftJob.Store(RiftJobSeed, RiftHash(timeSeed ^ 0x1b873593u));
     StoreRiftVector(RiftJobFirst, first);
     StoreRiftVector(RiftJobSecond, second);
+    RiftJob.Store(RiftJobOutcome, RiftOutcomeCompleted);
 
     RiftDispatch.Store(0u, (pointCount + 63u) / 64u);
     RiftDispatch.Store(1u, 1u);

@@ -16,12 +16,30 @@ __include HEALPix;
 //   7 = Atlas     (for people: one continuous elevation ramp, hillshade, coastline, contours, scale bar)
 //   8 = Raw       (for scripts: elevation in R (high byte) and G (low byte), km = 22 * (R*256+G)/65535 - 11)
 
+// RenderMapConstants.Projection:
+//   0 = Equirectangular (default)
+//   1 = EqualEarth      (Savric et al. 2018 equal-area world map)
+//   2 = Mollweide       (elliptical equal-area world map)
+//   3 = Orthographic    (globe view centered on CenterLonRad, CenterLatRad)
+//   4 = PolarNorth      (Lambert azimuthal equal-area northern hemisphere)
+//   5 = PolarSouth      (Lambert azimuthal equal-area southern hemisphere)
+
 struct RenderMapParams
 {
     uint Width;
     uint Height;
     float Time;
     uint Mode;
+
+    uint Projection;
+    float CenterLonRad;
+    float CenterLatRad;
+    float Pad0;
+
+    float CropMinU;
+    float CropMinV;
+    float CropMaxU;
+    float CropMaxV;
 };
 
 ConstantBuffer<RenderMapParams> RenderMapConstants;
@@ -40,6 +58,214 @@ static const uint RenderModeVoronoi   = 5u;
 static const uint RenderModePlumes    = 6u;
 static const uint RenderModeAtlas     = 7u;
 static const uint RenderModeRaw       = 8u;
+
+static const uint RenderProjectionEquirectangular = 0u;
+static const uint RenderProjectionEqualEarth      = 1u;
+static const uint RenderProjectionMollweide       = 2u;
+static const uint RenderProjectionOrthographic    = 3u;
+static const uint RenderProjectionPolarNorth      = 4u;
+static const uint RenderProjectionPolarSouth      = 5u;
+
+internal float WrapLongitude(in float lon)
+{
+    return lon - TwoPi * floor((lon + Pi) / TwoPi);
+}
+
+internal bool ProjectUvToSphere(in float u,
+                                in float v,
+                                out float3 worldPoint,
+                                out float lat,
+                                out float lon)
+{
+    worldPoint = float3(1.0f, 0.0f, 0.0f);
+    lat = 0.0f;
+    lon = 0.0f;
+
+    const uint projection = RenderMapConstants.Projection;
+
+    if (projection == RenderProjectionEquirectangular)
+    {
+        lon = WrapLongitude(RenderMapConstants.CenterLonRad + (u - 0.5f) * TwoPi);
+        lat = (0.5f - v) * Pi;
+        float sinLat;
+        float cosLat;
+        float sinLon;
+        float cosLon;
+        sincos(lat, sinLat, cosLat);
+        sincos(lon, sinLon, cosLon);
+        worldPoint = float3(cosLat * cosLon, cosLat * sinLon, sinLat);
+        return true;
+    }
+
+    const float mapAspect = float(RenderMapConstants.Width) / max(float(RenderMapConstants.Height), 1.0f);
+
+    if (projection == RenderProjectionEqualEarth)
+    {
+        // Savric et al. (2018) Equal Earth equal-area pseudocylindrical projection.
+        const float a1 = 1.340264f;
+        const float a2 = -0.081106f;
+        const float a3 = 0.000893f;
+        const float a4 = 0.003796f;
+        const float mFactor = 0.8660254037844386f;
+        const float maxTheta = Pi / 3.0f;
+        const float maxTheta2 = maxTheta * maxTheta;
+        const float maxTheta6 = maxTheta2 * maxTheta2 * maxTheta2;
+        const float yMax = maxTheta * (a1 + a2 * maxTheta2 + maxTheta6 * (a3 + a4 * maxTheta2));
+        const float xMax = (4.0f * mFactor * Pi) / (3.0f * a1);
+        const float projAspect = xMax / yMax;
+
+        float nx = (u - 0.5f) * 2.0f;
+        float ny = (0.5f - v) * 2.0f;
+
+        if (mapAspect > projAspect)
+        {
+            nx *= mapAspect / projAspect;
+        }
+        else
+        {
+            ny *= projAspect / mapAspect;
+        }
+
+        const float x = nx * xMax;
+        const float y = ny * yMax;
+
+        if (abs(y) > yMax)
+        {
+            return false;
+        }
+
+        float theta = clamp(y / a1, -maxTheta, maxTheta);
+
+        [unroll]
+        for (uint iter = 0u; iter < 6u; ++iter)
+        {
+            const float t2 = theta * theta;
+            const float t6 = t2 * t2 * t2;
+            const float fVal = theta * (a1 + a2 * t2 + t6 * (a3 + a4 * t2)) - y;
+            const float dfVal = a1 + 3.0f * a2 * t2 + t6 * (7.0f * a3 + 9.0f * a4 * t2);
+            theta = clamp(theta - fVal / dfVal, -maxTheta, maxTheta);
+        }
+
+        const float t2 = theta * theta;
+        const float t6 = t2 * t2 * t2;
+        const float dfVal = a1 + 3.0f * a2 * t2 + t6 * (7.0f * a3 + 9.0f * a4 * t2);
+        const float cosTheta = cos(theta);
+        const float deltaLon = (3.0f * x * dfVal) / (4.0f * mFactor * max(cosTheta, 1.0e-6f));
+
+        if (abs(deltaLon) > Pi)
+        {
+            return false;
+        }
+
+        const float sinLat = clamp(sin(theta) / mFactor, -1.0f, 1.0f);
+        lat = asin(sinLat);
+        lon = WrapLongitude(RenderMapConstants.CenterLonRad + deltaLon);
+        float sinLon;
+        float cosLon;
+        sincos(lon, sinLon, cosLon);
+        const float cosLat = sqrt(max(1.0f - sinLat * sinLat, 0.0f));
+        worldPoint = float3(cosLat * cosLon, cosLat * sinLon, sinLat);
+        return true;
+    }
+
+    if (projection == RenderProjectionMollweide)
+    {
+        float nx = (u - 0.5f) * 2.0f;
+        float ny = (0.5f - v) * 2.0f;
+
+        if (mapAspect > 2.0f)
+        {
+            nx *= mapAspect * 0.5f;
+        }
+        else
+        {
+            ny *= 2.0f / mapAspect;
+        }
+
+        if (nx * nx + ny * ny > 1.0f)
+        {
+            return false;
+        }
+
+        const float theta = asin(clamp(ny, -1.0f, 1.0f));
+        const float cosTheta = cos(theta);
+        const float deltaLon = Pi * nx / max(cosTheta, 1.0e-6f);
+
+        if (abs(deltaLon) > Pi)
+        {
+            return false;
+        }
+
+        const float sinLat = clamp((2.0f * theta + sin(2.0f * theta)) / Pi, -1.0f, 1.0f);
+        lat = asin(sinLat);
+        lon = WrapLongitude(RenderMapConstants.CenterLonRad + deltaLon);
+        float sinLon;
+        float cosLon;
+        sincos(lon, sinLon, cosLon);
+        const float cosLat = sqrt(max(1.0f - sinLat * sinLat, 0.0f));
+        worldPoint = float3(cosLat * cosLon, cosLat * sinLon, sinLat);
+        return true;
+    }
+
+    float px = (u - 0.5f) * 2.0f;
+    float py = (0.5f - v) * 2.0f;
+
+    if (mapAspect > 1.0f)
+    {
+        px *= mapAspect;
+    }
+    else
+    {
+        py /= mapAspect;
+    }
+
+    const float r2 = px * px + py * py;
+
+    if (r2 > 1.0f)
+    {
+        return false;
+    }
+
+    if (projection == RenderProjectionOrthographic)
+    {
+        const float pz = sqrt(max(1.0f - r2, 0.0f));
+        float sinCLat;
+        float cosCLat;
+        float sinCLon;
+        float cosCLon;
+        sincos(RenderMapConstants.CenterLatRad, sinCLat, cosCLat);
+        sincos(RenderMapConstants.CenterLonRad, sinCLon, cosCLon);
+        const float3 forward = float3(cosCLat * cosCLon, cosCLat * sinCLon, sinCLat);
+        const float3 refUp = (abs(forward.z) < 0.999f) ? float3(0.0f, 0.0f, 1.0f) : float3(0.0f, 1.0f, 0.0f);
+        const float3 east = normalize(cross(refUp, forward));
+        const float3 north = cross(forward, east);
+        worldPoint = normalize(forward * pz + east * px + north * py);
+        lat = asin(clamp(worldPoint.z, -1.0f, 1.0f));
+        lon = atan2(worldPoint.y, worldPoint.x);
+        return true;
+    }
+
+    // Lambert azimuthal equal-area hemisphere: zAbs = 1 - r^2 gives uniform area from pole (r=0) to equator (r=1).
+    const float zAbs = 1.0f - r2;
+    const float sinColat = sqrt(max(1.0f - zAbs * zAbs, 0.0f));
+    const float phi = atan2(py, px) + RenderMapConstants.CenterLonRad;
+    float sinPhi;
+    float cosPhi;
+    sincos(phi, sinPhi, cosPhi);
+
+    if (projection == RenderProjectionPolarNorth)
+    {
+        worldPoint = float3(sinColat * cosPhi, sinColat * sinPhi, zAbs);
+    }
+    else
+    {
+        worldPoint = float3(sinColat * cosPhi, -sinColat * sinPhi, -zAbs);
+    }
+
+    lat = asin(clamp(worldPoint.z, -1.0f, 1.0f));
+    lon = atan2(worldPoint.y, worldPoint.x);
+    return true;
+}
 
 float3 HsvToRgb(float h, float s, float v)
 {
@@ -181,13 +407,7 @@ float4 SampleElevationCorner(int pt)
     const uint frontType = front.GetSubduction();
     const bool isSubduction = (frontType == 1u || frontType == 2u);
 
-    float baseElev = 0.5f;
-    if (!isContinental)
-    {
-        const float age = max(RenderMapConstants.Time - state.GetBirth(), 0.0f);
-        baseElev = max(-(2.6f + 0.345f * sqrt(age)), -6.0f);
-    }
-
+    const float baseElev = BaseCrustElevationKm(isContinental, state.GetBirth(), RenderMapConstants.Time);
     const float reliefKm = state.GetRelief();
     const float3 cellWorldPos = HealpixPixToVec(uint(pt), StepParams.HealpixOrder);
     const float swellKm = EvaluatePlumeSwellKm(cellWorldPos, RenderMapConstants.Time);
@@ -612,17 +832,48 @@ void RenderMapCS(uint3 threadId : SV_DispatchThreadID)
         return;
     }
 
-    const float u = (float(threadId.x) + 0.5f) / float(RenderMapConstants.Width);
-    const float v = (float(threadId.y) + 0.5f) / float(RenderMapConstants.Height);
-    const float lon = (u - 0.5f) * TwoPi;
-    const float lat = (0.5f - v) * Pi;
-
-    float sinLat, cosLat, sinLon, cosLon;
-    sincos(lat, sinLat, cosLat);
-    sincos(lon, sinLon, cosLon);
-    const float3 worldPoint = float3(cosLat * cosLon, cosLat * sinLon, sinLat);
-
     const uint mode = RenderMapConstants.Mode;
+
+    if (mode == RenderModeAtlas)
+    {
+        float3 scaleRgb;
+
+        if (AtlasScaleBar(threadId.xy, scaleRgb))
+        {
+            MapOutput[threadId.xy] = float4(scaleRgb, 1.0f);
+            return;
+        }
+    }
+
+    const bool hasCrop = (RenderMapConstants.CropMaxU > RenderMapConstants.CropMinU) &&
+                         (RenderMapConstants.CropMaxV > RenderMapConstants.CropMinV);
+    const float minU = hasCrop ? RenderMapConstants.CropMinU : 0.0f;
+    const float minV = hasCrop ? RenderMapConstants.CropMinV : 0.0f;
+    const float maxU = hasCrop ? RenderMapConstants.CropMaxU : 1.0f;
+    const float maxV = hasCrop ? RenderMapConstants.CropMaxV : 1.0f;
+
+    const float rawU = (float(threadId.x) + 0.5f) / float(RenderMapConstants.Width);
+    const float rawV = (float(threadId.y) + 0.5f) / float(RenderMapConstants.Height);
+    const float u = lerp(minU, maxU, rawU);
+    const float v = lerp(minV, maxV, rawV);
+
+    float3 worldPoint;
+    float lat;
+    float lon;
+
+    if (!ProjectUvToSphere(u, v, worldPoint, lat, lon))
+    {
+        if (mode == RenderModeRaw)
+        {
+            MapOutput[threadId.xy] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        }
+        else
+        {
+            MapOutput[threadId.xy] = float4(0.02f, 0.03f, 0.05f, 1.0f);
+        }
+
+        return;
+    }
     if (mode == RenderModeRaw)
     {
         float dEdU, dEdV;

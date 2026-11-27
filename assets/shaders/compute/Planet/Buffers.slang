@@ -158,6 +158,12 @@ Points SuturePoints;
 Floats SutureDistance;
 Counters EscapeHistogram;
 
+// Strip-able GPU telemetry and native 1D HEALPix state dump (Telemetry.slang).
+// Bound only when PlanetGraphConfig::EnableTelemetry (or EnableStateDump for the dump) is true.
+Counters TelemetryCounters;
+Words TelemetryCellSnap;
+Words HealpixStateDump;
+
 internal static const float PlateCapNone = 0.0f;
 internal static const float PlateCapValid = 1.0f;
 internal static const float PlateCapEmpty = 2.0f;
@@ -391,6 +397,22 @@ internal void StoreCrustState(uint where, float relief, float birth, float oroge
 internal void StoreCrustState(uint where, CrustStateData crustState)
 {
     CrustState.Store(where, crustState.Data);
+}
+
+internal float BaseCrustElevationKm(in bool isContinental, in float birthTimeMy, in float timeMy)
+{
+    if (isContinental)
+    {
+        return 0.5f;
+    }
+
+    const float oceanAgeMy = max(timeMy - birthTimeMy, 0.0f);
+    return max(-(2.6f + 0.345f * sqrt(oceanAgeMy)), -6.0f);
+}
+
+internal float TectonicCellElevationKm(in CrustFlagBits flags, in CrustStateData state, in float timeMy)
+{
+    return BaseCrustElevationKm(flags.IsContinental(), state.GetBirth(), timeMy) + state.GetRelief();
 }
 
 struct FrontState

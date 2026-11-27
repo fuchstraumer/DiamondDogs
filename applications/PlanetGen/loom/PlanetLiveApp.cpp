@@ -40,9 +40,12 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <print>
 #include <span>
@@ -80,9 +83,35 @@ namespace planet_loom
             std::string Name;
         };
 
+        struct HealpixDumpHeader
+        {
+            char Magic[4]{ 'P', 'G', 'H', 'P' };
+            uint32_t Version{ 1u };
+            uint32_t HealpixOrder{ 0u };
+            uint32_t PointCount{ 0u };
+            uint32_t PlateSlotCount{ 0u };
+            int32_t Step{ 0 };
+            float TimeMy{ 0.0f };
+            uint32_t RecordStrideBytes{ 24u };
+            uint32_t ActivePlateCount{ 0u };
+            uint32_t Flags{ 0u };
+            uint32_t Reserved[6]{};
+        };
+        static_assert(sizeof(HealpixDumpHeader) == 64u);
+
         [[nodiscard]] std::string FormatDiagnosticValue(const loom::DiagnosticValue& value);
         void PrintLiveDiagnostics(const loom::CollectingSink& sink);
         [[nodiscard]] std::vector<bootstrap::Need> BuildDeviceNeeds(bool timestamps);
+        [[nodiscard]] std::vector<std::byte> ReadBackBuffer(ResourceContext& resources,
+                                                            const loom::Graph& graph,
+                                                            GraphicsResource source,
+                                                            size_t bytes);
+        [[nodiscard]] std::string_view RiftOutcomeName(uint32_t outcome) noexcept;
+        [[nodiscard]] TelemetryOutput BuildTelemetryOutput(std::span<const uint32_t> words,
+                                                           uint32_t point_count,
+                                                           uint32_t plate_count,
+                                                           int32_t step,
+                                                           float time_my);
 
         class LiveSessionController;
 
@@ -142,6 +171,7 @@ namespace planet_loom
                                   const rhi::Device& device,
                                   const planet::HealpixInitialState& initial,
                                   capture::FrameCapture& frame_capture,
+                                  std::filesystem::path capture_dir,
                                   PlatformWindowSystem* window_platform,
                                   const Swapchain* swapchain,
                                   const PlanetLiveOptions& opts)
@@ -149,18 +179,21 @@ namespace planet_loom
                 , Device{ device }
                 , Initial{ initial }
                 , Capture{ frame_capture }
+                , CaptureDir{ std::move(capture_dir) }
                 , Platform{ window_platform }
                 , ActiveSwapchain{ swapchain }
                 , Preset{ opts.Preset }
                 , Seed{ opts.Seed }
                 , UseBytes{ !opts.Words }
                 , LiveWindowed{ window_platform != nullptr }
+                , TelemetryEnabled{ opts.Telemetry }
                 , Plumes{ opts.PlumesEnabled ? PresetPlumes(opts.Preset, initial.InitialTime, opts.Seed) : EmptyPlumeSystem() }
                 , Shaping{ ShapingStateForPreset(opts.Shaping, static_cast<uint32_t>(opts.Seed)) }
                 , Sim{
                     .Paused = opts.StartPaused,
                     .TimeStepMy = opts.Dt,
                     .RenderMode = static_cast<int32_t>(opts.Mode),
+                    .RenderProjection = static_cast<int32_t>(opts.Projection),
                     .Time = initial.InitialTime,
                     .Step = 0,
                     .Width = static_cast<int32_t>(opts.Width),
@@ -180,6 +213,7 @@ namespace planet_loom
             void RecordCapture(loom::RecordContext& ctx);
 
             [[nodiscard]] bool SupplyGraphResources(const PlanetLiveOptions& opts);
+            [[nodiscard]] RenderMapView MakeRenderMapView() const noexcept;
             [[nodiscard]] bool UpdateAllUniforms();
             [[nodiscard]] bool TickOnce(bool step_simulation, bool& out_submitted);
             void OnSimChanged(std::string_view field_path);
@@ -194,8 +228,11 @@ namespace planet_loom
                                                       int32_t height,
                                                       uint32_t downsample,
                                                       int32_t mode,
+                                                      int32_t projection,
                                                       std::string_view name);
             [[nodiscard]] TimingsOutput GetTimings();
+            [[nodiscard]] TelemetryOutput GetTelemetry();
+            [[nodiscard]] DumpStateOutput DumpState(std::string_view name);
             void DrainCompletedCaptures();
             void Shutdown();
 
@@ -203,12 +240,14 @@ namespace planet_loom
             const rhi::Device& Device;
             const planet::HealpixInitialState& Initial;
             capture::FrameCapture& Capture;
+            std::filesystem::path CaptureDir;
             PlatformWindowSystem* Platform{ nullptr };
             const Swapchain* ActiveSwapchain{ nullptr };
             PlanetPreset Preset{ PlanetPreset::Reference };
             uint64_t Seed{ 42ull };
             bool UseBytes{ true };
             bool LiveWindowed{ false };
+            bool TelemetryEnabled{ false };
             PlumeSystemState Plumes;
             ShapingState Shaping;
             PlanetSimState Sim;
@@ -334,6 +373,27 @@ namespace planet_loom
                 "7: Atlas (shaded relief)",
             };
             ImGui::Combo("Layer", &host->Sim.RenderMode, k_ModeLabels, 8);
+
+            static constexpr const char* k_ProjectionLabels[]
+            {
+                "0: Equirectangular",
+                "1: Equal Earth",
+                "2: Mollweide",
+                "3: Orthographic (Globe)",
+                "4: Polar North (Equal-Area)",
+                "5: Polar South (Equal-Area)",
+            };
+            ImGui::Combo("Projection", &host->Sim.RenderProjection, k_ProjectionLabels, 6);
+
+            if (host->Sim.RenderProjection > 0)
+            {
+                ImGui::SliderFloat("Center Lon", &host->Sim.ProjectionCenterLonDeg, -180.0f, 180.0f, "%.1f deg");
+
+                if (host->Sim.RenderProjection == 3)
+                {
+                    ImGui::SliderFloat("Center Lat", &host->Sim.ProjectionCenterLatDeg, -90.0f, 90.0f, "%.1f deg");
+                }
+            }
 
             ImGui::SliderFloat("Zoom", &host->Sim.ViewZoom, 0.5f, 8.0f, "%.2fx");
             ImGui::SameLine();
@@ -588,13 +648,31 @@ namespace planet_loom
                 ctx.CommandBuffer(), 0u, source, request.Name, capture::CaptureOutput::Png);
         }
 
+        RenderMapView LiveSessionController::MakeRenderMapView() const noexcept
+        {
+            const RenderProjection projection = ShaderIndexToProjection(Sim.RenderProjection);
+            return RenderMapView
+            {
+                .Mode = static_cast<uint32_t>(std::clamp(Sim.RenderMode, 0, 8)),
+                .Projection = projection != RenderProjection::Invalid
+                    ? projection
+                    : RenderProjection::Equirectangular,
+                .CenterLonDeg = Sim.ProjectionCenterLonDeg,
+                .CenterLatDeg = Sim.ProjectionCenterLatDeg,
+                .CropMinU = Sim.CropMinU,
+                .CropMinV = Sim.CropMinV,
+                .CropMaxU = Sim.CropMaxU,
+                .CropMaxV = Sim.CropMaxV,
+            };
+        }
+
         bool LiveSessionController::SupplyGraphResources(const PlanetLiveOptions& opts)
         {
             Imports.RiftEnabled = opts.RiftEnabled;
             Shaping.ErosionEnabled = opts.ErosionEnabled;
 
             if (!Imports.SupplyAll(*Graph, Resources, Initial, opts.Dt, opts.Order,
-                                   opts.Width, opts.Height, opts.Mode, UseBytes, Plumes, Shaping))
+                                   opts.Width, opts.Height, MakeRenderMapView(), UseBytes, Plumes, Shaping))
             {
                 return false;
             }
@@ -622,7 +700,7 @@ namespace planet_loom
                                         Sim.Time,
                                         static_cast<uint32_t>(Sim.Width),
                                         static_cast<uint32_t>(Sim.Height),
-                                        static_cast<uint32_t>(Sim.RenderMode),
+                                        MakeRenderMapView(),
                                         Plumes,
                                         Shaping))
             {
@@ -655,6 +733,11 @@ namespace planet_loom
                 ++Sim.Step;
                 Sim.Time = Initial.InitialTime + static_cast<float>(Sim.Step) * Sim.TimeStepMy;
                 TriggerSimulationStep(*Graph);
+
+                if (TelemetryEnabled)
+                {
+                    TriggerTelemetryStep(*Graph);
+                }
             }
 
             if (!UpdateAllUniforms())
@@ -825,7 +908,7 @@ namespace planet_loom
                                               static_cast<uint32_t>(Sim.Order),
                                               static_cast<uint32_t>(Sim.Width),
                                               static_cast<uint32_t>(Sim.Height),
-                                              static_cast<uint32_t>(Sim.RenderMode),
+                                              MakeRenderMapView(),
                                               UseBytes, Plumes, Shaping))
             {
                 return std::string{ "failed to reset GPU simulation buffers" };
@@ -847,6 +930,7 @@ namespace planet_loom
                                                          int32_t height,
                                                          uint32_t downsample,
                                                          int32_t mode,
+                                                         int32_t projection,
                                                          std::string_view name)
         {
             if (x < 0 || y < 0 || width <= 0 || height <= 0 ||
@@ -856,11 +940,18 @@ namespace planet_loom
             }
 
             const int32_t savedMode = Sim.RenderMode;
+            const int32_t savedProjection = Sim.RenderProjection;
             const bool overrideMode = mode >= 0 && mode <= 8 && mode != savedMode;
+            const bool overrideProjection = projection >= 0 && projection <= 5 && projection != savedProjection;
 
             if (overrideMode)
             {
                 Sim.RenderMode = mode;
+            }
+
+            if (overrideProjection)
+            {
+                Sim.RenderProjection = projection;
             }
 
             LastCaptureTicket.reset();
@@ -883,9 +974,10 @@ namespace planet_loom
             Capture.Flush();
             DrainCompletedCaptures();
 
-            if (overrideMode)
+            if (overrideMode || overrideProjection)
             {
                 Sim.RenderMode = savedMode;
+                Sim.RenderProjection = savedProjection;
                 static_cast<void>(UpdateAllUniforms());
             }
 
@@ -948,6 +1040,142 @@ namespace planet_loom
             return output;
         }
 
+        TelemetryOutput LiveSessionController::GetTelemetry()
+        {
+            if (!TelemetryEnabled)
+            {
+                return TelemetryOutput
+                {
+                    .Available = false,
+                    .Error = "telemetry is disabled in this session (run with --telemetry)",
+                };
+            }
+
+            if (!Graph->WaitForFrameSlot(std::chrono::nanoseconds(k_TimeoutNs)))
+            {
+                return TelemetryOutput{ .Available = false, .Error = "timed out waiting for frame slot" };
+            }
+
+            const GraphicsResource counterBuffer = Graph->BufferOf(k_TelemetryCounters);
+            const size_t counterBytes = static_cast<size_t>(k_TelemetryCounterWordCount) * sizeof(uint32_t);
+            const std::vector<std::byte> raw = ReadBackBuffer(Resources, *Graph, counterBuffer, counterBytes);
+
+            if (raw.size() != counterBytes)
+            {
+                return TelemetryOutput{ .Available = false, .Error = "failed to read back TelemetryCounters buffer" };
+            }
+
+            std::array<uint32_t, k_TelemetryCounterWordCount> words{};
+            std::memcpy(words.data(), raw.data(), counterBytes);
+            return BuildTelemetryOutput(words, Initial.PointCount, Initial.PlateCount, Sim.Step, Sim.Time);
+        }
+
+        DumpStateOutput LiveSessionController::DumpState(std::string_view name)
+        {
+            if (!Graph->WaitForFrameSlot(std::chrono::nanoseconds(k_TimeoutNs)))
+            {
+                return DumpStateOutput{ .Error = "timed out waiting before state dump" };
+            }
+
+            Graph->Trigger(k_DumpHealpixStatePass);
+
+            bool submitted = false;
+            const bool ticked = TickOnce(false, submitted);
+            const bool waited = ticked && Graph->WaitForFrameSlot(std::chrono::nanoseconds(k_TimeoutNs));
+
+            if (!ticked || !waited || !submitted)
+            {
+                return DumpStateOutput{ .Error = "DumpHealpixStateCS pass failed to execute" };
+            }
+
+            const GraphicsResource dumpBuffer = Graph->BufferOf(k_HealpixStateDump);
+            const size_t payloadBytes = static_cast<size_t>(Initial.PointCount) *
+                                        static_cast<size_t>(k_HealpixDumpWordsPerCell) *
+                                        sizeof(uint32_t);
+            const std::vector<std::byte> payload = ReadBackBuffer(Resources, *Graph, dumpBuffer, payloadBytes);
+
+            if (payload.size() != payloadBytes)
+            {
+                return DumpStateOutput{ .Error = "failed to read back HealpixStateDump buffer" };
+            }
+
+            std::error_code dirError;
+            std::filesystem::create_directories(CaptureDir, dirError);
+
+            if (dirError)
+            {
+                return DumpStateOutput{ .Error = std::format("failed to create dump directory '{}'", CaptureDir.string()) };
+            }
+
+            std::array<uint8_t, 32> seenPlates{};
+            const uint32_t strideBytes = k_HealpixDumpWordsPerCell * static_cast<uint32_t>(sizeof(uint32_t));
+
+            for (uint32_t pt = 0u; pt < Initial.PointCount; ++pt)
+            {
+                const uint8_t plateByte = std::to_integer<uint8_t>(payload[static_cast<size_t>(pt) * strideBytes]);
+
+                if (plateByte < Initial.PlateCount && plateByte < 32u)
+                {
+                    seenPlates[plateByte] = 1u;
+                }
+            }
+
+            uint32_t activePlates = 0u;
+
+            for (const uint8_t seen : seenPlates)
+            {
+                activePlates += seen;
+            }
+
+            const HealpixDumpHeader header
+            {
+                .Magic = { 'P', 'G', 'H', 'P' },
+                .Version = 1u,
+                .HealpixOrder = static_cast<uint32_t>(Sim.Order),
+                .PointCount = Initial.PointCount,
+                .PlateSlotCount = Initial.PlateCount,
+                .Step = Sim.Step,
+                .TimeMy = Sim.Time,
+                .RecordStrideBytes = strideBytes,
+                .ActivePlateCount = activePlates,
+                .Flags = 0u,
+            };
+
+            std::vector<std::byte> fileBytes(sizeof(HealpixDumpHeader) + payloadBytes);
+            std::memcpy(fileBytes.data(), &header, sizeof(HealpixDumpHeader));
+            std::memcpy(fileBytes.data() + sizeof(HealpixDumpHeader), payload.data(), payloadBytes);
+
+            const std::filesystem::path outputPath = CaptureDir / std::format("{}.pghp", name);
+            std::ofstream file{ outputPath, std::ios::binary | std::ios::trunc };
+
+            if (!file)
+            {
+                return DumpStateOutput{ .Error = std::format("failed to open '{}' for writing", outputPath.string()) };
+            }
+
+            file.write(reinterpret_cast<const char*>(fileBytes.data()), static_cast<std::streamsize>(fileBytes.size()));
+
+            if (!file.good())
+            {
+                return DumpStateOutput{ .Error = std::format("failed to write '{}'", outputPath.string()) };
+            }
+
+            std::error_code absError;
+            const std::filesystem::path absPath = std::filesystem::absolute(outputPath, absError);
+            return DumpStateOutput
+            {
+                .Succeeded = true,
+                .Path = (absError ? outputPath : absPath).string(),
+                .Bytes = static_cast<uint64_t>(fileBytes.size()),
+                .Order = Sim.Order,
+                .PointCount = Initial.PointCount,
+                .PlateSlotCount = Initial.PlateCount,
+                .ActivePlateCount = activePlates,
+                .Step = Sim.Step,
+                .Time = Sim.Time,
+            };
+        }
+
         void LiveSessionController::DrainCompletedCaptures()
         {
             std::vector<capture::CaptureResult> latest = Capture.TakeResults();
@@ -1007,15 +1235,326 @@ namespace planet_loom
                                              int32_t height,
                                              uint32_t downsample,
                                              int32_t mode,
+                                             int32_t projection,
                                              std::string_view name)
                 {
-                    return controller.CaptureArea(x, y, width, height, downsample, mode, name);
+                    return controller.CaptureArea(x, y, width, height, downsample, mode, projection, name);
                 },
                 .GetTimings = [&controller]()
                 {
                     return controller.GetTimings();
                 },
+                .GetTelemetry = [&controller]()
+                {
+                    return controller.GetTelemetry();
+                },
+                .DumpState = [&controller](std::string_view name)
+                {
+                    return controller.DumpState(name);
+                },
             };
+        }
+
+        std::vector<std::byte> ReadBackBuffer(ResourceContext& resources,
+                                              const loom::Graph& graph,
+                                              GraphicsResource source,
+                                              size_t bytes)
+        {
+            if (!source || bytes == 0u)
+            {
+                return {};
+            }
+
+            BufferCreateInfo readbackInfo{};
+            readbackInfo.Domain = ResourceDomain::GPUToCPU;
+            readbackInfo.Usage = BufferUsageBits::TransferDestination;
+            readbackInfo.Size = bytes;
+            readbackInfo.Name = "PlanetLiveApp.Readback";
+            rhi::ResourceFuture<GraphicsResource> readbackReply = resources.CreateBuffer(readbackInfo, {});
+
+            if (resources.Wait(readbackReply, k_TimeoutNs) != rhi::FutureState::Complete)
+            {
+                return {};
+            }
+
+            const GraphicsResource readback = readbackReply.Get();
+            const rhi::GpuWait last = graph.LastSubmit();
+            const rhi::TransferWait afterGraph{ last.Semaphore, last.Value };
+            rhi::OperationFuture copyReply = last.Submitted
+                ? resources.CopyBufferContents(source, readback, std::span{ &afterGraph, 1u })
+                : resources.CopyBufferContents(source, readback, {});
+            rhi::ResourceFuture<void*> mapReply = resources.MapBuffer(readback, bytes, 0u);
+            std::vector<std::byte> result;
+
+            if (resources.Wait(copyReply, k_TimeoutNs) == rhi::FutureState::Complete &&
+                resources.Wait(mapReply, k_TimeoutNs) == rhi::FutureState::Complete)
+            {
+                const auto* mapped = static_cast<const std::byte*>(mapReply.Get());
+                result.assign(mapped, mapped + bytes);
+            }
+
+            rhi::OperationFuture unmapReply = resources.UnmapBuffer(readback, bytes, 0u);
+            rhi::OperationFuture destroyReply = resources.DestroyResource(readback);
+            [[maybe_unused]] const rhi::FutureState unmapped = resources.Wait(unmapReply, k_TimeoutNs);
+            [[maybe_unused]] const rhi::FutureState destroyed = resources.Wait(destroyReply, k_TimeoutNs);
+            return result;
+        }
+
+        std::string_view RiftOutcomeName(uint32_t outcome) noexcept
+        {
+            switch (outcome)
+            {
+            case 0u:
+                return "none";
+            case 1u:
+                return "completed";
+            case 2u:
+                return "no_free_slot";
+            case 3u:
+                return "not_warm";
+            case 4u:
+                return "too_small";
+            case 5u:
+                return "pick_failed";
+            case 6u:
+                return "trial_skipped";
+            default:
+                return "unknown";
+            }
+        }
+
+        [[nodiscard]] float EstimateHistogramQuantileKm(std::span<const uint32_t> bins,
+                                                        uint32_t total_count,
+                                                        float quantile) noexcept
+        {
+            if (total_count == 0u)
+            {
+                return 0.0f;
+            }
+
+            const double target = static_cast<double>(quantile) * static_cast<double>(total_count);
+            uint32_t cumulative = 0u;
+
+            for (size_t bin = 0u; bin < bins.size(); ++bin)
+            {
+                const uint32_t next = cumulative + bins[bin];
+
+                if (static_cast<double>(next) >= target)
+                {
+                    const double within = bins[bin] > 0u
+                        ? (target - static_cast<double>(cumulative)) / static_cast<double>(bins[bin])
+                        : 0.0;
+                    return static_cast<float>((static_cast<double>(bin) + std::clamp(within, 0.0, 1.0)) * 0.5);
+                }
+
+                cumulative = next;
+            }
+
+            return 8.0f;
+        }
+
+        [[nodiscard]] uint64_t CombineUint64(uint32_t lo, uint32_t hi) noexcept
+        {
+            return (static_cast<uint64_t>(hi) << 32u) | static_cast<uint64_t>(lo);
+        }
+
+        TelemetryOutput BuildTelemetryOutput(std::span<const uint32_t> words,
+                                             uint32_t point_count,
+                                             uint32_t plate_count,
+                                             int32_t step,
+                                             float time_my)
+        {
+            namespace ts = telemetry_slots;
+            constexpr double k_PlanetRadiusKm = 6370.0;
+            const double sphereAreaKm2 = 4.0 * std::numbers::pi * k_PlanetRadiusKm * k_PlanetRadiusKm;
+            const double cellAreaKm2 = point_count > 0u ? (sphereAreaKm2 / static_cast<double>(point_count)) : 0.0;
+            const double meterHeightToKm3 = 0.001 * cellAreaKm2;
+
+            TelemetryOutput out{};
+            out.Available = true;
+            out.Step = step;
+            out.Time = time_my;
+            out.StepsObserved = static_cast<int32_t>(words[ts::k_StepsObserved]);
+            out.CollisionsTriggered = words[ts::k_CollisionsTriggered];
+            out.TerraneCellsTransferred = words[ts::k_TerraneCellsTransferred];
+            out.OceanCellsBorn = words[ts::k_OceanCellsBorn];
+            out.SubductionOverlapPoints = words[ts::k_SubductionOverlapPoints];
+            out.SnapOverflowCells = words[ts::k_SnapOverflowCells];
+            out.UpliftOceanToContFlips = words[ts::k_UpliftOceanToContFlips];
+            out.UpliftVolcanicToContFlips = words[ts::k_UpliftVolcanicToContFlips];
+            out.UpliftVolcanicOverwritten = words[ts::k_UpliftVolcanicOverwritten];
+            out.PlumeOceanToContFlips = words[ts::k_PlumeOceanToContFlips];
+            out.PlumeVolcanicCellsActive = words[ts::k_PlumeVolcanicCellsActive];
+            out.RiftsCompleted = words[ts::k_RiftsCompleted];
+            out.RiftsBlockedNoFreeSlot = words[ts::k_RiftsBlockedNoFreeSlot];
+            out.RiftsBlockedNotWarm = words[ts::k_RiftsBlockedNotWarm];
+            out.RiftsBlockedTooSmall = words[ts::k_RiftsBlockedTooSmall];
+            out.RiftsBlockedPickFailed = words[ts::k_RiftsBlockedPickFailed];
+            out.LastRiftOutcome = std::string{ RiftOutcomeName(words[ts::k_LastStepRiftOutcome]) };
+
+            out.UpliftVolumeAddedKm3 = static_cast<double>(CombineUint64(
+                words[ts::k_UpliftHeightAddedMetersLo], words[ts::k_UpliftHeightAddedMetersHi])) * meterHeightToKm3;
+            out.UpliftLinearErosionKm3 = static_cast<double>(CombineUint64(
+                words[ts::k_UpliftLinearErosionMetersLo], words[ts::k_UpliftLinearErosionMetersHi])) * meterHeightToKm3;
+            out.PlumeVolumeAddedKm3 = static_cast<double>(CombineUint64(
+                words[ts::k_PlumeHeightAddedMetersLo], words[ts::k_PlumeHeightAddedMetersHi])) * meterHeightToKm3;
+            out.PlumeOceanicErosionKm3 = static_cast<double>(CombineUint64(
+                words[ts::k_PlumeOceanicErosionMetersLo], words[ts::k_PlumeOceanicErosionMetersHi])) * meterHeightToKm3;
+            out.ErosionDiffusionAddedKm3 = static_cast<double>(CombineUint64(
+                words[ts::k_ErosionDiffusionAddedMetersLo], words[ts::k_ErosionDiffusionAddedMetersHi])) * meterHeightToKm3;
+            out.ErosionRemovedKm3 = static_cast<double>(CombineUint64(
+                words[ts::k_ErosionRemovedMetersLo], words[ts::k_ErosionRemovedMetersHi])) * meterHeightToKm3;
+            out.CollapseCellsActive = words[ts::k_CollapseCellsActive];
+
+            out.PlateFrameLiveCells = words[ts::k_PlateFrameLiveCells];
+            out.WorldCells = words[ts::k_WorldCells];
+            out.ContinentalCells = words[ts::k_ContinentalCells];
+            out.OceanicCells = words[ts::k_OceanicCells];
+            out.VolcanicOceanicCells = words[ts::k_VolcanicOceanicCells];
+            out.AndeanCells = words[ts::k_AndeanCells];
+            out.HimalayanCells = words[ts::k_HimalayanCells];
+            out.IslandArcCells = words[ts::k_IslandArcCells];
+            out.SubductionFrontCells = words[ts::k_SubductionFrontCells];
+            out.CollisionFrontCells = words[ts::k_CollisionFrontCells];
+
+            const uint32_t youngOceanCells = words[ts::k_YoungOceanCellsUnder5My];
+            const uint32_t oceanAgeTenths = words[ts::k_OceanAgeSumTenthsMy];
+            const uint32_t landBelow05Cells = words[ts::k_LandBelow05KmCells];
+            const uint32_t landAbove5Cells = words[ts::k_LandAbove5KmCells];
+            out.ReliefMaxKm = static_cast<float>(words[ts::k_ReliefMaxMm]) * 0.001f;
+
+            const uint32_t ownedWorldCells = out.ContinentalCells + out.OceanicCells;
+
+            if (ownedWorldCells > 0u)
+            {
+                out.LandFraction = static_cast<float>(out.ContinentalCells) / static_cast<float>(ownedWorldCells);
+            }
+
+            if (out.OceanicCells > 0u)
+            {
+                out.OceanAgeMeanMy = static_cast<float>(static_cast<double>(oceanAgeTenths) * 0.1 /
+                                                        static_cast<double>(out.OceanicCells));
+                out.YoungRidgeFracUnder5My = static_cast<float>(youngOceanCells) / static_cast<float>(out.OceanicCells);
+            }
+
+            if (out.ContinentalCells > 0u)
+            {
+                out.LandBelow05KmFrac = static_cast<float>(landBelow05Cells) / static_cast<float>(out.ContinentalCells);
+                out.LandAbove5KmFrac = static_cast<float>(landAbove5Cells) / static_cast<float>(out.ContinentalCells);
+                const std::span<const uint32_t> hist{ words.data() + ts::k_ReliefHistBase, ts::k_ReliefHistBins };
+                out.ReliefP50Km = EstimateHistogramQuantileKm(hist, out.ContinentalCells, 0.50f);
+                out.ReliefP95Km = EstimateHistogramQuantileKm(hist, out.ContinentalCells, 0.95f);
+                out.ReliefP99Km = EstimateHistogramQuantileKm(hist, out.ContinentalCells, 0.99f);
+            }
+
+            const uint32_t clampedPlates = std::min(plate_count, 32u);
+            out.PlateCellCounts.resize(clampedPlates, 0);
+            out.PlateContinentalCounts.resize(clampedPlates, 0);
+
+            double totalCells = 0.0;
+
+            for (uint32_t p = 0u; p < clampedPlates; ++p)
+            {
+                const uint32_t cells = words[ts::k_PlateCellCountBase + p];
+                const uint32_t cont = words[ts::k_PlateContCountBase + p];
+                out.PlateCellCounts[p] = static_cast<int32_t>(cells);
+                out.PlateContinentalCounts[p] = static_cast<int32_t>(cont);
+                totalCells += static_cast<double>(cells);
+
+                if (cells == 0u && cont == 0u)
+                {
+                    ++out.FreeRiftSlots;
+                }
+                else
+                {
+                    ++out.ActivePlates;
+                }
+            }
+
+            if (totalCells > 0.0)
+            {
+                double hhi = 0.0;
+                double maxShare = 0.0;
+
+                for (uint32_t p = 0u; p < clampedPlates; ++p)
+                {
+                    const double share = static_cast<double>(out.PlateCellCounts[p]) / totalCells;
+
+                    if (share > 0.0)
+                    {
+                        hhi += share * share;
+                        maxShare = std::max(maxShare, share);
+
+                        if (share < 0.01)
+                        {
+                            ++out.TinyPlatesUnder1Pct;
+                        }
+                    }
+                }
+
+                out.LargestPlateShare = static_cast<float>(maxShare);
+                out.Hhi = static_cast<float>(hhi);
+                out.EffectivePlateCount = hhi > 1.0e-9 ? static_cast<float>(1.0 / hhi) : 0.0f;
+            }
+
+            bool hasFail = false;
+            bool hasWarn = false;
+
+            if (out.SnapOverflowCells > 0u)
+            {
+                hasFail = true;
+                out.Flags.push_back(std::format("FAIL:telemetry_snap_overflow={}", out.SnapOverflowCells));
+            }
+
+            if (out.UpliftVolcanicToContFlips > 0u)
+            {
+                hasFail = true;
+                out.Flags.push_back(std::format("FAIL:volcanic_to_cont_flips={}", out.UpliftVolcanicToContFlips));
+            }
+
+            if (out.UpliftVolcanicOverwritten > 0u)
+            {
+                hasFail = true;
+                out.Flags.push_back(std::format("FAIL:volcanic_orogeny_overwritten={}", out.UpliftVolcanicOverwritten));
+            }
+
+            if (out.StepsObserved > 0 && out.OceanicCells > 0u && out.YoungRidgeFracUnder5My <= 0.0f)
+            {
+                hasFail = true;
+                out.Flags.push_back("FAIL:young_ridge_frac_under_5my=0");
+            }
+
+            if (out.ReliefP99Km > 7.5f)
+            {
+                hasFail = true;
+                out.Flags.push_back(std::format("FAIL:relief_p99_km={:.2f}>7.5", out.ReliefP99Km));
+            }
+            else if (out.ReliefP99Km > 6.5f)
+            {
+                hasWarn = true;
+                out.Flags.push_back(std::format("WARN:relief_p99_km={:.2f}>6.5", out.ReliefP99Km));
+            }
+
+            if (out.StepsObserved > 0 && out.LargestPlateShare > 0.35f)
+            {
+                hasWarn = true;
+                out.Flags.push_back(std::format("WARN:largest_plate_share={:.3f}>0.35", out.LargestPlateShare));
+            }
+
+            if (out.StepsObserved > 0 && out.EffectivePlateCount > 0.0f && out.EffectivePlateCount < 5.0f)
+            {
+                hasWarn = true;
+                out.Flags.push_back(std::format("WARN:N_eff={:.2f}<5.0", out.EffectivePlateCount));
+            }
+
+            if (out.RiftsBlockedNoFreeSlot > 0u)
+            {
+                hasWarn = true;
+                out.Flags.push_back(std::format("WARN:rifts_blocked_no_free_slot={}", out.RiftsBlockedNoFreeSlot));
+            }
+
+            out.Verdict = hasFail ? "FAIL" : (hasWarn ? "WARN" : "PASS");
+            return out;
         }
 
         std::string FormatDiagnosticValue(const loom::DiagnosticValue& value)
@@ -1052,6 +1591,26 @@ namespace planet_loom
                              FormatDiagnosticValue(diagnostic.Expected),
                              FormatDiagnosticValue(diagnostic.Actual));
             }
+        }
+
+        [[nodiscard]] bool WaitForGraphReady(loom::Graph& graph, ResourceContext& resources)
+        {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(k_TimeoutNs);
+
+            while (!graph.Ready() && std::chrono::steady_clock::now() < deadline)
+            {
+                const ConsumerTimelineValue pending{ graph.Timeline(), graph.PendingValue() };
+                resources.Tick(std::span{ &pending, 1u });
+                std::this_thread::yield();
+            }
+
+            if (!graph.Ready())
+            {
+                std::println(stderr, "PlanetGenLoom: graph resources/pipelines did not become ready before first step");
+                return false;
+            }
+
+            return true;
         }
 
         std::vector<bootstrap::Need> BuildDeviceNeeds(bool timestamps)
@@ -1138,7 +1697,7 @@ namespace planet_loom
             ? std::filesystem::path{ "build/planet_captures" }
             : options.CaptureDir;
         capture::FrameCapture frameCapture{ resources, 1u, captureDir, 1u };
-        LiveSessionController controller{ resources, device, initial, frameCapture, &platform, &swapchain, options };
+        LiveSessionController controller{ resources, device, initial, frameCapture, captureDir, &platform, &swapchain, options };
         ui.AttachController(&controller);
 
         ZeroCountersRecorder zeroRecorder;
@@ -1153,6 +1712,8 @@ namespace planet_loom
             .InteractiveControl = true,
             .LiveMode = true,
             .EnableCapturePass = true,
+            .EnableTelemetry = options.Telemetry,
+            .EnableStateDump = true,
         };
         const PlanetGraphCallbacks callbacks
         {
@@ -1210,7 +1771,7 @@ namespace planet_loom
         std::unique_ptr<loom::Graph> graph = std::move(*realized);
         controller.AttachGraph(*graph, &ui);
 
-        if (!controller.SupplyGraphResources(options))
+        if (!controller.SupplyGraphResources(options) || !WaitForGraphReady(*graph, resources))
         {
             graph.reset();
             controller.Imports.Destroy(resources);
@@ -1295,7 +1856,7 @@ namespace planet_loom
                 ui.PendingCapture = false;
                 const std::string name = std::format("live_step{}_mode{}", controller.Sim.Step, controller.Sim.RenderMode);
                 const CaptureOutput cap = controller.CaptureArea(
-                    0, 0, controller.Sim.Width, controller.Sim.Height, 1u, -1, name);
+                    0, 0, controller.Sim.Width, controller.Sim.Height, 1u, -1, -1, name);
                 ui.LastCaptureMessage = cap.Succeeded ? std::format("Saved {}", cap.Path) : cap.Error;
             }
 
@@ -1360,7 +1921,7 @@ namespace planet_loom
             ? std::filesystem::path{ "build/planet_captures" }
             : options.CaptureDir;
         capture::FrameCapture frameCapture{ resources, 1u, captureDir, 1u };
-        LiveSessionController controller{ resources, device, initial, frameCapture, nullptr, nullptr, options };
+        LiveSessionController controller{ resources, device, initial, frameCapture, captureDir, nullptr, nullptr, options };
 
         ZeroCountersRecorder zeroRecorder;
         const PlanetGraphConfig graphConfig
@@ -1374,6 +1935,8 @@ namespace planet_loom
             .InteractiveControl = true,
             .LiveMode = false,
             .EnableCapturePass = true,
+            .EnableTelemetry = options.Telemetry,
+            .EnableStateDump = true,
         };
         const PlanetGraphCallbacks callbacks
         {
@@ -1429,7 +1992,7 @@ namespace planet_loom
         std::unique_ptr<loom::Graph> graph = std::move(*realized);
         controller.AttachGraph(*graph, nullptr);
 
-        if (!controller.SupplyGraphResources(options))
+        if (!controller.SupplyGraphResources(options) || !WaitForGraphReady(*graph, resources))
         {
             graph.reset();
             controller.Imports.Destroy(resources);

@@ -130,6 +130,7 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
     const CrustFlagBits crustFlags = LoadCrustFlags(flattenedPt);
     const bool isContinental = crustFlags.IsContinental();
     CrustStateData crustState = ZeroCrustState();
+    bool wasVolcanic = false;
     float relief = 0.0f;
 
     const CellState cellState = LoadCellState(flattenedPt);
@@ -146,9 +147,10 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
         const float rate = ShapingConstants.BaseUplift * shape * frontState.GetStrength();
         const float dt = StepParams.TimeStepMy;
         crustState = LoadCrustState(flattenedPt);
+        wasVolcanic = (crustState.GetOrogenyType() == OrogenyVolcanic);
         relief = crustState.GetRelief() + (rate * dt);
 
-        if (rate > ActiveUplift)
+        if (rate > ActiveUplift && (isContinental || !wasVolcanic))
         {
             const int updatedOrogeny = isContinental ? OrogenyAndean : OrogenyIslandArc;
             crustState.SetOrogenyType(updatedOrogeny);
@@ -164,7 +166,7 @@ void UpliftCS(uint3 threadID : SV_DispatchThreadID)
     relief = min(relief, PeakElevation);
 
     // a tall ocean island arc is upgraded to a continent at this point (volcanic hotspot chains stay oceanic)
-    if (!isContinental && crustState.GetOrogenyType() != OrogenyVolcanic && (relief > ShapingConstants.AccretionRelief))
+    if (!isContinental && !wasVolcanic && (relief > ShapingConstants.AccretionRelief))
     {
         uint flagBits = PackCrustFlags(crustFlags.IsAlive(), true);
         StoreCrustFlags(flattenedPt, flagBits);

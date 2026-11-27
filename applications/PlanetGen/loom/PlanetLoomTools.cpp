@@ -55,6 +55,47 @@ namespace planet_loom
         std::string Choices;
     };
 
+    struct SetProjectionParams
+    {
+        std::string Projection;
+        float CenterLonDeg{ std::numeric_limits<float>::quiet_NaN() };
+        float CenterLatDeg{ std::numeric_limits<float>::quiet_NaN() };
+        float CropMinU{ std::numeric_limits<float>::quiet_NaN() };
+        float CropMinV{ std::numeric_limits<float>::quiet_NaN() };
+        float CropMaxU{ std::numeric_limits<float>::quiet_NaN() };
+        float CropMaxV{ std::numeric_limits<float>::quiet_NaN() };
+    };
+
+    struct ProjectionReply
+    {
+        int32_t RenderProjection{ 0 };
+        std::string Projection;
+        float CenterLonDeg{ 0.0f };
+        float CenterLatDeg{ 0.0f };
+        float CropMinU{ 0.0f };
+        float CropMinV{ 0.0f };
+        float CropMaxU{ 1.0f };
+        float CropMaxV{ 1.0f };
+        std::string Choices;
+    };
+
+    struct DumpStateParams
+    {
+        std::string Name{ "state" };
+    };
+
+    struct DumpStateReply
+    {
+        std::string Path;
+        uint64_t Bytes{ 0u };
+        int32_t Order{ 0 };
+        uint32_t PointCount{ 0u };
+        uint32_t PlateSlotCount{ 0u };
+        uint32_t ActivePlateCount{ 0u };
+        int32_t Step{ 0 };
+        float Time{ 0.0f };
+    };
+
     struct PlumeEntry
     {
         int32_t Index{ 0 };
@@ -135,6 +176,7 @@ namespace planet_loom
     {
         int32_t Downsample{ 1 };
         int32_t Mode{ -1 };
+        int32_t Projection{ -1 };
         std::string Name{ "map" };
     };
 
@@ -145,6 +187,7 @@ namespace planet_loom
         int32_t Width{ 256 };
         int32_t Height{ 256 };
         int32_t Mode{ -1 };
+        int32_t Projection{ -1 };
         std::string Name{ "region" };
     };
 
@@ -186,12 +229,19 @@ struct foundation::reflect::Describe<planet_loom::PlanetSimState>
     using State = planet_loom::PlanetSimState;
 
     static constexpr std::string_view Name{ "planet.SimState" };
-    static constexpr std::string_view Doc{ "Live PlanetGen Loom simulation, render layer, view, and mantle plume state." };
+    static constexpr std::string_view Doc{ "Live PlanetGen Loom simulation, render layer, projection, view, and mantle plume state." };
     static constexpr std::tuple Fields
     {
         Field<State, bool>{ "Paused", &State::Paused, { .Doc = "Pause or resume continuous live stepping." } },
         Field<State, float>{ "TimeStepMy", &State::TimeStepMy, { .Unit = "My", .Range = FieldRange{ 1.0e-4, 20.0 } } },
         Field<State, int32_t>{ "RenderMode", &State::RenderMode, { .Range = FieldRange{ 0.0, 8.0 }, .Doc = "0=elevation, 1=plates, 2=age, 3=relief, 4=fronts, 5=voronoi, 6=plumes, 7=atlas, 8=raw." } },
+        Field<State, int32_t>{ "RenderProjection", &State::RenderProjection, { .Range = FieldRange{ 0.0, 5.0 }, .Doc = "0=equirectangular, 1=equal_earth, 2=mollweide, 3=orthographic, 4=polar_north, 5=polar_south." } },
+        Field<State, float>{ "ProjectionCenterLonDeg", &State::ProjectionCenterLonDeg, { .Unit = "deg", .Range = FieldRange{ -360.0, 360.0 } } },
+        Field<State, float>{ "ProjectionCenterLatDeg", &State::ProjectionCenterLatDeg, { .Unit = "deg", .Range = FieldRange{ -90.0, 90.0 } } },
+        Field<State, float>{ "CropMinU", &State::CropMinU, { .Range = FieldRange{ 0.0, 1.0 } } },
+        Field<State, float>{ "CropMinV", &State::CropMinV, { .Range = FieldRange{ 0.0, 1.0 } } },
+        Field<State, float>{ "CropMaxU", &State::CropMaxU, { .Range = FieldRange{ 0.0, 1.0 } } },
+        Field<State, float>{ "CropMaxV", &State::CropMaxV, { .Range = FieldRange{ 0.0, 1.0 } } },
         Field<State, float>{ "Time", &State::Time, { .Unit = "My", .ReadOnly = true } },
         Field<State, int32_t>{ "Step", &State::Step, { .ReadOnly = true } },
         Field<State, int32_t>{ "Width", &State::Width, { .Unit = "px", .ReadOnly = true } },
@@ -393,6 +443,7 @@ struct foundation::reflect::Describe<planet_loom::CaptureParams>
     {
         Field<Params, int32_t>{ "Downsample", &Params::Downsample, { .Range = FieldRange{ 1.0, 64.0 } } },
         Field<Params, int32_t>{ "Mode", &Params::Mode, { .Range = FieldRange{ -1.0, 8.0 } } },
+        Field<Params, int32_t>{ "Projection", &Params::Projection, { .Range = FieldRange{ -1.0, 5.0 } } },
         Field<Params, std::string>{ "Name", &Params::Name },
     };
 };
@@ -409,6 +460,7 @@ struct foundation::reflect::Describe<planet_loom::CaptureRegionParams>
         Field<Params, int32_t>{ "Width", &Params::Width, { .Unit = "px" } },
         Field<Params, int32_t>{ "Height", &Params::Height, { .Unit = "px" } },
         Field<Params, int32_t>{ "Mode", &Params::Mode, { .Range = FieldRange{ -1.0, 8.0 } } },
+        Field<Params, int32_t>{ "Projection", &Params::Projection, { .Range = FieldRange{ -1.0, 5.0 } } },
         Field<Params, std::string>{ "Name", &Params::Name },
     };
 };
@@ -518,11 +570,143 @@ struct foundation::reflect::Describe<planet_loom::TimingsReply>
     };
 };
 
+template<>
+struct foundation::reflect::Describe<planet_loom::SetProjectionParams>
+{
+    using Params = planet_loom::SetProjectionParams;
+    static constexpr std::string_view Name{ "planet.SetProjectionParams" };
+    static constexpr std::tuple Fields
+    {
+        Field<Params, std::string>{ "Projection", &Params::Projection, { .Doc = "equirectangular|equal_earth|mollweide|orthographic|polar_north|polar_south or 0..5.", .Required = true } },
+        Field<Params, float>{ "CenterLonDeg", &Params::CenterLonDeg, { .Unit = "deg" } },
+        Field<Params, float>{ "CenterLatDeg", &Params::CenterLatDeg, { .Unit = "deg" } },
+        Field<Params, float>{ "CropMinU", &Params::CropMinU },
+        Field<Params, float>{ "CropMinV", &Params::CropMinV },
+        Field<Params, float>{ "CropMaxU", &Params::CropMaxU },
+        Field<Params, float>{ "CropMaxV", &Params::CropMaxV },
+    };
+};
+
+template<>
+struct foundation::reflect::Describe<planet_loom::ProjectionReply>
+{
+    using Reply = planet_loom::ProjectionReply;
+    static constexpr std::string_view Name{ "planet.ProjectionReply" };
+    static constexpr std::tuple Fields
+    {
+        Field<Reply, int32_t>{ "RenderProjection", &Reply::RenderProjection },
+        Field<Reply, std::string>{ "Projection", &Reply::Projection },
+        Field<Reply, float>{ "CenterLonDeg", &Reply::CenterLonDeg, { .Unit = "deg" } },
+        Field<Reply, float>{ "CenterLatDeg", &Reply::CenterLatDeg, { .Unit = "deg" } },
+        Field<Reply, float>{ "CropMinU", &Reply::CropMinU },
+        Field<Reply, float>{ "CropMinV", &Reply::CropMinV },
+        Field<Reply, float>{ "CropMaxU", &Reply::CropMaxU },
+        Field<Reply, float>{ "CropMaxV", &Reply::CropMaxV },
+        Field<Reply, std::string>{ "Choices", &Reply::Choices },
+    };
+};
+
+template<>
+struct foundation::reflect::Describe<planet_loom::DumpStateParams>
+{
+    using Params = planet_loom::DumpStateParams;
+    static constexpr std::string_view Name{ "planet.DumpStateParams" };
+    static constexpr std::tuple Fields
+    {
+        Field<Params, std::string>{ "Name", &Params::Name },
+    };
+};
+
+template<>
+struct foundation::reflect::Describe<planet_loom::DumpStateReply>
+{
+    using Reply = planet_loom::DumpStateReply;
+    static constexpr std::string_view Name{ "planet.DumpStateReply" };
+    static constexpr std::tuple Fields
+    {
+        Field<Reply, std::string>{ "Path", &Reply::Path },
+        Field<Reply, uint64_t>{ "Bytes", &Reply::Bytes },
+        Field<Reply, int32_t>{ "Order", &Reply::Order },
+        Field<Reply, uint32_t>{ "PointCount", &Reply::PointCount },
+        Field<Reply, uint32_t>{ "PlateSlotCount", &Reply::PlateSlotCount },
+        Field<Reply, uint32_t>{ "ActivePlateCount", &Reply::ActivePlateCount },
+        Field<Reply, int32_t>{ "Step", &Reply::Step },
+        Field<Reply, float>{ "Time", &Reply::Time, { .Unit = "My" } },
+    };
+};
+
+template<>
+struct foundation::reflect::Describe<planet_loom::TelemetryOutput>
+{
+    using Reply = planet_loom::TelemetryOutput;
+    static constexpr std::string_view Name{ "planet.TelemetryReply" };
+    static constexpr std::tuple Fields
+    {
+        Field<Reply, bool>{ "Available", &Reply::Available },
+        Field<Reply, int32_t>{ "Step", &Reply::Step },
+        Field<Reply, float>{ "Time", &Reply::Time, { .Unit = "My" } },
+        Field<Reply, int32_t>{ "StepsObserved", &Reply::StepsObserved },
+        Field<Reply, std::string>{ "Verdict", &Reply::Verdict },
+        Field<Reply, std::vector<std::string>>{ "Flags", &Reply::Flags },
+        Field<Reply, uint32_t>{ "UpliftOceanToContFlips", &Reply::UpliftOceanToContFlips },
+        Field<Reply, uint32_t>{ "UpliftVolcanicToContFlips", &Reply::UpliftVolcanicToContFlips },
+        Field<Reply, uint32_t>{ "UpliftVolcanicOverwritten", &Reply::UpliftVolcanicOverwritten },
+        Field<Reply, uint32_t>{ "PlumeOceanToContFlips", &Reply::PlumeOceanToContFlips },
+        Field<Reply, uint32_t>{ "PlumeVolcanicCellsActive", &Reply::PlumeVolcanicCellsActive },
+        Field<Reply, uint32_t>{ "CollisionsTriggered", &Reply::CollisionsTriggered },
+        Field<Reply, uint32_t>{ "TerraneCellsTransferred", &Reply::TerraneCellsTransferred },
+        Field<Reply, uint32_t>{ "OceanCellsBorn", &Reply::OceanCellsBorn },
+        Field<Reply, uint32_t>{ "SubductionOverlapPoints", &Reply::SubductionOverlapPoints },
+        Field<Reply, uint32_t>{ "SnapOverflowCells", &Reply::SnapOverflowCells },
+        Field<Reply, uint32_t>{ "RiftsCompleted", &Reply::RiftsCompleted },
+        Field<Reply, uint32_t>{ "RiftsBlockedNoFreeSlot", &Reply::RiftsBlockedNoFreeSlot },
+        Field<Reply, uint32_t>{ "RiftsBlockedNotWarm", &Reply::RiftsBlockedNotWarm },
+        Field<Reply, uint32_t>{ "RiftsBlockedTooSmall", &Reply::RiftsBlockedTooSmall },
+        Field<Reply, uint32_t>{ "RiftsBlockedPickFailed", &Reply::RiftsBlockedPickFailed },
+        Field<Reply, std::string>{ "LastRiftOutcome", &Reply::LastRiftOutcome },
+        Field<Reply, double>{ "UpliftVolumeAddedKm3", &Reply::UpliftVolumeAddedKm3, { .Unit = "km^3" } },
+        Field<Reply, double>{ "UpliftLinearErosionKm3", &Reply::UpliftLinearErosionKm3, { .Unit = "km^3" } },
+        Field<Reply, double>{ "PlumeVolumeAddedKm3", &Reply::PlumeVolumeAddedKm3, { .Unit = "km^3" } },
+        Field<Reply, double>{ "PlumeOceanicErosionKm3", &Reply::PlumeOceanicErosionKm3, { .Unit = "km^3" } },
+        Field<Reply, double>{ "ErosionDiffusionAddedKm3", &Reply::ErosionDiffusionAddedKm3, { .Unit = "km^3" } },
+        Field<Reply, double>{ "ErosionRemovedKm3", &Reply::ErosionRemovedKm3, { .Unit = "km^3" } },
+        Field<Reply, uint32_t>{ "CollapseCellsActive", &Reply::CollapseCellsActive },
+        Field<Reply, uint32_t>{ "PlateFrameLiveCells", &Reply::PlateFrameLiveCells },
+        Field<Reply, uint32_t>{ "WorldCells", &Reply::WorldCells },
+        Field<Reply, uint32_t>{ "ContinentalCells", &Reply::ContinentalCells },
+        Field<Reply, uint32_t>{ "OceanicCells", &Reply::OceanicCells },
+        Field<Reply, uint32_t>{ "VolcanicOceanicCells", &Reply::VolcanicOceanicCells },
+        Field<Reply, uint32_t>{ "AndeanCells", &Reply::AndeanCells },
+        Field<Reply, uint32_t>{ "HimalayanCells", &Reply::HimalayanCells },
+        Field<Reply, uint32_t>{ "IslandArcCells", &Reply::IslandArcCells },
+        Field<Reply, uint32_t>{ "SubductionFrontCells", &Reply::SubductionFrontCells },
+        Field<Reply, uint32_t>{ "CollisionFrontCells", &Reply::CollisionFrontCells },
+        Field<Reply, float>{ "LandFraction", &Reply::LandFraction },
+        Field<Reply, float>{ "OceanAgeMeanMy", &Reply::OceanAgeMeanMy, { .Unit = "My" } },
+        Field<Reply, float>{ "YoungRidgeFracUnder5My", &Reply::YoungRidgeFracUnder5My },
+        Field<Reply, float>{ "LandBelow05KmFrac", &Reply::LandBelow05KmFrac },
+        Field<Reply, float>{ "LandAbove5KmFrac", &Reply::LandAbove5KmFrac },
+        Field<Reply, float>{ "ReliefP50Km", &Reply::ReliefP50Km, { .Unit = "km" } },
+        Field<Reply, float>{ "ReliefP95Km", &Reply::ReliefP95Km, { .Unit = "km" } },
+        Field<Reply, float>{ "ReliefP99Km", &Reply::ReliefP99Km, { .Unit = "km" } },
+        Field<Reply, float>{ "ReliefMaxKm", &Reply::ReliefMaxKm, { .Unit = "km" } },
+        Field<Reply, int32_t>{ "ActivePlates", &Reply::ActivePlates },
+        Field<Reply, int32_t>{ "FreeRiftSlots", &Reply::FreeRiftSlots },
+        Field<Reply, int32_t>{ "TinyPlatesUnder1Pct", &Reply::TinyPlatesUnder1Pct },
+        Field<Reply, float>{ "LargestPlateShare", &Reply::LargestPlateShare },
+        Field<Reply, float>{ "Hhi", &Reply::Hhi },
+        Field<Reply, float>{ "EffectivePlateCount", &Reply::EffectivePlateCount },
+        Field<Reply, std::vector<int32_t>>{ "PlateCellCounts", &Reply::PlateCellCounts },
+        Field<Reply, std::vector<int32_t>>{ "PlateContinentalCounts", &Reply::PlateContinentalCounts },
+    };
+};
+
 namespace
 {
     constexpr size_t k_MaxCaptureNameLength = 64u;
     constexpr int32_t k_MaxToolRequestsPerPump = 16;
     constexpr std::string_view k_LayerChoices{ "elevation, plates, age, relief, fronts, voronoi, plumes, atlas, raw" };
+    constexpr std::string_view k_ProjectionChoices{ "equirectangular, equal_earth, mollweide, orthographic, polar_north, polar_south" };
 
     constexpr std::array<std::string_view, 9> k_LayerNames
     {
@@ -535,6 +719,16 @@ namespace
         "plumes",
         "atlas",
         "raw",
+    };
+
+    constexpr std::array<std::string_view, 6> k_ProjectionNames
+    {
+        "equirectangular",
+        "equal_earth",
+        "mollweide",
+        "orthographic",
+        "polar_north",
+        "polar_south",
     };
 
     [[nodiscard]] bool IsSafeCaptureName(std::string_view name) noexcept;
@@ -578,6 +772,7 @@ namespace
                            int32_t height,
                            uint32_t downsample,
                            int32_t mode,
+                           int32_t projection,
                            std::string_view name,
                            std::string_view default_name,
                            agent::ReplyToken<planet_loom::CaptureReply> token)
@@ -597,7 +792,7 @@ namespace
 
             const std::string captureName{ name.empty() ? default_name : name };
             const planet_loom::CaptureOutput output =
-                Host.CaptureArea(x, y, width, height, downsample, mode, captureName);
+                Host.CaptureArea(x, y, width, height, downsample, mode, projection, captureName);
 
             if (!output.Succeeded)
             {
@@ -936,7 +1131,7 @@ namespace
     struct CaptureCommand
     {
         static constexpr std::string_view Name{ "planet.capture" };
-        static constexpr std::string_view Doc{ "Captures the full equirectangular MapOutput image to a PNG file." };
+        static constexpr std::string_view Doc{ "Captures the full MapOutput image to a PNG file with optional Mode and Projection override." };
         using Params = planet_loom::CaptureParams;
         using Reply = planet_loom::CaptureReply;
 
@@ -944,7 +1139,7 @@ namespace
         {
             const uint32_t downsample = static_cast<uint32_t>(std::max(params.Downsample, 1));
             Bridge.HandleCapture(0, 0, Bridge.Host.Sim.Width, Bridge.Host.Sim.Height,
-                                 downsample, params.Mode, params.Name, "map", std::move(token));
+                                 downsample, params.Mode, params.Projection, params.Name, "map", std::move(token));
         }
 
         ToolBridge& Bridge;
@@ -964,7 +1159,155 @@ namespace
             const int32_t width = std::clamp(params.Width, 1, Bridge.Host.Sim.Width - x);
             const int32_t height = std::clamp(params.Height, 1, Bridge.Host.Sim.Height - y);
 
-            Bridge.HandleCapture(x, y, width, height, 1u, params.Mode, params.Name, "region", std::move(token));
+            Bridge.HandleCapture(x, y, width, height, 1u, params.Mode, params.Projection, params.Name, "region", std::move(token));
+        }
+
+        ToolBridge& Bridge;
+    };
+
+    struct SetProjectionCommand
+    {
+        static constexpr std::string_view Name{ "planet.set_projection" };
+        static constexpr std::string_view Doc{ "Selects map projection (equirectangular, equal_earth, mollweide, orthographic, polar_north, polar_south) and optional center/crop." };
+        using Params = planet_loom::SetProjectionParams;
+        using Reply = planet_loom::ProjectionReply;
+
+        void Run(const Params& params, agent::ReplyToken<Reply> token)
+        {
+            const std::optional<int32_t> parsed = planet_loom::ParseRenderProjectionName(params.Projection);
+
+            if (!parsed.has_value())
+            {
+                token.Fail(std::format("unknown projection '{}'; valid choices: {} (or 0..5)",
+                                       params.Projection, k_ProjectionChoices));
+                return;
+            }
+
+            planet_loom::PlanetSimState& sim = Bridge.Host.Sim;
+            sim.RenderProjection = *parsed;
+
+            if (std::isfinite(params.CenterLonDeg))
+            {
+                sim.ProjectionCenterLonDeg = std::clamp(params.CenterLonDeg, -360.0f, 360.0f);
+            }
+
+            if (std::isfinite(params.CenterLatDeg))
+            {
+                sim.ProjectionCenterLatDeg = std::clamp(params.CenterLatDeg, -90.0f, 90.0f);
+            }
+
+            if (std::isfinite(params.CropMinU))
+            {
+                sim.CropMinU = std::clamp(params.CropMinU, 0.0f, 1.0f);
+            }
+
+            if (std::isfinite(params.CropMinV))
+            {
+                sim.CropMinV = std::clamp(params.CropMinV, 0.0f, 1.0f);
+            }
+
+            if (std::isfinite(params.CropMaxU))
+            {
+                sim.CropMaxU = std::clamp(params.CropMaxU, 0.0f, 1.0f);
+            }
+
+            if (std::isfinite(params.CropMaxV))
+            {
+                sim.CropMaxV = std::clamp(params.CropMaxV, 0.0f, 1.0f);
+            }
+
+            Bridge.OnSimChanged("RenderProjection");
+
+            token.Complete(Reply
+            {
+                .RenderProjection = sim.RenderProjection,
+                .Projection = std::string{ planet_loom::RenderProjectionName(sim.RenderProjection) },
+                .CenterLonDeg = sim.ProjectionCenterLonDeg,
+                .CenterLatDeg = sim.ProjectionCenterLatDeg,
+                .CropMinU = sim.CropMinU,
+                .CropMinV = sim.CropMinV,
+                .CropMaxU = sim.CropMaxU,
+                .CropMaxV = sim.CropMaxV,
+                .Choices = std::string{ k_ProjectionChoices },
+            });
+        }
+
+        ToolBridge& Bridge;
+    };
+
+    struct TelemetryCommand
+    {
+        static constexpr std::string_view Name{ "planet.telemetry" };
+        static constexpr std::string_view Doc{ "Returns structured GPU telemetry counters, plate ecology, volume budgets, and PASS/WARN/FAIL gates." };
+        using Params = agent::NoParams;
+        using Reply = planet_loom::TelemetryOutput;
+
+        void Run(const Params& params, agent::ReplyToken<Reply> token)
+        {
+            static_cast<void>(params);
+
+            if (!Bridge.Host.GetTelemetry)
+            {
+                token.Fail("telemetry is unavailable in this session");
+                return;
+            }
+
+            const planet_loom::TelemetryOutput output = Bridge.Host.GetTelemetry();
+
+            if (!output.Available && !output.Error.empty())
+            {
+                token.Fail(output.Error);
+                return;
+            }
+
+            token.Complete(output);
+        }
+
+        ToolBridge& Bridge;
+    };
+
+    struct DumpStateCommand
+    {
+        static constexpr std::string_view Name{ "planet.dump_state" };
+        static constexpr std::string_view Doc{ "Exports a compact binary snapshot (.pghp) of all 1D nested-HEALPix cells without 2D map projection." };
+        using Params = planet_loom::DumpStateParams;
+        using Reply = planet_loom::DumpStateReply;
+
+        void Run(const Params& params, agent::ReplyToken<Reply> token)
+        {
+            if (!IsSafeCaptureName(params.Name))
+            {
+                token.Fail(std::format("the name '{}' is invalid: use up to {} letters, digits, '_' and '-'",
+                                       params.Name, k_MaxCaptureNameLength));
+                return;
+            }
+
+            if (!Bridge.Host.DumpState)
+            {
+                token.Fail("state dump is unavailable in this session");
+                return;
+            }
+
+            const std::string dumpName{ params.Name.empty() ? "state" : params.Name };
+            const planet_loom::DumpStateOutput output = Bridge.Host.DumpState(dumpName);
+
+            if (!output.Succeeded)
+            {
+                token.Fail(output.Error.empty() ? "state dump failed" : output.Error);
+                return;
+            }
+
+            token.Complete(Reply
+            {
+                .Path = output.Path,
+                .Bytes = output.Bytes,
+                .Order = output.Order,
+                .PointCount = output.PointCount,
+                .PlateSlotCount = output.PlateSlotCount,
+                .ActivePlateCount = output.ActivePlateCount,
+                .Step = output.Step,
+                .Time = output.Time,
+            });
         }
 
         ToolBridge& Bridge;
@@ -1150,6 +1493,62 @@ namespace planet_loom
         return std::nullopt;
     }
 
+    std::string_view RenderProjectionName(int32_t projection) noexcept
+    {
+        if (projection < 0 || static_cast<size_t>(projection) >= k_ProjectionNames.size())
+        {
+            return "unknown";
+        }
+
+        return k_ProjectionNames[static_cast<size_t>(projection)];
+    }
+
+    std::optional<int32_t> ParseRenderProjectionName(std::string_view text) noexcept
+    {
+        int32_t numeric = -1;
+        const std::from_chars_result parsed = std::from_chars(text.data(), text.data() + text.size(), numeric);
+
+        if (parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() && numeric >= 0 && numeric <= 5)
+        {
+            return numeric;
+        }
+
+        if (text == "equirect")
+        {
+            return 0;
+        }
+
+        if (text == "equal-earth")
+        {
+            return 1;
+        }
+
+        if (text == "globe")
+        {
+            return 3;
+        }
+
+        if (text == "north")
+        {
+            return 4;
+        }
+
+        if (text == "south")
+        {
+            return 5;
+        }
+
+        for (size_t i = 0u; i < k_ProjectionNames.size(); ++i)
+        {
+            if (text == k_ProjectionNames[i])
+            {
+                return static_cast<int32_t>(i);
+            }
+        }
+
+        return std::nullopt;
+    }
+
     void SyncSimFromPlumes(PlanetSimState& sim, const PlumeSystemState& plumes) noexcept
     {
         sim.PlumesEnabled = plumes.Enabled;
@@ -1179,6 +1578,7 @@ namespace planet_loom
             , StepCmd{ Bridge }
             , ResetCmd{ Bridge }
             , SetLayerCmd{ Bridge }
+            , SetProjectionCmd{ Bridge }
             , PlumeListCmd{ Bridge }
             , PlumeAddCmd{ Bridge }
             , PlumeUpdateCmd{ Bridge }
@@ -1188,6 +1588,8 @@ namespace planet_loom
             , CaptureRegionCmd{ Bridge }
             , ShapingPresetCmd{ Bridge }
             , TimingsCmd{ Bridge }
+            , TelemetryCmd{ Bridge }
+            , DumpStateCmd{ Bridge }
             , QuitCmd{ Bridge }
         {
         }
@@ -1197,6 +1599,7 @@ namespace planet_loom
         StepCommand StepCmd;
         ResetCommand ResetCmd;
         SetLayerCommand SetLayerCmd;
+        SetProjectionCommand SetProjectionCmd;
         PlumeListCommand PlumeListCmd;
         PlumeAddCommand PlumeAddCmd;
         PlumeUpdateCommand PlumeUpdateCmd;
@@ -1206,6 +1609,8 @@ namespace planet_loom
         CaptureRegionCommand CaptureRegionCmd;
         SetShapingPresetCommand ShapingPresetCmd;
         TimingsCommand TimingsCmd;
+        TelemetryCommand TelemetryCmd;
+        DumpStateCommand DumpStateCmd;
         QuitCommand QuitCmd;
         agent::ToolRegistry Registry;
         agent::ToolServer Server;
@@ -1227,6 +1632,7 @@ namespace planet_loom
             state->Registry.AddCommand(state->StepCmd),
             state->Registry.AddCommand(state->ResetCmd),
             state->Registry.AddCommand(state->SetLayerCmd),
+            state->Registry.AddCommand(state->SetProjectionCmd),
             state->Registry.AddCommand(state->PlumeListCmd),
             state->Registry.AddCommand(state->PlumeAddCmd),
             state->Registry.AddCommand(state->PlumeUpdateCmd),
@@ -1236,6 +1642,8 @@ namespace planet_loom
             state->Registry.AddCommand(state->CaptureRegionCmd),
             state->Registry.AddCommand(state->ShapingPresetCmd),
             state->Registry.AddCommand(state->TimingsCmd),
+            state->Registry.AddCommand(state->TelemetryCmd),
+            state->Registry.AddCommand(state->DumpStateCmd),
             state->Registry.AddCommand(state->QuitCmd),
         };
 

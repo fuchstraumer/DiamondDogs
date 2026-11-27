@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <numbers>
 #include <print>
 #include <span>
 #include <string_view>
@@ -100,6 +101,20 @@ namespace planet_loom
         inline constexpr loom::PassKey k_SplitPlatePass{ "Planet.Pass.SplitPlate" };
         inline constexpr loom::PassKey k_RefreshOwnersAfterRiftPass{ "Planet.Pass.RefreshOwnersAfterRift" };
         inline constexpr loom::PassKey k_MovePlatesAndClearCountersPass{ "Planet.Pass.MovePlatesAndClearCounters" };
+        inline constexpr loom::PassKey k_TelemetryPreUpliftPass{ "Planet.Telemetry.PreUplift" };
+        inline constexpr loom::PassKey k_TelemetryPostUpliftPass{ "Planet.Telemetry.PostUplift" };
+        inline constexpr loom::PassKey k_TelemetryPostPlumesPass{ "Planet.Telemetry.PostPlumes" };
+        inline constexpr loom::PassKey k_TelemetryPostErosionPass{ "Planet.Telemetry.PostErosion" };
+        inline constexpr loom::PassKey k_TelemetryPostRiftPass{ "Planet.Telemetry.PostRift" };
+
+        inline constexpr std::array<loom::PassKey, 5> k_TelemetryPassKeys
+        {
+            k_TelemetryPreUpliftPass,
+            k_TelemetryPostUpliftPass,
+            k_TelemetryPostPlumesPass,
+            k_TelemetryPostErosionPass,
+            k_TelemetryPostRiftPass,
+        };
 
         inline constexpr std::array<loom::PassKey, 38> k_SimulationPassKeys
         {
@@ -143,7 +158,7 @@ namespace planet_loom
             k_MovePlatesAndClearCountersPass,
         };
 
-        inline constexpr std::array<loom::PassKey, 43> k_AllPassKeys
+        inline constexpr std::array<loom::PassKey, 49> k_AllPassKeys
         {
             k_InitZeroCountersPass,
             k_OwnersPass,
@@ -176,19 +191,30 @@ namespace planet_loom
             k_SortFrontPointsPass,
             k_BuildFrontTileCapsPass,
             k_SumPullPass,
+            k_TelemetryPreUpliftPass,
             k_FrontDistanceAndUpliftPass,
+            k_TelemetryPostUpliftPass,
             k_ApplyMantlePlumesPass,
+            k_TelemetryPostPlumesPass,
             k_ErodeReliefPass,
             k_ApplyErosionPass,
+            k_TelemetryPostErosionPass,
             k_DecideRiftPass,
             k_SplitPlatePass,
             k_RefreshOwnersAfterRiftPass,
+            k_TelemetryPostRiftPass,
             k_MovePlatesAndClearCountersPass,
             k_RenderMapPass,
+            k_DumpHealpixStatePass,
             k_CaptureMapPass,
             k_PresentMapPass,
             k_UiPass,
         };
+
+        [[nodiscard]] RenderMapParamsHost PackRenderMapUniform(uint32_t width,
+                                                               uint32_t height,
+                                                               float time,
+                                                               const RenderMapView& view) noexcept;
 
         void DeclareBuffer(loom::GraphBuilder& graph,
                            loom::ResourceKey<loom::Buffer> key,
@@ -348,6 +374,29 @@ namespace planet_loom
             return true;
         }
 
+        RenderMapParamsHost PackRenderMapUniform(uint32_t width,
+                                                 uint32_t height,
+                                                 float time,
+                                                 const RenderMapView& view) noexcept
+        {
+            constexpr float k_DegToRad = std::numbers::pi_v<float> / 180.0f;
+            return RenderMapParamsHost
+            {
+                .Width = width,
+                .Height = height,
+                .Time = time,
+                .Mode = view.Mode,
+                .Projection = ProjectionToShaderIndex(view.Projection),
+                .CenterLonRad = view.CenterLonDeg * k_DegToRad,
+                .CenterLatRad = view.CenterLatDeg * k_DegToRad,
+                .Pad0 = 0.0f,
+                .CropMinU = view.CropMinU,
+                .CropMinV = view.CropMinV,
+                .CropMaxU = view.CropMaxU,
+                .CropMaxV = view.CropMaxV,
+            };
+        }
+
         void DestroyHandle(ResourceContext& resources, GraphicsResource& handle)
         {
             if (!handle)
@@ -361,14 +410,61 @@ namespace planet_loom
         }
     }
 
-    const std::array<loom::PassKey, 43>& AllPlanetPassKeys() noexcept
+    std::span<const loom::PassKey> AllPlanetPassKeys() noexcept
     {
         return k_AllPassKeys;
+    }
+
+    uint32_t ProjectionToShaderIndex(RenderProjection projection) noexcept
+    {
+        switch (projection)
+        {
+        case RenderProjection::Equirectangular:
+            return 0u;
+        case RenderProjection::EqualEarth:
+            return 1u;
+        case RenderProjection::Mollweide:
+            return 2u;
+        case RenderProjection::Orthographic:
+            return 3u;
+        case RenderProjection::PolarNorth:
+            return 4u;
+        case RenderProjection::PolarSouth:
+            return 5u;
+        default:
+            return 0u;
+        }
+    }
+
+    RenderProjection ShaderIndexToProjection(int32_t index) noexcept
+    {
+        switch (index)
+        {
+        case 0:
+            return RenderProjection::Equirectangular;
+        case 1:
+            return RenderProjection::EqualEarth;
+        case 2:
+            return RenderProjection::Mollweide;
+        case 3:
+            return RenderProjection::Orthographic;
+        case 4:
+            return RenderProjection::PolarNorth;
+        case 5:
+            return RenderProjection::PolarSouth;
+        default:
+            return RenderProjection::Invalid;
+        }
     }
 
     void ZeroCountersRecorder::SetIncludeLiveDisplayBuffers(bool include) noexcept
     {
         includeLiveDisplayBuffers = include;
+    }
+
+    void ZeroCountersRecorder::SetIncludeTelemetryBuffers(bool include) noexcept
+    {
+        includeTelemetryBuffers = include;
     }
 
     void ZeroCountersRecorder::Record(loom::RecordContext& ctx)
@@ -385,11 +481,24 @@ namespace planet_loom
             cmd.FillBuffer(rhi::BufferHandle{ ctx.BufferOf(k_FrontData).VkHandle }, 0u, ~0ull, 0u);
             cmd.FillBuffer(rhi::BufferHandle{ ctx.BufferOf(k_CellFronts).VkHandle }, 0u, ~0ull, 0u);
         }
+
+        if (includeTelemetryBuffers)
+        {
+            cmd.FillBuffer(rhi::BufferHandle{ ctx.BufferOf(k_TelemetryCounters).VkHandle }, 0u, ~0ull, 0u);
+        }
     }
 
     void TriggerSimulationStep(loom::Graph& graph)
     {
         for (const loom::PassKey& pass : k_SimulationPassKeys)
+        {
+            graph.Trigger(pass);
+        }
+    }
+
+    void TriggerTelemetryStep(loom::Graph& graph)
+    {
+        for (const loom::PassKey& pass : k_TelemetryPassKeys)
         {
             graph.Trigger(pass);
         }
@@ -491,6 +600,43 @@ namespace planet_loom
         DeclareBuffer(graph, k_ErodedRelief, loom::ResourceLifetime::Frame, planet::BufferExtent::Cells, size);
         DeclareBuffer(graph, k_RiftDispatch, loom::ResourceLifetime::Frame, planet::BufferExtent::IndirectDispatch, size);
 
+        const bool telemetryEnabled = config.EnableTelemetry;
+
+        if (telemetryEnabled)
+        {
+            graph.Declare(loom::BufferDeclaration
+            {
+                .Key = k_TelemetryCounters,
+                .Lifetime = loom::ResourceLifetime::Persistent,
+                .Size = loom::SizeSource::Bytes(static_cast<int64_t>(k_TelemetryCounterWordCount) * 4),
+                .Cpu = loom::CpuAccess::Readback,
+                .HistoryDepth = 0,
+                .NoHistoryAction = loom::OnNoHistory::Invalid,
+            });
+            graph.Declare(loom::BufferDeclaration
+            {
+                .Key = k_TelemetryCellSnap,
+                .Lifetime = loom::ResourceLifetime::Frame,
+                .Size = loom::SizeSource::Bytes(static_cast<int64_t>(pointCount) * 16),
+                .Cpu = loom::CpuAccess::None,
+                .HistoryDepth = 0,
+                .NoHistoryAction = loom::OnNoHistory::Invalid,
+            });
+        }
+
+        if (config.EnableStateDump)
+        {
+            graph.Declare(loom::BufferDeclaration
+            {
+                .Key = k_HealpixStateDump,
+                .Lifetime = loom::ResourceLifetime::Persistent,
+                .Size = loom::SizeSource::Bytes(static_cast<int64_t>(pointCount) * static_cast<int64_t>(k_HealpixDumpWordsPerCell) * 4),
+                .Cpu = loom::CpuAccess::Readback,
+                .HistoryDepth = 0,
+                .NoHistoryAction = loom::OnNoHistory::Invalid,
+            });
+        }
+
         // RenderMap output image
         graph.Declare(loom::ImageDeclaration
         {
@@ -532,13 +678,15 @@ namespace planet_loom
         if (callbacks.ZeroCounters != nullptr)
         {
             callbacks.ZeroCounters->SetIncludeLiveDisplayBuffers(interactive);
+            callbacks.ZeroCounters->SetIncludeTelemetryBuffers(telemetryEnabled);
         }
 
         const auto buildSequence = [&](loom::SequenceBuilder& seq)
         {
-            // 0. Zero persistent counters (plus interactive display buffers)
-            const auto initPass = [interactive, &callbacks](loom::RecordBuilder& pass)
+            // 0. Zero persistent counters (plus interactive display and telemetry buffers)
+            const auto initPass = [interactive, telemetryEnabled, &callbacks](loom::RecordBuilder& pass)
             {
+                static_cast<void>(telemetryEnabled);
                 for (const loom::ResourceKey<loom::Buffer>& counter : k_PersistentCounters)
                 {
                     pass.Uses(counter, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
@@ -548,6 +696,11 @@ namespace planet_loom
                 {
                     pass.Uses(k_FrontData, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
                     pass.Uses(k_CellFronts, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
+                }
+
+                if (telemetryEnabled)
+                {
+                    pass.Uses(k_TelemetryCounters, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
                 }
 
                 if (callbacks.ZeroCounters != nullptr)
@@ -984,6 +1137,27 @@ namespace planet_loom
                 pass.DispatchThreads(points, 1, 1);
             });
 
+            if (telemetryEnabled)
+            {
+                const auto telemetryPreUplift = [&](loom::DispatchBuilder& pass)
+                {
+                    namespace ep = pl::TelemetryPreUpliftCS;
+                    pass.Shader(k_Module, "TelemetryPreUpliftCS");
+                    pass.Bind(ep::StepParams, k_StepParams);
+                    pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
+                    pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
+                    pass.Bind(ep::CollideScratchCounters, k_CollideScratchCounters, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::CollisionJobIn, k_CollisionJob);
+                    pass.Bind(ep::CrustStateIn, k_CrustState);
+                    pass.Bind(ep::LiveCell, k_LiveCell, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::PlateLiveOffset, k_PlateLiveOffset, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::TelemetryCellSnap, k_TelemetryCellSnap, loom::AccessModifier::WriteOnly);
+                    pass.Bind(ep::TelemetryCounters, k_TelemetryCounters);
+                    pass.DispatchIndirect(k_LiveDispatch, 0);
+                };
+                seq.AddDispatch(k_TelemetryPreUpliftPass, simPolicy, k_Queue, telemetryPreUplift);
+            }
+
             // 31. FrontDistanceAndUpliftCS
             seq.AddDispatch(k_FrontDistanceAndUpliftPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
@@ -1006,6 +1180,25 @@ namespace planet_loom
                 pass.DispatchIndirect(k_LiveDispatch, 0);
             });
 
+            if (telemetryEnabled)
+            {
+                const auto telemetryPostUplift = [&](loom::DispatchBuilder& pass)
+                {
+                    namespace ep = pl::TelemetryPostUpliftCS;
+                    pass.Shader(k_Module, "TelemetryPostUpliftCS");
+                    pass.Bind(ep::StepParams, k_StepParams);
+                    pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
+                    pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
+                    pass.Bind(ep::CrustStateIn, k_CrustState);
+                    pass.Bind(ep::LiveCell, k_LiveCell, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::PlateLiveOffset, k_PlateLiveOffset, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::TelemetryCellSnap, k_TelemetryCellSnap);
+                    pass.Bind(ep::TelemetryCounters, k_TelemetryCounters);
+                    pass.DispatchIndirect(k_LiveDispatch, 0);
+                };
+                seq.AddDispatch(k_TelemetryPostUpliftPass, simPolicy, k_Queue, telemetryPostUplift);
+            }
+
             // 32. ApplyMantlePlumesCS (after FrontDistanceAndUpliftCS, before MovePlatesAndClearCountersCS)
             seq.AddDispatch(k_ApplyMantlePlumesPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
@@ -1021,6 +1214,25 @@ namespace planet_loom
                 pass.Bind(ep::Rotations, k_Rotations);
                 pass.DispatchIndirect(k_LiveDispatch, 0);
             });
+
+            if (telemetryEnabled)
+            {
+                const auto telemetryPostPlumes = [&](loom::DispatchBuilder& pass)
+                {
+                    namespace ep = pl::TelemetryPostPlumesCS;
+                    pass.Shader(k_Module, "TelemetryPostPlumesCS");
+                    pass.Bind(ep::StepParams, k_StepParams);
+                    pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
+                    pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
+                    pass.Bind(ep::CrustStateIn, k_CrustState);
+                    pass.Bind(ep::LiveCell, k_LiveCell, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::PlateLiveOffset, k_PlateLiveOffset, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::TelemetryCellSnap, k_TelemetryCellSnap);
+                    pass.Bind(ep::TelemetryCounters, k_TelemetryCounters);
+                    pass.DispatchIndirect(k_LiveDispatch, 0);
+                };
+                seq.AddDispatch(k_TelemetryPostPlumesPass, simPolicy, k_Queue, telemetryPostPlumes);
+            }
 
             // 33. ErodeReliefCS: diffusion of land height and orogenic collapse, into ErodedRelief (Erosion.slang)
             seq.AddDispatch(k_ErodeReliefPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
@@ -1051,6 +1263,27 @@ namespace planet_loom
                 pass.Bind(ep::PlateLiveOffset, k_PlateLiveOffset, loom::AccessModifier::ReadOnly);
                 pass.DispatchIndirect(k_LiveDispatch, 0);
             });
+
+            if (telemetryEnabled)
+            {
+                const auto telemetryPostErosion = [&](loom::DispatchBuilder& pass)
+                {
+                    namespace ep = pl::TelemetryPostErosionCS;
+                    pass.Shader(k_Module, "TelemetryPostErosionCS");
+                    pass.Bind(ep::StepParams, k_StepParams);
+                    pass.Bind(ep::UpliftConstants, k_UpliftConstants);
+                    pass.Bind(ep::ShapingConstants, k_ShapingConstants);
+                    pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
+                    pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
+                    pass.Bind(ep::CrustStateIn, k_CrustState);
+                    pass.Bind(ep::LiveCell, k_LiveCell, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::PlateLiveOffset, k_PlateLiveOffset, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::TelemetryCellSnap, k_TelemetryCellSnap, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::TelemetryCounters, k_TelemetryCounters);
+                    pass.DispatchIndirect(k_LiveDispatch, 0);
+                };
+                seq.AddDispatch(k_TelemetryPostErosionPass, simPolicy, k_Queue, telemetryPostErosion);
+            }
 
             // 35. DecideRiftCS: one wave picks at most one plate to split, and a free slot for its new half
             seq.AddDispatch(k_DecideRiftPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
@@ -1100,6 +1333,29 @@ namespace planet_loom
                 pass.DispatchIndirect(k_RiftDispatch, 0);
             });
 
+            if (telemetryEnabled)
+            {
+                const auto telemetryPostRift = [&](loom::DispatchBuilder& pass)
+                {
+                    namespace ep = pl::TelemetryPostRiftCS;
+                    pass.Shader(k_Module, "TelemetryPostRiftCS");
+                    pass.Bind(ep::StepParams, k_StepParams);
+                    pass.Bind(ep::UpliftConstants, k_UpliftConstants);
+                    pass.Bind(ep::PlumeConstants, k_PlumeConstants);
+                    pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
+                    pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
+                    pass.Bind(ep::CrustStateIn, k_CrustState);
+                    pass.Bind(ep::FrontDataIn, k_FrontData);
+                    pass.Bind(ep::OwnersIn, k_Owners);
+                    pass.Bind(ep::PlateContinentalCount, k_PlateContinentalCount, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::PlateCountersIn, k_PlateCounters);
+                    pass.Bind(ep::RiftJobIn, k_RiftJob);
+                    pass.Bind(ep::TelemetryCounters, k_TelemetryCounters);
+                    pass.DispatchThreads(points, 1, 1);
+                };
+                seq.AddDispatch(k_TelemetryPostRiftPass, simPolicy, k_Queue, telemetryPostRift);
+            }
+
             // 38. MovePlatesAndClearCountersCS
             seq.AddDispatch(k_MovePlatesAndClearCountersPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
@@ -1148,6 +1404,27 @@ namespace planet_loom
             };
             seq.AddDispatch(k_RenderMapPass, renderPolicy, k_Queue, renderMap);
 
+            // Optional on-demand 1D HEALPix state dump (planet.dump_state)
+            if (config.EnableStateDump)
+            {
+                const auto dumpState = [&](loom::DispatchBuilder& pass)
+                {
+                    namespace ep = pl::DumpHealpixStateCS;
+                    pass.Shader(k_Module, "DumpHealpixStateCS");
+                    pass.Bind(ep::StepParams, k_StepParams);
+                    pass.Bind(ep::RenderMapConstants, k_RenderMapConstants);
+                    pass.Bind(ep::PlumeConstants, k_PlumeConstants);
+                    pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
+                    pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
+                    pass.Bind(ep::CrustStateIn, k_CrustState);
+                    pass.Bind(ep::FrontDataIn, k_FrontData);
+                    pass.Bind(ep::HealpixStateDump, k_HealpixStateDump, loom::AccessModifier::WriteOnly);
+                    pass.Bind(ep::OwnersIn, k_Owners);
+                    pass.DispatchThreads(points, 1, 1);
+                };
+                seq.AddDispatch(k_DumpHealpixStatePass, loom::RunPolicy::OnTrigger, k_Queue, dumpState);
+            }
+
             // 35. Optional CaptureMapPass (OnTrigger PNG / region capture)
             if (config.EnableCapturePass && callbacks.CaptureCallback)
             {
@@ -1195,7 +1472,7 @@ namespace planet_loom
                                        uint32_t order,
                                        uint32_t width,
                                        uint32_t height,
-                                       uint32_t mode,
+                                       const RenderMapView& view,
                                        bool use_bytes,
                                        const PlumeSystemState& plumes,
                                        const ShapingState& shaping)
@@ -1223,13 +1500,7 @@ namespace planet_loom
         const ShapingParamsHost shapingParams = PackShapingUniform(shaping);
         const MovePlatesParamsHost movePlatesParams{ .Time = initial.InitialTime, .RiftEnabled = RiftEnabled ? 1u : 0u };
         const PlumeParamsHost plumeParams = PackPlumeUniform(plumes, initial.InitialTime);
-        const RenderMapParamsHost renderMapParams
-        {
-            .Width = width,
-            .Height = height,
-            .Time = initial.InitialTime,
-            .Mode = mode,
-        };
+        const RenderMapParamsHost renderMapParams = PackRenderMapUniform(width, height, initial.InitialTime, view);
 
         const std::vector<math::Float4> zeroRift(initial.PlateCount, math::Float4{ 0.0f, 0.0f, 0.0f, 0.0f });
 
@@ -1263,7 +1534,7 @@ namespace planet_loom
                                             float time,
                                             uint32_t width,
                                             uint32_t height,
-                                            uint32_t mode,
+                                            const RenderMapView& view,
                                             const PlumeSystemState& plumes,
                                             const ShapingState& shaping)
     {
@@ -1272,13 +1543,7 @@ namespace planet_loom
         const ShapingParamsHost shapingParams = PackShapingUniform(shaping);
         const MovePlatesParamsHost movePlatesParams{ .Time = time, .RiftEnabled = RiftEnabled ? 1u : 0u };
         const PlumeParamsHost plumeParams = PackPlumeUniform(plumes, time);
-        const RenderMapParamsHost renderMapParams
-        {
-            .Width = width,
-            .Height = height,
-            .Time = time,
-            .Mode = mode,
-        };
+        const RenderMapParamsHost renderMapParams = PackRenderMapUniform(width, height, time, view);
 
         return UpdateUniformBuffer(resources, Pass3Constants, k_Pass3Constants.Name, pass3Params) &&
                UpdateUniformBuffer(resources, UpliftConstants, k_UpliftConstants.Name, upliftParams) &&
@@ -1316,7 +1581,7 @@ namespace planet_loom
                                                   uint32_t order,
                                                   uint32_t width,
                                                   uint32_t height,
-                                                  uint32_t mode,
+                                                  const RenderMapView& view,
                                                   bool use_bytes,
                                                   const PlumeSystemState& plumes,
                                                   const ShapingState& shaping)
@@ -1335,7 +1600,7 @@ namespace planet_loom
         const std::vector<math::Float4> zeroRift(initial.PlateCount, math::Float4{ 0.0f, 0.0f, 0.0f, 0.0f });
 
         return UpdateStepDt(resources, initial, dt, order) &&
-               UpdateUniforms(resources, initial.InitialTime, width, height, mode, plumes, shaping) &&
+               UpdateUniforms(resources, initial.InitialTime, width, height, view, plumes, shaping) &&
                ResetStorageBuffer(resources, afterGraph, last.Submitted, CrustFlags, k_CrustFlags.Name, initial.CrustFlags) &&
                ResetStorageBuffer(resources, afterGraph, last.Submitted, CrustState, k_CrustState.Name, std::as_bytes(std::span{ initial.CrustState })) &&
                ResetStorageBuffer(resources, afterGraph, last.Submitted, Rotations, k_Rotations.Name, std::as_bytes(std::span{ initial.Rotations })) &&

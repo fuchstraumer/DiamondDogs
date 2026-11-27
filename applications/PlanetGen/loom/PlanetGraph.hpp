@@ -16,6 +16,7 @@
 #include "utility/Delegate.hpp"
 #include <array>
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 class ResourceContext;
@@ -25,6 +26,29 @@ namespace planet_loom
     using PresentMapParamsHost = planet_gen_shaders::PresentMapParams<
         planet_gen_shaders::CookProfile::Spirv,
         ::lodestone::LayoutRule::Std140>;
+
+    enum class RenderProjection : uint8_t
+    {
+        Invalid = 0,
+        Equirectangular,
+        EqualEarth,
+        Mollweide,
+        Orthographic,
+        PolarNorth,
+        PolarSouth,
+    };
+
+    struct RenderMapView
+    {
+        uint32_t Mode{ 0u };
+        RenderProjection Projection{ RenderProjection::Equirectangular };
+        float CenterLonDeg{ 0.0f };
+        float CenterLatDeg{ 0.0f };
+        float CropMinU{ 0.0f };
+        float CropMinV{ 0.0f };
+        float CropMaxU{ 1.0f };
+        float CropMaxV{ 1.0f };
+    };
 
     struct PlanetGraphConfig
     {
@@ -37,6 +61,8 @@ namespace planet_loom
         bool InteractiveControl{ false };
         bool LiveMode{ false };
         bool EnableCapturePass{ false };
+        bool EnableTelemetry{ false };
+        bool EnableStateDump{ false };
     };
 
     // Imported uniform buffers
@@ -99,6 +125,70 @@ namespace planet_loom
     inline constexpr loom::ResourceKey<loom::Buffer> k_ErodedRelief{ "Planet.ErodedRelief" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_RiftDispatch{ "Planet.RiftDispatch" };
 
+    // Optional GPU telemetry and native 1D HEALPix state dump buffers
+    inline constexpr loom::ResourceKey<loom::Buffer> k_TelemetryCounters{ "Planet.TelemetryCounters" };
+    inline constexpr loom::ResourceKey<loom::Buffer> k_TelemetryCellSnap{ "Planet.TelemetryCellSnap" };
+    inline constexpr loom::ResourceKey<loom::Buffer> k_HealpixStateDump{ "Planet.HealpixStateDump" };
+    inline constexpr uint32_t k_TelemetryCounterWordCount = 160u;
+    inline constexpr uint32_t k_HealpixDumpWordsPerCell = 6u;
+
+    namespace telemetry_slots
+    {
+        inline constexpr uint32_t k_StepsObserved = 0u;
+        inline constexpr uint32_t k_CollisionsTriggered = 1u;
+        inline constexpr uint32_t k_TerraneCellsTransferred = 2u;
+        inline constexpr uint32_t k_OceanCellsBorn = 3u;
+        inline constexpr uint32_t k_SubductionOverlapPoints = 4u;
+        inline constexpr uint32_t k_UpliftOceanToContFlips = 5u;
+        inline constexpr uint32_t k_UpliftVolcanicToContFlips = 6u;
+        inline constexpr uint32_t k_UpliftVolcanicOverwritten = 7u;
+        inline constexpr uint32_t k_PlumeOceanToContFlips = 8u;
+        inline constexpr uint32_t k_PlumeVolcanicCellsActive = 9u;
+        inline constexpr uint32_t k_RiftsCompleted = 10u;
+        inline constexpr uint32_t k_RiftsBlockedNoFreeSlot = 11u;
+        inline constexpr uint32_t k_RiftsBlockedNotWarm = 12u;
+        inline constexpr uint32_t k_RiftsBlockedTooSmall = 13u;
+        inline constexpr uint32_t k_RiftsBlockedPickFailed = 14u;
+        inline constexpr uint32_t k_CollapseCellsActive = 15u;
+        inline constexpr uint32_t k_SnapOverflowCells = 16u;
+
+        inline constexpr uint32_t k_UpliftHeightAddedMetersLo = 18u;
+        inline constexpr uint32_t k_UpliftHeightAddedMetersHi = 19u;
+        inline constexpr uint32_t k_UpliftLinearErosionMetersLo = 20u;
+        inline constexpr uint32_t k_UpliftLinearErosionMetersHi = 21u;
+        inline constexpr uint32_t k_PlumeHeightAddedMetersLo = 22u;
+        inline constexpr uint32_t k_PlumeHeightAddedMetersHi = 23u;
+        inline constexpr uint32_t k_PlumeOceanicErosionMetersLo = 24u;
+        inline constexpr uint32_t k_PlumeOceanicErosionMetersHi = 25u;
+        inline constexpr uint32_t k_ErosionDiffusionAddedMetersLo = 26u;
+        inline constexpr uint32_t k_ErosionDiffusionAddedMetersHi = 27u;
+        inline constexpr uint32_t k_ErosionRemovedMetersLo = 28u;
+        inline constexpr uint32_t k_ErosionRemovedMetersHi = 29u;
+
+        inline constexpr uint32_t k_PlateFrameLiveCells = 32u;
+        inline constexpr uint32_t k_WorldCells = 33u;
+        inline constexpr uint32_t k_ContinentalCells = 34u;
+        inline constexpr uint32_t k_OceanicCells = 35u;
+        inline constexpr uint32_t k_VolcanicOceanicCells = 36u;
+        inline constexpr uint32_t k_AndeanCells = 37u;
+        inline constexpr uint32_t k_HimalayanCells = 38u;
+        inline constexpr uint32_t k_IslandArcCells = 39u;
+        inline constexpr uint32_t k_SubductionFrontCells = 40u;
+        inline constexpr uint32_t k_CollisionFrontCells = 41u;
+        inline constexpr uint32_t k_YoungOceanCellsUnder5My = 42u;
+        inline constexpr uint32_t k_OceanAgeSumTenthsMy = 43u;
+        inline constexpr uint32_t k_LandBelow05KmCells = 44u;
+        inline constexpr uint32_t k_LandAbove5KmCells = 45u;
+        inline constexpr uint32_t k_ReliefMaxMm = 46u;
+        inline constexpr uint32_t k_LastStepCollisionFired = 47u;
+        inline constexpr uint32_t k_LastStepRiftOutcome = 48u;
+
+        inline constexpr uint32_t k_PlateCellCountBase = 64u;
+        inline constexpr uint32_t k_PlateContCountBase = 96u;
+        inline constexpr uint32_t k_ReliefHistBase = 128u;
+        inline constexpr uint32_t k_ReliefHistBins = 16u;
+    }
+
     // Output map image, sampler, and swapchain frame target
     inline constexpr loom::ResourceKey<loom::Image> k_MapOutput{ "Planet.MapOutput" };
     inline constexpr loom::ResourceKey<loom::Sampler> k_MapSampler{ "Planet.MapSampler" };
@@ -109,22 +199,31 @@ namespace planet_loom
     inline constexpr loom::PassKey k_InitZeroCountersPass{ "Planet.InitZeroCounters" };
     inline constexpr loom::PassKey k_OwnersPass{ "Planet.Pass.Owners" };
     inline constexpr loom::PassKey k_RenderMapPass{ "Planet.RenderMap" };
+    inline constexpr loom::PassKey k_DumpHealpixStatePass{ "Planet.DumpHealpixState" };
     inline constexpr loom::PassKey k_CaptureMapPass{ "Planet.CaptureMap" };
     inline constexpr loom::PassKey k_PresentMapPass{ "Planet.PresentMap" };
     inline constexpr loom::PassKey k_UiPass{ "Planet.Ui" };
 
     /** Returns all pass keys registered by RegisterPlanetGraph, for GPU timer hash lookup. */
-    [[nodiscard]] const std::array<loom::PassKey, 43>& AllPlanetPassKeys() noexcept;
+    [[nodiscard]] std::span<const loom::PassKey> AllPlanetPassKeys() noexcept;
 
-    /** Records vkCmdFillBuffer(0) on all 12 persistent counter buffers (and live display buffers when configured). */
+    /** Maps a RenderProjection enum to the shader RenderMapConstants.Projection index (0..5). */
+    [[nodiscard]] uint32_t ProjectionToShaderIndex(RenderProjection projection) noexcept;
+
+    /** Maps a shader projection index (0..5) to RenderProjection, or RenderProjection::Invalid. */
+    [[nodiscard]] RenderProjection ShaderIndexToProjection(int32_t index) noexcept;
+
+    /** Records vkCmdFillBuffer(0) on all 12 persistent counter buffers (and live display / telemetry buffers when configured). */
     class ZeroCountersRecorder
     {
     public:
         void SetIncludeLiveDisplayBuffers(bool include) noexcept;
+        void SetIncludeTelemetryBuffers(bool include) noexcept;
         void Record(loom::RecordContext& ctx);
 
     private:
         bool includeLiveDisplayBuffers{ false };
+        bool includeTelemetryBuffers{ false };
     };
 
     /** Optional callbacks supplied to RegisterPlanetGraph when capture or ImGui passes are active. */
@@ -142,6 +241,9 @@ namespace planet_loom
 
     /** Triggers all 38 simulation passes (OwnersCS .. MovePlatesAndClearCountersCS) for a single OnTrigger live step. */
     void TriggerSimulationStep(loom::Graph& graph);
+
+    /** Triggers the optional strip-able GPU telemetry passes for one OnTrigger live step. */
+    void TriggerTelemetryStep(loom::Graph& graph);
 
     /** Triggers zeroing of live display/counter buffers and initial OwnersCS evaluation for step-0 live view. */
     void TriggerInitialLiveView(loom::Graph& graph);
@@ -177,7 +279,7 @@ namespace planet_loom
                                      uint32_t order,
                                      uint32_t width,
                                      uint32_t height,
-                                     uint32_t mode,
+                                     const RenderMapView& view,
                                      bool use_bytes,
                                      const PlumeSystemState& plumes,
                                      const ShapingState& shaping);
@@ -190,7 +292,7 @@ namespace planet_loom
                                           float time,
                                           uint32_t width,
                                           uint32_t height,
-                                          uint32_t mode,
+                                          const RenderMapView& view,
                                           const PlumeSystemState& plumes,
                                           const ShapingState& shaping);
 
@@ -209,7 +311,7 @@ namespace planet_loom
                                                 uint32_t order,
                                                 uint32_t width,
                                                 uint32_t height,
-                                                uint32_t mode,
+                                                const RenderMapView& view,
                                                 bool use_bytes,
                                                 const PlumeSystemState& plumes,
                                                 const ShapingState& shaping);

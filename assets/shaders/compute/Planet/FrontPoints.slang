@@ -654,6 +654,7 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
     }
 
     CrustStateData crustState = LoadCrustState(flattenedPoint);
+    const bool wasVolcanic = (crustState.GetOrogenyType() == OrogenyVolcanic);
     float relief = crustState.GetRelief();
 
     if (best.Index >= 0)
@@ -693,8 +694,11 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
             if (rate > ActiveUplift)
             {
                 const int updatedOrogeny = isContinental ? OrogenyAndean : OrogenyIslandArc;
-                crustState.SetOrogenyType(updatedOrogeny);
-                crustState.SetOrogenyTime(UpliftConstants.Time);
+                if (isContinental || !wasVolcanic)
+                {
+                    crustState.SetOrogenyType(updatedOrogeny);
+                    crustState.SetOrogenyTime(UpliftConstants.Time);
+                }
             }
         }
     }
@@ -706,7 +710,8 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
 
     relief = min(relief, PeakElevation);
 
-    if (!isContinental && crustState.GetOrogenyType() != OrogenyVolcanic && (relief > ShapingConstants.AccretionRelief))
+    // volcanic hotspot chains stay oceanic and do not accrete into continents at trenches
+    if (!isContinental && !wasVolcanic && (relief > ShapingConstants.AccretionRelief))
     {
         const uint flagBits = PackCrustFlags(crustFlags.IsAlive(), true);
         StoreCrustFlags(flattenedPoint, flagBits);

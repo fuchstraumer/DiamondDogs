@@ -22,4 +22,5 @@ __include MovePlates;
 __include Rift;
 __include Plumes;
 __include Erosion;
+__include Telemetry;
 __include RenderMap;
