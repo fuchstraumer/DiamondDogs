@@ -44,3 +44,11 @@ Started 2026-10-19. This document contained a much longer log of information, bu
 
 - Fixed two Loom issues in `modules/RenderGraph` (wrapped in `// NEON PLANETGEN FIX BEGIN/END`), resolved Step-2+ `CrustState` GPU non-determinism (`0 byte diffs`), and added live interactive swapchain UI + `AgentTools`/TCP JSON-RPC controls in `PlanetGenLoom`. Details in `docs/planet-gen-agent.md` §4 and `applications/PlanetGen/HANDOFF.md`.
 - Added Python spherical diagnostics & probe scripts (`applications/PlanetGen/scripts/`), refined mantle plumes into discrete episodic volcanic/atoll/seamount chains, integrated `ShapingParams` (Cortial 2019 slab dip + 16-sample LUT) + 3D spherical `NoiseGraph` (`Fbm` warp, `Swiss`, `RidgedMulti`, `Cellular3`) + procedural `--preset=atoll|earth`, and rendered a verified 2K 241-frame Atoll World timelapse. Details in `docs/planet-gen-agent.md` §6–8.
+
+### 2026-11-27 (RhiSystem and bootstrap)
+
+- Loom's four Bootstrap asks: neutral capabilities, `DeviceFilter` in bootstrap, the wanted-only gather overload, and the WebGPU stage with requirements, the adapter's own limits and `BootResult` (new `WebGpuBootTest`). Details in `docs/rhi-agent.md` (section 0 and log).
+
+### 2026-11-27 (render graph)
+
+- Loom step 5, path lists: ChoosePaths, LM114-LM116, LM308/LM309, GatherDeviceNeeds; LoomDrawTest runs both depth paths. Details: `docs/rendergraph-agent.md` log, commit message in `docs/rendergraph-commit-notes.md`.

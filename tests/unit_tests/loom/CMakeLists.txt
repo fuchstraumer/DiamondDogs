@@ -17,6 +17,7 @@ set(LOOM_TEST_SOURCES
     test_levels.cpp
     test_runtime.cpp
     test_draw.cpp
+    test_paths.cpp
 )
 
 add_unit_test_target(loom_tests

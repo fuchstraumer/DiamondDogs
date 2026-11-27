@@ -47,6 +47,9 @@ namespace loom
         LM111 = 111, // A sequence is empty
         LM112 = 112, // A frame target has two outputs
         LM113 = 113, // A statement that may appear at most once appears twice
+        LM114 = 114, // A path list has no paths
+        LM115 = 115, // No path of a path list is satisfied on this device
+        LM116 = 116, // The paths of a path list expose different anchors
 
         // Resolve
         LM201 = 201, // Unknown module or entry point
@@ -65,6 +68,8 @@ namespace loom
         LM305 = 305, // The Params struct does not fit the entry point constants
         LM306 = 306, // BindPrevious on a resource with HistoryDepth 0 (Freeze reports it)
         LM307 = 307, // A view and its root are bound to different keys in one pass
+        LM308 = 308, // A path list produces a key that the chosen path does not write
+        LM309 = 309, // A path writes a key from outside the list that the list does not produce
 
         // Size
         LM401 = 401, // A binding needs a byte size that the resource does not have

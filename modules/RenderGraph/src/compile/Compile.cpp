@@ -2,12 +2,14 @@
 #include "CompiledGraph.hpp"
 #include "GraphBuilder.hpp"
 #include "LoomDiagnostic.hpp"
+#include "Records.hpp"
 #include "ShaderBundle.hpp"
 #include "ShaderLibraryTypes.hpp"
 #include "ShaderManifestDevice.hpp"
 #include "alias/Lifetimes.hpp"
 #include "bind/BoundGraph.hpp"
 #include "bind/Helpers.hpp"
+#include "compile/ChoosePaths.hpp"
 #include "compile/Pipelines.hpp"
 #include "compile/Uses.hpp"
 #include "compile/CompiledData.hpp"
@@ -27,13 +29,6 @@ namespace loom
 
     std::optional<CompiledGraph> Compile(const GraphBuilder& builder, const CompileInputs& inputs, DiagnosticSink& sink)
     {
-        std::optional<FrozenGraph> frozen = Freeze(builder.Record(), sink);
-
-        if (!frozen.has_value())
-        {
-            return std::nullopt;
-        }
-
         const ResolveInputs resolveInputs
         {
             .Bundle = inputs.Bundle,
@@ -50,6 +45,29 @@ namespace loom
             },
         };
 
+        // A graph with no path list compiles the builder's record as it is, with no copy
+        const GraphRecord* record = &builder.Record();
+        std::optional<ChosenGraph> chosen;
+
+        if (!record->PathLists.empty())
+        {
+            chosen = ChoosePaths(*record, inputs.Capabilities, inputs.ForcedPaths, resolveInputs, sink);
+
+            if (!chosen.has_value())
+            {
+                return std::nullopt;
+            }
+
+            record = &chosen->Record;
+        }
+
+        std::optional<FrozenGraph> frozen = Freeze(*record, sink);
+
+        if (!frozen.has_value())
+        {
+            return std::nullopt;
+        }
+
         const std::optional<ResolvedGraph> resolved = Resolve(*frozen, resolveInputs, sink);
 
         if (!resolved.has_value())
@@ -60,6 +78,11 @@ namespace loom
         std::optional<BoundGraph> bound = Bind(*frozen, *resolved, sink);
 
         if (!bound.has_value())
+        {
+            return std::nullopt;
+        }
+
+        if (chosen.has_value() && !CheckPathOutputs(*frozen, bound->Accesses, chosen->Choices, sink))
         {
             return std::nullopt;
         }
@@ -111,6 +134,11 @@ namespace loom
         compile::GatherParams(*data);
         compile::ComputeSpans(*data);
         data->AliasCandidates = FindAliasCandidates(*data);
+
+        if (chosen.has_value())
+        {
+            data->PathChoices = std::move(chosen->Choices);
+        }
 
         return CompiledGraph{ std::move(data) };
     }

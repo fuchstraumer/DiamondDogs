@@ -7,6 +7,7 @@
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
 #include "PassBuilders.hpp"
+#include "PathListBuilder.hpp"
 #include "PassStatements.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceTypes.hpp"
@@ -104,14 +105,43 @@ namespace
             pass.DispatchThreads(1, 1, 1);
         };
 
-        const auto prepass = [&k_CullBack](loom::DrawBuilder& pass)
+        const auto depthOnly = [&k_CullBack](loom::DrawBuilder& pass)
         {
             pass.Shaders("LoomDraw", "SceneVS", "");
             pass.Bind("Positions", k_Positions);
             pass.Raster(k_CullBack);
             pass.Depth(k_Depth, loom::DepthLoad::Clear(1.0f), loom::AttachmentStore::Store, loom::CompareOp::Less,
                        loom::DepthWrite::Enabled);
+        };
+
+        const auto prepassCount = [&depthOnly](loom::DrawBuilder& pass)
+        {
+            depthOnly(pass);
             pass.DrawIndirectCount(k_Arguments, 0, k_DrawCount, 0, 1);
+        };
+
+        // Cull writes a count of 1, so one indirect draw is the same draw. The count is then unread (LM504, a warning).
+        const auto prepassSingle = [&depthOnly](loom::DrawBuilder& pass)
+        {
+            depthOnly(pass);
+            pass.DrawIndirect(k_Arguments, 0);
+        };
+
+        const auto countPath = [&prepassCount](loom::PathBuilder& path)
+        {
+            path.AddDraw(k_Prepass, k_EveryFrame, k_Graphics, prepassCount);
+        };
+
+        const auto singlePath = [&prepassSingle](loom::PathBuilder& path)
+        {
+            path.AddDraw(k_Prepass, k_EveryFrame, k_Graphics, prepassSingle);
+        };
+
+        const auto depthPaths = [&countPath, &singlePath](loom::PathListBuilder& list)
+        {
+            list.Produces(k_Depth);
+            list.Path(k_CountPath, countPath);
+            list.Path(k_SinglePath, singlePath);
         };
 
         const auto gbuffer = [&k_CullBack](loom::DrawBuilder& pass)
@@ -139,7 +169,7 @@ namespace
         };
 
         graph.AddDispatch(k_Cull, k_EveryFrame, k_Graphics, cull);
-        graph.AddDraw(k_Prepass, k_EveryFrame, k_Graphics, prepass);
+        graph.AddPaths(k_DepthList, depthPaths);
         graph.AddDraw(k_GBuffer, k_EveryFrame, k_Graphics, gbuffer);
         graph.AddDraw(k_Light, k_EveryFrame, k_Graphics, light);
     }
@@ -152,12 +182,8 @@ namespace
             .Kind = bootstrap::NeedKind::DeviceFeature,
             .Level = bootstrap::NeedLevel::Required,
         },
-        bootstrap::Need
-        {
-            .Name = "VkPhysicalDeviceVulkan12Features.drawIndirectCount",
-            .Kind = bootstrap::NeedKind::DeviceFeature,
-            .Level = bootstrap::NeedLevel::Required,
-        },
+        // what loom::GatherDeviceNeeds returns for this graph: the higher path's capability, Wanted
+        bootstrap::NeutralNeed(bootstrap::DeviceCapability::DrawIndirectCount, bootstrap::NeedLevel::Wanted),
     };
 }
 
@@ -192,6 +218,8 @@ namespace loom_draw
             .SupportsUser = arguments.Filter.User,
             .ShaderLimits = loom::ShaderLimitsOf(arguments.Device),
             .Limits = loom::LayoutLimitsOf(arguments.Device),
+            .Capabilities = arguments.Filter.Capabilities,
+            .ForcedPaths = arguments.ForcedPaths,
         };
 
         std::optional<loom::CompiledGraph> compiled = loom::Compile(builder, inputs, arguments.Sink);
@@ -202,6 +230,8 @@ namespace loom_draw
             PrintDiagnostics(arguments.Sink);
             return nullptr;
         }
+
+        std::cout << loom::ExplainPaths(*compiled);
 
         const loom::RealizeInputs realizeInputs
         {

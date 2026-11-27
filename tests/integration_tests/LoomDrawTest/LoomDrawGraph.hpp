@@ -1,6 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_LOOM_DRAW_GRAPH_TEST_HPP
 #define DIAMOND_DOGS_LOOM_DRAW_GRAPH_TEST_HPP
+#include "Compile.hpp"
 #include "FrameTarget.hpp"
 #include "LoomKeys.hpp"
 #include "LoomGraph.hpp"
@@ -28,14 +29,19 @@ namespace loom
 }
 
 // The draw graph of LoomDrawTest (headless) and LoomTriangleTest (a swapchain). Four passes into the frame target
-// k_Screen: Cull (compute) writes one indirect draw and a count; Prepass draws depth through DrawIndirectCount; GBuffer
-// draws two colors with depth Equal; Light draws a fullscreen triangle from both and LoomFrame. Prepass and GBuffer cull
-// back faces, and the triangle is counterclockwise in Y-up NDC.
+// k_Screen: Cull (compute) writes one indirect draw and a count; Prepass draws depth; GBuffer draws two colors with
+// depth Equal; Light draws a fullscreen triangle from both and LoomFrame. Prepass and GBuffer cull back faces, and the
+// triangle is counterclockwise in Y-up NDC. Prepass is a path list that produces the depth image: CountPath draws
+// through DrawIndirectCount, and SinglePath, the fallback, through DrawIndirect. Both paths name the pass k_Prepass, so
+// the pass indices below hold for either path.
 namespace loom_draw
 {
     inline constexpr loom::ResourceKey<loom::Buffer> k_Positions{ "LoomDraw.Positions" };
     inline constexpr loom::FrameTargetKey k_Screen{ "LoomDraw.Screen" };
     inline constexpr loom::PassKey k_Light{ "LoomDraw.Light" };
+    inline constexpr loom::PathListKey k_DepthList{ "LoomDraw.DepthList" };
+    inline constexpr loom::PathKey k_CountPath{ "LoomDraw.CountPath" };
+    inline constexpr loom::PathKey k_SinglePath{ "LoomDraw.SinglePath" };
     inline constexpr std::array<float, 4u> k_FallbackColor{ 0.1f, 0.2f, 0.3f, 1.0f };
 
     // The passes in declaration order, which is their pass index
@@ -56,7 +62,7 @@ namespace loom_draw
         std::array<float, 4u>{ 0.0f, 0.8f, 0.5f, 1.0f },
     };
 
-    // Shader objects give the dynamic state; DrawIndirectCount is a Vulkan 1.2 feature
+    // Shader objects give the dynamic state (Required). DrawIndirectCount is Wanted: without it, CountPath is passed over
     [[nodiscard]] std::span<const bootstrap::Need> DeviceNeeds() noexcept;
 
     struct RealizeArguments
@@ -69,6 +75,8 @@ namespace loom_draw
         loom::CollectingSink& Sink;
         std::span<const loom::FrameTargetBinding> Targets;
         double TargetSettleSeconds;
+        // Empty: the device chooses the depth path
+        std::span<const loom::ForcedPath> ForcedPaths;
     };
 
     // Builds, compiles and realizes the graph. Prints the failure to stderr and returns null when a stage fails.

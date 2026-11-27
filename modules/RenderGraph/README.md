@@ -81,7 +81,7 @@ on 2026-11-20); headers include only what their declarations need.
 Layout reads no `OrderedGraph`: it checks each pass alone, so Order and Layout can run in either order.
 
 `Compile(builder, inputs, sink)` (`include/Compile.hpp`, `src/compile/`) runs the six stages in turn and stops after
-the first stage that reported an error. It returns a `CompiledGraph`, described in "Compile output" below.
+the first stage that reported an error. When the graph has path lists, `ChoosePaths` runs first (see "Path lists"). It returns a `CompiledGraph`, described in "Compile output" below.
 
 ### Freeze
 
@@ -284,6 +284,66 @@ so that Realize makes no decision of its own. Each check lives in the file named
   formats and blend per slot, depth format, compare and write, and raster state. Identity is by name (G9), never by
   `VariantKey`. Equal descriptions (`==`) share one row. There is no hash: the cache across recompiles belongs to
   Realize, and the pipeline shape itself waits for a design that suits Vulkan and WebGPU both.
+
+## Path lists
+
+A path list holds alternative bodies for one part of the graph, one per device tier. Compile chooses one path per
+list, once per device. The other paths make no resources and no pipelines, and load no shaders.
+
+```cpp
+const auto depthPaths = [&](loom::PathListBuilder& list)
+{
+    list.Produces(k_Depth);                   // the contract with the rest of the graph
+    list.Path(k_CountPath, countPath);        // in order of preference
+    list.Path(k_SinglePath, singlePath);      // the last path is the fallback
+};
+
+graph.AddPaths(k_DepthList, depthPaths);
+```
+
+A path body gets a `PathBuilder`: the sequence calls (`AddDispatch`, `AddDraw`, `AddRecord`, `After`, `Before`,
+`ExposeAnchor`), plus `Declare` and `Import` for resources that only this path has.
+
+**The contract is the outputs.** The list states the keys that it produces. Each path must write each produced key
+(LM308), and a path must not write a key from outside the list that the list does not produce (LM309). A path's inputs
+are its own: a ray-traced path and a raster path can read different data. Declare or import those inputs in the path.
+Two paths can use the same key for a path-local resource, because only the chosen path declares it. Every path must
+expose the same anchors (LM116). The order between a produced key and its readers is the normal data flow (LM502).
+
+**The choice** (`src/compile/ChoosePaths.cpp`, the first step of `Compile`):
+
+1. A forced path (`CompileInputs::ForcedPaths`) wins. A forced entry that names no list or no path is LM103.
+2. Else each list takes the first path whose statements the device satisfies. A statement implies a neutral
+   capability (`bootstrap::DeviceCapability`): a `DrawIndirectCount` draw needs `DrawIndirectCount`.
+   `CompileInputs::Capabilities` is the sorted list that the device was created with (`DeviceFilter::Capabilities`).
+3. Then a trial Freeze and Resolve run into a scratch sink. When a pass of a chosen path gets LM207 (no variant that
+   the device can run), its list moves to its next path. This repeats until no path pass gets LM207. So "the device
+   can run this path's shaders" is exactly Resolve's rule.
+4. A list with no path left is LM115: one diagnostic per path, with the first capability that it lacks. A list with no
+   paths is LM114.
+
+The output is a copy of the record. Each list becomes an ordinary sequence under the list's key, with the list's
+`After` and `Before` added, and the chosen path's declarations join the graph's. Freeze to Layout do not know about
+lists. LM308 and LM309 run after Bind, because Bind knows every access. A graph with no list compiles the builder's
+record directly, with no copy.
+
+**After Compile.** `CompiledGraph::ChosenPath(list)` and `IsChosen(list, path)` name the choice, so the app supplies
+the chosen path's imports. `ExplainPaths(compiled)` prints each list's choice and why each earlier path was passed
+over:
+
+```
+LoomDraw.DepthList: chose LoomDraw.SinglePath
+  passed over LoomDraw.CountPath: pass 'LoomDraw.Prepass' needs DrawIndirectCount
+```
+
+**Device needs.** `GatherDeviceNeeds(builder, bundle_file)` (`include/GraphDeviceNeeds.hpp`) gives bootstrap's
+`GatherDeviceRequirements` the graph's needs before the device exists. A capability of a pass outside every list, or
+of the last path, is Required: the fallback must run. A capability of a higher path is Wanted. `WantedOnly` lists the
+entry points that only higher paths use, so bootstrap makes their shader capabilities Wanted too. The result views into
+the builder, so use it before the builder changes.
+
+**Testing every path.** Compile each path with `ForcedPaths`. The forced compiles run LM308 and LM309 on each path, so a
+tier that drops an output fails a test. GPU tests run the device's choice, then each lower path forced.
 
 ## Compile output
 
@@ -790,6 +850,7 @@ When Loom needs something from Lodestone, it stubs it here and adds a row to Lod
 | `test_diagnostics.cpp` | The catalog and the sinks. |
 | `test_levels.cpp` | Kahn levels, the level-major run order, the persistence rule for LM503, buffer imports, and `BindFrameStart` (the `FrameStart` edges, the in-place step that is LM501 with a plain `Bind`, LM506, and LM504 with a frame-start reader). |
 | `test_runtime.cpp` (`LoomHashFill.slang`, `LoomImages.slang`) | `Compile`, `DecideRuns` (pending and failed rows, pending and failed pipelines, `Once`, `WhenInputsChange`, `OnTrigger`, `NoHistory`, Q3g), `PlanBarriers` (level and frame-start batches, write after reads, epochs, image layout changes, history copies, the clear batch), `ParamsStore` (LM703, LM704, the byte compare), `ExplainLastTick`, and aliasing (`Alias.*`: the candidates, the packing with needs written by hand, the takeover barrier), from readiness values written by hand. |
+| `test_paths.cpp` (`LoomDraw.slang`) | Path lists: the choice by capability, the fallback, forced paths, path-local declarations, a produced key that orders its reader, LM103 for a forced path, LM114, LM115, LM116, LM308 and LM309 on every path, and `GatherDeviceNeeds`. `test_resolve.cpp` covers the choice by shader (LM207 in the trial Resolve). |
 | `test_draw.cpp` (`LoomDraw.slang`, shared with the step 7 GPU test) | Step 7a: frame-target rows, attachments and their uses (depth read-only, color, Record targets as Keep and Store), indirect draw reads, `DrawIndirectCount` checks (LM109, LM401), `g_LoomFrame` with no `Bind` and its C++ mirror against the cooked layout, the target actions and fallbacks, the frame-end batch, the target clear, and the three target extents. |
 
 `tests/integration_tests/LoomComputeTest` runs on a real device, headless. `HashFillCS` writes `Output` (an imported
@@ -811,11 +872,14 @@ cannot prove.
 
 `tests/integration_tests/LoomDrawTest` runs step 7 on a real device, headless, into a 64x64 RGBA8
 `OffscreenFrameTarget`. The graph (`LoomDrawGraph.cpp`, shared with LoomTriangleTest) is a compute cull that writes
-the indirect arguments and the count, a depth prepass through `DrawIndirectCount`, a GBuffer pass with two color
+the indirect arguments and the count, a depth prepass in a path list (`DrawIndirectCount` when the device has it,
+else `DrawIndirect`; the list produces the depth image), a GBuffer pass with two color
 targets and depth `Equal`, and a light pass that reads the GBuffer and `g_LoomFrame` and writes the frame target. The
 triangle is counter-clockwise in Y-up NDC with back faces culled, so it shows only if the negative viewport keeps the
 winding. After four Ticks every pixel must match the CPU within one code value (pixels within 2 px of an edge are
-skipped). Then `Enable(Light, false)`: every pixel must hold the Clear fallback color.
+skipped). Then `Enable(Light, false)`: every pixel must hold the Clear fallback color. The test runs twice: with the
+path that the device chooses (it must be `CountPath` exactly when the device has `DrawIndirectCount`), then with
+`SinglePath` forced.
 
 `tests/integration_tests/LoomTriangleTest` draws the same graph into `SwapchainFrameTarget`, with `--frames=N` and
 `--resize` (use at least 120 frames). With `--resize`, the swapchain must be made again once per resize, and after the

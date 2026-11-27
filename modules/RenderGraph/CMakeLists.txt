@@ -2,6 +2,7 @@
 set(LOOM_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/Compile.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/CompiledGraph.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/GraphDeviceNeeds.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/DecideRuns.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/FramePlan.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomDeviceLimits.hpp"
@@ -52,6 +53,7 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PassStatements.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/SequenceBuilder.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PathListBuilder.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/GraphDeviceNeeds.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/order/OrderContext.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/order/OrderedGraph.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/order/OrderedGraph.cpp"
@@ -108,9 +110,12 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/layout/Limits.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/layout/Diagnostics.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/layout/Diagnostics.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/compile/ChoosePaths.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/compile/ChoosePaths.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/compile/CompiledData.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/compile/Compile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/compile/CompiledGraph.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/compile/PathChoice.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/compile/Pipelines.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/compile/Pipelines.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/compile/Uses.hpp"
@@ -138,7 +143,8 @@ target_include_directories(loom PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 # The freeze/ headers include the stage headers in src/ by name.
 target_include_directories(loom PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-target_link_libraries(loom PUBLIC foundation shader_bundle rhi_types rhi_resource_types)
+# bootstrap: the neutral device capabilities that path lists choose by (it links no RHI either)
+target_link_libraries(loom PUBLIC foundation shader_bundle rhi_types rhi_resource_types bootstrap)
 
 bootstrap_assert_no_rhi(loom)
 

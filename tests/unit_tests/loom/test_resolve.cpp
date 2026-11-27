@@ -4,6 +4,9 @@
 #include "PassStatements.hpp"
 #include "math/MathStorage.hpp"
 #include "resolve/ResolvedGraph.hpp"
+#include "compile/ChoosePaths.hpp"
+#include "compile/PathChoice.hpp"
+#include "PathListBuilder.hpp"
 #include "resolve/Helpers.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "GraphBuilder.hpp"
@@ -766,6 +769,83 @@ TEST(Resolve, PinnedWaveOpsOnADeviceWithoutThemIsLM207)
     const loom::Diagnostic& diagnostic = run.Sink.Diagnostics()[0];
     EXPECT_EQ(diagnostic.Pass.Hash, k_First.Hash);
     EXPECT_FALSE(diagnostic.Binding.empty());
+}
+
+// Path lists choose by shaders too: the first path pins wave ops on, and the device cannot run them. ChoosePaths'
+// trial Resolve sees LM207 on a pass of that path and moves the list to the next path, which pins wave ops off. Both
+// paths use the same pass key, so the rejection must not carry over to the path that replaced it.
+TEST(Resolve, APathWhoseShaderCannotRunIsPassedOver)
+{
+    constexpr loom::PathListKey k_List{ "Test.WaveList" };
+    constexpr loom::PathKey k_WavePath{ "Test.WavePath" };
+    constexpr loom::PathKey k_PlainPath{ "Test.PlainPath" };
+
+    const auto waveOn = [](loom::DispatchBuilder& pass)
+    {
+        ResolveCompute(pass);
+        pass.Pin("DOUBLE_PASS", loom::AxisValue::Boolean(false));
+        pass.Pin("TAPS", loom::AxisValue::Unsigned(1u));
+        pass.Pin("USE_WAVE_OPS", loom::AxisValue::Boolean(true));
+        pass.Pin("WAVE_SIZE", loom::AxisValue::Unsigned(32u));
+    };
+
+    const auto waveOff = [](loom::DispatchBuilder& pass)
+    {
+        ResolveCompute(pass);
+        pass.Pin("DOUBLE_PASS", loom::AxisValue::Boolean(false));
+        pass.Pin("TAPS", loom::AxisValue::Unsigned(1u));
+        pass.Pin("USE_WAVE_OPS", loom::AxisValue::Boolean(false));
+    };
+
+    const auto wavePath = [&waveOn](loom::PathBuilder& path)
+    {
+        path.AddDispatch(k_First, k_EveryFrame, k_Graphics, waveOn);
+    };
+
+    const auto plainPath = [&waveOff](loom::PathBuilder& path)
+    {
+        path.AddDispatch(k_First, k_EveryFrame, k_Graphics, waveOff);
+    };
+
+    const auto paths = [&](loom::PathListBuilder& list)
+    {
+        list.Path(k_WavePath, wavePath);
+        list.Path(k_PlainPath, plainPath);
+    };
+
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.AddPaths(k_List, paths);
+
+    const FakeDevice device{ .Missing = WaveOnlyCapabilities() };
+    ASSERT_FALSE(device.Missing.empty()) << "the capability axis changes no capability";
+
+    const loom::ResolveInputs inputs
+    {
+        .Bundle = TestBundle(k_SpirvProfile),
+        .Supports = &FakeSupports,
+        .SupportsUser = const_cast<FakeDevice*>(&device),
+        .Limits = RoomyLimits(),
+    };
+
+    loom::CollectingSink sink;
+    const std::optional<loom::ChosenGraph> chosen = loom::ChoosePaths(graph.Record(), {}, {}, inputs, sink);
+
+    ASSERT_TRUE(chosen.has_value()) << sink.Diagnostics().size() << " diagnostics";
+    EXPECT_TRUE(sink.Diagnostics().empty());
+    ASSERT_EQ(chosen->Choices.size(), 1u);
+
+    const loom::PathChoice& choice = chosen->Choices[0];
+    EXPECT_EQ(choice.Path.Hash, k_PlainPath.Hash);
+    ASSERT_EQ(choice.Rejected.size(), 1u);
+    EXPECT_EQ(choice.Rejected[0].Path.Hash, k_WavePath.Hash);
+    EXPECT_EQ(choice.Rejected[0].Reason, loom::PathRejection::Shader);
+    EXPECT_EQ(choice.Rejected[0].Pass.Hash, k_First.Hash);
+    EXPECT_FALSE(choice.Rejected[0].ShaderCapability.empty());
+
+    // the chosen body is a sequence under the list's key, and no list is left for Freeze
+    EXPECT_TRUE(chosen->Record.PathLists.empty());
+    ASSERT_EQ(chosen->Record.Sequences.size(), 1u);
+    EXPECT_EQ(chosen->Record.Sequences[0].Key.Hash, k_List.Hash);
 }
 
 // Defaults on a technique gate pair. SMOOTH (default off) and SMOOTH_TAPS (default 4, active when SMOOTH is on) take

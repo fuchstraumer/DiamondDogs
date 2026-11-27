@@ -893,6 +893,7 @@ namespace
             .Sink = sink,
             .Targets = std::span{ &binding, 1u },
             .TargetSettleSeconds = k_SettleSeconds,
+            .ForcedPaths = {},
         };
 
         std::unique_ptr<loom::Graph> graph = BuildAndRealize(arguments);

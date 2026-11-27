@@ -8,6 +8,7 @@
 #include "PassStatements.hpp"
 #include "ShaderLibraryTypes.hpp"
 #include "bind/BoundGraph.hpp"
+#include "compile/PathChoice.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "layout/LaidOutGraph.hpp"
 #include "order/OrderedGraph.hpp"
@@ -172,6 +173,9 @@ namespace loom
 
         std::vector<uint64_t> PassHashes; // [pass]
         std::vector<uint64_t> ResourceHashes; // [resource], resource rows only
+
+        // One entry per path list, in the order the builder added them; empty for a graph with no path list
+        std::vector<PathChoice> PathChoices;
     };
 
     // A copy index past RowCount is a history ring's extra copy, not a frame target

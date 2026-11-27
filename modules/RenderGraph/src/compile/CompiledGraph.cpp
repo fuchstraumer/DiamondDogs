@@ -1,6 +1,7 @@
 #include "CompiledGraph.hpp"
 #include "LoomKeys.hpp"
 #include "compile/CompiledData.hpp"
+#include "compile/PathChoice.hpp"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -78,6 +79,27 @@ namespace
         }
 
         return -1;
+    }
+
+    KeyRef CompiledGraph::ChosenPath(PathListKey list) const noexcept
+    {
+        const KeyRef listKey = list.ToRef();
+
+        for (const PathChoice& choice : data->PathChoices)
+        {
+            if (choice.List == listKey)
+            {
+                return choice.Path;
+            }
+
+        }
+
+        return KeyRef{};
+    }
+
+    bool CompiledGraph::IsChosen(PathListKey list, PathKey path) const noexcept
+    {
+        return ChosenPath(list) == path.ToRef();
     }
 
 namespace

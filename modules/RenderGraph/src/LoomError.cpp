@@ -51,6 +51,12 @@ namespace loom
                               "A frame target is claimed by more than one output." },
             CatalogEntry{ LM113, "LM113", k_Error,
                               "A statement that may appear at most once appears twice (a depth target, raster state, index buffer, or one color or vertex slot)." },
+            CatalogEntry{ LM114, "LM114", k_Error,
+                              "A path list has no paths." },
+            CatalogEntry{ LM115, "LM115", k_Error,
+                              "No path of a path list is satisfied on this device. Each path reports its first missing capability." },
+            CatalogEntry{ LM116, "LM116", k_Error,
+                              "The paths of a path list expose different anchors." },
 
             CatalogEntry{ LM201, "LM201", k_Error,
                               "Unknown module or entry point." },
@@ -81,6 +87,10 @@ namespace loom
                                "BindPrevious on a resource with HistoryDepth 0." },
             CatalogEntry{ LM307, "LM307", k_Error,
                                "A view and its root are bound to different keys in one pass." },
+            CatalogEntry{ LM308, "LM308", k_Error,
+                               "A path list produces a key that the chosen path does not write." },
+            CatalogEntry{ LM309, "LM309", k_Error,
+                               "A path writes a key from outside its list that the list does not produce. Declare it in the path, or add it to Produces." },
 
             CatalogEntry{ LM401, "LM401", k_Error,
                                "A binding needs a byte size, an extent or a layer count that the resource does not have." },

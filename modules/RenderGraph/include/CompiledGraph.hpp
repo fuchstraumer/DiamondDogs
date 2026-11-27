@@ -32,6 +32,11 @@ namespace loom
         [[nodiscard]] int32_t PassIndexOf(PassKey pass) const noexcept;
         [[nodiscard]] int32_t ResourceIndexOf(KeyRef resource) const noexcept;
 
+        // The path Compile chose for a path list. The app supplies that path's imports, and only those: a key that
+        // only another path declares has no row. An empty KeyRef when the graph has no such list.
+        [[nodiscard]] KeyRef ChosenPath(PathListKey list) const noexcept;
+        [[nodiscard]] bool IsChosen(PathListKey list, PathKey path) const noexcept;
+
     private:
         std::unique_ptr<CompiledData> data;
     };

@@ -2,7 +2,9 @@
 #include "CompiledGraph.hpp"
 #include "Declarations.hpp"
 #include "Device.hpp"
+#include "DeviceCapability.hpp"
 #include "DeviceConfig.hpp"
+#include "DeviceFilter.hpp"
 #include "DeviceStage.hpp"
 #include "FramePlan.hpp"
 #include "FrameTarget.hpp"
@@ -47,7 +49,8 @@
 
 // Loom step 7 on the GPU, headless, against the CPU. One graph of four passes into an offscreen frame target:
 //  - Cull (compute) writes one indirect draw (3 vertices from vertex 3) and a draw count of 1.
-//  - Prepass draws depth only through DrawIndirectCount, with a depth clear and back faces culled.
+//  - Prepass draws depth only, with a depth clear and back faces culled. It is a path list: through DrawIndirectCount
+//    when the device has it, else through DrawIndirect. The test runs the device's choice, then the fallback forced.
 //  - GBuffer draws vertices 0 to 2 (the same triangle) into two colors, depth Equal with no write, back faces culled.
 //  - Light draws a fullscreen triangle into the frame target: albedo x normal.z, at the UV that LoomFrame scales.
 // The triangle is counterclockwise in Y-up NDC, so it shows only if the negative viewport keeps that winding front.
@@ -371,7 +374,18 @@ namespace
         return failures;
     }
 
-    int32_t RunTest(HeadlessBoot& boot)
+    // The path that a run must choose: the forced one, or CountPath exactly when the device has DrawIndirectCount
+    loom::PathKey ExpectedPath(const bootstrap::DeviceFilter& filter, std::span<const loom::ForcedPath> forced)
+    {
+        if (!forced.empty())
+        {
+            return forced.front().Path;
+        }
+
+        return bootstrap::HasCapability(filter, bootstrap::DeviceCapability::DrawIndirectCount) ? k_CountPath : k_SinglePath;
+    }
+
+    int32_t RunTest(HeadlessBoot& boot, std::span<const loom::ForcedPath> forced)
     {
         ResourceContext& resources = boot.Gpu.Resources();
         const std::optional<GraphicsResource> screen = CreateScreen(resources);
@@ -398,6 +412,7 @@ namespace
             .Sink = sink,
             .Targets = std::span{ &binding, 1u },
             .TargetSettleSeconds = 0.0,
+            .ForcedPaths = forced,
         };
 
         std::unique_ptr<loom::Graph> graph = BuildAndRealize(arguments);
@@ -408,8 +423,18 @@ namespace
             return 1;
         }
 
+        int32_t failures = 0;
+        const loom::PathKey expected = ExpectedPath(filter, forced);
+
+        if (!graph->Compiled().IsChosen(k_DepthList, expected))
+        {
+            std::cerr << std::format("the depth list chose '{}', want '{}'\n",
+                                     graph->Compiled().ChosenPath(k_DepthList).Name, expected.Name);
+            ++failures;
+        }
+
         graph->Supply(k_Positions, CreatePositions(resources));
-        int32_t failures = RunGraph(resources, *graph, target, *screen);
+        failures += RunGraph(resources, *graph, target, *screen);
         const GraphicsResource positions = graph->BufferOf(k_Positions);
 
         // the graph waits for its own work and frees what it made; the test owns the import and the target
@@ -444,7 +469,10 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    const int32_t failures = RunTest(boot);
+    // the device's choice, then the fallback on the same device
+    const loom::ForcedPath forceSingle[]{ loom::ForcedPath{ .List = k_DepthList, .Path = k_SinglePath } };
+    int32_t failures = RunTest(boot, {});
+    failures += RunTest(boot, forceSingle);
 
     if (failures != 0)
     {
@@ -452,6 +480,6 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    std::cout << "LoomDrawTest: the draw passes and the Clear fallback match the CPU\n";
+    std::cout << "LoomDrawTest: both depth paths, the draw passes and the Clear fallback match the CPU\n";
     return 0;
 }
