@@ -19,6 +19,9 @@ namespace loom
     // Step 2: polls each row's future into graph.States. Reports LM701 and LM702 once per epoch.
     void PollRows(GraphImpl& graph);
 
+    // Step 2: copies the compile thread's pipeline states into graph.PipelineStates. Reports LM705 once per pipeline.
+    void PollPipelines(GraphImpl& graph);
+
     // Step 4: acquires each frame target that this Tick renders or clears, and starts its row's new epoch. False when
     // one could not be acquired (TargetNotReady): the targets acquired so far are released where they can be, and the
     // others stay acquired for the next Tick.

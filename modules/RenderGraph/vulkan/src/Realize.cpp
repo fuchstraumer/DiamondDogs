@@ -508,7 +508,9 @@ namespace
         return groups;
     }
 
-    RealizeError CreatePipeline(GraphImpl& graph, const CompiledPipeline& compiled, PipelineRuntime& pipeline)
+    // The layouts of one pipeline, made now, and its job for the compile thread
+    RealizeError CreatePipeline(GraphImpl& graph, int32_t pipeline_index, const CompiledPipeline& compiled,
+                                PipelineRuntime& pipeline)
     {
         const CompiledData& data = graph.Compiled.Data();
         const BoundPass& bound = data.BoundPasses[compiled.LayoutPass];
@@ -528,7 +530,7 @@ namespace
                 }
 
                 // CheckSupported let only kinds with a descriptor type through
-                const VkDescriptorType type = *ToDescriptorType(slot.Kind, data.SlotWritable[slotIndex] != 0u);
+                const VkDescriptorType type = *ToDescriptorType(slot.Kind, data.SlotReflectedAccess[slotIndex] != ResourceAccess::Read);
                 bindings.push_back(VkDescriptorSetLayoutBinding{ slot.Binding, type, slot.ArrayCount, ToVkShaderStages(slot.Stages), nullptr });
             }
 
@@ -575,26 +577,26 @@ namespace
         pipeline.PushStages = ToRhiShaderStages(compiled.PushConstantStages);
         pipeline.PushBytes = compiled.PushConstantBytes;
 
-        // ShaderBinaryOptions keeps spans, so this storage outlives the create call
-        SmallVector<rhi::DescriptorSetLayoutHandle, 8> layoutHandles(pipeline.SetLayouts.size());
+        // the shader objects come later, on the compile thread: the job keeps what their create call needs
+        PipelineJob& job = graph.PipelineJobs.emplace_back();
+        job.Pipeline = pipeline_index;
+        job.LayoutHandles.resize(pipeline.SetLayouts.size());
 
         for (size_t index = 0u; index < pipeline.SetLayouts.size(); ++index)
         {
-            layoutHandles[index].Set(pipeline.SetLayouts[index]);
+            job.LayoutHandles[index].Set(pipeline.SetLayouts[index]);
         }
 
-        rhi::PushConstantRange pushConstant
-        {
-            pipeline.PushStages,
-            0u,
-            compiled.PushConstantBytes
-        };
-        
-        const std::span<rhi::PushConstantRange> pushSpan
-        {
-            &pushConstant,
-            hasPush ? 1u : 0u
-        };
+        job.PushConstant = rhi::PushConstantRange{ pipeline.PushStages, 0u, compiled.PushConstantBytes };
+        job.HasPush = hasPush;
+        return RealizeError::Invalid;
+    }
+
+    // The compile thread's work for one pipeline. It writes only pipeline.Program and the job's failure fields.
+    bool MakeShaderObjects(const rhi::Device& device, const CompiledPipeline& compiled, PipelineJob& job,
+                           PipelineRuntime& pipeline)
+    {
+        const std::span<rhi::PushConstantRange> pushSpan{ &job.PushConstant, job.HasPush ? 1u : 0u };
 
         // 4 should be WAYYYY more than enough for 99.9% of shaders, except raytracing payloads
         // where it's whatever, we spill to the heap to handle those stupid things
@@ -603,7 +605,7 @@ namespace
 
         for (const CompiledStage& stage : compiled.Stages)
         {
-            std::span<rhi::DescriptorSetLayoutHandle> layoutSpan{ layoutHandles };
+            std::span<rhi::DescriptorSetLayoutHandle> layoutSpan{ job.LayoutHandles };
             const std::span<const uint32_t> spirvWords = SpirvWords(stage);
             options.emplace_back(spirvWords,
                                  ToRhiShaderStages(stage.Stage),
@@ -612,12 +614,16 @@ namespace
                                  layoutSpan);
         }
 
-        if (rhi::ShaderProgram::CreateFromBinary(graph.Device.Handle(), options, pipeline.Program).IsFailure())
+        const rhi::Result result = rhi::ShaderProgram::CreateFromBinary(device.Handle(), options, pipeline.Program);
+
+        if (result.IsFailure())
         {
-            return RealizeError::ShaderCreateFailed;
+            job.FailureCode = result.GetNativeResult();
+            job.FailureText = result.GetMessage();
+            return false;
         }
 
-        return RealizeError::Invalid;
+        return true;
     }
 
 }
@@ -636,9 +642,23 @@ namespace
         return info;
     }
 
+    // A placed buffer's create info. The poison fill is a transfer write, so a poisoned layout adds that usage; the
+    // requirement query and the create must use the same info.
+    BufferCreateInfo PlacedBufferInfo(const GraphImpl& graph, int32_t row)
+    {
+        BufferCreateInfo info = RowBufferInfo(graph.Compiled.Data(), row);
+
+        if (graph.Aliases.Poison)
+        {
+            info.Usage |= BufferUsageBits::TransferDestination;
+        }
+
+        return info;
+    }
+
     // Asks the device what each candidate needs, with the create info its row is made from, packs them, and asks for
     // the heaps. The requirement queries run here, on the calling thread; the heaps come later, as futures.
-    void PlanAliasing(GraphImpl& graph)
+    void PlanAliasing(GraphImpl& graph, bool poison)
     {
         const CompiledData& data = graph.Compiled.Data();
         std::vector<MemoryNeed> needs;
@@ -656,7 +676,14 @@ namespace
             }
             else
             {
-                requirements = rhi::placement::GetBufferMemoryRequirements(graph.Resources, RowBufferInfo(data, candidate.Row));
+                BufferCreateInfo info = RowBufferInfo(data, candidate.Row);
+
+                if (poison)
+                {
+                    info.Usage |= BufferUsageBits::TransferDestination;
+                }
+
+                requirements = rhi::placement::GetBufferMemoryRequirements(graph.Resources, info);
             }
 
             needs.push_back(MemoryNeed
@@ -668,6 +695,7 @@ namespace
         }
 
         graph.Aliases = PackAliases(data.AliasCandidates, needs, data.RowCount);
+        graph.Aliases.Poison = poison && !graph.Aliases.Heaps.empty();
         graph.Heaps.reserve(graph.Aliases.Heaps.size());
 
         for (const AliasHeap& heap : graph.Aliases.Heaps)
@@ -790,18 +818,26 @@ namespace
     RealizeError CreatePipelines(GraphImpl& graph)
     {
         const CompiledData& data = graph.Compiled.Data();
-        graph.Pipelines.resize(data.Pipelines.size());
+        const size_t pipelineCount = data.Pipelines.size();
+        graph.Pipelines.resize(pipelineCount);
+        graph.PipelineJobs.reserve(pipelineCount);
+        graph.PipelineAtomics = std::vector<std::atomic<PipelineReadiness>>(pipelineCount);
+        graph.PipelineStates.assign(pipelineCount, PipelineReadiness::Pending);
+        graph.PipelineReported.assign(pipelineCount, uint8_t{ 0u });
 
-        for (size_t index = 0u; index < data.Pipelines.size(); ++index)
+        for (size_t index = 0u; index < pipelineCount; ++index)
         {
             const CompiledPipeline& compiled = data.Pipelines[index];
 
+            // a pipeline that no pass uses has nothing to make
             if (compiled.LayoutPass < 0)
             {
+                graph.PipelineAtomics[index].store(PipelineReadiness::Ready, std::memory_order_relaxed);
                 continue;
             }
 
-            const RealizeError error = CreatePipeline(graph, compiled, graph.Pipelines[index]);
+            graph.PipelineAtomics[index].store(PipelineReadiness::Pending, std::memory_order_relaxed);
+            const RealizeError error = CreatePipeline(graph, static_cast<int32_t>(index), compiled, graph.Pipelines[index]);
 
             if (error != RealizeError::Invalid)
             {
@@ -809,6 +845,26 @@ namespace
             }
         }
 
+        // the handoff: from here, only the worker touches PipelineJobs and each PipelineRuntime::Program
+        const auto compile = [&graph](std::stop_token stop)
+        {
+            const CompiledData& compiledData = graph.Compiled.Data();
+
+            for (PipelineJob& job : graph.PipelineJobs)
+            {
+                if (stop.stop_requested())
+                {
+                    return;
+                }
+
+                const bool made = MakeShaderObjects(graph.Device, compiledData.Pipelines[job.Pipeline], job,
+                                                    graph.Pipelines[job.Pipeline]);
+                const PipelineReadiness state = made ? PipelineReadiness::Ready : PipelineReadiness::Failed;
+                graph.PipelineAtomics[job.Pipeline].store(state, std::memory_order_release);
+            }
+        };
+
+        graph.PipelineWorker = std::jthread{ compile };
         return RealizeError::Invalid;
     }
 
@@ -860,7 +916,8 @@ namespace
             for (int32_t slotIndex = bound.FirstSlot; slotIndex < bound.FirstSlot + bound.SlotCount; ++slotIndex)
             {
                 // CheckSupported let only kinds with a descriptor type through
-                countType(*ToDescriptorType(data.Slots[slotIndex].Kind, data.SlotWritable[slotIndex] != 0u), instances);
+                countType(*ToDescriptorType(data.Slots[slotIndex].Kind, data.SlotReflectedAccess[slotIndex] != ResourceAccess::Read),
+                          instances);
             }
         }
 
@@ -946,9 +1003,9 @@ namespace
         graph.Rows.resize(resourceCount);
         graph.States.assign(data.RowCount, ResourceState{ .Readiness = ResourceReadiness::Pending, .Epoch = 0u });
 
-        if (aliasing == MemoryAliasing::On)
+        if (aliasing == MemoryAliasing::On || aliasing == MemoryAliasing::OnPoisoned)
         {
-            PlanAliasing(graph);
+            PlanAliasing(graph, aliasing == MemoryAliasing::OnPoisoned);
         }
 
         for (int32_t row = 0; row < resourceCount; ++row)
@@ -1110,7 +1167,7 @@ namespace
             {
                 graph.Rows[row].Future = image ? CreateImage(graph, row, data.Frozen.Resources[row].Key.Name,
                                                              data.Sized.Resources[row].Extent)
-                                               : graph.Resources.CreateBuffer(RowBufferInfo(data, row), {});
+                                               : graph.Resources.CreateBuffer(PlacedBufferInfo(graph, row), {});
                 continue;
             }
 
@@ -1124,7 +1181,7 @@ namespace
                 continue;
             }
 
-            graph.Rows[row].Future = rhi::placement::CreatePlacedBuffer(graph.Resources, RowBufferInfo(data, row), where);
+            graph.Rows[row].Future = rhi::placement::CreatePlacedBuffer(graph.Resources, PlacedBufferInfo(graph, row), where);
         }
 
         graph.PendingPlacedRows.clear();

@@ -23,6 +23,16 @@ namespace loom
         Failed = 4          // permanent (LM702)
     };
 
+    // The backend's view of one pipeline (CompiledData::Pipelines), polled once per Tick. A backend that makes its
+    // pipelines on another thread, or with an async API call, reports Pending until the object exists.
+    enum class PipelineReadiness : uint8_t
+    {
+        Invalid = 0,
+        Pending = 1,        // not made yet
+        Ready = 2,
+        Failed = 3          // permanent (LM705)
+    };
+
     // Epoch counts the objects a row has had: Supply of a new future, or the graph's own create, adds one. A new
     // object starts with no pending GPU work, so the barrier state of its row starts again.
     // InitialLayout is the layout an image is in when its epoch starts: Undefined for a graph image, and the layout of
@@ -70,7 +80,7 @@ namespace loom
     };
 
     // Why a pass did not run this Tick (ExplainLastTick). Cause is the resource row for NotCreated, Failed and
-    // NoHistory, and the pass for Propagated; -1 for the others.
+    // NoHistory, the pass for Propagated, and the pipeline for PipelinePending and PipelineFailed; -1 for the others.
     enum class SkipReason : uint8_t
     {
         Invalid = 0,
@@ -80,7 +90,9 @@ namespace loom
         NotCreated = 4,
         Failed = 5,
         Propagated = 6,     // a skipped initializing writer of something this pass reads
-        NoHistory = 7       // a BindPrevious read with no previous frame yet, and OnNoHistory::Skip
+        NoHistory = 7,      // a BindPrevious read with no previous frame yet, and OnNoHistory::Skip
+        PipelinePending = 8,
+        PipelineFailed = 9  // permanent, like Failed
     };
 
     struct PassDecision
@@ -98,6 +110,7 @@ namespace loom
         SyncScope After;
         rhi::ImageLayout OldLayout{ rhi::ImageLayout::Undefined };
         rhi::ImageLayout NewLayout{ rhi::ImageLayout::Undefined };
+        bool Takeover{ false };     // a placed row takes its memory over from the rows that share its bytes (aliasing)
 
         [[nodiscard]] bool ChangesLayout() const noexcept
         {

@@ -55,6 +55,9 @@ namespace loom
         uint64_t Size{ 0u };
     };
 
+    // A quiet NaN as a float, and an index far past any buffer as an integer
+    inline constexpr uint32_t k_AliasPoisonWord = 0x7FC0DEADu;
+
     struct AliasLayout
     {
         std::vector<AliasHeap> Heaps;
@@ -66,6 +69,10 @@ namespace loom
 
         uint64_t UnaliasedBytes{ 0u };              // the placed rows' sizes added up: what they would take alone
         uint64_t HeapBytes{ 0u };                   // what the heaps take
+
+        // A debug mode (MemoryAliasing::OnPoisoned): the backend fills each placed buffer with k_AliasPoisonWord at its
+        // takeover, so a pass that reads bytes it did not write this frame reads the poison every time.
+        bool Poison{ false };
 
         [[nodiscard]] bool IsPlaced(int32_t row) const noexcept
         {

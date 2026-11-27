@@ -42,6 +42,8 @@ namespace
     // A history ring is as ready as its least ready copy: Failed, then Pending, then Created, then Complete.
     ResourceReadiness ReadinessOfRow(const GraphImpl& graph, int32_t row);
     void ReportRow(GraphImpl& graph, DiagnosticCode code, int32_t row);
+    // LM705 for a pipeline the browser could not make, against the pass whose slots gave its layout
+    void ReportPipeline(GraphImpl& graph, int32_t pipeline);
 
     // What LM701 reports: the first field of the supplied object that breaks the import's promise. An empty
     // FieldName means the object keeps the promise.
@@ -85,6 +87,47 @@ namespace
 }
 
 // Spec 5.1 step 2. LM701 and LM702 are reported once per epoch.
+// The async results (round 2 Q3): a made pipeline moves into its runtime once, and a failed one is reported once.
+void PollPipelines(GraphImpl& graph)
+{
+    if (graph.AllPipelinesSettled)
+    {
+        return;
+    }
+
+    PipelineResults& results = *graph.Results;
+    bool settled = true;
+
+    for (size_t pipeline = 0u; pipeline < results.States.size(); ++pipeline)
+    {
+        const PipelineReadiness state = results.States[pipeline];
+
+        if (state == PipelineReadiness::Pending)
+        {
+            settled = false;
+            continue;
+        }
+
+        if (graph.PipelineReported[pipeline] != 0u)
+        {
+            continue;
+        }
+
+        if (state == PipelineReadiness::Ready)
+        {
+            graph.Pipelines[pipeline].Pipeline = std::move(results.Made[pipeline]);
+        }
+        else if (state == PipelineReadiness::Failed)
+        {
+            ReportPipeline(graph, static_cast<int32_t>(pipeline));
+        }
+
+        graph.PipelineReported[pipeline] = 1u;
+    }
+
+    graph.AllPipelinesSettled = settled;
+}
+
 void PollRows(GraphImpl& graph)
 {
     if (graph.AllRowsSettled)
@@ -360,6 +403,30 @@ namespace
             .Severity = DefaultSeverityOf(code),
             .Where = frozen.Where,
             .Resource = frozen.Key,
+        };
+
+        graph.Sink.Report(diag);
+    }
+
+    void ReportPipeline(GraphImpl& graph, int32_t pipeline)
+    {
+        const CompiledData& data = graph.Compiled.Data();
+        const FrozenPass& pass = data.Frozen.Passes[data.Pipelines[pipeline].LayoutPass];
+
+        Diagnostic diag
+        {
+            .Code = DiagnosticCode::LM705,
+            .Severity = DefaultSeverityOf(DiagnosticCode::LM705),
+            .Where = pass.Where,
+            .Pass = pass.Key,
+            .Actual = DiagnosticValue
+            {
+                .FieldName = "Message",
+                .Kind = DiagnosticValueKind::Text,
+                .Text = graph.Results->Messages[pipeline],
+                .Integer = 0,
+                .Real = 0.0,
+            },
         };
 
         graph.Sink.Report(diag);

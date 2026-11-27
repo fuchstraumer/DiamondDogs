@@ -90,6 +90,7 @@ namespace loom
         LM702 = 702, // A future failed
         LM703 = 703, // A params key was never set before the tick
         LM704 = 704, // Set with a type other than the key's
+        LM705 = 705, // A pipeline failed to compile
     };
 
     [[nodiscard]] constexpr DiagnosticStage StageOf(DiagnosticCode code) noexcept

@@ -248,6 +248,7 @@ namespace
         UpdateTargets(graph, deltaSeconds);
         CreatePlacedRows(graph);
         PollRows(graph);
+        PollPipelines(graph);
 
         // the LoomFrame buffer must exist before a set names it; it is made at Realize, so this waits only at start
         const rhi::FutureState frameBuffer = graph.LoomFrameBuffer.State();
@@ -258,7 +259,8 @@ namespace
             return TickResult{ .Status = TickStatus::NothingToRun, .Ran = 0, .Skipped = graph.Compiled.PassCount() };
         }
 
-        DecideRuns(graph.Compiled, graph.States, graph.Controls, graph.Sync, graph.FrameIndex, graph.Plan);
+        DecideRuns(graph.Compiled, graph.States, graph.PipelineStates, graph.Controls, graph.Sync, graph.FrameIndex,
+                   graph.Plan);
 
         const int32_t ran = static_cast<int32_t>(graph.Plan.Runs.size());
         const TickResult counts{ .Status = TickStatus::Invalid, .Ran = ran, .Skipped = graph.Compiled.PassCount() - ran };
@@ -416,6 +418,45 @@ namespace
         {
             impl->Controls[index].Triggered = true;
         }
+    }
+
+    bool Graph::Ready()
+    {
+        GraphImpl& graph = *impl;
+        CreatePlacedRows(graph);
+        PollRows(graph);
+        PollPipelines(graph);
+
+        const auto isReady = [](PipelineReadiness state)
+        {
+            return state == PipelineReadiness::Ready;
+        };
+
+        if (!std::ranges::all_of(graph.PipelineStates, isReady))
+        {
+            return false;
+        }
+
+        const CompiledData& data = graph.Compiled.Data();
+
+        for (int32_t row = 0; row < static_cast<int32_t>(graph.Rows.size()); ++row)
+        {
+            // Tick makes an image sized from a target once the target reports an extent
+            if (TargetOfImage(data, row) >= 0)
+            {
+                continue;
+            }
+
+            const ResourceReadiness readiness = graph.States[row].Readiness;
+            const bool exists = readiness == ResourceReadiness::Created || readiness == ResourceReadiness::Complete;
+
+            if (!exists)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     const AliasLayout& Graph::Aliases() const noexcept

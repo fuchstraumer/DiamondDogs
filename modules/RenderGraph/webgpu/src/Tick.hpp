@@ -12,6 +12,10 @@ namespace loom
     // Step 2: polls each row's future into graph.States. Reports LM701 and LM702 once per epoch.
     void PollRows(GraphImpl& graph);
 
+    // Step 2: moves each pipeline that CreateComputePipelineAsync made into its PipelineRuntime, and reports LM705
+    // once per pipeline that failed.
+    void PollPipelines(GraphImpl& graph);
+
     // A row with a new object (a new epoch) owes nothing to the old one: its copies start again with no contents.
     // Run it before DecideRuns, which reads what each copy holds.
     void RefreshSync(GraphImpl& graph);

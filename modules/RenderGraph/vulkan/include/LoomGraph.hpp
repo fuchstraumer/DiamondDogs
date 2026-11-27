@@ -46,18 +46,20 @@ namespace loom
         On = 2
     };
 
-    // `Sink` receives the runtime diagnostics (LM701 to LM704) and must outlive the Graph. FrameSlots is the count of
+    // `Sink` receives the runtime diagnostics (LM701 to LM705) and must outlive the Graph. FrameSlots is the count of
     // frames in flight: one command pool and one descriptor set per pass for each.
     // FrameTargets names the object of each imported FrameTargetKey; every one must outlive the Graph.
     // TargetSettleSeconds is how long a frame target's extent must keep one value before the OfTarget images follow it
     // (step 7, round 2 Q1; about 0.15 is a good start). It must be set, to 0 or more, even with no frame targets.
     // Memory aliasing (AliasLayout.hpp). Off gives every row its own memory: turn it off to find out whether a bug
-    // comes from aliasing.
+    // comes from aliasing. OnPoisoned is a debug mode: On, and each placed buffer is filled with k_AliasPoisonWord at
+    // its takeover, so a pass that reads bytes it did not write this frame fails every time, not now and then.
     enum class MemoryAliasing : uint8_t
     {
         Invalid = 0,
         Off = 1,
-        On = 2
+        On = 2,
+        OnPoisoned = 3
     };
 
     struct RealizeInputs
@@ -87,7 +89,7 @@ namespace loom
                                         // bound vertex buffer (step 7 Q8: vertices are pulled)
         DescriptorLayoutFailed = 8,
         PipelineLayoutFailed = 9,
-        ShaderCreateFailed = 10,
+        ShaderCreateFailed = 10,        // no longer used: shader objects are made on the compile thread (LM705)
         DescriptorPoolFailed = 11,
         CommandPoolFailed = 12,
         FrameTargetUnbound = 13,        // an imported FrameTargetKey with no RealizeInputs::FrameTargets entry
@@ -117,6 +119,13 @@ namespace loom
 
         // Never blocks (T1). One frame at most.
         [[nodiscard]] TickResult Tick(std::chrono::duration<double> delta_time);
+        // Never blocks, and records nothing: moves resource creation on (the placed rows, once their heaps exist),
+        // polls every row and every pipeline, and returns true when every resource row exists (Created or Complete)
+        // and every pipeline is Ready. An image sized from a frame target does not count: Tick makes it from the
+        // target's extent. Before then, a Tick skips each pass whose row is missing (NotCreated) or whose pipeline is
+        // still compiling (PipelinePending) and runs the rest, so an app that needs whole frames (a simulation step)
+        // calls this until it is true, and only then ticks. A Failed row or pipeline keeps it false.
+        [[nodiscard]] bool Ready();
         // Desktop only, and never inside Tick: blocks until the next Tick's frame slot is free, or the timeout passes.
         // Returns false on a timeout.
         [[nodiscard]] bool WaitForFrameSlot(std::chrono::nanoseconds timeout);

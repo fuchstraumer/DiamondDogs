@@ -215,8 +215,8 @@ namespace
         sync[row] = ResourceSync{ .Layout = rhi::ImageLayout::Undefined, .Epoch = sync[row].Epoch };
         const bool image = use.Layout != rhi::ImageLayout::Undefined;
 
-        // a buffer that nothing touched yet owes nothing
-        if (!image && IsEmpty(before))
+        // a buffer that nothing touched yet owes nothing, unless the backend poisons it here
+        if (!image && IsEmpty(before) && !aliases.Poison)
         {
             return;
         }
@@ -230,6 +230,7 @@ namespace
             .After = use.Scope,
             .OldLayout = rhi::ImageLayout::Undefined,
             .NewLayout = use.Layout,
+            .Takeover = true,
         });
     }
 

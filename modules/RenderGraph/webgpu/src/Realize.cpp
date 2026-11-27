@@ -78,7 +78,9 @@ namespace
     int32_t GroupCountOf(const CompiledData& data, const CompiledPipeline& compiled);
     SlotTraits TraitsOf(const CompiledData& data, const BindingSlot& slot);
     bool IsConstantsSlot(const CompiledPipeline& compiled, const BindingSlot& slot);
-    RealizeError CreatePipeline(GraphImpl& graph, const CompiledPipeline& compiled, PipelineRuntime& pipeline);
+    // The layouts and the shader module now, and the pipeline through CreateComputePipelineAsync
+    RealizeError CreatePipeline(GraphImpl& graph, int32_t pipeline_index, const CompiledPipeline& compiled,
+                                PipelineRuntime& pipeline);
     void CreateHistoryCopies(GraphImpl& graph);
     uint64_t AlignUp(uint64_t value, uint64_t alignment);
 
@@ -143,20 +145,32 @@ namespace
     RealizeError CreatePipelines(GraphImpl& graph)
     {
         const CompiledData& data = graph.Compiled.Data();
-        graph.Pipelines.resize(data.Pipelines.size());
+        const size_t pipelineCount = data.Pipelines.size();
+        graph.Pipelines.resize(pipelineCount);
+        graph.PipelineReported.assign(pipelineCount, uint8_t{ 0u });
 
-        for (size_t index = 0u; index < data.Pipelines.size(); ++index)
+        // sized before the first async call, so no callback ever sees the vectors grow
+        graph.Results = std::make_shared<PipelineResults>();
+        graph.Results->Made.resize(pipelineCount);
+        graph.Results->States.assign(pipelineCount, PipelineReadiness::Pending);
+        graph.Results->Messages.resize(pipelineCount);
+
+        for (size_t index = 0u; index < pipelineCount; ++index)
         {
             const CompiledPipeline& compiled = data.Pipelines[index];
 
-            if (compiled.LayoutPass >= 0)
+            // a pipeline that no pass uses has nothing to make
+            if (compiled.LayoutPass < 0)
             {
-                const RealizeError error = CreatePipeline(graph, compiled, graph.Pipelines[index]);
+                graph.Results->States[index] = PipelineReadiness::Ready;
+                continue;
+            }
 
-                if (error != RealizeError::Invalid)
-                {
-                    return error;
-                }
+            const RealizeError error = CreatePipeline(graph, static_cast<int32_t>(index), compiled, graph.Pipelines[index]);
+
+            if (error != RealizeError::Invalid)
+            {
+                return error;
             }
         }
 
@@ -682,7 +696,7 @@ namespace
                 if (slotValid)
                 {
                     std::optional<wgpu::BindGroupLayoutEntry> entry =
-                        ToBindGroupLayoutEntry(slot, data.SlotWritable[slotIndex] != 0u, traits);
+                        ToBindGroupLayoutEntry(slot, data.SlotReflectedAccess[slotIndex], traits);
 
                     if (entry.has_value())
                     {
@@ -693,7 +707,8 @@ namespace
         }
     }
 
-    RealizeError CreatePipeline(GraphImpl& graph, const CompiledPipeline& compiled, PipelineRuntime& pipeline)
+    RealizeError CreatePipeline(GraphImpl& graph, int32_t pipeline_index, const CompiledPipeline& compiled,
+                                PipelineRuntime& pipeline)
     {
         const CompiledData& data = graph.Compiled.Data();
         const BoundPass& bound = data.BoundPasses[compiled.LayoutPass];
@@ -774,9 +789,29 @@ namespace
         pipelineInfo.layout = pipeline.Layout;
         pipelineInfo.compute.module = pipeline.Module;
         pipelineInfo.compute.entryPoint = std::string_view{ stage->EntryPoint };
-        pipeline.Pipeline = graph.Device.CreateComputePipeline(&pipelineInfo);
 
-        return pipeline.Pipeline ? RealizeError::Invalid : RealizeError::PipelineCreateFailed;
+        // the browser compiles off the main thread; a validation or compile error comes back here, not at Realize
+        const std::shared_ptr<PipelineResults> results = graph.Results;
+
+        const auto onCreated = [results, pipeline_index](wgpu::CreatePipelineAsyncStatus status,
+                                                         wgpu::ComputePipeline created, wgpu::StringView message)
+        {
+            const size_t index = static_cast<size_t>(pipeline_index);
+
+            if (status == wgpu::CreatePipelineAsyncStatus::Success)
+            {
+                results->Made[index] = std::move(created);
+                results->States[index] = PipelineReadiness::Ready;
+                return;
+            }
+
+            results->Messages[index] = std::string{ std::string_view{ message } };
+            results->States[index] = PipelineReadiness::Failed;
+        };
+
+        [[maybe_unused]] const wgpu::Future future =
+            graph.Device.CreateComputePipelineAsync(&pipelineInfo, wgpu::CallbackMode::AllowSpontaneous, onCreated);
+        return RealizeError::Invalid;
     }
 
     // The copies of each history ring after its first, made like the first (same create info, a numbered name).

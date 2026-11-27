@@ -7,6 +7,7 @@
 #include "ShaderManifestDevice.hpp"
 #include "alias/Lifetimes.hpp"
 #include "bind/BoundGraph.hpp"
+#include "bind/Helpers.hpp"
 #include "compile/Pipelines.hpp"
 #include "compile/Uses.hpp"
 #include "compile/CompiledData.hpp"
@@ -87,15 +88,12 @@ namespace loom
         auto data = std::make_unique<CompiledData>();
         data->CodeFormat = inputs.Bundle.Profile().CodeFormat;
 
-        // the slot sources view into the bundle: keep only the reflected writability
-        data->SlotWritable.reserve(bound->Sources.size());
+        // the slot sources view into the bundle: keep only the reflected access
+        data->SlotReflectedAccess.reserve(bound->Sources.size());
 
         for (const SlotSource& source : bound->Sources)
         {
-            const lodestone::ResourceAccess access = source.Reflection.Access();
-            const bool writable = access != lodestone::ResourceAccess::ReadOnly &&
-                                  access != lodestone::ResourceAccess::Invalid;
-            data->SlotWritable.push_back(writable ? 1u : 0u);
+            data->SlotReflectedAccess.push_back(bind::ToResourceAccess(source.Reflection.Access()));
         }
 
         data->Slots = std::move(bound->Slots);

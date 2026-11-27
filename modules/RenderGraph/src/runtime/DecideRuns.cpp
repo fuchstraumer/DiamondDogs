@@ -21,6 +21,33 @@ namespace loom
 namespace
 {
 
+    // A pass's pipeline: Failed stops the pass for good, Pending (still compiling) stops it this Tick. A Record pass
+    // has no pipeline.
+    PassDecision PipelineReadinessOf(const CompiledData& data, int32_t pass_index,
+                                     std::span<const PipelineReadiness> pipelines)
+    {
+        const int32_t pipeline = data.LaidOut.Passes[pass_index].Pipeline;
+
+        if (pipeline == k_NoPipeline)
+        {
+            return PassDecision{ .Reason = SkipReason::Ran, .Cause = -1 };
+        }
+
+        switch (pipelines[pipeline])
+        {
+        case PipelineReadiness::Ready:
+            return PassDecision{ .Reason = SkipReason::Ran, .Cause = -1 };
+        case PipelineReadiness::Failed:
+            return PassDecision{ .Reason = SkipReason::PipelineFailed, .Cause = pipeline };
+        case PipelineReadiness::Pending:
+            [[fallthrough]];
+        case PipelineReadiness::Invalid:
+            break;
+        }
+
+        return PassDecision{ .Reason = SkipReason::PipelinePending, .Cause = pipeline };
+    }
+
     // Readiness first: a Failed row stops the pass for good, a row with nothing to record against stops it this Tick.
     PassDecision ReadinessOf(const CompiledData& data, const CompiledPass& pass, std::span<const ResourceState> resources)
     {
@@ -168,15 +195,23 @@ namespace
         }
     }
 
+    // The Tick-wide facts that let Decide skip a walk: every row recordable, every pipeline ready, no writer skipped yet
+    struct DecideShortcuts
+    {
+        bool AllRecordable{ false };
+        bool AllPipelinesReady{ false };
+        bool AnySkippedWriter{ false };
+    };
+
     PassDecision Decide(const CompiledData& data,
                         int32_t pass_index,
                         std::span<const ResourceState> resources,
+                        std::span<const PipelineReadiness> pipelines,
                         std::span<const PassControl> controls,
                         std::span<const ResourceSync> sync,
                         int64_t frame_index,
                         const FramePlan& plan,
-                        bool all_recordable,
-                        bool any_skipped_writer)
+                        const DecideShortcuts& shortcuts)
     {
         const PassControl& control = controls[pass_index];
 
@@ -192,7 +227,17 @@ namespace
 
         const CompiledPass& pass = data.Passes[pass_index];
 
-        if (!all_recordable)
+        if (!shortcuts.AllPipelinesReady)
+        {
+            const PassDecision pipeline = PipelineReadinessOf(data, pass_index, pipelines);
+
+            if (pipeline.Reason != SkipReason::Ran)
+            {
+                return pipeline;
+            }
+        }
+
+        if (!shortcuts.AllRecordable)
         {
             const PassDecision readiness = ReadinessOf(data, pass, resources);
             if (readiness.Reason != SkipReason::Ran)
@@ -211,7 +256,7 @@ namespace
             }
         }
 
-        if (any_skipped_writer)
+        if (shortcuts.AnySkippedWriter)
         {
             return PropagationOf(data, pass, plan);
         }
@@ -282,6 +327,7 @@ namespace
 
     void DecideRuns(const CompiledGraph& compiled,
                     std::span<const ResourceState> resources,
+                    std::span<const PipelineReadiness> pipelines,
                     std::span<const PassControl> controls,
                     std::span<const ResourceSync> sync,
                     int64_t frame_index,
@@ -304,20 +350,29 @@ namespace
                    state.Readiness == ResourceReadiness::Complete;
         };
 
-        const bool allRecordable = std::ranges::all_of(resources, isRecordable);
-        bool anySkippedWriter = false;
+        const auto isReady = [](PipelineReadiness readiness)
+        {
+            return readiness == PipelineReadiness::Ready;
+        };
+
+        DecideShortcuts shortcuts
+        {
+            .AllRecordable = std::ranges::all_of(resources, isRecordable),
+            .AllPipelinesReady = std::ranges::all_of(pipelines, isReady),
+            .AnySkippedWriter = false,
+        };
 
         for (const PassIndex passIndex : data.Ordered.Passes)
         {
             const PassDecision decision = Decide(data,
                                                  passIndex.Value,
                                                  resources,
+                                                 pipelines,
                                                  controls,
                                                  sync,
                                                  frame_index,
                                                  plan,
-                                                 allRecordable,
-                                                 anySkippedWriter);
+                                                 shortcuts);
 
             plan.Decisions[passIndex.Value] = decision;
 
@@ -338,7 +393,7 @@ namespace
             }
 
             const bool updateUses =
-                (ran && (anySkippedWriter || data.HasWhenInputsChangesPasses)) || propagates;
+                (ran && (shortcuts.AnySkippedWriter || data.HasWhenInputsChangesPasses)) || propagates;
 
             if (!updateUses)
             {
@@ -361,7 +416,7 @@ namespace
                 if (propagates && use.Initializes)
                 {
                     plan.SkippedWriter[use.Resource] = passIndex.Value;
-                    anySkippedWriter = true;
+                    shortcuts.AnySkippedWriter = true;
                 }
             }
         }
@@ -504,6 +559,16 @@ namespace
             case SkipReason::NoHistory:
                 text += std::format("{}: skipped, '{}' has no previous frame yet\n", pass,
                                     data.Frozen.Resources[decision.Cause].Key.Name);
+                break;
+            case SkipReason::PipelinePending:
+                text += std::format("{}: skipped, its pipeline '{}.{}' is still being made\n", pass,
+                                    data.LaidOut.Pipelines[decision.Cause].Module,
+                                    data.LaidOut.Pipelines[decision.Cause].EntryPoint);
+                break;
+            case SkipReason::PipelineFailed:
+                text += std::format("{}: skipped, its pipeline '{}.{}' failed\n", pass,
+                                    data.LaidOut.Pipelines[decision.Cause].Module,
+                                    data.LaidOut.Pipelines[decision.Cause].EntryPoint);
                 break;
             case SkipReason::Invalid:
                 text += std::format("{}: not decided\n", pass);

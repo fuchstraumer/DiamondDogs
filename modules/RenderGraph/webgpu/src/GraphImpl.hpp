@@ -11,6 +11,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <string>
 #include <vector>
 
 class ResourceContext;
@@ -42,6 +44,16 @@ namespace loom
         size_t NumGroupLayouts{ 0u }; // avoids std::vector, and we know 4 is the max supported everywhere
         wgpu::PipelineLayout Layout;
         wgpu::ComputePipeline Pipeline;
+    };
+
+    // What CreateComputePipelineAsync hands back (round 2 Q3). Each callback holds a share, so a callback that comes
+    // after the Graph is gone writes here and not into freed memory: shared ownership, not a lock. The callbacks run
+    // on the browser's main thread, between Ticks, and Tick moves each made pipeline into its PipelineRuntime.
+    struct PipelineResults
+    {
+        std::vector<wgpu::ComputePipeline> Made;        // [pipeline]
+        std::vector<PipelineReadiness> States;          // [pipeline]: the span that DecideRuns reads
+        std::vector<std::string> Messages;              // [pipeline]: a failure's message, for LM705
     };
 
     // One pass's cached bind groups, one set of groups per ring phase (spec R3): a pass that binds history rings has
@@ -80,6 +92,9 @@ namespace loom
         // the history copies after each row's first: ExtraCopies[copy - Rows.size()] (CompiledData::ExtraCopyBase)
         std::vector<rhi::ResourceFuture<GraphicsResource>> ExtraCopies;
         std::vector<PipelineRuntime> Pipelines;
+        std::shared_ptr<PipelineResults> Results;
+        std::vector<uint8_t> PipelineReported;          // [pipeline]: LM705 went to the sink, or the pipeline moved in
+        bool AllPipelinesSettled{ false };
         std::vector<PassRuntime> Passes;
         // one buffer for the constants of every pass that takes them in a uniform buffer
         wgpu::Buffer ParamsBuffer;

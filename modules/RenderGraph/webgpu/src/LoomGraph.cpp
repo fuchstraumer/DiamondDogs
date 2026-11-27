@@ -14,6 +14,7 @@
 #include "Tick.hpp"
 #include "compile/CompiledData.hpp"
 #include "freeze/FrozenGraph.hpp"
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -131,8 +132,10 @@ namespace
         GraphImpl& graph = *impl;
 
         PollRows(graph);
+        PollPipelines(graph);
         RefreshSync(graph);
-        DecideRuns(graph.Compiled, graph.States, graph.Controls, graph.Sync, graph.FrameIndex, graph.Plan);
+        DecideRuns(graph.Compiled, graph.States, graph.Results->States, graph.Controls, graph.Sync, graph.FrameIndex,
+                   graph.Plan);
 
         const int32_t ran = static_cast<int32_t>(graph.Plan.Runs.size());
         const TickResult counts{ .Status = TickStatus::Invalid, .Ran = ran, .Skipped = graph.Compiled.PassCount() - ran };
@@ -160,6 +163,25 @@ namespace
         ++graph.FrameIndex;
 
         return TickResult{ .Status = TickStatus::Submitted, .Ran = counts.Ran, .Skipped = counts.Skipped };
+    }
+
+    bool Graph::Ready()
+    {
+        GraphImpl& graph = *impl;
+        PollRows(graph);
+        PollPipelines(graph);
+
+        const auto isReady = [](PipelineReadiness state)
+        {
+            return state == PipelineReadiness::Ready;
+        };
+
+        const auto exists = [](const ResourceState& state)
+        {
+            return state.Readiness == ResourceReadiness::Created || state.Readiness == ResourceReadiness::Complete;
+        };
+
+        return std::ranges::all_of(graph.Results->States, isReady) && std::ranges::all_of(graph.States, exists);
     }
 
     void Graph::Supply(ResourceKey<Buffer> resource, rhi::ResourceFuture<GraphicsResource>&& future)

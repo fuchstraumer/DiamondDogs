@@ -12,11 +12,13 @@ namespace loom
 {
     class CompiledGraph;
 
-    // Decides each pass in run order: enabled, run policy, readiness, history, then propagation (Q3g). Fills
-    // Decisions, Runs and Clears. `resources` has one entry per resource row, `controls` one per pass, and `sync` one
-    // per copy (it tells whether last frame's copy has contents). `frame_index` counts the submitted frames.
+    // Decides each pass in run order: enabled, run policy, pipeline readiness, resource readiness, history, then
+    // propagation (Q3g). Fills Decisions, Runs and Clears. `resources` has one entry per resource row, `pipelines` one
+    // per pipeline (CompiledGraph::PipelineCount), `controls` one per pass, and `sync` one per copy (it tells whether
+    // last frame's copy has contents). `frame_index` counts the submitted frames.
     void DecideRuns(const CompiledGraph& compiled,
                     std::span<const ResourceState> resources,
+                    std::span<const PipelineReadiness> pipelines,
                     std::span<const PassControl> controls,
                     std::span<const ResourceSync> sync,
                     int64_t frame_index,

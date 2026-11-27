@@ -49,6 +49,11 @@ namespace
         return data->RowCount;
     }
 
+    int32_t CompiledGraph::PipelineCount() const noexcept
+    {
+        return static_cast<int32_t>(data->Pipelines.size());
+    }
+
     int32_t CompiledGraph::PassIndexOf(PassKey pass) const noexcept
     {
         for (int32_t index = 0; index < PassCount(); ++index)

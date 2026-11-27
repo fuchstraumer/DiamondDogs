@@ -12,8 +12,10 @@ import LodestoneAttributes;
 //  - ChangedCS adds its params value to Changed when it runs (WhenInputsChange); TriggeredCS adds 1 to Triggered
 //    (OnTrigger). The sums tell how many times each ran.
 
+// Write-only: WebGPU allows rgba32float as a read_write storage texture only with texture-formats-tier2, and PaintCS
+// never reads it. NextCountImage stays RWTexture2D, so the tests also cover a read_write layout under a WriteOnly bind.
 [format("rgba32f")]
-RWTexture2D<float4> Painted;
+WTexture2D<float4> Painted;
 Texture2D<float4> PaintedRead;
 Texture2D<float4> Lut;
 SamplerState PointSampler;
@@ -35,7 +37,7 @@ RWStructuredBuffer<uint> Triggered;
 [numthreads(8, 8, 1)]
 void PaintCS(uint3 threadId : SV_DispatchThreadID, uniform uint seed)
 {
-    Painted[threadId.xy] = float4(float(threadId.x), float(threadId.y), float(seed), float(threadId.x * threadId.y));
+    Painted.Store(threadId.xy, float4(float(threadId.x), float(threadId.y), float(seed), float(threadId.x * threadId.y)));
 }
 
 [shader("compute")]

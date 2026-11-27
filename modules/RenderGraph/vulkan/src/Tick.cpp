@@ -61,6 +61,8 @@ namespace
     // A history ring is as ready as its least ready copy: Failed, then Pending, then Created, then Complete.
     ResourceReadiness ReadinessOfRow(const GraphImpl& graph, int32_t row);
     void ReportRow(GraphImpl& graph, DiagnosticCode code, int32_t row);
+    // LM705 for a pipeline the compile thread could not make, against the pass whose slots gave its layout
+    void ReportPipeline(GraphImpl& graph, int32_t pipeline);
 
     // What LM701 reports: the first field of the supplied object that breaks the import's promise. An empty
     // FieldName means the object keeps the promise.
@@ -400,6 +402,38 @@ void UpdateFrameConstants(GraphImpl& graph)
     }
 }
 
+// The compile thread's results (round 2 Q6): one acquire load per pipeline, until every pipeline has settled. The
+// Tick thread reports LM705, once per failed pipeline, because the sink is not thread-safe.
+void PollPipelines(GraphImpl& graph)
+{
+    if (graph.AllPipelinesSettled)
+    {
+        return;
+    }
+
+    bool settled = true;
+
+    for (size_t pipeline = 0u; pipeline < graph.PipelineStates.size(); ++pipeline)
+    {
+        const PipelineReadiness state = graph.PipelineAtomics[pipeline].load(std::memory_order_acquire);
+        graph.PipelineStates[pipeline] = state;
+
+        if (state == PipelineReadiness::Pending)
+        {
+            settled = false;
+            continue;
+        }
+
+        if (state == PipelineReadiness::Failed && graph.PipelineReported[pipeline] == 0u)
+        {
+            ReportPipeline(graph, static_cast<int32_t>(pipeline));
+            graph.PipelineReported[pipeline] = 1u;
+        }
+    }
+
+    graph.AllPipelinesSettled = settled;
+}
+
 // Spec 5.1 step 2. LM701 and LM702 are reported once per epoch.
 void PollRows(GraphImpl& graph)
 {
@@ -544,7 +578,7 @@ void WriteDescriptors(GraphImpl& graph, int32_t frame_slot)
 
             written = graph.States[row].Epoch;
             const VkDescriptorSet set = pass.Sets[static_cast<size_t>(instance) * pass.GroupCount + slot.Group];
-            const bool writable = data.SlotWritable[slotIndex] != 0u;
+            const bool writable = data.SlotReflectedAccess[slotIndex] != ResourceAccess::Read;
             // a history ring's copy for this frame; an instance always meets the same copies (Phases)
             const GraphicsResource& object = FutureOfCopy(graph, CopyOf(data, row, graph.FrameIndex, slot.Previous)).Get();
 
@@ -726,6 +760,38 @@ namespace
         graph.Sink.Report(diag);
     }
 
+    void ReportPipeline(GraphImpl& graph, int32_t pipeline)
+    {
+        const CompiledData& data = graph.Compiled.Data();
+        const FrozenPass& pass = data.Frozen.Passes[data.Pipelines[pipeline].LayoutPass];
+
+        const auto isThisPipeline = [pipeline](const PipelineJob& job)
+        {
+            return job.Pipeline == pipeline;
+        };
+
+        const auto job = std::ranges::find_if(graph.PipelineJobs, isThisPipeline);
+        const bool known = job != graph.PipelineJobs.end();
+
+        Diagnostic diag
+        {
+            .Code = DiagnosticCode::LM705,
+            .Severity = DefaultSeverityOf(DiagnosticCode::LM705),
+            .Where = pass.Where,
+            .Pass = pass.Key,
+            .Actual = DiagnosticValue
+            {
+                .FieldName = "Result",
+                .Kind = DiagnosticValueKind::Text,
+                .Text = known ? job->FailureText : std::string_view{ "unknown" },
+                .Integer = known ? job->FailureCode : 0,
+                .Real = 0.0,
+            },
+        };
+
+        graph.Sink.Report(diag);
+    }
+
     ImportMismatch KindMismatchOf(std::string_view expected)
     {
         return ImportMismatch{ .FieldName = "Type",
@@ -876,9 +942,64 @@ namespace
             anyGlobal = true;
         }
 
+        // Poison (MemoryAliasing::OnPoisoned): the batch's barrier also orders the fills, the fills write the poison
+        // into each buffer that takes its memory over here, and a second barrier orders the first uses after them
+        rhi::GlobalBarrier afterPoison{ .SrcStages = rhi::PipelineStage::AllTransfer, .SrcAccess = rhi::Access::TransferWrite };
+        bool anyPoison = false;
+
+        if (graph.Aliases.Poison)
+        {
+            const CompiledData& data = graph.Compiled.Data();
+
+            for (int32_t index = batch.FirstBarrier; index < batch.FirstBarrier + batch.Count; ++index)
+            {
+                const PlannedBarrier& planned = graph.Plan.Barriers[index];
+                const bool buffer = data.Frozen.Resources[data.CopyRows[planned.Resource]].Kind == ResourceKind::Buffer;
+
+                if (!planned.Takeover || !buffer)
+                {
+                    continue;
+                }
+
+                afterPoison.DstStages |= planned.After.Stages;
+                afterPoison.DstAccess |= planned.After.Accesses;
+                anyPoison = true;
+            }
+        }
+
+        if (anyPoison)
+        {
+            merged.DstStages |= rhi::PipelineStage::AllTransfer;
+            merged.DstAccess |= rhi::Access::TransferWrite;
+            anyGlobal = true;
+        }
+
         const std::span<const rhi::GlobalBarrier> globals{ &merged, anyGlobal ? 1u : 0u };
         const std::span<const rhi::ImageBarrier> images{ graph.ImageBarrierScratch };
         command_buffer.Barrier(rhi::DependencyInfo{ globals, {}, images });
+
+        if (!anyPoison)
+        {
+            return;
+        }
+
+        const CompiledData& data = graph.Compiled.Data();
+
+        for (int32_t index = batch.FirstBarrier; index < batch.FirstBarrier + batch.Count; ++index)
+        {
+            const PlannedBarrier& planned = graph.Plan.Barriers[index];
+            const bool buffer = data.Frozen.Resources[data.CopyRows[planned.Resource]].Kind == ResourceKind::Buffer;
+
+            if (!planned.Takeover || !buffer)
+            {
+                continue;
+            }
+
+            const GraphicsResource& object = FutureOfCopy(graph, planned.Resource).Get();
+            command_buffer.FillBuffer(rhi::BufferHandle{ object.VkHandle }, 0u, VK_WHOLE_SIZE, k_AliasPoisonWord);
+        }
+
+        command_buffer.Barrier(rhi::DependencyInfo{ std::span<const rhi::GlobalBarrier>{ &afterPoison, 1u }, {}, {} });
     }
 
     UInt3 GroupsOverImage(const GraphImpl& graph, int32_t row, const lodestone::WorkgroupSize& workgroup)

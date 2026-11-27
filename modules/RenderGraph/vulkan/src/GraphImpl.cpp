@@ -53,6 +53,13 @@ namespace
 
     GraphImpl::~GraphImpl()
     {
+        // the compile thread writes into Pipelines: it stops between jobs, and it goes before anything it touches
+        if (PipelineWorker.joinable())
+        {
+            PipelineWorker.request_stop();
+            PipelineWorker.join();
+        }
+
         // the GPU first: nothing below may go while a submit still reads it
         if (LastSignaled > 0u)
         {

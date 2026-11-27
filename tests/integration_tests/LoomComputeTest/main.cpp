@@ -162,11 +162,18 @@ namespace
     }
 
     // Ticks until k_Ticks frames are submitted. Tick never blocks, so the loop waits outside it: for a frame slot, or
-    // for the resources to exist. Returns false on a failed Tick or a timeout.
-    bool TickFrames(loom::Graph& graph, ResourceContext& resources, std::string_view variant_name)
+    // for the resources to exist. Returns false on a failed Tick or a timeout, and, with `whole_frames`, on a
+    // submitted Tick that skipped a pass.
+    bool TickFrames(loom::Graph& graph, ResourceContext& resources, std::string_view variant_name, bool whole_frames)
     {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(k_TimeoutNs);
         int32_t submitted = 0;
+
+        // the shader objects are made on Loom's compile thread: no Tick until every pipeline and row exists
+        while (!graph.Ready() && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::yield();
+        }
 
         while (submitted < k_Ticks && std::chrono::steady_clock::now() < deadline)
         {
@@ -178,6 +185,13 @@ namespace
             switch (result.Status)
             {
             case loom::TickStatus::Submitted:
+                if (whole_frames && result.Skipped != 0)
+                {
+                    std::cerr << std::format("[{}] a submitted Tick skipped {} pass(es):\n{}", variant_name,
+                                             result.Skipped, graph.ExplainLastTick());
+                    return false;
+                }
+
                 ++submitted;
                 break;
             case loom::TickStatus::NoFrameSlot:
@@ -357,7 +371,7 @@ namespace
         graph->Set(k_FillParams, FillParams{ .seed = k_Seed, .count = k_ElementCount });
         graph->Set(k_AgainParams, AgainParams{ .count = k_ElementCount });
 
-        int32_t failures = TickFrames(*graph, resources, variantName) ? 0 : 1;
+        int32_t failures = TickFrames(*graph, resources, variantName, false) ? 0 : 1;
         const GraphicsResource output = graph->BufferOf(k_Output);
         const GraphicsResource output2 = graph->BufferOf(k_Output2);
 
@@ -493,6 +507,14 @@ namespace
         return PcgHash(PcgHash(index ^ (second ? k_SeedB : k_SeedA)));
     }
 
+    // The poisoned run's FillB writes only the first half of ScratchB, so AgainB reads the poison in the second half
+    constexpr uint32_t k_HalfCount = k_ElementCount / 2u;
+
+    uint32_t ExpectedPoisonedB(uint32_t index, bool) noexcept
+    {
+        return index < k_HalfCount ? ExpectedResult(index, true) : PcgHash(loom::k_AliasPoisonWord);
+    }
+
     loom::BufferDeclaration AliasBuffer(loom::ResourceKey<loom::Buffer> key, loom::CpuAccess cpu)
     {
         return loom::BufferDeclaration
@@ -586,10 +608,13 @@ namespace
         return 0;
     }
 
+    // OnPoisoned: FillB writes half of ScratchB. The other half must hold the poison, not what FillA left there, on
+    // every frame: that proves the fill runs at the takeover, after AgainA and before AgainB.
     int32_t RunAliasing(HeadlessBoot& boot, loom::MemoryAliasing aliasing)
     {
-        const bool aliased = aliasing == loom::MemoryAliasing::On;
-        const std::string variantName = aliased ? "ALIASING=On" : "ALIASING=Off";
+        const bool poisoned = aliasing == loom::MemoryAliasing::OnPoisoned;
+        const bool aliased = aliasing == loom::MemoryAliasing::On || poisoned;
+        const std::string variantName = poisoned ? "ALIASING=OnPoisoned" : (aliased ? "ALIASING=On" : "ALIASING=Off");
         ResourceContext& resources = boot.Gpu.Resources();
         loom::CollectingSink sink;
 
@@ -603,17 +628,33 @@ namespace
         }
 
         graph->Set(k_FillAParams, FillParams{ .seed = k_SeedA, .count = k_ElementCount });
-        graph->Set(k_FillBParams, FillParams{ .seed = k_SeedB, .count = k_ElementCount });
+        graph->Set(k_FillBParams, FillParams{ .seed = k_SeedB, .count = poisoned ? k_HalfCount : k_ElementCount });
         graph->Set(k_AgainAParams, AgainParams{ .count = k_ElementCount });
         graph->Set(k_AgainBParams, AgainParams{ .count = k_ElementCount });
 
         int32_t failures = CheckPlacement(*graph, aliased, variantName);
-        failures += TickFrames(*graph, resources, variantName) ? 0 : 1;
+
+        // the placed rows are made after their heaps: a Tick before then would skip the passes that use them
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(k_TimeoutNs);
+
+        while (!graph->Ready() && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::yield();
+        }
+
+        if (!graph->Ready())
+        {
+            std::cerr << std::format("[{}] the resources did not come to exist\n", variantName);
+            ++failures;
+        }
+
+        failures += TickFrames(*graph, resources, variantName, true) ? 0 : 1;
 
         if (failures == 0)
         {
             failures += CheckBuffer(resources, *graph, graph->BufferOf(k_ResultA), "ResultA", variantName, &ExpectedResult, false);
-            failures += CheckBuffer(resources, *graph, graph->BufferOf(k_ResultB), "ResultB", variantName, &ExpectedResult, true);
+            failures += CheckBuffer(resources, *graph, graph->BufferOf(k_ResultB), "ResultB", variantName,
+                                    poisoned ? &ExpectedPoisonedB : &ExpectedResult, true);
         }
 
         graph.reset();
@@ -655,6 +696,7 @@ int main(int argc, char* argv[])
     failures += RunShortImport(boot);
     failures += RunAliasing(boot, loom::MemoryAliasing::Off);
     failures += RunAliasing(boot, loom::MemoryAliasing::On);
+    failures += RunAliasing(boot, loom::MemoryAliasing::OnPoisoned);
 
     if (failures != 0)
     {

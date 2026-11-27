@@ -47,7 +47,7 @@ untracked `docs/` folder. This README is the map of the code.
                          └─────┬─────┘
                              Graph
                          ┌─────▼─────┐   ◀── Set<T>, Supply, Enable
-                         │   Tick    │  LM701-LM704     poll ─▶ DecideRuns ─▶ PlanBarriers ─▶ record ─▶ submit
+                         │   Tick    │  LM701-LM705     poll ─▶ DecideRuns ─▶ PlanBarriers ─▶ record ─▶ submit
                          └───────────┘                  (DecideRuns and PlanBarriers are core: FramePlan)
 ```
 
@@ -350,8 +350,12 @@ Each pass, in run order:
      before one run count as one.
    `CommitRuns` updates these flags after the submit. A `BindPrevious` or `BindFrameStart` read is not an input change
    of this Tick: the row written this Tick is next Tick's change.
-3. **Readiness:** a `Failed` row stops the pass for good (`Failed`). A `Pending` row stops it this Tick
-   (`NotCreated`). `Created` is enough to run: the submit waits for the transfer.
+3. **Readiness:** first the pass's pipeline. The backend gives one `PipelineReadiness` per pipeline each Tick,
+   because it makes pipelines in the background (the Vulkan compile thread, WebGPU's `CreateComputePipelineAsync`): a
+   `Failed` pipeline stops the pass for good (`PipelineFailed`, LM705), and a `Pending` one stops it this Tick
+   (`PipelinePending`), with the pipeline as `Cause`. Then the rows: a `Failed` row stops the pass for good
+   (`Failed`). A `Pending` row stops it this Tick (`NotCreated`). `Created` is enough to run: the submit waits for the
+   transfer.
 4. **History:** a `BindPrevious` read of a copy with no contents yet (`ResourceSync::HasContents`): `OnNoHistory::Skip`
    skips the pass (`NoHistory`, with the row as `Cause`); `OnNoHistory::Clear` runs it, and puts the copy in
    `FramePlan::Clears`.
@@ -480,8 +484,14 @@ texture-samplers, input targets) or a bound vertex buffer (vertices are pulled).
 - binds each frame target to its `FrameTarget` object; its row is always `Created` and states the target's
   `FinalLayout()`. When the graph draws, it loads the dynamic-state entry points (`RasterRecording.cpp`). When a shader
   declares `g_LoomFrame`, it creates the `LoomFrame` uniform buffer;
-- builds its own set layouts, pipeline layouts and shader objects from the slot table and the copied SPIR-V
-  (`rhi::ShaderProgram`), with no `VkPipeline`;
+- builds its own set layouts and pipeline layouts from the slot table, and starts one compile thread (a
+  `std::jthread` per graph) that makes the shader objects from the copied SPIR-V (`rhi::ShaderProgram`), with no
+  `VkPipeline`. It is an ownership handoff with no lock: Realize fills one job per pipeline and starts the thread;
+  from then on only the thread touches the jobs and writes each pipeline's shader objects, and it publishes each one
+  with a release store to an atomic `PipelineReadiness`. Tick reads the states (acquire) and reports LM705 for a
+  failure, on its own thread, because a sink is not thread-safe. The destructor stops the thread between jobs and
+  joins it first. Until a pipeline is made, its passes skip `PipelinePending`; an app that needs whole frames waits
+  on `Graph::Ready()`;
 - makes the descriptor sets of each pass: one set of groups per (frame slot, ring phase). A pass that binds history
   rings has as many phases as the least common multiple of their copy counts, so each set always meets the same
   copies and is written again only when a row's epoch changes (spec R3). It also makes one command pool per frame
@@ -500,7 +510,7 @@ status that each early exit returns:
 flowchart TD
     A[Frame slot free?] -- no --> A1([NoFrameSlot])
     A -- yes --> B[RetireObjects, UpdateTargets: settle, Reallocate, SwapTargetImages]
-    B --> C[PollRows: futures to readiness, LM701 and LM702]
+    B --> C[PollRows, PollPipelines: readiness, LM701, LM702 and LM705]
     C --> D[DecideRuns: Runs, skip reasons, TargetActions, Clears]
     D -- nothing runs or clears --> D1([NothingToRun])
     D --> E[ParamsStore::CheckRuns]
@@ -531,7 +541,8 @@ In order:
    LM701 (a supplied object breaks its import's promise: a buffer smaller than `ByteSize`; an image whose format or
    layer count differs, or, for `Exact`, whose extent or mip count differs) and LM702 (a future failed) are reported
    once per epoch. A row with LM701 is
-   `Failed` until the next `Supply`.
+   `Failed` until the next `Supply`. `PollPipelines` copies the compile thread's states and reports LM705 once per
+   failed pipeline, against the pass whose slots gave its layout, with the driver's result.
 4. **Decide** (`DecideRuns`). No pass runs and no target clears: return `NothingToRun`. (At the first Ticks, while the
    `LoomFrame` buffer is still being created, also `NothingToRun`.)
 5. **Params** (`ParamsStore::CheckRuns`). LM703: return `Failed`.
@@ -660,6 +671,33 @@ accesses of each draw. The step 7 GPU plants (2026-11-23, ninja-msvc, each resto
 | No frame-end batch | LoomTriangleTest: `VUID-VkPresentInfoKHR-pImageIndices-01430` (the image is not in `PresentSource`). LoomDrawTest: `VUID-vkCmdDraw-None-09600`. |
 | No batch before GBuffer (the prepass to GBuffer depth barrier, and the layout changes in the same batch) | Both: `VUID-vkCmdBeginRendering-pRenderingInfo-09588`, `-09592`, `VUID-vkCmdDraw-None-09600`. This plant also removes the layout changes, so it proves the layout path, not the depth write-to-read dependency on its own. |
 
+## The WebGPU backend (`loom_webgpu`)
+
+`webgpu/include/LoomGraph.hpp` has the same vocabulary as the Vulkan face. It builds only in the Emscripten
+configuration (`emdawnwebgpu_cpp`; the `else()` branch of this module's `CMakeLists.txt`), so neither desktop preset
+compiles it. It reads the same `CompiledData` and `FramePlan`; it plans no barriers, because Dawn tracks hazards.
+
+- **Compute only today.** Realize refuses Draw and Record passes, frame targets, `LoomFrame` and push-constant
+  delivery ("NotYet" values). The parity order is in the agent handbook.
+- **Layouts follow the shader.** A bind group layout entry must match the WGSL declaration exactly, so it takes
+  `CompiledData::SlotReflectedAccess` (the access before narrowing), not the slot's narrowed access: Slang declares an
+  `RWTexture2D` `read_write`, and a `WriteOnly` bind of it still needs a `ReadWrite` layout. A write-only image is
+  `WTexture2D`, written with `Store`; WebGPU allows `rgba32float` as `read_write` only with `texture-formats-tier2`.
+- **Pipelines are async.** Realize makes the layouts and the shader module, and calls `CreateComputePipelineAsync`.
+  Each callback holds a share of one `PipelineResults` block, so a callback after the `Graph` is gone writes into live
+  memory: shared ownership, not a lock (the callbacks run on the browser's main thread, between Ticks). Tick moves
+  each made pipeline into place and reports LM705, with the browser's message, for a failed one.
+- **One compute pass per Tick** holds every dispatch, in run order; Dawn orders the storage accesses between them.
+- **Bind groups** are cached per (pass, ring phase) and built again only when a row's epoch changes (spec R3).
+- **Params** go to one uniform buffer, one 256-byte-aligned slice per pass, with `queue.WriteBuffer`. A write is
+  copied at the call and runs before the next submit, so a fixed slice is safe with frames in flight.
+
+The web tests are `WebGpuLoomComputeTest` (the compute test's two variants and LM701) and `WebGpuLoomImageTest`
+(LoomImageTest's seven passes). Build them with `cmake --preset emscripten` and the Debug config, serve
+`build/emscripten/tests/integration_tests` on 127.0.0.1 (`python -m http.server`), and open the `.html` in a browser
+with WebGPU. A pass is `window.__ddTestPassed` true and a console with no `[webgpu] uncaptured device error`; the
+device stage prints every uncaptured error. Each test waits on `Graph::Ready()` before it ticks, so its frames are whole.
+
 ## Formats
 
 Image declarations use Lodestone's `TextureFormat` (`include/LoomFormats.hpp`), because reflection reports a storage
@@ -701,14 +739,20 @@ placement, and its backend gives every row its own memory.
   row's placement, and the rows that share bytes with each row.
 - **Creation.** Realize creates the heaps (`CreateMemoryHeap`, futures). Tick creates the placed rows once every heap
   has settled (`CreatePlacedRows`), so Realize still never blocks. A row whose heap failed gets its own memory. The
-  graph destroys the heaps after every row.
+  graph destroys the heaps after every row. Placed rows therefore exist a frame or two later than the others, and
+  until then a Tick skips the passes that use them (`NotCreated`) and runs the rest. An app that needs whole frames
+  (a simulation step) calls `Graph::Ready()` until it is true before its first Tick: it creates the placed
+  rows, polls every row and every pipeline, never blocks and records nothing.
 - **The takeover barrier** (`PlanBarriers`). The first use of a placed row in each Tick takes the memory over: its
   barrier waits for the last write and the reads since of every row that shares its bytes, and of its own last frame,
   and an image starts from `Undefined`. The row's barrier state starts again, so its first use needs nothing else.
   A buffer barrier is a global memory barrier in the Vulkan backend, which covers accesses through every buffer
   that names the bytes.
-- **The switch.** `RealizeInputs::Aliasing` (`MemoryAliasing::On` or `Off`, no default: `Invalid` is
-  `RealizeError::AliasingUnset`). Turn it off to find out whether a bug comes from aliasing.
+- **The switch.** `RealizeInputs::Aliasing` (`MemoryAliasing::On`, `Off` or `OnPoisoned`, no default: `Invalid` is
+  `RealizeError::AliasingUnset`). Turn it off to find out whether a bug comes from aliasing. `OnPoisoned` is On, and
+  each placed buffer is filled with `k_AliasPoisonWord` (0x7FC0DEAD, a quiet NaN) between its takeover barrier and its
+  first use, so a pass that reads bytes it did not write this frame reads the poison every time. Placed images are
+  not poisoned yet.
   `Graph::ExplainAliasing()` prints the heaps and the rows in each; `Graph::Aliases()` gives the layout.
 - **What the app must keep true.** A `Frame` row's contents end with the frame. A pass that writes only part of a
   `Frame` row and a later pass that reads the rest read bytes of another row. Declare such a row `Persistent`.
@@ -745,7 +789,7 @@ When Loom needs something from Lodestone, it stubs it here and adds a row to Lod
 | `test_order.cpp`, `test_explain.cpp` | Order and `Explain`, from hand-made access tables. |
 | `test_diagnostics.cpp` | The catalog and the sinks. |
 | `test_levels.cpp` | Kahn levels, the level-major run order, the persistence rule for LM503, buffer imports, and `BindFrameStart` (the `FrameStart` edges, the in-place step that is LM501 with a plain `Bind`, LM506, and LM504 with a frame-start reader). |
-| `test_runtime.cpp` (`LoomHashFill.slang`, `LoomImages.slang`) | `Compile`, `DecideRuns` (pending and failed rows, `Once`, `WhenInputsChange`, `OnTrigger`, `NoHistory`, Q3g), `PlanBarriers` (level and frame-start batches, write after reads, epochs, image layout changes, history copies, the clear batch), `ParamsStore` (LM703, LM704, the byte compare), `ExplainLastTick`, and aliasing (`Alias.*`: the candidates, the packing with needs written by hand, the takeover barrier), from readiness values written by hand. |
+| `test_runtime.cpp` (`LoomHashFill.slang`, `LoomImages.slang`) | `Compile`, `DecideRuns` (pending and failed rows, pending and failed pipelines, `Once`, `WhenInputsChange`, `OnTrigger`, `NoHistory`, Q3g), `PlanBarriers` (level and frame-start batches, write after reads, epochs, image layout changes, history copies, the clear batch), `ParamsStore` (LM703, LM704, the byte compare), `ExplainLastTick`, and aliasing (`Alias.*`: the candidates, the packing with needs written by hand, the takeover barrier), from readiness values written by hand. |
 | `test_draw.cpp` (`LoomDraw.slang`, shared with the step 7 GPU test) | Step 7a: frame-target rows, attachments and their uses (depth read-only, color, Record targets as Keep and Store), indirect draw reads, `DrawIndirectCount` checks (LM109, LM401), `g_LoomFrame` with no `Bind` and its C++ mirror against the cooked layout, the target actions and fallbacks, the frame-end batch, the target clear, and the three target extents. |
 
 `tests/integration_tests/LoomComputeTest` runs on a real device, headless. `HashFillCS` writes `Output` (an imported

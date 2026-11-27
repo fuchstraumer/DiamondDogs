@@ -149,6 +149,12 @@ namespace
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(k_TimeoutNs);
         int32_t submitted = 0;
 
+        // whole frames: the shader objects are made on Loom's compile thread, so wait until every pipeline exists
+        while (!graph.Ready() && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::yield();
+        }
+
         while (submitted < count && std::chrono::steady_clock::now() < deadline)
         {
             const ConsumerTimelineValue pending{ graph.Timeline(), graph.PendingValue() };

@@ -493,6 +493,13 @@ namespace
         RunCounts runs{};
         int32_t submitted = 0;
 
+        // the run counts must be whole frames: no Tick until every row and every pipeline exists (the shader objects
+        // are made on Loom's compile thread)
+        while (!graph.Ready() && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::yield();
+        }
+
         while (submitted < k_Ticks && std::chrono::steady_clock::now() < deadline)
         {
             SetInputs(graph, submitted);

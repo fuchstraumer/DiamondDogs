@@ -114,7 +114,7 @@ namespace
     const FormatRow* FindFormatRow(const ImageFormat& format) noexcept;
     bool IsDepthComponent(ImageComponentFormats component) noexcept;
     bool Is32BitFloat(const ImageFormat& format) noexcept;
-    std::optional<wgpu::StorageTextureAccess> StorageAccessOf(const BindingSlot& slot, bool writable) noexcept;
+    std::optional<wgpu::StorageTextureAccess> StorageAccessOf(ResourceAccess reflected) noexcept;
 
 }
 
@@ -200,9 +200,10 @@ namespace
         return result;
     }
 
-    std::optional<wgpu::BindGroupLayoutEntry> ToBindGroupLayoutEntry(const BindingSlot& slot, bool writable,
+    std::optional<wgpu::BindGroupLayoutEntry> ToBindGroupLayoutEntry(const BindingSlot& slot, ResourceAccess reflected,
                                                                      const SlotTraits& traits) noexcept
     {
+        const bool writable = reflected != ResourceAccess::Read;
         wgpu::BindGroupLayoutEntry entry{};
         entry.binding = slot.Binding;
         entry.visibility = ToWgpuShaderStages(slot.Stages);
@@ -225,7 +226,7 @@ namespace
             return entry;
         case lodestone::BindingKind::StorageTexture:
         {
-            const std::optional<wgpu::StorageTextureAccess> access = StorageAccessOf(slot, writable);
+            const std::optional<wgpu::StorageTextureAccess> access = StorageAccessOf(reflected);
 
             if (!access.has_value())
             {
@@ -352,17 +353,23 @@ namespace
                 format.ComponentFormat == ImageComponentFormats::RGBA32);
     }
 
-    std::optional<wgpu::StorageTextureAccess> StorageAccessOf(const BindingSlot& slot, bool writable) noexcept
+    // The layout follows the WGSL declaration, not the narrowed bind: Slang declares an RWTexture2D read_write, and a
+    // WriteOnly bind of it still needs a ReadWrite layout
+    std::optional<wgpu::StorageTextureAccess> StorageAccessOf(ResourceAccess reflected) noexcept
     {
-        if (!writable)
+        switch (reflected)
         {
+        case ResourceAccess::Read:
             return wgpu::StorageTextureAccess::ReadOnly;
+        case ResourceAccess::Write:
+            return wgpu::StorageTextureAccess::WriteOnly;
+        case ResourceAccess::ReadWrite:
+            return wgpu::StorageTextureAccess::ReadWrite;
+        case ResourceAccess::Invalid:
+            break;
         }
 
-        // the slot's access is narrowed: Write on a reflected ReadWrite binding still needs the ReadWrite layout, which
-        // the slot cannot tell apart from a reflected WriteOnly one
-        return slot.Access == ResourceAccess::ReadWrite ? wgpu::StorageTextureAccess::ReadWrite
-                                                        : wgpu::StorageTextureAccess::WriteOnly;
+        return std::nullopt;
     }
 
 }

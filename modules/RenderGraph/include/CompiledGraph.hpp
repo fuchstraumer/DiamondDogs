@@ -26,6 +26,8 @@ namespace loom
         [[nodiscard]] int32_t ResourceCount() const noexcept;
         // The resource rows and then one row per frame target: the size of every per-row span the runtime takes
         [[nodiscard]] int32_t RowCount() const noexcept;
+        // the pipelines after Layout's merge: passes with equal descriptions share one
+        [[nodiscard]] int32_t PipelineCount() const noexcept;
         // -1 when the graph has no such pass or resource
         [[nodiscard]] int32_t PassIndexOf(PassKey pass) const noexcept;
         [[nodiscard]] int32_t ResourceIndexOf(KeyRef resource) const noexcept;

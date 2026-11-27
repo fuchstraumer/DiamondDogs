@@ -18,9 +18,12 @@
 #include "Semaphore.hpp"
 #include "ShaderProgram.hpp"
 #include <vulkan/vulkan_core.h>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string_view>
+#include <thread>
 #include <vector>
 
 class ResourceContext;
@@ -51,6 +54,18 @@ namespace loom
         std::unique_ptr<rhi::ShaderProgram> Program;
         rhi::ShaderStageFlags PushStages{ rhi::ShaderStageFlags::None };
         uint32_t PushBytes{ 0u };
+    };
+
+    // What the compile thread needs to make one pipeline's shader objects. Realize fills it; after the thread starts,
+    // only the thread reads it. The options it builds keep spans into LayoutHandles and PushConstant.
+    struct PipelineJob
+    {
+        int32_t Pipeline{ -1 };
+        foundation::SmallVector<rhi::DescriptorSetLayoutHandle, 8> LayoutHandles;
+        rhi::PushConstantRange PushConstant{};
+        bool HasPush{ false };
+        int32_t FailureCode{ 0 };       // the native result of a failed create, for LM705
+        std::string_view FailureText;   // the result's message (static text)
     };
 
     // One pass's descriptor sets, one set of groups per (frame slot, ring phase) (spec R3): a pass that binds history
@@ -129,6 +144,17 @@ namespace loom
         // the history copies after each row's first: ExtraCopies[copy - RowCount] (CompiledData::ExtraCopyBase)
         std::vector<rhi::ResourceFuture<GraphicsResource>> ExtraCopies;
         std::vector<PipelineRuntime> Pipelines;
+        // The shader objects are made on their own thread (round 2 Q6): an ownership handoff, no lock. Realize fills
+        // PipelineJobs and starts PipelineWorker; then only the worker touches the jobs and writes
+        // PipelineRuntime::Program, and it publishes each pipeline with one release store to PipelineAtomics. Tick
+        // copies the atomics (acquire) into PipelineStates, the span that DecideRuns reads, and reads Program only for
+        // a Ready pipeline. PipelineReported: LM705 went to the sink.
+        std::vector<PipelineJob> PipelineJobs;
+        std::vector<std::atomic<PipelineReadiness>> PipelineAtomics;    // [pipeline]
+        std::vector<PipelineReadiness> PipelineStates;                  // [pipeline]
+        std::vector<uint8_t> PipelineReported;                          // [pipeline]
+        bool AllPipelinesSettled{ false };                              // none Pending: PollPipelines has no work
+        std::jthread PipelineWorker;
         std::vector<PassRuntime> Passes;
         std::vector<FrameSlotRuntime> FrameSlots;
         VkDescriptorPool DescriptorPool{ VK_NULL_HANDLE };

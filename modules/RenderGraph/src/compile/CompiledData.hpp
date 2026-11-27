@@ -142,10 +142,11 @@ namespace loom
         SizedGraph Sized;
         LaidOutGraph LaidOut;
 
-        // Bind's slot table without its sources (they view into the bundle). SlotWritable is the reflected access,
-        // before narrowing: a storage texel buffer narrowed to ReadOnly is still a storage texel buffer.
+        // Bind's slot table without its sources (they view into the bundle). SlotReflectedAccess is the access that the
+        // shader declares, before narrowing: a storage texel buffer narrowed to ReadOnly is still a storage texel
+        // buffer, and a WebGPU layout must match the WGSL declaration (read_write stays ReadWrite after a WriteOnly bind).
         std::vector<BindingSlot> Slots;
-        std::vector<uint8_t> SlotWritable;
+        std::vector<ResourceAccess> SlotReflectedAccess;
         std::vector<BoundPass> BoundPasses;
 
         // Rows: the resource rows (FrozenGraph::Resources), then one row per frame target (FrameTargets[t].Row). Every

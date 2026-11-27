@@ -196,14 +196,19 @@ void PrintDiagnostics(const loom::CollectingSink& sink, std::string_view variant
 {
     for (const loom::Diagnostic& diagnostic : sink.Diagnostics())
     {
+        // a text value is the backend's own words, for example the browser's message in LM705
+        const bool hasText = diagnostic.Actual.Kind == loom::DiagnosticValueKind::Text;
+
         std::println(stderr,
-                     "[{}] {} {}: {} (pass '{}', resource '{}')",
+                     "[{}] {} {}: {} (pass '{}', resource '{}'){}{}",
                      variant_name,
                      loom::ToString(diagnostic.Code),
                      loom::ToString(diagnostic.Severity),
                      loom::SummaryOf(diagnostic.Code),
                      diagnostic.Pass.Name,
-                     diagnostic.Resource.Name);
+                     diagnostic.Resource.Name,
+                     hasText ? ": " : "",
+                     hasText ? diagnostic.Actual.Text : std::string_view{});
     }
 }
 
@@ -512,6 +517,21 @@ void StepTickingVariant(AppState& state)
     const std::string variantName = std::format("HASH_TWICE={}", hashTwice);
 
     state.Resources->Tick({});
+
+    // whole frames only: no Tick until every row and every pipeline exists
+    if (state.SubmittedTicks == 0 && !state.Graph->Ready())
+    {
+        ++state.WaitTicks;
+
+        if (state.WaitTicks > k_MaxWaitTicks || state.Sink->ErrorCount() != 0)
+        {
+            PrintDiagnostics(*state.Sink, variantName);
+            FinishTest(state, false, std::format("WebGpuLoomComputeTest: [{}] the graph did not become ready", variantName));
+        }
+
+        return;
+    }
+
     const loom::TickResult result = state.Graph->Tick(std::chrono::duration<double>{ 1.0 / 60.0 });
 
     switch (result.Status)

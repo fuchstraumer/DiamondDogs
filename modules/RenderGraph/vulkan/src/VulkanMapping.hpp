@@ -13,7 +13,7 @@ namespace loom
 
     [[nodiscard]] VkShaderStageFlags ToVkShaderStages(lodestone::ShaderStageKind stages) noexcept;
     [[nodiscard]] rhi::ShaderStageFlags ToRhiShaderStages(lodestone::ShaderStageKind stages) noexcept;
-    // The descriptor type of a bound slot. Writable is the reflected access (CompiledData::SlotWritable).
+    // The descriptor type of a bound slot. Writable is true when the reflected access (CompiledData::SlotReflectedAccess) is not Read.
     [[nodiscard]] std::optional<VkDescriptorType> ToDescriptorType(lodestone::BindingKind kind, bool writable) noexcept;
 
 }

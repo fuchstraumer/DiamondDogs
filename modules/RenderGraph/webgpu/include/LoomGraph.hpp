@@ -40,7 +40,7 @@ namespace loom
         On = 2
     };
 
-    // `Sink` receives the runtime diagnostics (LM701 to LM704) and must outlive the Graph. FrameSlots is accepted for
+    // `Sink` receives the runtime diagnostics (LM701 to LM705) and must outlive the Graph. FrameSlots is accepted for
     // parity with loom_vulkan: WebGPU needs no per-frame objects, so it must only be 1 or more.
     struct RealizeInputs
     {
@@ -66,8 +66,8 @@ namespace loom
                                         // push constant delivery
         BindGroupLayoutFailed = 8,
         PipelineLayoutFailed = 9,
-        ShaderCreateFailed = 10,
-        PipelineCreateFailed = 11,
+        ShaderCreateFailed = 10,        // a pipeline with no compute stage
+        PipelineCreateFailed = 11,      // no longer used: CreateComputePipelineAsync reports failures (LM705)
         ParamsBufferFailed = 12,
         BindGroupMaxExceeded = 13 // WGPU can only have up to 4 bind group layouts per pipeline
     };
@@ -93,6 +93,12 @@ namespace loom
 
         // Never blocks (T1). One frame at most.
         [[nodiscard]] TickResult Tick(std::chrono::duration<double> delta_time);
+        // Never blocks, and records nothing: polls every row and every pipeline (CreateComputePipelineAsync), and
+        // returns true when every resource row exists (Created or Complete) and every pipeline is Ready. Before then,
+        // a Tick skips each pass whose row is missing (NotCreated) or whose pipeline is still compiling
+        // (PipelinePending) and runs the rest, so an app that needs whole frames calls this until it is true, and
+        // only then ticks. A Failed row or pipeline keeps it false.
+        [[nodiscard]] bool Ready();
 
         template<typename T>
         void Set(ParamsKey<T> params, const T& value, std::source_location where = std::source_location::current())

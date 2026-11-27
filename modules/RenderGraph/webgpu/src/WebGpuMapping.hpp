@@ -33,10 +33,10 @@ namespace loom
     [[nodiscard]] std::optional<wgpu::TextureViewDimension> ToWgpuViewDimension(lodestone::TextureDimension dimension,
                                                                                 bool arrayed) noexcept;
     [[nodiscard]] wgpu::ShaderStage ToWgpuShaderStages(lodestone::ShaderStageKind stages) noexcept;
-    // The layout entry of a bound slot. `writable` is the reflected access (CompiledData::SlotWritable). No value for a
-    // kind with no WebGPU binding type.
+    // The layout entry of a bound slot. `reflected` is the access the shader declares (CompiledData::SlotReflectedAccess).
+    // No value for a kind with no WebGPU binding type.
     [[nodiscard]] std::optional<wgpu::BindGroupLayoutEntry> ToBindGroupLayoutEntry(const BindingSlot& slot,
-                                                                                   bool writable,
+                                                                                   ResourceAccess reflected,
                                                                                    const SlotTraits& traits) noexcept;
 
 }

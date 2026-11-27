@@ -119,6 +119,8 @@ namespace loom
                                "A params key was never set before the tick." },
             CatalogEntry{ LM704, "LM704", k_Error,
                                "Set was called with a type other than the key's type." },
+            CatalogEntry{ LM705, "LM705", k_Error,
+                               "A pipeline failed to compile. The passes that use it stop permanently." },
         };
 
         consteval bool CatalogIsSorted()
