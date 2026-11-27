@@ -163,48 +163,20 @@ namespace
 
     [[nodiscard]] bool ParseProjection(std::string_view text, uint32_t& projection)
     {
-        if (ParseUint(text, projection) && projection <= 5u)
+        if (ParseUint(text, projection))
         {
-            return true;
+            return planet_loom::ShaderIndexToProjection(static_cast<int32_t>(projection)) != planet_loom::RenderProjection::Invalid;
         }
 
-        if (text == "equirectangular" || text == "equirect")
+        const planet_loom::RenderProjection named = planet_loom::ProjectionFromName(text);
+
+        if (named == planet_loom::RenderProjection::Invalid)
         {
-            projection = 0u;
-            return true;
+            return false;
         }
 
-        if (text == "equal_earth" || text == "equal-earth")
-        {
-            projection = 1u;
-            return true;
-        }
-
-        if (text == "mollweide")
-        {
-            projection = 2u;
-            return true;
-        }
-
-        if (text == "orthographic" || text == "globe")
-        {
-            projection = 3u;
-            return true;
-        }
-
-        if (text == "polar_north" || text == "north")
-        {
-            projection = 4u;
-            return true;
-        }
-
-        if (text == "polar_south" || text == "south")
-        {
-            projection = 5u;
-            return true;
-        }
-
-        return false;
+        projection = planet_loom::ProjectionToShaderIndex(named);
+        return true;
     }
 
     [[nodiscard]] std::optional<LoomOptions> ParseOptions(std::span<char* const> arguments)

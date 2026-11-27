@@ -1,4 +1,5 @@
 #include "PlanetLoomTools.hpp"
+#include "PlanetProjections.hpp"
 #include "ToolRegistry.hpp"
 #include "ToolReply.hpp"
 #include "ToolResult.hpp"
@@ -82,6 +83,9 @@ namespace planet_loom
     struct DumpStateParams
     {
         std::string Name{ "state" };
+        // "end": the state now, with no step. A stage name (after_fill_gaps, ...): runs one step and captures the
+        // state right after that pass inside it.
+        std::string Stage{ "end" };
     };
 
     struct DumpStateReply
@@ -94,6 +98,7 @@ namespace planet_loom
         uint32_t ActivePlateCount{ 0u };
         int32_t Step{ 0 };
         float Time{ 0.0f };
+        std::string Stage;
     };
 
     struct PlumeEntry
@@ -614,6 +619,7 @@ struct foundation::reflect::Describe<planet_loom::DumpStateParams>
     static constexpr std::tuple Fields
     {
         Field<Params, std::string>{ "Name", &Params::Name },
+        Field<Params, std::string>{ "Stage", &Params::Stage },
     };
 };
 
@@ -632,6 +638,7 @@ struct foundation::reflect::Describe<planet_loom::DumpStateReply>
         Field<Reply, uint32_t>{ "ActivePlateCount", &Reply::ActivePlateCount },
         Field<Reply, int32_t>{ "Step", &Reply::Step },
         Field<Reply, float>{ "Time", &Reply::Time, { .Unit = "My" } },
+        Field<Reply, std::string>{ "Stage", &Reply::Stage },
     };
 };
 
@@ -719,16 +726,6 @@ namespace
         "plumes",
         "atlas",
         "raw",
-    };
-
-    constexpr std::array<std::string_view, 6> k_ProjectionNames
-    {
-        "equirectangular",
-        "equal_earth",
-        "mollweide",
-        "orthographic",
-        "polar_north",
-        "polar_south",
     };
 
     [[nodiscard]] bool IsSafeCaptureName(std::string_view name) noexcept;
@@ -1269,7 +1266,10 @@ namespace
     struct DumpStateCommand
     {
         static constexpr std::string_view Name{ "planet.dump_state" };
-        static constexpr std::string_view Doc{ "Exports a compact binary snapshot (.pghp) of all 1D nested-HEALPix cells without 2D map projection." };
+        static constexpr std::string_view Doc{ "Exports a compact binary snapshot (.pghp) of all 1D nested-HEALPix cells without 2D map projection. "
+                                               "Stage 'end' captures the state now. A stage name (after_swap_to_majority, after_fill_gaps, "
+                                               "after_remove_subducted, after_collision, after_erosion, after_rift) runs one step and "
+                                               "captures the state right after that pass." };
         using Params = planet_loom::DumpStateParams;
         using Reply = planet_loom::DumpStateReply;
 
@@ -1289,7 +1289,8 @@ namespace
             }
 
             const std::string dumpName{ params.Name.empty() ? "state" : params.Name };
-            const planet_loom::DumpStateOutput output = Bridge.Host.DumpState(dumpName);
+            const std::string stage{ params.Stage.empty() ? "end" : params.Stage };
+            const planet_loom::DumpStateOutput output = Bridge.Host.DumpState(dumpName, stage);
 
             if (!output.Succeeded)
             {
@@ -1307,6 +1308,7 @@ namespace
                 .ActivePlateCount = output.ActivePlateCount,
                 .Step = output.Step,
                 .Time = output.Time,
+                .Stage = output.Stage,
             });
         }
 
@@ -1495,12 +1497,12 @@ namespace planet_loom
 
     std::string_view RenderProjectionName(int32_t projection) noexcept
     {
-        if (projection < 0 || static_cast<size_t>(projection) >= k_ProjectionNames.size())
+        if (ShaderIndexToProjection(projection) == RenderProjection::Invalid)
         {
             return "unknown";
         }
 
-        return k_ProjectionNames[static_cast<size_t>(projection)];
+        return k_Projections[static_cast<size_t>(projection)].Name;
     }
 
     std::optional<int32_t> ParseRenderProjectionName(std::string_view text) noexcept
@@ -1508,45 +1510,24 @@ namespace planet_loom
         int32_t numeric = -1;
         const std::from_chars_result parsed = std::from_chars(text.data(), text.data() + text.size(), numeric);
 
-        if (parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() && numeric >= 0 && numeric <= 5)
+        if (parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size())
         {
+            if (ShaderIndexToProjection(numeric) == RenderProjection::Invalid)
+            {
+                return std::nullopt;
+            }
+
             return numeric;
         }
 
-        if (text == "equirect")
+        const RenderProjection named = ProjectionFromName(text);
+
+        if (named == RenderProjection::Invalid)
         {
-            return 0;
+            return std::nullopt;
         }
 
-        if (text == "equal-earth")
-        {
-            return 1;
-        }
-
-        if (text == "globe")
-        {
-            return 3;
-        }
-
-        if (text == "north")
-        {
-            return 4;
-        }
-
-        if (text == "south")
-        {
-            return 5;
-        }
-
-        for (size_t i = 0u; i < k_ProjectionNames.size(); ++i)
-        {
-            if (text == k_ProjectionNames[i])
-            {
-                return static_cast<int32_t>(i);
-            }
-        }
-
-        return std::nullopt;
+        return static_cast<int32_t>(ProjectionToShaderIndex(named));
     }
 
     void SyncSimFromPlumes(PlanetSimState& sim, const PlumeSystemState& plumes) noexcept

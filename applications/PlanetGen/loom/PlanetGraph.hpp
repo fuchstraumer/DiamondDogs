@@ -13,6 +13,7 @@
 #include "SequenceBuilder.hpp"
 #include "ShaderLibrary.host.hpp"
 #include "StepState.hpp"
+#include "PlanetProjections.hpp"
 #include "utility/Delegate.hpp"
 #include <array>
 #include <cstdint>
@@ -26,17 +27,6 @@ namespace planet_loom
     using PresentMapParamsHost = planet_gen_shaders::PresentMapParams<
         planet_gen_shaders::CookProfile::Spirv,
         ::lodestone::LayoutRule::Std140>;
-
-    enum class RenderProjection : uint8_t
-    {
-        Invalid = 0,
-        Equirectangular,
-        EqualEarth,
-        Mollweide,
-        Orthographic,
-        PolarNorth,
-        PolarSouth,
-    };
 
     struct RenderMapView
     {
@@ -182,6 +172,7 @@ namespace planet_loom
         inline constexpr uint32_t k_ReliefMaxMm = 46u;
         inline constexpr uint32_t k_LastStepCollisionFired = 47u;
         inline constexpr uint32_t k_LastStepRiftOutcome = 48u;
+        inline constexpr uint32_t k_OceanAgeSumTenthsMyHi = 49u;
 
         inline constexpr uint32_t k_PlateCellCountBase = 64u;
         inline constexpr uint32_t k_PlateContCountBase = 96u;
@@ -200,6 +191,32 @@ namespace planet_loom
     inline constexpr loom::PassKey k_OwnersPass{ "Planet.Pass.Owners" };
     inline constexpr loom::PassKey k_RenderMapPass{ "Planet.RenderMap" };
     inline constexpr loom::PassKey k_DumpHealpixStatePass{ "Planet.DumpHealpixState" };
+
+    // The same dump, placed inside the step right after a pass that kills, creates or reassigns cells. A stage dump
+    // runs one simulation step and captures the state at that point of it.
+    inline constexpr loom::PassKey k_DumpAfterSwapToMajorityPass{ "Planet.DumpHealpixState.AfterSwapToMajority" };
+    inline constexpr loom::PassKey k_DumpAfterFillGapsPass{ "Planet.DumpHealpixState.AfterFillGaps" };
+    inline constexpr loom::PassKey k_DumpAfterRemoveSubductedPass{ "Planet.DumpHealpixState.AfterRemoveSubducted" };
+    inline constexpr loom::PassKey k_DumpAfterCollisionPass{ "Planet.DumpHealpixState.AfterCollision" };
+    inline constexpr loom::PassKey k_DumpAfterErosionPass{ "Planet.DumpHealpixState.AfterErosion" };
+    inline constexpr loom::PassKey k_DumpAfterRiftPass{ "Planet.DumpHealpixState.AfterRift" };
+
+    struct DumpStage
+    {
+        std::string_view Name;
+        loom::PassKey Pass;
+    };
+
+    inline constexpr std::array<DumpStage, 6> k_DumpStages
+    {
+        DumpStage{ "after_swap_to_majority", k_DumpAfterSwapToMajorityPass },
+        DumpStage{ "after_fill_gaps", k_DumpAfterFillGapsPass },
+        DumpStage{ "after_remove_subducted", k_DumpAfterRemoveSubductedPass },
+        DumpStage{ "after_collision", k_DumpAfterCollisionPass },
+        DumpStage{ "after_erosion", k_DumpAfterErosionPass },
+        DumpStage{ "after_rift", k_DumpAfterRiftPass },
+    };
+
     inline constexpr loom::PassKey k_CaptureMapPass{ "Planet.CaptureMap" };
     inline constexpr loom::PassKey k_PresentMapPass{ "Planet.PresentMap" };
     inline constexpr loom::PassKey k_UiPass{ "Planet.Ui" };
@@ -207,11 +224,6 @@ namespace planet_loom
     /** Returns all pass keys registered by RegisterPlanetGraph, for GPU timer hash lookup. */
     [[nodiscard]] std::span<const loom::PassKey> AllPlanetPassKeys() noexcept;
 
-    /** Maps a RenderProjection enum to the shader RenderMapConstants.Projection index (0..5). */
-    [[nodiscard]] uint32_t ProjectionToShaderIndex(RenderProjection projection) noexcept;
-
-    /** Maps a shader projection index (0..5) to RenderProjection, or RenderProjection::Invalid. */
-    [[nodiscard]] RenderProjection ShaderIndexToProjection(int32_t index) noexcept;
 
     /** Records vkCmdFillBuffer(0) on all 12 persistent counter buffers (and live display / telemetry buffers when configured). */
     class ZeroCountersRecorder

@@ -57,10 +57,23 @@ class JsonRpcClient:
         self.sock.close()
 
 
+BUILD_DIR_CANDIDATES = ("build/ninja-clang-cl", "build/ninja-msvc")
+
+
 def _resolve_exe(build_dir: str, config: str) -> str:
-    return os.path.abspath(
-        os.path.join(build_dir, "applications", "PlanetGen", config, "PlanetGenLoom.exe")
-    )
+    """With no build dir, takes the newest PlanetGenLoom.exe of the two presets, so a stale tree is never used."""
+    def exe_in(directory: str) -> str:
+        return os.path.abspath(os.path.join(directory, "applications", "PlanetGen", config, "PlanetGenLoom.exe"))
+
+    if build_dir:
+        return exe_in(build_dir)
+
+    found = [exe_in(d) for d in BUILD_DIR_CANDIDATES if os.path.exists(exe_in(d))]
+
+    if not found:
+        return exe_in(BUILD_DIR_CANDIDATES[0])
+
+    return max(found, key=os.path.getmtime)
 
 
 def _build_contact_sheet(paths_and_labels: list[tuple[str, str]], out_path: str, thumb_w: int = 640, thumb_h: int = 320) -> None:
@@ -150,7 +163,8 @@ def main() -> int:
                         choices=["equirectangular", "equal_earth", "mollweide", "orthographic", "polar_north", "polar_south"])
     parser.add_argument("--layers", default="atlas,plates,age,plumes", help="Comma-separated capture layers")
     parser.add_argument("--no-images", action="store_true", help="Skip PNG captures and run pure data/telemetry checks")
-    parser.add_argument("--build-dir", default="build/ninja-msvc")
+    parser.add_argument("--build-dir", default="",
+                        help="CMake build tree; empty takes the newest exe of build/ninja-clang-cl and build/ninja-msvc")
     parser.add_argument("--config", default="RelWithDebInfo", choices=["Debug", "RelWithDebInfo", "Release"])
     parser.add_argument("--exe", default="", help="Explicit path to PlanetGenLoom.exe (overrides --build-dir/--config)")
     parser.add_argument("--validation", default="", choices=["", "full", "none"])
@@ -162,6 +176,8 @@ def main() -> int:
     if not os.path.exists(exe):
         print(f"Missing executable: {exe}", file=sys.stderr)
         return 1
+
+    print(f"Using {exe}")
 
     ages = sorted({float(x.strip()) for x in args.ages.split(",") if x.strip()})
     if not ages:

@@ -97,6 +97,7 @@ add_executable(PlanetGenLoom
     "loom/PlanetLiveApp.hpp"
     "loom/PlanetLoomTools.cpp"
     "loom/PlanetLoomTools.hpp"
+    "loom/PlanetProjections.hpp"
     "loom/PlanetPresets.cpp"
     "loom/PlanetPresets.hpp"
     "${PROJECT_SOURCE_DIR}/tests/integration_tests/fixtures/FrameLimit.cpp"

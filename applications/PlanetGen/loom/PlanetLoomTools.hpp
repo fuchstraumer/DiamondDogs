@@ -132,6 +132,7 @@ namespace planet_loom
         uint32_t ActivePlateCount{ 0u };
         int32_t Step{ 0 };
         float Time{ 0.0f };
+        std::string Stage;
     };
 
     struct PassTimingEntry
@@ -170,7 +171,7 @@ namespace planet_loom
                                       std::string_view name)> CaptureArea;
         std::function<TimingsOutput()> GetTimings;
         std::function<TelemetryOutput()> GetTelemetry;
-        std::function<DumpStateOutput(std::string_view name)> DumpState;
+        std::function<DumpStateOutput(std::string_view name, std::string_view stage)> DumpState;
     };
 
     /** Returns canonical debug layer name for mode 0..8, or "unknown". */

@@ -99,6 +99,21 @@ namespace planet_loom
         };
         static_assert(sizeof(HealpixDumpHeader) == 64u);
 
+        // the UI combo index is the shader index (PlanetProjections.hpp asserts the table order)
+        [[nodiscard]] consteval std::array<const char*, k_Projections.size()> MakeProjectionLabels()
+        {
+            std::array<const char*, k_Projections.size()> labels{};
+
+            for (size_t index = 0u; index < k_Projections.size(); ++index)
+            {
+                labels[index] = k_Projections[index].Label;
+            }
+
+            return labels;
+        }
+
+        inline constexpr std::array<const char*, k_Projections.size()> k_ProjectionLabels = MakeProjectionLabels();
+
         [[nodiscard]] std::string FormatDiagnosticValue(const loom::DiagnosticValue& value);
         void PrintLiveDiagnostics(const loom::CollectingSink& sink);
         [[nodiscard]] std::vector<bootstrap::Need> BuildDeviceNeeds(bool timestamps);
@@ -232,7 +247,7 @@ namespace planet_loom
                                                       std::string_view name);
             [[nodiscard]] TimingsOutput GetTimings();
             [[nodiscard]] TelemetryOutput GetTelemetry();
-            [[nodiscard]] DumpStateOutput DumpState(std::string_view name);
+            [[nodiscard]] DumpStateOutput DumpState(std::string_view name, std::string_view stage);
             void DrainCompletedCaptures();
             void Shutdown();
 
@@ -374,16 +389,8 @@ namespace planet_loom
             };
             ImGui::Combo("Layer", &host->Sim.RenderMode, k_ModeLabels, 8);
 
-            static constexpr const char* k_ProjectionLabels[]
-            {
-                "0: Equirectangular",
-                "1: Equal Earth",
-                "2: Mollweide",
-                "3: Orthographic (Globe)",
-                "4: Polar North (Equal-Area)",
-                "5: Polar South (Equal-Area)",
-            };
-            ImGui::Combo("Projection", &host->Sim.RenderProjection, k_ProjectionLabels, 6);
+            ImGui::Combo("Projection", &host->Sim.RenderProjection, k_ProjectionLabels.data(),
+                         static_cast<int>(k_ProjectionLabels.size()));
 
             if (host->Sim.RenderProjection > 0)
             {
@@ -1070,17 +1077,47 @@ namespace planet_loom
             return BuildTelemetryOutput(words, Initial.PointCount, Initial.PlateCount, Sim.Step, Sim.Time);
         }
 
-        DumpStateOutput LiveSessionController::DumpState(std::string_view name)
+        DumpStateOutput LiveSessionController::DumpState(std::string_view name, std::string_view stage)
         {
+            // header flag 0 is the end of a step; flag i + 1 is k_DumpStages[i]
+            loom::PassKey dumpPass = k_DumpHealpixStatePass;
+            uint32_t stageFlag = 0u;
+            const bool atEnd = stage == "end";
+
+            if (!atEnd)
+            {
+                const auto matchesStage = [stage](const DumpStage& candidate)
+                {
+                    return candidate.Name == stage;
+                };
+                const auto found = std::ranges::find_if(k_DumpStages, matchesStage);
+
+                if (found == k_DumpStages.end())
+                {
+                    std::string names{ "end" };
+
+                    for (const DumpStage& candidate : k_DumpStages)
+                    {
+                        names += std::format(", {}", candidate.Name);
+                    }
+
+                    return DumpStateOutput{ .Error = std::format("unknown dump stage '{}': use one of {}", stage, names) };
+                }
+
+                dumpPass = found->Pass;
+                stageFlag = static_cast<uint32_t>(found - k_DumpStages.begin()) + 1u;
+            }
+
             if (!Graph->WaitForFrameSlot(std::chrono::nanoseconds(k_TimeoutNs)))
             {
                 return DumpStateOutput{ .Error = "timed out waiting before state dump" };
             }
 
-            Graph->Trigger(k_DumpHealpixStatePass);
+            Graph->Trigger(dumpPass);
 
+            // a stage dump captures a point inside a step, so it runs one step
             bool submitted = false;
-            const bool ticked = TickOnce(false, submitted);
+            const bool ticked = TickOnce(!atEnd, submitted);
             const bool waited = ticked && Graph->WaitForFrameSlot(std::chrono::nanoseconds(k_TimeoutNs));
 
             if (!ticked || !waited || !submitted)
@@ -1138,7 +1175,7 @@ namespace planet_loom
                 .TimeMy = Sim.Time,
                 .RecordStrideBytes = strideBytes,
                 .ActivePlateCount = activePlates,
-                .Flags = 0u,
+                .Flags = stageFlag,
             };
 
             std::vector<std::byte> fileBytes(sizeof(HealpixDumpHeader) + payloadBytes);
@@ -1173,6 +1210,7 @@ namespace planet_loom
                 .ActivePlateCount = activePlates,
                 .Step = Sim.Step,
                 .Time = Sim.Time,
+                .Stage = std::string{ stage },
             };
         }
 
@@ -1248,9 +1286,9 @@ namespace planet_loom
                 {
                     return controller.GetTelemetry();
                 },
-                .DumpState = [&controller](std::string_view name)
+                .DumpState = [&controller](std::string_view name, std::string_view stage)
                 {
-                    return controller.DumpState(name);
+                    return controller.DumpState(name, stage);
                 },
             };
         }
@@ -1418,7 +1456,8 @@ namespace planet_loom
             out.CollisionFrontCells = words[ts::k_CollisionFrontCells];
 
             const uint32_t youngOceanCells = words[ts::k_YoungOceanCellsUnder5My];
-            const uint32_t oceanAgeTenths = words[ts::k_OceanAgeSumTenthsMy];
+            const uint64_t oceanAgeTenths = (static_cast<uint64_t>(words[ts::k_OceanAgeSumTenthsMyHi]) << 32u) |
+                                            words[ts::k_OceanAgeSumTenthsMy];
             const uint32_t landBelow05Cells = words[ts::k_LandBelow05KmCells];
             const uint32_t landAbove5Cells = words[ts::k_LandAbove5KmCells];
             out.ReliefMaxKm = static_cast<float>(words[ts::k_ReliefMaxMm]) * 0.001f;

@@ -39,6 +39,14 @@ PGHP_CELL_DTYPE = np.dtype([
 ])
 assert PGHP_CELL_DTYPE.itemsize == 24
 
+# Header flags: the point inside the step where the dump was taken (PlanetGraph.hpp k_DumpStages, plus "end" at 0)
+PGHP_STAGES = ("end", "after_swap_to_majority", "after_fill_gaps", "after_remove_subducted", "after_collision",
+               "after_erosion", "after_rift")
+
+# Cell flag bits (Buffers.slang PackCrustFlags)
+PGHP_FLAG_ALIVE = 1
+PGHP_FLAG_CONTINENTAL = 2
+
 # Earth ETOPO1 equal-area global hypsometry quantiles (area fraction -> elevation km)
 ETOPO1_Q = np.array([
     0.000, 0.050, 0.100, 0.200, 0.300, 0.400, 0.500, 0.600,
@@ -211,6 +219,7 @@ def load_pghp(path: str) -> tuple[dict[str, Any], np.ndarray]:
         "step": int(step),
         "time_my": float(time_my),
         "flags": int(flags),
+        "stage": PGHP_STAGES[flags] if flags < len(PGHP_STAGES) else f"unknown_{flags}",
     }
     return header, cells
 

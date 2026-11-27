@@ -158,7 +158,7 @@ namespace planet_loom
             k_MovePlatesAndClearCountersPass,
         };
 
-        inline constexpr std::array<loom::PassKey, 49> k_AllPassKeys
+        inline constexpr std::array<loom::PassKey, 55> k_AllPassKeys
         {
             k_InitZeroCountersPass,
             k_OwnersPass,
@@ -206,6 +206,12 @@ namespace planet_loom
             k_MovePlatesAndClearCountersPass,
             k_RenderMapPass,
             k_DumpHealpixStatePass,
+            k_DumpAfterSwapToMajorityPass,
+            k_DumpAfterFillGapsPass,
+            k_DumpAfterRemoveSubductedPass,
+            k_DumpAfterCollisionPass,
+            k_DumpAfterErosionPass,
+            k_DumpAfterRiftPass,
             k_CaptureMapPass,
             k_PresentMapPass,
             k_UiPass,
@@ -413,48 +419,6 @@ namespace planet_loom
     std::span<const loom::PassKey> AllPlanetPassKeys() noexcept
     {
         return k_AllPassKeys;
-    }
-
-    uint32_t ProjectionToShaderIndex(RenderProjection projection) noexcept
-    {
-        switch (projection)
-        {
-        case RenderProjection::Equirectangular:
-            return 0u;
-        case RenderProjection::EqualEarth:
-            return 1u;
-        case RenderProjection::Mollweide:
-            return 2u;
-        case RenderProjection::Orthographic:
-            return 3u;
-        case RenderProjection::PolarNorth:
-            return 4u;
-        case RenderProjection::PolarSouth:
-            return 5u;
-        default:
-            return 0u;
-        }
-    }
-
-    RenderProjection ShaderIndexToProjection(int32_t index) noexcept
-    {
-        switch (index)
-        {
-        case 0:
-            return RenderProjection::Equirectangular;
-        case 1:
-            return RenderProjection::EqualEarth;
-        case 2:
-            return RenderProjection::Mollweide;
-        case 3:
-            return RenderProjection::Orthographic;
-        case 4:
-            return RenderProjection::PolarNorth;
-        case 5:
-            return RenderProjection::PolarSouth;
-        default:
-            return RenderProjection::Invalid;
-        }
     }
 
     void ZeroCountersRecorder::SetIncludeLiveDisplayBuffers(bool include) noexcept
@@ -686,7 +650,6 @@ namespace planet_loom
             // 0. Zero persistent counters (plus interactive display and telemetry buffers)
             const auto initPass = [interactive, telemetryEnabled, &callbacks](loom::RecordBuilder& pass)
             {
-                static_cast<void>(telemetryEnabled);
                 for (const loom::ResourceKey<loom::Buffer>& counter : k_PersistentCounters)
                 {
                     pass.Uses(counter, loom::ResourceAccess::Write, loom::BufferUse::TransferDestination);
@@ -709,6 +672,32 @@ namespace planet_loom
                 }
             };
             seq.AddRecord(k_InitZeroCountersPass, initPolicy, k_Queue, initPass);
+
+            // The 1D HEALPix state dump (planet.dump_state): one pass at the end of the sequence, and one stage pass
+            // after each pass that kills, creates or reassigns cells. All are OnTrigger and write the same buffer.
+            const auto dumpState = [&](loom::DispatchBuilder& pass)
+            {
+                namespace ep = pl::DumpHealpixStateCS;
+                pass.Shader(k_Module, "DumpHealpixStateCS");
+                pass.Bind(ep::StepParams, k_StepParams);
+                pass.Bind(ep::RenderMapConstants, k_RenderMapConstants);
+                pass.Bind(ep::PlumeConstants, k_PlumeConstants);
+                pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
+                pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
+                pass.Bind(ep::CrustStateIn, k_CrustState);
+                pass.Bind(ep::FrontDataIn, k_FrontData);
+                pass.Bind(ep::HealpixStateDump, k_HealpixStateDump, loom::AccessModifier::WriteOnly);
+                pass.Bind(ep::OwnersIn, k_Owners);
+                pass.DispatchThreads(points, 1, 1);
+            };
+
+            const auto addStageDump = [&](loom::PassKey key)
+            {
+                if (config.EnableStateDump)
+                {
+                    seq.AddDispatch(key, loom::RunPolicy::OnTrigger, k_Queue, dumpState);
+                }
+            };
 
             // 1. OwnersCS
             seq.AddDispatch(k_OwnersPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
@@ -755,6 +744,8 @@ namespace planet_loom
                 pass.DispatchThreads(points, 1, 1);
             });
 
+            addStageDump(k_DumpAfterSwapToMajorityPass);
+
             // 4. FillGapsCS
             seq.AddDispatch(k_FillGapsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
@@ -771,6 +762,8 @@ namespace planet_loom
                 pass.DispatchThreads(points, 1, 1);
             });
 
+            addStageDump(k_DumpAfterFillGapsPass);
+
             // 5. RemoveSubductedCS
             seq.AddDispatch(k_RemoveSubductedPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
@@ -786,6 +779,8 @@ namespace planet_loom
                 pass.Bind(ep::PoleRatesIn, k_PoleRates);
                 pass.DispatchThreads(points, 1, 1);
             });
+
+            addStageDump(k_DumpAfterRemoveSubductedPass);
 
             // 6. DetectCollisionsCS
             seq.AddDispatch(k_DetectCollisionsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
@@ -1014,6 +1009,8 @@ namespace planet_loom
                 pass.Bind(ep::Rotations, k_Rotations);
                 pass.DispatchIndirect(k_CollideDispatch, 24);
             });
+
+            addStageDump(k_DumpAfterCollisionPass);
 
             // 22. CountLiveCellsCS
             seq.AddDispatch(k_CountLiveCellsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
@@ -1285,6 +1282,8 @@ namespace planet_loom
                 seq.AddDispatch(k_TelemetryPostErosionPass, simPolicy, k_Queue, telemetryPostErosion);
             }
 
+            addStageDump(k_DumpAfterErosionPass);
+
             // 35. DecideRiftCS: one wave picks at most one plate to split, and a free slot for its new half
             seq.AddDispatch(k_DecideRiftPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
@@ -1356,6 +1355,8 @@ namespace planet_loom
                 seq.AddDispatch(k_TelemetryPostRiftPass, simPolicy, k_Queue, telemetryPostRift);
             }
 
+            addStageDump(k_DumpAfterRiftPass);
+
             // 38. MovePlatesAndClearCountersCS
             seq.AddDispatch(k_MovePlatesAndClearCountersPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
             {
@@ -1404,26 +1405,8 @@ namespace planet_loom
             };
             seq.AddDispatch(k_RenderMapPass, renderPolicy, k_Queue, renderMap);
 
-            // Optional on-demand 1D HEALPix state dump (planet.dump_state)
-            if (config.EnableStateDump)
-            {
-                const auto dumpState = [&](loom::DispatchBuilder& pass)
-                {
-                    namespace ep = pl::DumpHealpixStateCS;
-                    pass.Shader(k_Module, "DumpHealpixStateCS");
-                    pass.Bind(ep::StepParams, k_StepParams);
-                    pass.Bind(ep::RenderMapConstants, k_RenderMapConstants);
-                    pass.Bind(ep::PlumeConstants, k_PlumeConstants);
-                    pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
-                    pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
-                    pass.Bind(ep::CrustStateIn, k_CrustState);
-                    pass.Bind(ep::FrontDataIn, k_FrontData);
-                    pass.Bind(ep::HealpixStateDump, k_HealpixStateDump, loom::AccessModifier::WriteOnly);
-                    pass.Bind(ep::OwnersIn, k_Owners);
-                    pass.DispatchThreads(points, 1, 1);
-                };
-                seq.AddDispatch(k_DumpHealpixStatePass, loom::RunPolicy::OnTrigger, k_Queue, dumpState);
-            }
+            // Optional on-demand 1D HEALPix state dump at the end of the step (planet.dump_state)
+            addStageDump(k_DumpHealpixStatePass);
 
             // 35. Optional CaptureMapPass (OnTrigger PNG / region capture)
             if (config.EnableCapturePass && callbacks.CaptureCallback)

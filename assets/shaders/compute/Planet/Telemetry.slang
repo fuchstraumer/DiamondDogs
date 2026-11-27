@@ -68,6 +68,7 @@ static const uint TelemetrySlotLandAbove5KmCells          = 45u;
 static const uint TelemetrySlotReliefMaxMm                = 46u;
 static const uint TelemetrySlotLastStepCollisionFired     = 47u;
 static const uint TelemetrySlotLastStepRiftOutcome        = 48u;
+static const uint TelemetrySlotOceanAgeSumTenthsMyHi      = 49u; // high word of slot 43: order 9 overflows 32 bits
 
 // Latest-step per-plate counts (up to 32 plates) and relief histogram
 static const uint TelemetrySlotPlateCellCountBase         = 64u;
@@ -407,7 +408,7 @@ void TelemetryPostRiftCS(uint3 threadId : SV_DispatchThreadID)
     TelemetryWaveAdd(TelemetrySlotHimalayanCells, (owned && orogenyType == OrogenyHimalayan) ? 1u : 0u);
     TelemetryWaveAdd(TelemetrySlotIslandArcCells, (owned && orogenyType == OrogenyIslandArc) ? 1u : 0u);
     TelemetryWaveAdd(TelemetrySlotYoungOceanCellsUnder5My, youngOcean ? 1u : 0u);
-    TelemetryWaveAdd(TelemetrySlotOceanAgeSumTenthsMy, oceanAgeTenths);
+    TelemetryWaveAdd64(TelemetrySlotOceanAgeSumTenthsMy, TelemetrySlotOceanAgeSumTenthsMyHi, oceanAgeTenths);
     TelemetryWaveAdd(TelemetrySlotLandBelow05KmCells, landBelow05 ? 1u : 0u);
     TelemetryWaveAdd(TelemetrySlotLandAbove5KmCells, landAbove5 ? 1u : 0u);
 
