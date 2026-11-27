@@ -425,13 +425,17 @@ def _find_trace_artifact(out_dir: Path) -> Optional[Path]:
     return matches[-1] if matches else None
 
 
+# The spellings that turn the validation layer off: OceanFft takes "off", PlanetGenLoom takes "none".
+VALIDATION_OFF_ARGUMENTS = ("--validation=off", "--validation=none")
+
+
 def _warn_if_validation_on(app_args: str) -> None:
     """Print a warning when the app runs with the validation layer on.
 
     The validation layer changes GPU times, so the trace times are then not comparable.
     """
-    if "--validation=off" not in app_args.split():
-        print("[Profiler] Warning: the app arguments do not contain --validation=off. "
+    if not any(argument in VALIDATION_OFF_ARGUMENTS for argument in app_args.split()):
+        print("[Profiler] Warning: the app arguments do not contain --validation=off or --validation=none. "
               "The validation layer changes GPU times (Mips: 0.87 ms on, 0.18 ms off).")
 
 

@@ -512,6 +512,7 @@ struct foundation::reflect::Describe<planet_loom::ShapingState>
         Field<State, bool>{ "CustomProfileLut", &State::CustomProfileLut },
         Field<State, float>{ "BaseUplift", &State::BaseUplift, { .Unit = "km/My", .Range = FieldRange{ 0.0, 5.0 } } },
         Field<State, float>{ "ContinentErosion", &State::ContinentErosion, { .Range = FieldRange{ 0.0, 1.0 } } },
+        Field<State, float>{ "OceanErosion", &State::OceanErosion, { .Range = FieldRange{ 0.0, 1.0 } } },
         Field<State, float>{ "AccretionRelief", &State::AccretionRelief, { .Unit = "km", .Range = FieldRange{ 0.2, 6.0 } } },
         Field<State, float>{ "AccretionStartRelief", &State::AccretionStartRelief, { .Unit = "km", .Range = FieldRange{ 0.0, 2.0 } } },
         Field<State, float>{ "ContinentalReachKm", &State::ContinentalReachKm, { .Unit = "km", .Range = FieldRange{ 100.0, 3000.0 } } },

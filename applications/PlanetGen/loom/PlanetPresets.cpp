@@ -106,6 +106,9 @@ namespace planet_loom
         state.AtollShapingEnabled = false;
         // the landscape budget, checked against Earth's hypsometry (README, "The landscape budget")
         state.ContinentErosion = 0.25f;
+        // ocean relief relaxes in about 100 My, and arcs stay near their trench (README, "Ocean relief")
+        state.OceanErosion = 0.1f;
+        state.IslandArcReachKm = 250.0f;
         state.ContinentalReachKm = 800.0f;
         state.CollisionReachKm = 500.0f;
         state.SlabDipAgeWeight = 0.85f;
@@ -186,7 +189,7 @@ namespace planet_loom
                        (state.ErosionEnabled ? k_ShapingFlagErosionEnabled : 0u);
         packed.NoiseSeed = state.NoiseSeed;
         packed.AtollLandBias = state.AtollLandBias;
-        packed.Pad0 = 0.0f;
+        packed.OceanErosion = state.OceanErosion;
         packed.ErosionDiffusivity = state.ErosionDiffusivity;
         packed.CollapseElevationKm = state.CollapseElevationKm;
         packed.CollapseTimeMy = state.CollapseTimeMy;

@@ -47,6 +47,8 @@ namespace planet_loom
         bool CustomProfileLut{ false };
         float BaseUplift{ 0.6f };
         float ContinentErosion{ 0.06f };
+        // the same decay for ocean relief, whatever its orogeny tag (0 = none, as in the reference)
+        float OceanErosion{ 0.0f };
         float AccretionRelief{ 1.5f };
         float AccretionStartRelief{ 0.3f };
         float ContinentalReachKm{ 1800.0f };

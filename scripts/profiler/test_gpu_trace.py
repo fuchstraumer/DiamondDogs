@@ -166,6 +166,12 @@ class TestGpuTraceIngest(unittest.TestCase):
             db_store.ingest_gpu_trace(self.conn, FIXTURE_DIR, None, "--frames=1500", None, None)
         self.assertIn("--validation=off", output.getvalue())
 
+    def test_validation_none_gives_no_warning(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            db_store.ingest_gpu_trace(self.conn, FIXTURE_DIR, None, "--steps=800 --validation=none", None, None)
+        self.assertNotIn("Warning: the app arguments", output.getvalue())
+
     def test_compare_two_traces_without_config(self):
         run_a = self.ingest("--validation=off", self.provenance)
         run_b = self.ingest("--validation=off", self.provenance)

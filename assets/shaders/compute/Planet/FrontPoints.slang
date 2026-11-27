@@ -474,6 +474,34 @@ void BuildFrontTileCapsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_Gro
     }
 }
 
+// Ocean relief (arcs, plateaus, seamounts) relaxes at one rate, whatever its orogeny tag. The decay has the form of
+// the continental one: an e-folding time of PeakElevation / OceanErosion My.
+float OceanReliefDecayFactor()
+{
+    return saturate(1.0f - max(ShapingConstants.OceanErosion, 0.0f) * StepParams.TimeStepMy / PeakElevation);
+}
+
+// The decay alone, for an ocean cell that no front reaches. Skips the read/write when decay is off, and skips the
+// write when relief is already zero.
+void DecayOceanRelief(uint flattenedPoint)
+{
+    if (ShapingConstants.OceanErosion <= 0.0f)
+    {
+        return;
+    }
+
+    CrustStateData crustState = LoadCrustState(flattenedPoint);
+    const float relief = crustState.GetRelief();
+
+    if (relief == 0.0f)
+    {
+        return;
+    }
+
+    crustState.SetRelief(relief * OceanReliefDecayFactor());
+    StoreCrustState(flattenedPoint, crustState);
+}
+
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
@@ -650,6 +678,7 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
 
     if (best.Index < 0 && !isContinental)
     {
+        DecayOceanRelief(flattenedPoint);
         return;
     }
 
@@ -706,6 +735,10 @@ void FrontDistanceAndUpliftCS(uint3 threadId : SV_DispatchThreadID,
     if (isContinental)
     {
         relief *= 1.0f - ShapingConstants.ContinentErosion * StepParams.TimeStepMy / PeakElevation;
+    }
+    else
+    {
+        relief *= OceanReliefDecayFactor();
     }
 
     relief = min(relief, PeakElevation);

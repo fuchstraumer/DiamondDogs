@@ -68,6 +68,8 @@ namespace planet_loom
         inline constexpr loom::PassKey k_SwapToMajorityPass{ "Planet.Pass.SwapToMajority" };
         inline constexpr loom::PassKey k_FillGapsPass{ "Planet.Pass.FillGaps" };
         inline constexpr loom::PassKey k_RemoveSubductedPass{ "Planet.Pass.RemoveSubducted" };
+        inline constexpr loom::PassKey k_SubductionFrontsPass{ "Planet.Pass.SubductionFronts" };
+        inline constexpr loom::PassKey k_KillSubductedPass{ "Planet.Pass.KillSubducted" };
         inline constexpr loom::PassKey k_DetectCollisionsPass{ "Planet.Pass.DetectCollisions" };
         inline constexpr loom::PassKey k_SelectCollisionPairPass{ "Planet.Pass.SelectCollisionPair" };
         inline constexpr loom::PassKey k_BkeTileInitAndLocalUnionPass{ "Planet.Pass.BkeTileInitAndLocalUnion" };
@@ -116,13 +118,15 @@ namespace planet_loom
             k_TelemetryPostRiftPass,
         };
 
-        inline constexpr std::array<loom::PassKey, 38> k_SimulationPassKeys
+        inline constexpr std::array<loom::PassKey, 40> k_SimulationPassKeys
         {
             k_OwnersPass,
             k_CountVotesPass,
             k_SwapToMajorityPass,
             k_FillGapsPass,
             k_RemoveSubductedPass,
+            k_SubductionFrontsPass,
+            k_KillSubductedPass,
             k_DetectCollisionsPass,
             k_SelectCollisionPairPass,
             k_BkeTileInitAndLocalUnionPass,
@@ -158,7 +162,7 @@ namespace planet_loom
             k_MovePlatesAndClearCountersPass,
         };
 
-        inline constexpr std::array<loom::PassKey, 55> k_AllPassKeys
+        inline constexpr std::array<loom::PassKey, 57> k_AllPassKeys
         {
             k_InitZeroCountersPass,
             k_OwnersPass,
@@ -166,6 +170,8 @@ namespace planet_loom
             k_SwapToMajorityPass,
             k_FillGapsPass,
             k_RemoveSubductedPass,
+            k_SubductionFrontsPass,
+            k_KillSubductedPass,
             k_DetectCollisionsPass,
             k_SelectCollisionPairPass,
             k_BkeTileInitAndLocalUnionPass,
@@ -536,7 +542,8 @@ namespace planet_loom
         const bool persistDisplayBuffers = interactive || config.EnableStateDump;
 
         // When interactive or state dumps are enabled, RenderMapCS / pre-subduction stage dumps read
-        // Owners/FrontData/CellFronts before RemoveSubductedCS writes them, so keep them persistent.
+        // Owners/FrontData/CellFronts before subduction fronts (RemoveSubductedCS / SubductionFrontsCS) write them,
+        // so keep them persistent.
         const loom::ResourceLifetime displayLifetime =
             persistDisplayBuffers ? loom::ResourceLifetime::Persistent : loom::ResourceLifetime::Frame;
 
@@ -677,8 +684,8 @@ namespace planet_loom
 
             // The 1D HEALPix state dump (planet.dump_state): one pass at the end of the sequence, and one stage pass
             // after each pass that kills, creates or reassigns cells. All are OnTrigger and write the same buffer.
-            // Note: stages placed before RemoveSubductedCS (after_swap_to_majority, after_fill_gaps) read k_FrontData
-            // from step N-1 because k_FrontData is Persistent and written in RemoveSubductedCS.
+            // Note: stages placed before subduction fronts (after_swap_to_majority, after_fill_gaps) read k_FrontData
+            // from step N-1 because k_FrontData is Persistent and written in RemoveSubductedCS / SubductionFrontsCS.
             const auto dumpState = [&](loom::DispatchBuilder& pass)
             {
                 namespace ep = pl::DumpHealpixStateCS;
@@ -768,21 +775,56 @@ namespace planet_loom
 
             addStageDump(k_DumpAfterFillGapsPass);
 
-            // 5. RemoveSubductedCS
-            seq.AddDispatch(k_RemoveSubductedPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+            // 5. Subduction. The reference runs kill per world point, as the frozen reference does. The other runs
+            // write the fronts first, then kill per lattice cell (KillSubductedCS), which reaches every cell.
+            if (config.ReferenceSubductionKill)
             {
-                namespace ep = pl::RemoveSubductedCS;
-                pass.Shader(k_Module, "RemoveSubductedCS");
-                pass.Bind(ep::StepParams, k_StepParams);
-                pass.Bind(ep::Pass3Constants, k_Pass3Constants);
-                pass.Bind(ep::SomeVariants::CrustFlags, k_CrustFlags);
-                pass.Bind(ep::SomeVariants::CrustFlagsWords, k_CrustFlags);
-                pass.Bind(ep::CrustStateIn, k_CrustState);
-                pass.Bind(ep::FrontData, k_FrontData, loom::AccessModifier::WriteOnly);
-                pass.Bind(ep::OwnersIn, k_Owners);
-                pass.Bind(ep::PoleRatesIn, k_PoleRates);
-                pass.DispatchThreads(points, 1, 1);
-            });
+                seq.AddDispatch(k_RemoveSubductedPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+                {
+                    namespace ep = pl::RemoveSubductedCS;
+                    pass.Shader(k_Module, "RemoveSubductedCS");
+                    pass.Bind(ep::StepParams, k_StepParams);
+                    pass.Bind(ep::Pass3Constants, k_Pass3Constants);
+                    pass.Bind(ep::SomeVariants::CrustFlags, k_CrustFlags);
+                    pass.Bind(ep::SomeVariants::CrustFlagsWords, k_CrustFlags);
+                    pass.Bind(ep::CrustStateIn, k_CrustState);
+                    pass.Bind(ep::FrontData, k_FrontData, loom::AccessModifier::WriteOnly);
+                    pass.Bind(ep::OwnersIn, k_Owners);
+                    pass.Bind(ep::PoleRatesIn, k_PoleRates);
+                    pass.DispatchThreads(points, 1, 1);
+                });
+            }
+            else
+            {
+                seq.AddDispatch(k_SubductionFrontsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+                {
+                    namespace ep = pl::SubductionFrontsCS;
+                    pass.Shader(k_Module, "SubductionFrontsCS");
+                    pass.Bind(ep::StepParams, k_StepParams);
+                    pass.Bind(ep::Pass3Constants, k_Pass3Constants);
+                    pass.Bind(ep::SomeVariants::CrustFlags, k_CrustFlags, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::SomeVariants::CrustFlagsWords, k_CrustFlags, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::CrustStateIn, k_CrustState);
+                    pass.Bind(ep::FrontData, k_FrontData, loom::AccessModifier::WriteOnly);
+                    pass.Bind(ep::OwnersIn, k_Owners);
+                    pass.Bind(ep::PoleRatesIn, k_PoleRates);
+                    pass.DispatchThreads(points, 1, 1);
+                });
+
+                seq.AddDispatch(k_KillSubductedPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+                {
+                    namespace ep = pl::KillSubductedCS;
+                    pass.Shader(k_Module, "KillSubductedCS");
+                    pass.Bind(ep::StepParams, k_StepParams);
+                    pass.Bind(ep::SomeVariants::CrustFlags, k_CrustFlags);
+                    pass.Bind(ep::SomeVariants::CrustFlagsWords, k_CrustFlags);
+                    pass.Bind(ep::OwnersIn, k_Owners);
+                    pass.Bind(ep::Rotations, k_Rotations);
+                    pass.Bind(ep::PlateCapCenters, k_PlateCapCenters, loom::AccessModifier::ReadOnly);
+                    pass.Bind(ep::PlateCapSpreadIn, k_PlateCapSpread);
+                    pass.DispatchThreads(liveThreads, 1, 1);
+                });
+            }
 
             addStageDump(k_DumpAfterRemoveSubductedPass);
 

@@ -36,7 +36,8 @@ struct ShapingParams
     uint Flags;
     uint NoiseSeed;
     float AtollLandBias;
-    float Pad0;
+    // the decay of ocean relief, in the units of ContinentErosion (0 = none)
+    float OceanErosion;
 
     // Erosion.slang: diffusion of land height (km^2/My), and the orogenic collapse above an elevation
     float ErosionDiffusivity;

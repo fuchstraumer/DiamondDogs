@@ -64,6 +64,11 @@ void FillGapsCS(uint3 threadId : SV_DispatchThreadID)
     PreviousPlate.Store(point, plate);
 }
 
+void RunSubductionFronts(uint point, bool killUnderCell);
+
+// The reference port: each world point kills the lattice cell of its second plate, then writes the front values.
+// The verify runs use it, because the frozen reference does the same. Lattices are rotated, so it misses the cells
+// that no world point samples, and it can kill a cell that is the top cell at a nearby point.
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
@@ -74,8 +79,118 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
         return;
     }
 
-    FrontState frontState = ZeroFrontState();
+    RunSubductionFronts(point, true);
+}
 
+// The same front values with no kill. KillSubductedCS does the kill after it, so no thread here reads a flag that
+// another thread writes.
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void SubductionFrontsCS(uint3 threadId : SV_DispatchThreadID)
+{
+    const uint point = threadId.x;
+    if (point >= StepParams.PointCount)
+    {
+        return;
+    }
+
+    RunSubductionFronts(point, false);
+}
+
+// True when Owners shows this cell on top at one of the 8 neighbours of worldPoint. Callers check worldPoint first.
+// Owners maps a world point to a cell by rounding in the plate frame, and the kill maps a cell to a world point by
+// rounding in the world frame. The two roundings differ near pixel edges, so a cell that is on top somewhere can map
+// to a point where another plate is on top; any world point that maps to this cell lies within one pixel of worldPoint.
+bool IsTopCellAtNeighbor(uint worldPoint, int plate, int cell)
+{
+    uint baseFace;
+    int faceX;
+    int faceY;
+    HealpixDecode(worldPoint, StepParams.HealpixOrder, baseFace, faceX, faceY);
+
+    for (uint direction = 0u; direction < 8u; ++direction)
+    {
+        const int neighbor = HealpixNeighbor(baseFace, faceX, faceY, k_NeighborDeltaX[direction],
+                                             k_NeighborDeltaY[direction], StepParams.HealpixOrder);
+        if (neighbor < 0)
+        {
+            continue;
+        }
+
+        if (all(LoadOwnersIn(uint(neighbor)).Data.xy == int2(plate, cell)))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void KillIfSubducted(uint plate, uint cell);
+
+// Removes subducted ocean crust by gather over the lattice cells of every plate, in the live-group layout of
+// CountLiveCellsCS: a group holds one 32 x 32 tile of one plate, and skips the tile when it is outside the plate's
+// cap. The only cells outside the cap are this step's FillGaps crust, which is on top and so never killed.
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void KillSubductedCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupThreadID)
+{
+    const LiveGroup liveGroup = FindLiveGroup(groupID.x);
+    if (laneInGroup.x == 0u)
+    {
+        GroupCulled = IsLiveGroupOutsideCap(liveGroup) ? 1u : 0u;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (GroupCulled != 0u)
+    {
+        return;
+    }
+
+    [unroll(CellsPerThread)]
+    for (uint step = 0u; step < CellsPerThread; ++step)
+    {
+        const uint cell = liveGroup.FirstCell + step * LiveGroupSize + laneInGroup.x;
+        if (cell >= StepParams.PointCount)
+        {
+            break;
+        }
+
+        KillIfSubducted(liveGroup.Plate, cell);
+    }
+}
+
+// A live ocean cell that is not on top at any world point near it, and that lies under another plate, dies. Each
+// thread reads only Owners and writes only its own cells, so the result does not depend on thread order. Continental
+// cells do not subduct: collision handles them.
+void KillIfSubducted(uint plate, uint cell)
+{
+    const uint flat = plate * StepParams.PointCount + cell;
+    const CrustFlagBits flags = LoadCrustFlags(flat);
+    if (!flags.IsAlive() || flags.IsContinental())
+    {
+        return;
+    }
+
+    const float3 localPos = HealpixPixToVec(cell, StepParams.HealpixOrder);
+    const float3 worldPos = PlateToWorld(localPos, LoadRotation(plate));
+    const uint worldPoint = HealpixVecToPix(worldPos, StepParams.HealpixOrder);
+    const int topPlate = LoadOwnersIn(worldPoint).GetBestPlate();
+    if (topPlate < 0 || topPlate == int(plate))
+    {
+        return;
+    }
+
+    if (!IsTopCellAtNeighbor(worldPoint, int(plate), int(cell)))
+    {
+        StoreCrustFlags(flat, PackCrustFlags(false, false));
+    }
+}
+
+void RunSubductionFronts(uint point, bool killUnderCell)
+{
+    FrontState frontState = ZeroFrontState();
 
     const OwnersData owners = LoadOwnersIn(point);
     const int topPlate = owners.GetBestPlate();
@@ -97,7 +212,7 @@ void RemoveSubductedCS(uint3 threadId : SV_DispatchThreadID)
                                         underFlat,
                                         frontType);
 
-        if (!collision)
+        if (killUnderCell && !collision)
         {
             StoreCrustFlags(underFlat, PackCrustFlags(false, crustFlagsUnder.IsContinental()));
         }

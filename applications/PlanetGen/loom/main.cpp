@@ -406,6 +406,13 @@ namespace
         return options.Erosion && !options.Verify && !options.SelfVerify;
     }
 
+    // --verify compares against legacy PlanetStep, which kills subducted crust per world point;
+    // --self-verify runs Loom against itself and tests the active gather-kill path
+    [[nodiscard]] bool ReferenceSubductionKillWanted(const LoomOptions& options) noexcept
+    {
+        return options.Verify;
+    }
+
     [[nodiscard]] planet_loom::PlanetLiveOptions ToLiveOptions(const LoomOptions& options)
     {
         bool validation = true;
@@ -574,6 +581,7 @@ namespace
             .InteractiveControl = false,
             .LiveMode = false,
             .EnableCapturePass = false,
+            .ReferenceSubductionKill = ReferenceSubductionKillWanted(options),
         };
 
         loom::GraphBuilder builder{ "PlanetGen.Graph", "PlanetLab" };

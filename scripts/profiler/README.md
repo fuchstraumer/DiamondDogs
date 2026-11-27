@@ -121,7 +121,8 @@ The runner sets all three. It checks `REPRO_INFO.xls` after the trace and prints
 
 The runner finds the newest Nsight Graphics install under `C:\Program Files\NVIDIA Corporation`.
 
-The validation warning checks the app arguments for `--validation=off`. An app with no validation option, such as
+The validation warning checks the app arguments for `--validation=off` (OceanFft) or `--validation=none`
+(PlanetGenLoom). An app with no validation option, such as
 PlanetGenBench (it never enables validation), gets the warning anyway. Ignore it there.
 
 The run stores:
@@ -138,7 +139,7 @@ The run stores:
 The GPU clocks are locked to base during the trace. Its times are not comparable with submit mode times.
 
 The validation layer changes GPU times. Mips measured 0.87 ms with it on and 0.18 ms with it off.
-The runner prints a warning when the app arguments do not contain `--validation=off`.
+The runner prints a warning when the app arguments contain neither `--validation=off` nor `--validation=none`.
 
 - With the shader profiler on: one `shaders` row per profiled shader, one `shader_lines` row per hot source line,
   and `shader_stalls` rows for the stall reasons of each shader and of each line. A shader gets the `pass_id` of

@@ -376,6 +376,64 @@ aggregation would remove 18 of the 808 atomics.
 - **Next steps / TODOs:**
   - See [HANDOFF.md](HANDOFF.md) for detailed next steps: coastal shelf/slope elevation pass, GBuffer-style debug visualization modes + `AgentTools` / `FrameCapture` subregion inspection, WebGPU wave-size portability (`Offset*CS`, `LiveCells.slang`), and RenderGraph integration.
 
+## Subduction removal by gather (2026-11-27)
+
+The reference kills subducted crust per world point: `RemoveSubductedCS` kills the cell that `Owners` gives as the
+second plate's cell. Each plate lattice is rotated against the world grid, so this misses lattice cells that no world
+point samples (they stay alive under the top plate), and it can kill a cell that is the top cell at a nearby point. At
+300 My on the earth preset, 300 to 340 world points per step ended the step on a dead top cell.
+
+The Loom graph now runs two passes in its place:
+
+- `SubductionFrontsCS`: the same front values, with no kill. No thread reads a flag that another thread writes.
+- `KillSubductedCS`: one thread for each lattice cell of each plate, in the live-group layout and with the cap cull of
+  `CountLiveCellsCS` (`IsLiveGroupOutsideCap`). A live ocean cell maps itself to the world point under it. It dies
+  when another plate is on top there, and it is not on top at that point or at one of its 8 neighbours (`Owners`
+  rounds in the plate frame, and the kill rounds in the world frame, so the two maps differ by up to one pixel).
+  Continental cells do not subduct here.
+
+The `--verify` run sets `PlanetGraphConfig::ReferenceSubductionKill`, so it keeps the reference kill and stays
+bit-exact; `--self-verify` tests the active gather-kill path. `PlanetStep` (the bench and `PlanetGenCheck`) also keeps
+the reference kill.
+
+Measured at order 7 on the earth preset (two seeds, 0 to 400 My, `planet_regression.py`):
+
+- Dead top cells at the end of a step: from 300-340 to 0. Runs repeat byte for byte.
+- `N_eff` at 400 My: 10.1 to 12.5 (seed 42), 5.1 to 7.5 (seed 7). The other metrics move with the seed, not with
+  the change.
+- `seafloor_age_jump_pair_frac` does not fall (3.6 % at 400 My, seed 42). The stripes come mostly from ocean births
+  next to old crust of the same plate (about 250 of 1,870 births per step), not from the kill.
+- Cost (GPU Trace runs 15 and 16, submit 400, RTX 4080): `KillSubductedCS` takes 25.3 µs at order 7 and 58.9 µs at
+  order 8, next to 14.4 µs and 34.9 µs for `SubductionFrontsCS`.
+
+## Ocean relief (2026-11-27)
+
+Before this change, nothing decayed ocean relief except the volcanic edifice erosion of `ApplyMantlePlumesCS`. Arc
+uplift spread over a wide reach (450 km in the earth preset, up to 650 km with the slab dip) and stayed in the crust
+for its whole life. At 400 My, 20 % to 23 % of the ocean had arc relief over 0.5 km (`ocean_arc_relief_frac`).
+
+- `ShapingState::OceanErosion` (the old `Pad0` of the shaping uniform) decays all ocean relief, whatever its orogeny
+  tag, in the form of `ContinentErosion`: `relief *= 1 - OceanErosion * dt / PeakElevation`. `FrontDistanceAndUpliftCS`
+  applies it to every live ocean cell, also to the cells that no front reaches (`DecayOceanRelief`). At 0 it does no
+  load and no store, so the legacy preset and the verify runs keep their bits.
+- The earth preset sets `OceanErosion = 0.1` (an e-folding time of 100 My) and `IslandArcReachKm = 250`.
+
+Measured at order 7 on the earth preset, 0 to 400 My (`planet_regression.py`, seeds 42 and 7):
+
+| At 400 My | Before (42 / 7) | After (42 / 7) |
+|---|---|---|
+| `ocean_arc_relief_frac` | 0.198 / 0.193 | 0.029 / 0.026 |
+| Land fraction | 0.394 / 0.392 | 0.281 / 0.316 |
+| 1-cell ocean pinholes | 64 / 54 | 16 / 15 |
+| Continental fragments of 4 cells or fewer | 167 / 119 | 55 / 34 |
+| Ocean age mean (My) | 44.2 / 43.4 | 53.1 / 52.9 |
+| Hypsometry W1 to Earth (km) | 0.30 / 0.29 | 0.75 / 0.59 |
+
+W1 gets worse, and all of the change is in the ocean quantiles (0.16 to 0.61 km of it, seed 42; the land part stays
+at 0.13 km). Without the wide arc relief, the ocean floor is 0.5 to 0.9 km deeper than Earth's at the same area
+quantile. The earlier W1 was partly arc relief that hid this. The depth model (no sediment load, no shelves) is the
+next item to calibrate.
+
 ## Rifting (2026-11-26)
 
 `Rift.slang` ports `tectonics.Rift` and `AddPlate` from PlanetLab. Before it, plates could only merge, so every long
@@ -554,6 +612,23 @@ bit-exact with the legacy shaping, and gave 0 differing pixels over 200 My on th
 (runs 13 and 14 with the old floors, 11 and 12 with the new), `FrontDistanceAndUpliftCS` went from 110 to 111 µs at
 order 7 (no change) and from 713 to 652 µs at order 8 (−9 %). Most of its cost is candidates inside the group's own
 plate, not tiles beyond reach; the `Nearest` compare is still the lever.
+
+**After the gather kill and the ocean relief change (2026-11-27).** Runs 15 (order 7) and 16 (order 8), with the
+same arguments as runs 9 to 14, on the gather subduction kill (`SubductionFrontsCS` + `KillSubductedCS`) and the ocean
+relief change (`OceanErosion = 0.1`, `IslandArcReachKm = 250`). The world at submit 400 is not the same world as in
+runs 11 and 12, because both changes alter the sim.
+
+| | Order 7 (run 11 to 15) | Order 8 (run 12 to 16) |
+|---|---|---|
+| Traced step | 360 to 448 µs | 1,104 to 909 µs |
+| `RemoveSubducted` to `SubductionFronts` + `KillSubducted` | 14.6 to 14.4 + 25.3 µs | 35.4 to 34.9 + 58.9 µs |
+| `FrontDistanceAndUpliftCS` | 111 to 95 µs | 651 to 411 µs |
+| Collision phase (14 dispatches) | 18 to 100 µs (a collision in run 15's step) | 18 to 18 µs |
+
+The order 7 step is slower only because its traced step holds a collision. Without the collision phase it is about
+7 µs slower (2 %). The 250 km arc reach makes the uplift search smaller (the group cull reaches 412 km, not 703 km),
+which more than pays for `KillSubductedCS` at order 8. The hot lines of `KillSubductedCS` are the group barrier
+after the cap test (THDBAR) and the first flag load (LGSB): it waits on memory, and it has no compute hot spot.
 
 **Repeatability.** The first `DecideRiftCS` picked cells from live-list slots, and the live list's order comes from
 atomic cursors, so two runs of one build diverged by 200 My. It now hashes cell indices of the plate's own grid; two

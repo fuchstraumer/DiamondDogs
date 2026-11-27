@@ -53,6 +53,8 @@ namespace planet_loom
         bool EnableCapturePass{ false };
         bool EnableTelemetry{ false };
         bool EnableStateDump{ false };
+        // The verify runs set it: subduction then kills per world point, as the frozen reference does.
+        bool ReferenceSubductionKill{ false };
     };
 
     // Imported uniform buffers
@@ -253,7 +255,7 @@ namespace planet_loom
                              const PlanetGraphConfig& config,
                              const PlanetGraphCallbacks& callbacks);
 
-    /** Triggers all 38 simulation passes (OwnersCS .. MovePlatesAndClearCountersCS) for a single OnTrigger live step. */
+    /** Triggers all simulation passes (OwnersCS .. MovePlatesAndClearCountersCS) for a single OnTrigger live step. */
     void TriggerSimulationStep(loom::Graph& graph);
 
     /** Triggers the optional strip-able GPU telemetry passes for one OnTrigger live step. */

@@ -63,43 +63,49 @@ uint LoadPacked4Flags(uint plate, uint cellBase)
 
 groupshared uint GroupCulled;
 
+// True when the group's 32 x 32 tile lies outside its plate's bounding cap, so the tile holds no live cell of that
+// plate. The cap comes from the last CountLiveCellsCS, in the plate frame.
+internal bool IsLiveGroupOutsideCap(in LiveGroup liveGroup)
+{
+    if (StepParams.HealpixOrder < 5u)
+    {
+        return false;
+    }
+
+    const float4 cap = PlateCapCenters.Load(liveGroup.Plate);
+    if (cap.w == PlateCapEmpty)
+    {
+        return true;
+    }
+
+    if (cap.w != PlateCapValid)
+    {
+        return false;
+    }
+
+    const uint coarseOrder = StepParams.HealpixOrder - 5u;
+    const uint coarseTileIdx = liveGroup.FirstCell >> 10u;
+    const float3 tileCenter = HealpixPixToVec(coarseTileIdx, coarseOrder);
+    const float capSpread = asfloat(PlateCapSpreadIn.Load(liveGroup.Plate));
+    const float capCos = clamp(1.0f - capSpread, -1.0f, 1.0f);
+    const float capSin = sqrt(max(0.0f, 1.0f - capCos * capCos));
+    const float tileRadiusAngle = 2.0f * sqrt(4.0f * 3.14159265f / float(12u << (2u * coarseOrder)));
+
+    float tileSin = 0.0f;
+    float tileCos = 0.0f;
+    sincos(tileRadiusAngle, tileSin, tileCos);
+    const bool wrapsPi = (capCos < 0.0f) && (capSin < tileSin);
+    const float minCos = wrapsPi ? -1.0f : (capCos * tileCos - capSin * tileSin);
+    return dot(tileCenter, cap.xyz) < minCos;
+}
+
 [shader("compute")][numthreads(256,1,1)]
 void CountLiveCellsCS(uint3 groupID : SV_GroupID, uint3 laneInGroup : SV_GroupThreadID)
 {
     const LiveGroup liveGroup = FindLiveGroup(groupID.x);
     if (laneInGroup.x == 0u)
     {
-        uint culled = 0u;
-        if (StepParams.HealpixOrder >= 5u)
-        {
-            const float4 cap = PlateCapCenters.Load(liveGroup.Plate);
-            if (cap.w == PlateCapEmpty)
-            {
-                LiveGroupCounts.Store(groupID.x, 0u);
-                culled = 1u;
-            }
-            else if (cap.w == PlateCapValid)
-            {
-                const uint coarseOrder = StepParams.HealpixOrder - 5u;
-                const uint coarseTileIdx = liveGroup.FirstCell >> 10u;
-                const float3 tileCenter = HealpixPixToVec(coarseTileIdx, coarseOrder);
-                const float capSpread = asfloat(PlateCapSpreadIn.Load(liveGroup.Plate));
-                const float capCos = clamp(1.0f - capSpread, -1.0f, 1.0f);
-                const float capSin = sqrt(max(0.0f, 1.0f - capCos * capCos));
-                const float tileRadiusAngle = 2.0f * sqrt(4.0f * 3.14159265f / float(12u << (2u * coarseOrder)));
-                
-                float tileSin = 0.0f;
-                float tileCos = 0.0f;
-                sincos(tileRadiusAngle, tileSin, tileCos);
-                const bool wrapsPi = (capCos < 0.0f) && (capSin < tileSin);
-                const float minCos = wrapsPi ? -1.0f : (capCos * tileCos - capSin * tileSin);
-                if (dot(tileCenter, cap.xyz) < minCos)
-                {
-                    culled = 1u;
-                }
-            }
-        }
-
+        const uint culled = IsLiveGroupOutsideCap(liveGroup) ? 1u : 0u;
         GroupCulled = culled;
         if (culled != 0u)
         {

@@ -215,7 +215,7 @@ namespace planet
         shaping.Flags = 0u;
         shaping.NoiseSeed = 1337u;
         shaping.AtollLandBias = 0.0f;
-        shaping.Pad0 = 0.0f;
+        shaping.OceanErosion = 0.0f;
 
         for (uint32_t i = 0u; i < 4u; ++i)
         {
