@@ -485,8 +485,8 @@ sediment, and the earth preset's ocean was 0.5 to 0.9 km deeper than Earth's (ET
 
 `OceanFloorElevationKm` (`Buffers.slang`) now reads the curve from the shaping uniform, so a preset picks it:
 
-- Below `OceanPlateModelAgeMy`: `OceanRidgeDepthKm + OceanSubsidenceKm * sqrt(age)`, at most `OceanMaxDepthKm`.
-- From that age: `OceanPlateDepthKm - OceanPlateRelaxKm * exp(-age * OceanPlateRelaxPerMy)`.
+- Below `OceanPlateModelAgeMy` (or at all ages when `OceanPlateDepthKm <= 0`): `OceanRidgeDepthKm + OceanSubsidenceKm * sqrt(age)`, at most `OceanMaxDepthKm`.
+- From that age when `OceanPlateDepthKm > 0`: `OceanPlateDepthKm - OceanPlateRelaxKm * exp(-age * OceanPlateRelaxPerMy)`.
 - Sediment: `OceanSedimentMaxKm * (1 - exp(-age / OceanSedimentTimeMy))` lifts the floor by 0.573 of its thickness
   (isostasy: (mantle - sediment) / (mantle - water), densities 3.3, 2.0 and 1.03).
 

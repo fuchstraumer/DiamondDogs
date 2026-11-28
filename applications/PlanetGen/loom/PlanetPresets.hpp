@@ -39,9 +39,6 @@ namespace planet_loom
         Atoll,
     };
 
-    // an OceanPlateModelAgeMy that no crust reaches: the square-root curve holds at every age
-    inline constexpr float k_OceanPlateModelNever = 3.0e38f;
-
     struct ShapingState
     {
         bool SlabDipEnabled{ false };
@@ -74,11 +71,12 @@ namespace planet_loom
         float CollapseElevationKm{ 5.0f };
         float CollapseTimeMy{ 2.0f };
         // The age-depth curve of the ocean floor (OceanFloorElevationKm in Buffers.slang). The defaults give the
-        // reference curve, max(-(2.6 + 0.345 sqrt(age)), -6) km, with no plate-model flattening and no sediment.
+        // reference curve, max(-(2.6 + 0.345 sqrt(age)), -6) km, with no plate-model flattening (OceanPlateDepthKm <= 0)
+        // and no sediment.
         float OceanRidgeDepthKm{ 2.6f };
         float OceanSubsidenceKm{ 0.345f };
         float OceanMaxDepthKm{ 6.0f };
-        float OceanPlateModelAgeMy{ k_OceanPlateModelNever };
+        float OceanPlateModelAgeMy{ 0.0f };
         float OceanPlateDepthKm{ 0.0f };
         float OceanPlateRelaxKm{ 0.0f };
         float OceanPlateRelaxPerMy{ 0.0f };

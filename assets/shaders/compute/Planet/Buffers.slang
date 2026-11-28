@@ -416,7 +416,7 @@ internal float OceanFloorElevationKm(in float oceanAgeMy)
     float depthKm = min(ShapingConstants.OceanRidgeDepthKm + ShapingConstants.OceanSubsidenceKm * sqrt(oceanAgeMy),
                         ShapingConstants.OceanMaxDepthKm);
 
-    if (oceanAgeMy >= ShapingConstants.OceanPlateModelAgeMy)
+    if (ShapingConstants.OceanPlateDepthKm > 0.0f && oceanAgeMy >= ShapingConstants.OceanPlateModelAgeMy)
     {
         depthKm = ShapingConstants.OceanPlateDepthKm -
                   ShapingConstants.OceanPlateRelaxKm * exp(-oceanAgeMy * ShapingConstants.OceanPlateRelaxPerMy);

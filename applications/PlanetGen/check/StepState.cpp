@@ -220,7 +220,7 @@ namespace planet
         shaping.OceanRidgeDepthKm = 2.6f;
         shaping.OceanSubsidenceKm = 0.345f;
         shaping.OceanMaxDepthKm = 6.0f;
-        shaping.OceanPlateModelAgeMy = 3.0e38f;
+        shaping.OceanPlateModelAgeMy = 0.0f;
         shaping.OceanPlateDepthKm = 0.0f;
         shaping.OceanPlateRelaxKm = 0.0f;
         shaping.OceanPlateRelaxPerMy = 0.0f;

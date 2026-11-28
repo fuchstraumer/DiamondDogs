@@ -536,7 +536,7 @@ struct foundation::reflect::Describe<planet_loom::ShapingState>
         Field<State, float>{ "OceanRidgeDepthKm", &State::OceanRidgeDepthKm, { .Unit = "km", .Range = FieldRange{ 0.0, 6.0 } } },
         Field<State, float>{ "OceanSubsidenceKm", &State::OceanSubsidenceKm, { .Unit = "km/sqrt(My)", .Range = FieldRange{ 0.0, 1.0 } } },
         Field<State, float>{ "OceanMaxDepthKm", &State::OceanMaxDepthKm, { .Unit = "km", .Range = FieldRange{ 0.0, 11.0 } } },
-        Field<State, float>{ "OceanPlateModelAgeMy", &State::OceanPlateModelAgeMy, { .Unit = "My" } },
+        Field<State, float>{ "OceanPlateModelAgeMy", &State::OceanPlateModelAgeMy, { .Unit = "My", .Range = FieldRange{ 0.0, 1000.0 } } },
         Field<State, float>{ "OceanPlateDepthKm", &State::OceanPlateDepthKm, { .Unit = "km", .Range = FieldRange{ 0.0, 11.0 } } },
         Field<State, float>{ "OceanPlateRelaxKm", &State::OceanPlateRelaxKm, { .Unit = "km", .Range = FieldRange{ 0.0, 11.0 } } },
         Field<State, float>{ "OceanPlateRelaxPerMy", &State::OceanPlateRelaxPerMy, { .Unit = "1/My", .Range = FieldRange{ 0.0, 1.0 } } },
