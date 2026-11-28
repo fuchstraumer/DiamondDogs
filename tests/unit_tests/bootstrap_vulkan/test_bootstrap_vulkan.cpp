@@ -354,18 +354,20 @@ TEST(BootstrapVulkan, WantedVideoEncodeNeedsGiveAnHevcEncodeQueue)
 
     wanted.Stop();
 
-    // declined, the boot still succeeds, and the consumer sees no queue: its CPU fallback runs. Decline the codec
-    // extension: the planner adds an extension's dependencies after Declined, so declining VK_KHR_video_encode_queue
-    // alone leaves it on while VK_KHR_video_encode_h265 is wanted
+    // declined, the boot still succeeds, and the consumer sees no queue: its CPU fallback runs. Decline the
+    // dependency, not the codec extension: the wanted VK_KHR_video_encode_h265 depends on it, and must go with it
+    // instead of bringing it back
     DeviceConfig config = ValidatedConfig();
 
-    config.Declined.emplace_back("VK_KHR_video_encode_h265");
+    config.Declined.emplace_back("VK_KHR_video_encode_queue");
 
     DeviceStage declined;
     const BootResult declinedStarted = declined.StartHeadless(booted.content, requirements, config);
 
     ASSERT_TRUE(declinedStarted.Succeeded()) << bootstrap::FormatFailure(declinedStarted);
+    EXPECT_FALSE(declined.Rhi().GetDevice()->HasExtension("VK_KHR_video_encode_queue"));
     EXPECT_FALSE(declined.Rhi().GetDevice()->HasExtension("VK_KHR_video_encode_h265"));
+    EXPECT_TRUE(declined.Rhi().GetDevice()->HasExtension("VK_KHR_video_queue"));
     EXPECT_EQ(declined.Rhi().GetDevice()->GetVideoEncodeQueueCount(), 0u);
     EXPECT_EQ(declined.Rhi().GetDevice()->GetQueueFamilyIndices().VideoEncode, rhi::k_QueueFamilyIgnored);
 }

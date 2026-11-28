@@ -110,6 +110,7 @@ namespace loom
 
         auto data = std::make_unique<CompiledData>();
         data->CodeFormat = inputs.Bundle.Profile().CodeFormat;
+        data->RuntimeNames = builder.Record().RuntimeNames;
 
         // the slot sources view into the bundle: keep only the reflected access
         data->SlotReflectedAccess.reserve(bound->Sources.size());

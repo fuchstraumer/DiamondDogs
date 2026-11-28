@@ -5,6 +5,7 @@
 #include "Records.hpp"
 #include "SequenceBuilder.hpp"
 #include <memory>
+#include <optional>
 #include <source_location>
 #include <string>
 #include <string_view>
@@ -18,6 +19,7 @@ namespace loom
     {
         record->Name = std::string{ name };
         record->ShaderLibraryName = std::string{ shader_library_name };
+        record->RuntimeNames = std::make_shared<KeyNames>();
     }
 
     GraphBuilder::~GraphBuilder() = default;
@@ -77,6 +79,33 @@ namespace loom
     const GraphRecord& GraphBuilder::Record() const noexcept
     {
         return *record;
+    }
+
+    namespace detail
+    {
+
+        std::optional<KeyRef> KeepKeyName(GraphBuilder& graph, std::string_view name)
+        {
+            if (!IsModuleDotName(name))
+            {
+                return std::nullopt;
+            }
+
+            // The builder's record is mutable only through the builder; Record() is const for Freeze and the tests
+            KeyNames& names = *graph.Record().RuntimeNames;
+            const uint64_t hash = HashArxSv(name);
+            const auto found = names.ByHash.find(hash);
+
+            if (found != names.ByHash.end() && found->second == name)
+            {
+                return KeyRef{ found->second, hash };
+            }
+
+            const std::string_view kept = names.Names.emplace_back(name);
+            names.ByHash.emplace(hash, kept);
+            return KeyRef{ kept, hash };
+        }
+
     }
 
     void GraphBuilder::commitPass(PassBuilder& pass)

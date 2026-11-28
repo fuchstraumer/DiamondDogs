@@ -144,6 +144,11 @@ namespace loom
         // that usage's layout). The rules of the buffer form apply: a new epoch, and the supplier keeps owning it.
         void Supply(ResourceKey<Image> resource, rhi::ResourceFuture<GraphicsResource>&& future,
                     ImageUsageBits usage_at_handoff);
+        // As above, and every submit that uses this object first waits for `supplier_wait` on the GPU: outside work
+        // on another queue (a video encoder's read of the last frame's image) that must end before the graph writes it.
+        // An empty wait (Value 0, or not Submitted) is the same as the form above. Vulkan only.
+        void Supply(ResourceKey<Image> resource, rhi::ResourceFuture<GraphicsResource>&& future,
+                    ImageUsageBits usage_at_handoff, const rhi::GpuWait& supplier_wait);
         void Enable(PassKey pass, bool enabled);
         // An OnTrigger pass runs on the next Tick whose readiness allows it. Triggers before that run count as one.
         void Trigger(PassKey pass);

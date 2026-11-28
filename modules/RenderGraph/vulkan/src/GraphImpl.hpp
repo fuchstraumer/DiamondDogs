@@ -43,6 +43,9 @@ namespace loom
         bool KindMismatch{ false };     // LM701 for this epoch: the passes treat the row as Failed
         bool ImportChecked{ false };    // Avoids repeated CheckImport calls on each tick
         uint32_t Reported{ 0u };
+        // The outside work that must finish before the graph uses this epoch's object (Supply with a GpuWait): an
+        // encoder's read on another queue, for example. Value 0 when there is none.
+        rhi::GpuWait SupplierWait;
     };
 
     // The Vulkan objects of one pipeline. The set layouts are one per group, 0 to the highest group the slots use.
@@ -176,6 +179,7 @@ namespace loom
 
         std::optional<rhi::GpuTimers> Timers;
         uint32_t CreatedRowCount{ 0u };
+        uint32_t SupplierWaitRows{ 0u };   // the rows whose SupplierWait has a value
         bool AllRowsSettled{ false };
         uint64_t SupplyGeneration{ 1u };
 

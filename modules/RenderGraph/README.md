@@ -8,6 +8,21 @@ dispatches only).
 The design record is the API spec, and the agent handbook holds the working state. Both are in the author's
 untracked `docs/` folder. This README is the map of the code.
 
+## Keys
+
+Every name in a graph is a typed key (`LoomKeys.hpp`): `ResourceKey<Buffer | Image | Sampler>`, `PassKey`,
+`SequenceKey`, `AnchorKey`, `FrameTargetKey`, `PathListKey`, `PathKey` and `ParamsKey<T>`. A key is a `Module.Name`
+string and its hash, and identity is the hash alone (S6): the name is for diagnostics. A key from a literal is
+`consteval`, so a bad name fails the build. Records store keys as `KeyRef`, a view of the name and the hash.
+
+A key from a name known only at run time (an authored graph, CC-R5) comes from `FromName(graph, name)` on each key
+type. It returns nothing for a name that is not `Module.Name`, so the caller reports the refusal where the name comes
+in. `detail::HashArxSv` is `constexpr`, so the same name gets the same hash on both paths, and a literal key finds what
+a runtime key declared. The graph keeps a copy of each runtime name, once per name, in `KeyNames` (`src/Records.hpp`): a
+deque, which never moves its strings, so a `KeyRef` view stays valid. The builder and each `CompiledGraph` made from it
+share that store, and a `Graph` holds its `CompiledGraph`, so a runtime name lives as long as the last of them. A
+`CollectingSink` copies the names it keeps, so its diagnostics outlive the graph too.
+
 ## The pipeline
 
 ```
@@ -680,7 +695,13 @@ For the app: `Timeline()` and `PendingValue()` feed `ResourceContext::Tick`, and
 a transfer must wait on before it reads what the graph wrote. `Supply` on an imported buffer starts a new epoch. The
 supplier still owns the buffer, and frees an old one only after `LastSubmit()` passes (CC-R4);
 `ResourceContext::DestroyResource(resource, graph.LastSubmit())` does that. `Supply(image, future, usage)` takes the
-usage the image is in at handoff, and its first barrier starts from that usage's layout. `BufferOf(key)` and
+usage the image is in at handoff, and its first barrier starts from that usage's layout.
+`Supply(image, future, usage, wait)` also takes an `rhi::GpuWait` for outside work on another queue that must end
+before the graph uses the object, for example a video encoder that still reads the image the graph wrote last frame.
+Every submit that uses the row waits on it (`GatherWaits`), whether or not the row's contents are complete; an empty
+wait is the same as the form without it. The pattern for an outside reader is a ring of imported images: before each
+Tick, `Supply` the next one with the reader's last wait on it, and have the reader wait on `LastSubmit()`. Vulkan only:
+WebGPU has one queue. `BufferOf(key)` and
 `ImageOf(key)` give a row's object; for a history ring, the copy the last submitted frame wrote.
 
 **Frames in flight.** Each resource has one copy, and the frame-start batch orders frame N+1 after frame N. Copies per
@@ -849,7 +870,7 @@ When Loom needs something from Lodestone, it stubs it here and adds a row to Lod
 | `test_order.cpp`, `test_explain.cpp` | Order and `Explain`, from hand-made access tables. |
 | `test_diagnostics.cpp` | The catalog and the sinks. |
 | `test_levels.cpp` | Kahn levels, the level-major run order, the persistence rule for LM503, buffer imports, and `BindFrameStart` (the `FrameStart` edges, the in-place step that is LM501 with a plain `Bind`, LM506, and LM504 with a frame-start reader). |
-| `test_runtime.cpp` (`LoomHashFill.slang`, `LoomImages.slang`) | `Compile`, `DecideRuns` (pending and failed rows, pending and failed pipelines, `Once`, `WhenInputsChange`, `OnTrigger`, `NoHistory`, Q3g), `PlanBarriers` (level and frame-start batches, write after reads, epochs, image layout changes, history copies, the clear batch), `ParamsStore` (LM703, LM704, the byte compare), `ExplainLastTick`, and aliasing (`Alias.*`: the candidates, the packing with needs written by hand, the takeover barrier), from readiness values written by hand. |
+| `test_runtime.cpp` (`LoomHashFill.slang`, `LoomImages.slang`) | `Compile`, `DecideRuns` (pending and failed rows, pending and failed pipelines, `Once`, `WhenInputsChange`, `OnTrigger`, `NoHistory`, Q3g), `PlanBarriers` (level and frame-start batches, write after reads, epochs, image layout changes, history copies, the clear batch), `ParamsStore` (LM703, LM704, the byte compare), `ExplainLastTick`, and aliasing (`Alias.*`: the candidates, the packing with needs written by hand, the takeover barrier), from readiness values written by hand. Runtime keys (`RuntimeKeys.*`, CC-R5): the runtime hash equals the literal hash, bad names are refused, a name is kept once, and a compiled graph keeps its names after the builder and the source strings are gone. |
 | `test_paths.cpp` (`LoomDraw.slang`) | Path lists: the choice by capability, the fallback, forced paths, path-local declarations, a produced key that orders its reader, LM103 for a forced path, LM114, LM115, LM116, LM308 and LM309 on every path, and `GatherDeviceNeeds`. `test_resolve.cpp` covers the choice by shader (LM207 in the trial Resolve). |
 | `test_draw.cpp` (`LoomDraw.slang`, shared with the step 7 GPU test) | Step 7a: frame-target rows, attachments and their uses (depth read-only, color, Record targets as Keep and Store), indirect draw reads, `DrawIndirectCount` checks (LM109, LM401), `g_LoomFrame` with no `Bind` and its C++ mirror against the cooked layout, the target actions and fallbacks, the frame-end batch, the target clear, and the three target extents. |
 
@@ -867,8 +888,9 @@ catches that plant.
 written, then sampled in the next level; an imported image, uploaded by the test and sampled with a point sampler, whose
 extent sizes the dispatch; a history buffer and a history image that count frames through `BindPrevious`
 (`OnNoHistory::Clear`); a `WhenInputsChange` pass that must run twice; and an `OnTrigger` pass that must run twice.
-Every value must match the CPU, with zero validation messages. See "What synchronization validation sees" for what it
-cannot prove.
+Then it supplies a new Lut with a `GpuWait` on a host timeline at 0: the frame that samples it must not finish until the
+test signals that timeline, and must finish after. Every value must match the CPU, with zero validation messages. See
+"What synchronization validation sees" for what it cannot prove.
 
 `tests/integration_tests/LoomDrawTest` runs step 7 on a real device, headless, into a 64x64 RGBA8
 `OffscreenFrameTarget`. The graph (`LoomDrawGraph.cpp`, shared with LoomTriangleTest) is a compute cull that writes

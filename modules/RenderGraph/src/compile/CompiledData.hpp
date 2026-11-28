@@ -15,6 +15,7 @@
 #include "size/SizedGraph.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -132,6 +133,8 @@ namespace loom
         int32_t LastLevel{ -1 };
     };
 
+    struct KeyNames;
+
     struct CompiledData
     {
         lodestone::ShaderCodeFormat CodeFormat{ lodestone::ShaderCodeFormat::None };
@@ -176,6 +179,10 @@ namespace loom
 
         // One entry per path list, in the order the builder added them; empty for a graph with no path list
         std::vector<PathChoice> PathChoices;
+
+        // The runtime key names (CC-R5, Records.hpp), shared with the builder: every KeyRef above that a FromName key
+        // made views into it, so the compiled graph keeps it alive after the builder is gone.
+        std::shared_ptr<const KeyNames> RuntimeNames;
     };
 
     // A copy index past RowCount is a history ring's extra copy, not a frame target

@@ -1502,6 +1502,30 @@ namespace
         return true;
     }
 
+    // One more semaphore wait for the submit. A second wait on the same timeline keeps the larger value: tickets only
+    // grow, so the larger one covers the smaller.
+    void AddWait(GraphImpl& graph, const rhi::GpuWait& wait)
+    {
+        if (wait.Value == 0u || !wait.Submitted)
+        {
+            return;
+        }
+
+        const rhi::SemaphoreSubmitInfo candidate{ wait.Semaphore, wait.Value, rhi::PipelineStage::AllCommands };
+
+        for (rhi::SemaphoreSubmitInfo& existing : graph.WaitScratch)
+        {
+            if (existing.Semaphore == candidate.Semaphore)
+            {
+                existing.Value = std::max(existing.Value, candidate.Value);
+                return;
+            }
+
+        }
+
+        graph.WaitScratch.push_back(candidate);
+    }
+
     void GatherWaits(GraphImpl& graph)
     {
         graph.WaitScratch.clear();
@@ -1515,7 +1539,7 @@ namespace
             }
         }
 
-        if (graph.CreatedRowCount == 0u)
+        if (graph.CreatedRowCount == 0u && graph.SupplierWaitRows == 0u)
         {
             return;
         }
@@ -1531,42 +1555,22 @@ namespace
                 const int32_t row = data.Uses[useIndex].Resource;
 
                 // a frame target's wait is its acquire semaphore, above
-                if (IsFrameTargetRow(data, row) || graph.States[row].Readiness != ResourceReadiness::Created)
+                if (IsFrameTargetRow(data, row))
                 {
                     continue;
                 }
 
-                const rhi::GpuWait completion = graph.Rows[row].Future.Completion();
+                const ResourceReadiness readiness = graph.States[row].Readiness;
 
-                if (completion.Value == 0u || !completion.Submitted)
+                if (readiness == ResourceReadiness::Created)
                 {
-                    continue;
+                    AddWait(graph, graph.Rows[row].Future.Completion());
                 }
 
-                // Build the semaphore wait that we'll fire on the GPU to ensure this resource is ready before the next pass uses it
-                const rhi::SemaphoreSubmitInfo candidate
+                // the supplier's outside work counts whether or not the contents are on the GPU yet
+                if (readiness == ResourceReadiness::Created || readiness == ResourceReadiness::Complete)
                 {
-                    completion.Semaphore,
-                    completion.Value,
-                    rhi::PipelineStage::AllCommands
-                };
-
-                // If a semaphore with the same handle already exists, take the max of the two values:
-                // since tickets are monotonically increasing, taking the max ensures we wait for the
-                // latest signal without dumping the previous
-                bool merged = false;
-                for (rhi::SemaphoreSubmitInfo& wait : graph.WaitScratch)
-                {
-                    if (wait.Semaphore == candidate.Semaphore)
-                    {
-                        wait.Value = std::max(wait.Value, candidate.Value);
-                        merged = true;
-                    }
-                }
-
-                if (!merged)
-                {
-                    graph.WaitScratch.push_back(candidate);
+                    AddWait(graph, graph.Rows[row].SupplierWait);
                 }
             }
         }

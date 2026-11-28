@@ -1,6 +1,32 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 3.10)
+
+# Stop before project() when cl.exe is requested without vcvars64.bat on PATH. If project() runs and
+# fails compiler detection, CMake still writes empty CMAKE_{C,CXX}_FLAGS* entries into CMakeCache.txt;
+# a later configure with vcvars64.bat then succeeds with those empty entries intact, silently dropping
+# /MDd, /MD, /Zi, and /O2.
+if(CMAKE_HOST_WIN32 AND NOT EMSCRIPTEN AND CMAKE_CXX_COMPILER MATCHES "^[Cc][Ll](\\.[Ee][Xx][Ee])?$")
+    find_program(_dd_cl_probe NAMES "${CMAKE_CXX_COMPILER}" NO_CACHE)
+    if(NOT _dd_cl_probe)
+        message(FATAL_ERROR
+            "cl.exe is not on PATH. Run cmake from a Visual Studio 18 x64 developer shell (vcvars64.bat). "
+            "Stopping before project() so CMake does not write empty CMAKE_*_FLAGS* entries into CMakeCache.txt.")
+    endif()
+    unset(_dd_cl_probe)
+endif()
+
 PROJECT(DiamondDogs)
 # and turquoise days...
+
+if(MSVC AND NOT EMSCRIPTEN)
+    if(CMAKE_CXX_FLAGS_DEBUG STREQUAL "" OR CMAKE_CXX_FLAGS_RELEASE STREQUAL ""
+       OR CMAKE_C_FLAGS_DEBUG STREQUAL "" OR CMAKE_C_FLAGS_RELEASE STREQUAL "")
+        message(FATAL_ERROR
+            "CMAKE_C/CXX_FLAGS_DEBUG or CMAKE_C/CXX_FLAGS_RELEASE is empty in CMakeCache.txt. "
+            "This happens when an earlier configure failed without vcvars64.bat and left empty flag entries "
+            "in the cache, which switches cl.exe to /MT (breaking SPIRV-Tools and mimalloc linking) and drops "
+            "/Zi and /O2. Re-run configure with --fresh from a Visual Studio 18 x64 developer shell (vcvars64.bat).")
+    endif()
+endif()
 
 # clangd reads compile_commands.json. Set it here too, so a configure without a preset still writes it
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

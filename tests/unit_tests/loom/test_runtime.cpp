@@ -1375,3 +1375,135 @@ TEST(Alias, PoisonMarksEveryTakeover)
     EXPECT_TRUE(takeoverOf(scratchA));
     EXPECT_TRUE(takeoverOf(compiled->ResourceIndexOf(k_ScratchB.ToRef())));
 }
+
+// CC-R5: keys from names known only at run time (an authored graph). The names come from std::strings that die
+// before Compile returns, so a view into them would dangle.
+namespace
+{
+    // The hash graph of BuildHashGraph, with every key made from a runtime name
+    std::optional<loom::CompiledGraph> CompileRuntimeNamedGraph(loom::CollectingSink& sink)
+    {
+        std::optional<loom::GraphBuilder> graph{ std::in_place, "Runtime.Graph", "Runtime.Library" };
+        std::vector<std::string> names{ "Runtime.Output", "Runtime.Output2", "Runtime.Fill", "Runtime.Again",
+                                        "Runtime.FillParams", "Runtime.AgainParams" };
+
+        const auto output = loom::ResourceKey<loom::Buffer>::FromName(*graph, names[0]);
+        const auto output2 = loom::ResourceKey<loom::Buffer>::FromName(*graph, names[1]);
+        const auto fill = loom::PassKey::FromName(*graph, names[2]);
+        const auto again = loom::PassKey::FromName(*graph, names[3]);
+        const auto fillParams = loom::ParamsKey<FillParams>::FromName(*graph, names[4]);
+        const auto againParams = loom::ParamsKey<AgainParams>::FromName(*graph, names[5]);
+
+        // overwrite and free the source text: only the graph's copies may remain
+        for (std::string& name : names)
+        {
+            std::ranges::fill(name, '#');
+        }
+
+        names.clear();
+        names.shrink_to_fit();
+
+        graph->Pin("HASH_TWICE", loom::AxisValue::Boolean(false));
+        graph->Import(loom::BufferImportDeclaration{ .Key = *output, .ByteSize = k_Bytes });
+        graph->Declare(loom::BufferDeclaration
+        {
+            .Key = *output2,
+            .Lifetime = loom::ResourceLifetime::Frame,
+            .Size = loom::SizeSource::Bytes(k_Bytes),
+            .Cpu = loom::CpuAccess::Readback,
+            .HistoryDepth = 0,
+            .NoHistoryAction = loom::OnNoHistory::Invalid
+        });
+
+        const auto fillBody = [&output, &fillParams](loom::DispatchBuilder& pass)
+        {
+            pass.Shader("LoomHashFill", "HashFillCS");
+            pass.Bind("Output", *output, loom::AccessModifier::WriteOnly);
+            pass.Params(*fillParams);
+            pass.DispatchThreads(static_cast<int32_t>(k_Count), 1, 1);
+        };
+
+        const auto againBody = [&output, &output2, &againParams](loom::DispatchBuilder& pass)
+        {
+            pass.Shader("LoomHashFill", "HashAgainCS");
+            pass.Bind("Hashed", *output);
+            pass.Bind("Output2", *output2, loom::AccessModifier::WriteOnly);
+            pass.Params(*againParams);
+            pass.DispatchThreads(static_cast<int32_t>(k_Count), 1, 1);
+        };
+
+        graph->AddDispatch(*fill, k_EveryFrame, k_Graphics, fillBody);
+        graph->AddDispatch(*again, k_EveryFrame, k_Graphics, againBody);
+
+        std::optional<loom::CompiledGraph> compiled = loom::Compile(*graph, Inputs(), sink);
+        graph.reset();
+        return compiled;
+    }
+}
+
+TEST(RuntimeKeys, TheRuntimeHashIsTheLiteralHash)
+{
+    static_assert(loom::detail::HashArxSv("Runtime.Output") == k_Output.Hash);
+
+    const std::string name{ "Runtime.Output" };
+    EXPECT_EQ(loom::detail::HashArxSv(name), k_Output.Hash);
+
+    loom::GraphBuilder graph{ "Runtime.Graph", "Runtime.Library" };
+    const std::optional<loom::ResourceKey<loom::Buffer>> key = loom::ResourceKey<loom::Buffer>::FromName(graph, name);
+    ASSERT_TRUE(key.has_value());
+    EXPECT_EQ(*key, k_Output);
+    EXPECT_EQ(key->Name, "Runtime.Output");
+    EXPECT_NE(key->Name.data(), name.data());
+
+    const std::optional<loom::PassKey> pass = loom::PassKey::FromName(graph, "Runtime.Fill");
+    ASSERT_TRUE(pass.has_value());
+    EXPECT_EQ(*pass, k_Fill);
+}
+
+TEST(RuntimeKeys, ANameThatIsNotModuleDotNameIsRefused)
+{
+    loom::GraphBuilder graph{ "Runtime.Graph", "Runtime.Library" };
+
+    for (const std::string_view name : { "", "NoDot", ".Lead", "Trail." })
+    {
+        EXPECT_FALSE(loom::ResourceKey<loom::Image>::FromName(graph, name).has_value()) << name;
+        EXPECT_FALSE(loom::PassKey::FromName(graph, name).has_value()) << name;
+        EXPECT_FALSE(loom::ParamsKey<float>::FromName(graph, name).has_value()) << name;
+    }
+
+    EXPECT_TRUE(graph.Record().RuntimeNames->Names.empty());
+}
+
+TEST(RuntimeKeys, ANameIsKeptOnce)
+{
+    loom::GraphBuilder graph{ "Runtime.Graph", "Runtime.Library" };
+    const auto first = loom::ResourceKey<loom::Image>::FromName(graph, "Runtime.Shared");
+    const auto second = loom::PassKey::FromName(graph, std::string{ "Runtime.Shared" });
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(second.has_value());
+    EXPECT_EQ(first->Name.data(), second->Name.data());
+    EXPECT_EQ(graph.Record().RuntimeNames->Names.size(), 1u);
+}
+
+TEST(RuntimeKeys, TheCompiledGraphKeepsTheNamesAfterTheBuilderIsGone)
+{
+    loom::CollectingSink sink;
+    std::optional<loom::CompiledGraph> compiled = CompileRuntimeNamedGraph(sink);
+    ASSERT_TRUE(compiled.has_value()) << sink.ErrorCount();
+
+    const loom::CompiledData& data = compiled->Data();
+    ASSERT_NE(data.RuntimeNames, nullptr);
+    EXPECT_EQ(data.RuntimeNames.use_count(), 1);
+
+    // the literal keys find the rows and passes that the runtime keys made
+    const int32_t outputRow = compiled->ResourceIndexOf(k_Output.ToRef());
+    const int32_t output2Row = compiled->ResourceIndexOf(k_Output2.ToRef());
+    ASSERT_GE(outputRow, 0);
+    ASSERT_GE(output2Row, 0);
+    EXPECT_EQ(compiled->PassIndexOf(k_Fill), k_FillPass);
+    EXPECT_EQ(compiled->PassIndexOf(k_Again), k_AgainPass);
+
+    // the views point into the graph's copies, which outlived the builder and the overwritten source strings
+    EXPECT_EQ(loom::KeyOfRow(data, outputRow).Name, "Runtime.Output");
+    EXPECT_EQ(loom::KeyOfRow(data, output2Row).Name, "Runtime.Output2");
+}

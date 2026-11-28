@@ -6,9 +6,13 @@
 #include "PassStatements.hpp"
 #include "utility/Delegate.hpp"
 #include <cstdint>
+#include <deque>
 #include <limits>
+#include <memory>
 #include <source_location>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 // The builder's log. Each record is what one builder call said, with the call's location. Records check nothing:
@@ -16,7 +20,8 @@
 //  - Keys are stored as KeyRef plus a kind, not as typed keys. A typed key has only a consteval constructor, so a
 //    record that held one could not be default-constructed or resized.
 //  - Text the caller passes at run time (module, entry point, binding and axis names) is owned as std::string. Key
-//    names are literals (consteval), so a KeyRef's view is safe; a caller's string_view may not be.
+//    names are literals, or runtime names that the graph keeps in KeyNames (CC-R5), so a KeyRef's view is safe; a
+//    caller's string_view may not be.
 //  - Statements that must appear exactly once (shader, dispatch) are vectors, so Freeze can see zero or two
 //    (LM105, LM106).
 namespace loom
@@ -333,10 +338,20 @@ namespace loom
     };
 
     // Everything one GraphBuilder recorded. The builder owns one; Freeze reads it through a const reference.
+    // The runtime key names of one graph (CC-R5). A deque never moves its elements, so every view stays valid as it
+    // grows, and nothing is ever removed. The builder and each CompiledGraph made from it share it, so the names live
+    // as long as the last of them.
+    struct KeyNames
+    {
+        std::deque<std::string> Names;
+        std::unordered_map<uint64_t, std::string_view> ByHash;
+    };
+
     struct GraphRecord
     {
         std::string Name;
         std::string ShaderLibraryName;
+        std::shared_ptr<KeyNames> RuntimeNames;
 
         std::vector<PinRecord> Pins;
 

@@ -12,6 +12,8 @@ set(CONTENT_COMPILER_TEST_SOURCES
     test_executor_kinds.cpp
     test_artifact_table.cpp
     test_executor.cpp
+    test_graph_json.cpp
+    test_field_kinds.cpp
 )
 
 add_unit_test_target(content_compiler_tests

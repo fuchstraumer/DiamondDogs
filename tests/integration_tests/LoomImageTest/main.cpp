@@ -18,6 +18,7 @@
 #include "ResourceFlags.hpp"
 #include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
+#include "Semaphore.hpp"
 #include "RhiResourceFlags.hpp"
 #include "RhiFlags.hpp"
 #include "RhiSystem.hpp"
@@ -40,6 +41,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <vulkan/vulkan_core.h>
 
 // Loom step 6 on the GPU, headless, against the CPU. One graph of seven passes, ticked k_Ticks times on two frame slots:
 //  - Paint writes Painted, a storage image; Sample samples it in the next level, so Loom changes its layout between
@@ -614,6 +616,96 @@ namespace
         [[maybe_unused]] const rhi::FutureState destroyed = resources.Wait(destroyReply, k_TimeoutNs);
     }
 
+    // The graph's timeline value that its last submit signals, read now
+    uint64_t GraphTimelineValue(const rhi::Device& device, const loom::Graph& graph)
+    {
+        uint64_t value = 0u;
+        const VkSemaphore semaphore = graph.LastSubmit().Semaphore.As<VkSemaphore>();
+        [[maybe_unused]] const VkResult read = vkGetSemaphoreCounterValue(device.Handle().As<VkDevice>(), semaphore, &value);
+        return value;
+    }
+
+    // Ticks until Sample (the reader of Lut) runs in a submitted frame. False on a timeout or a failed Tick.
+    bool TickUntilSampleRuns(loom::Graph& graph, ResourceContext& resources)
+    {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(k_TimeoutNs);
+
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            const ConsumerTimelineValue pending{ graph.Timeline(), graph.PendingValue() };
+            resources.Tick(std::span{ &pending, 1u });
+
+            const loom::TickResult result = graph.Tick(std::chrono::duration<double>{ 1.0 / 60.0 });
+            const bool sampled = graph.LastPlan().Decisions[Sample].Reason == loom::SkipReason::Ran;
+
+            if (result.Status == loom::TickStatus::Submitted && sampled)
+            {
+                return true;
+            }
+
+            if (result.Status == loom::TickStatus::Failed || result.Status == loom::TickStatus::TargetNotReady)
+            {
+                std::cerr << "Tick failed\n" << graph.ExplainLastTick();
+                return false;
+            }
+
+            std::this_thread::yield();
+        }
+
+        return false;
+    }
+
+    // Supply with a GpuWait: a new Lut whose supplier still "reads" the old one on another queue, modelled by a host
+    // timeline that the test signals by hand. The frame that samples the new Lut must not finish before that signal.
+    int32_t CheckSupplierWait(HeadlessBoot& boot, loom::Graph& graph)
+    {
+        ResourceContext& resources = boot.Gpu.Resources();
+        const rhi::Device& device = *boot.Device.Rhi().GetDevice();
+        rhi::TimelineSemaphore supplier{ device.Handle() };
+        const rhi::GpuWait supplierDone{ .Semaphore = supplier.Handle(), .Value = 1u, .Submitted = true };
+
+        graph.Supply(k_Lut, CreateLut(resources), ImageUsageBits::ComputeShaderSRV, supplierDone);
+        int32_t failures = 0;
+
+        if (!TickUntilSampleRuns(graph, resources))
+        {
+            std::cerr << "supplier wait: Sample did not run with the new Lut\n";
+            ++failures;
+        }
+
+        // the frame waits on the GPU, so it cannot finish while the supplier's value is 0
+        const uint64_t frameValue = graph.LastSubmit().Value;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+        if (failures == 0 && GraphTimelineValue(device, graph) >= frameValue)
+        {
+            std::cerr << "supplier wait: the frame finished before the supplier signalled\n";
+            ++failures;
+        }
+
+        // always signal: the graph's destructor waits for its last submit
+        [[maybe_unused]] const rhi::Result signalled = supplier.SetValue(1u);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(k_TimeoutNs);
+
+        while (GraphTimelineValue(device, graph) < frameValue && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::yield();
+        }
+
+        if (GraphTimelineValue(device, graph) < frameValue)
+        {
+            std::cerr << "supplier wait: the frame did not finish after the supplier signalled\n";
+            ++failures;
+        }
+
+        if (failures == 0)
+        {
+            std::cout << "supplier wait: the frame waited for the supplier, then finished\n";
+        }
+
+        return failures;
+    }
+
     int32_t RunTest(HeadlessBoot& boot)
     {
         ResourceContext& resources = boot.Gpu.Resources();
@@ -637,12 +729,17 @@ namespace
         const std::optional<RunCounts> runs = TickFrames(*graph, resources);
         int32_t failures = runs.has_value() ? CheckResults(resources, *graph, *runs) : 1;
 
+        // the first Lut is freed after the graph, which still may sample it in flight
+        const GraphicsResource firstLut = graph->ImageOf(k_Lut);
+        failures += CheckSupplierWait(boot, *graph);
+
         const GraphicsResource lut = graph->ImageOf(k_Lut);
         const GraphicsResource changed = graph->BufferOf(k_Changed);
         const GraphicsResource triggered = graph->BufferOf(k_Triggered);
 
         // the graph waits for its own work and frees what it made; the test owns the imports
         graph.reset();
+        DestroyImport(resources, firstLut);
         DestroyImport(resources, lut);
         DestroyImport(resources, changed);
         DestroyImport(resources, triggered);

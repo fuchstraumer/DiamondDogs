@@ -54,9 +54,21 @@ namespace
 
     // A new object for an imported row: a new epoch, so its barrier state starts again from `initial_layout`.
     void SupplyRow(GraphImpl& graph, int32_t row, rhi::ResourceFuture<GraphicsResource>&& future,
-                   rhi::ImageLayout initial_layout)
+                   rhi::ImageLayout initial_layout, const rhi::GpuWait& supplier_wait)
     {
         graph.Rows[row].Future = std::move(future);
+
+        if (graph.Rows[row].SupplierWait.Value != 0u)
+        {
+            --graph.SupplierWaitRows;
+        }
+
+        if (supplier_wait.Value != 0u)
+        {
+            ++graph.SupplierWaitRows;
+        }
+
+        graph.Rows[row].SupplierWait = supplier_wait;
         graph.Rows[row].KindMismatch = false;
         graph.Rows[row].ImportChecked = false;
         graph.States[row].Readiness = ResourceReadiness::Pending;
@@ -329,7 +341,7 @@ namespace
             return;
         }
 
-        SupplyRow(*impl, row, std::move(future), rhi::ImageLayout::Undefined);
+        SupplyRow(*impl, row, std::move(future), rhi::ImageLayout::Undefined, rhi::GpuWait{});
     }
 
     void Graph::Supply(ResourceKey<Image> resource, rhi::ResourceFuture<GraphicsResource>&& future,
@@ -342,7 +354,20 @@ namespace
             return;
         }
 
-        SupplyRow(*impl, row, std::move(future), ImageLayoutOfUsage(usage_at_handoff));
+        SupplyRow(*impl, row, std::move(future), ImageLayoutOfUsage(usage_at_handoff), rhi::GpuWait{});
+    }
+
+    void Graph::Supply(ResourceKey<Image> resource, rhi::ResourceFuture<GraphicsResource>&& future,
+                       ImageUsageBits usage_at_handoff, const rhi::GpuWait& supplier_wait)
+    {
+        const int32_t row = impl->Compiled.ResourceIndexOf(resource.ToRef());
+
+        if (!IsImported(impl->Compiled.Data(), row, ResourceKind::Image))
+        {
+            return;
+        }
+
+        SupplyRow(*impl, row, std::move(future), ImageLayoutOfUsage(usage_at_handoff), supplier_wait);
     }
 
     void Graph::Enable(PassKey pass, bool enabled)

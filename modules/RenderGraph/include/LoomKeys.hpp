@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_LOOM_KEYS_HPP
 #include <cstdint>
 #include <bit>
+#include <optional>
 #include <string_view>
 
 namespace loom
@@ -10,14 +11,15 @@ namespace loom
 
     namespace detail
     {
-        // Compact ARX (Add-Rotate-XOR) consteval string hash.
+        // Compact ARX (Add-Rotate-XOR) string hash. constexpr, not consteval, so a runtime name (CC-R5) gets the same
+        // hash as the same literal.
         //
         // Architecture and constants derived from:
         // 1. SipHash-2-4 by Jean-Philippe Aumasson and Daniel J. Bernstein (2012)
         //    "SipHash: a fast short-input PRF" (https://131002.net/siphash/)
         // 2. HalfSipHash / 2-word ARX round structure inspired by Skein/Threefish
         //    by Ferguson, Lucks, Schneier, et al. (2010)
-        consteval uint64_t HashArxSv(std::string_view str) noexcept
+        constexpr uint64_t HashArxSv(std::string_view str) noexcept
         {
             constexpr uint64_t k_Prime = 0x736f6d6570736575ULL;
             constexpr uint64_t k_Prime2 = 0x646f72616e646f6dULL;
@@ -65,6 +67,8 @@ namespace loom
         void LoomKeyMustBeModuleDotName();
     }
 
+    class GraphBuilder;
+
     // type-erased wrapper to just hold the data for any key type - used for diagnostic
     // logs and errors
     struct KeyRef
@@ -88,6 +92,12 @@ namespace loom
         
     };
 
+    namespace detail
+    {
+        // GraphBuilder.cpp: a copy of `name` that the graph owns, and its hash. Nothing when `name` is not Module.Name.
+        [[nodiscard]] std::optional<KeyRef> KeepKeyName(GraphBuilder& graph, std::string_view name);
+    }
+
     // tag types for disambiguating keys on type, so we can check at compile-time
     // that the correct key type is being used where keys are required
     struct Buffer;
@@ -106,6 +116,20 @@ namespace loom
             }
         }
 
+        // A key from a name known only at run time (CC-R5). The graph keeps the name, so the key stays valid for as
+        // long as the graph and every CompiledGraph and Graph made from it. Nothing when the name is not Module.Name.
+        [[nodiscard]] static std::optional<ResourceKey> FromName(GraphBuilder& graph, std::string_view name)
+        {
+            const std::optional<KeyRef> kept = detail::KeepKeyName(graph, name);
+
+            if (!kept.has_value())
+            {
+                return std::nullopt;
+            }
+
+            return ResourceKey{ *kept };
+        }
+
         [[nodiscard]] constexpr KeyRef ToRef() const noexcept
         {
             return KeyRef{ Name, Hash };
@@ -121,9 +145,14 @@ namespace loom
             return !(*this == other);
         }
 
-
         std::string_view Name;
         uint64_t Hash{ 0u };
+
+    private:
+        explicit constexpr ResourceKey(KeyRef kept) noexcept
+            : Name(kept.Name), Hash(kept.Hash)
+        {
+        }
     };
 
     template<typename T>
@@ -136,6 +165,20 @@ namespace loom
             {
                 detail::LoomKeyMustBeModuleDotName();
             }
+        }
+
+        // A key from a name known only at run time (CC-R5). The graph keeps the name, so the key stays valid for as
+        // long as the graph and every CompiledGraph and Graph made from it. Nothing when the name is not Module.Name.
+        [[nodiscard]] static std::optional<BaseKey> FromName(GraphBuilder& graph, std::string_view name)
+        {
+            const std::optional<KeyRef> kept = detail::KeepKeyName(graph, name);
+
+            if (!kept.has_value())
+            {
+                return std::nullopt;
+            }
+
+            return BaseKey{ *kept };
         }
 
         [[nodiscard]] constexpr KeyRef ToRef() const noexcept
@@ -155,6 +198,12 @@ namespace loom
 
         std::string_view Name;
         uint64_t Hash{ 0u };
+
+    private:
+        explicit constexpr BaseKey(KeyRef kept) noexcept
+            : Name(kept.Name), Hash(kept.Hash)
+        {
+        }
     };
 
     using AnchorKey = BaseKey<struct AnchorTag>;
@@ -177,6 +226,20 @@ namespace loom
             }
         }
 
+        // A key from a name known only at run time (CC-R5). The graph keeps the name, so the key stays valid for as
+        // long as the graph and every CompiledGraph and Graph made from it. Nothing when the name is not Module.Name.
+        [[nodiscard]] static std::optional<ParamsKey> FromName(GraphBuilder& graph, std::string_view name)
+        {
+            const std::optional<KeyRef> kept = detail::KeepKeyName(graph, name);
+
+            if (!kept.has_value())
+            {
+                return std::nullopt;
+            }
+
+            return ParamsKey{ *kept };
+        }
+
         [[nodiscard]] constexpr KeyRef ToRef() const noexcept
         {
             return KeyRef{ Name, Hash };
@@ -194,6 +257,12 @@ namespace loom
 
         std::string_view Name;
         uint64_t Hash{ 0u };
+
+    private:
+        explicit constexpr ParamsKey(KeyRef kept) noexcept
+            : Name(kept.Name), Hash(kept.Hash)
+        {
+        }
     };
 
     inline constexpr AnchorKey BeginFrameAnchor("Loom.BeginFrame");
