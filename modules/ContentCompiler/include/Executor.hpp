@@ -41,7 +41,12 @@ namespace cc
     class Executor
     {
     public:
+        // CPU kinds only: a run gets no GPU batch, and a GPU artifact asserts.
         Executor(foundation::Scheduler& _scheduler, const KindRegistry& _registry, const RecipeTable& _recipes);
+        // GPU kinds too. Both members of _gpu must be set and must outlive the executor (the module README, section
+        // "GPU kinds").
+        Executor(foundation::Scheduler& _scheduler, const KindRegistry& _registry, const RecipeTable& _recipes,
+                 GpuSeam _gpu);
         // Asserts Idle(): call Shutdown and tick the scheduler until Idle() first.
         ~Executor();
         // rows and roots hold the address of the executor

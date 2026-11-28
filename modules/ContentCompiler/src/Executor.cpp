@@ -32,6 +32,15 @@ namespace cc
         assert(_registry.IsFrozen() && "Freeze the registry before the executor uses it");
     }
 
+    Executor::Executor(foundation::Scheduler& _scheduler, const KindRegistry& _registry, const RecipeTable& _recipes,
+                       GpuSeam _gpu)
+        : scheduler{ &_scheduler }, registry{ &_registry }, recipes{ &_recipes }, gpu{ _gpu },
+          artifacts{ *_gpu.Owner }, failures(1)
+    {
+        assert(_registry.IsFrozen() && "Freeze the registry before the executor uses it");
+        assert(_gpu.Batch != nullptr && _gpu.Owner != nullptr && "a GPU seam needs a batch and an owner");
+    }
+
     Executor::~Executor()
     {
         assert(Idle() && "call Shutdown and tick the scheduler until Idle before the executor is destroyed");
@@ -269,6 +278,16 @@ namespace cc
             row.State = NodeState::Failed;
             row.Error = ContentError{ .Code = code, .Origin = _recipe, .Failure = failure };
 
+            // the outputs of a failed run never reach the table, so their GPU objects go back to the owner here
+            for (const Artifact& output : _context.Outputs())
+            {
+                if (output.Gpu.IsValid())
+                {
+                    assert(gpu.Owner != nullptr && "a GPU artifact needs an executor with a GPU seam");
+                    gpu.Owner->ReleaseGpuArtifact(output.Gpu);
+                }
+            }
+
             releaseInputs(_recipe, unwants);
             failDependents(_recipe, unwants, finished);
         }
@@ -425,7 +444,7 @@ namespace cc
             inputRefs[slot] = source.Outputs[input.Output];
         }
 
-        Context context{ recipe.Level, static_cast<int32_t>(kind.Outputs.size()) };
+        Context context{ recipe.Level, static_cast<int32_t>(kind.Outputs.size()), _recipe, gpu.Batch };
         const Inputs inputs{ artifacts, inputRefs };
         const KindResult result = co_await kind.Run(recipe.Params.Data(), inputs, context);
 

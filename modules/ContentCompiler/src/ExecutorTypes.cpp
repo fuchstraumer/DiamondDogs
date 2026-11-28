@@ -32,13 +32,24 @@ namespace cc
         return table->Get(refs[_slot]);
     }
 
-    Context::Context(Quality _level, int32_t output_count) : level{ _level }, outputs(output_count)
+    Context::Context(Quality _level, int32_t output_count, RecipeId _recipe, GpuBatch* _gpu)
+        : level{ _level }, recipe{ _recipe }, gpu{ _gpu }, outputs(output_count)
     {
     }
 
     Quality Context::Level() const noexcept
     {
         return level;
+    }
+
+    RecipeId Context::Recipe() const noexcept
+    {
+        return recipe;
+    }
+
+    GpuBatch* Context::Gpu() const noexcept
+    {
+        return gpu;
     }
 
     void Context::SetOutput(int32_t _output, Artifact _artifact)

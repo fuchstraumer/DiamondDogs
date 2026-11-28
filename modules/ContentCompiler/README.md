@@ -1,7 +1,8 @@
 # ContentCompiler: kinds, recipes and ingestion
 
-Namespace `cc`. This module is the T3 slice of the content compiler. It turns an authored graph into recipes. A recipe
-is a node with a key. The key is a hash of everything that decides the node's result. The executor (T4) is not here.
+Namespace `cc`. This module is the CPU core of the content compiler. It reads an authored graph from a file, turns it
+into recipes, and runs them. A recipe is a node with a key. The key is a hash of everything that decides the node's
+result.
 
 The module depends on `foundation` only. It has no Vulkan, no `rhi` and no Loom. The key and descriptor code is in
 `foundation/include/content` (see its README).
@@ -21,13 +22,15 @@ The module depends on `foundation` only. It has no Vulkan, no `rhi` and no Loom.
 | `ContentDiagnostic.hpp` | `Severity`, `DiagnosticCode`, `Diagnostic`. |
 | `ExecutorTypes.hpp` | What a kind's `Run` sees: `Inputs`, `Context`, `KindResult`, `Artifact`, `ArtifactRef`, `ContentError`. |
 | `ArtifactTable.hpp` | `ArtifactTable`: every artifact, by slot and generation, with a holder count. |
-| `Executor.hpp` | `Executor`, `Root`, `RootView`, `Transience`. A skeleton: see "Executor". |
+| `Executor.hpp` | `Executor`, `Root`, `RootView`, `Transience`. See "Executor". |
 | `src/NodeRow.hpp` | `NodeRow` and `NodeState`: one row per recipe. |
 | `ParamsBox.hpp` | `ParamsBox`: one kind's params, type-erased. |
 | `KindRegistry.hpp` | The `Kind` concept, `KindOps`, `KindRegistry`. |
 | `RecipeParams.hpp` | `RecipeParams<P>`: the struct that a recipe key encodes as its parameters. |
 | `RecipeTable.hpp` | `Recipe`, `RecipeTable`: the interner. |
 | `Ingest.hpp` | `AuthoredGraph`, `Ingest`. |
+| `GraphJson.hpp` | `ReadGraphJson`, `GraphFile`: an authored graph from a JSON file. See "Graph files". |
+| `FieldKinds.hpp` | `field.Const`, `field.ScaleBias`, `field.Add`, and the field artifact. See "Field kinds". |
 | `src/IngestValidation.*` | Phase 1 of `Ingest`: every refusal, and the topological sort. |
 
 ## What a kind author writes
@@ -73,7 +76,9 @@ has no runtime error for these.
 
 `Register<K>` is the only template that touches a kind. It builds a `KindOps` table. The table stores the name, the
 version, a span over the kind's static slot array, a span over its static output array, the identity of the params
-type, and a `Run` function pointer. The pointer takes the params as `const void*`. T3 never calls `Run`.
+type, a `Run` function pointer, and a `DecodeParams` function pointer. `Run` takes the params as `const void*`.
+`DecodeParams` decodes JSON into a default `Params` value and boxes it; the graph file reader calls it, because only
+the kind knows its params type. The `Kind` concept therefore also needs a default-constructible `Params`.
 
 A second `Register` of one name returns `DuplicateKindName`. `Register` after `Freeze` asserts.
 
@@ -168,12 +173,197 @@ A cycle diagnostic lists one cycle, not every node that Kahn's algorithm left. N
 are not on it. The walk goes backward from the lowest unsorted node along the lowest unsorted predecessor until a node
 repeats.
 
+## Graph files
+
+`ReadGraphJson(text, registry)` reads an authored graph from JSON. It checks the file, not the graph: a cycle, an
+unknown slot or a missing input is for `Ingest` to find. The format, version 1:
+
+```json
+{
+  "schema": "cc.AuthoredGraph",
+  "version": 1,
+  "data": {
+    "nodes": [
+      { "name": "ground", "kind": "field.Const", "params": { "Width": 4, "Height": 2, "Value": 1.0 } },
+      { "name": "raised", "kind": "field.ScaleBias", "params": { "Scale": 2.0, "Bias": 0.5 } },
+      { "name": "total", "kind": "field.Add" }
+    ],
+    "edges": [
+      { "from": "ground", "output": "Field", "to": "raised", "slot": "Source" },
+      { "from": "ground", "output": "Field", "to": "total", "slot": "Left" },
+      { "from": "raised", "output": "Field", "to": "total", "slot": "Right" }
+    ]
+  }
+}
+```
+
+- **Nodes have names, edges use the names.** A name is for the file only. `GraphFile::NodeNames` keeps them in authored
+  order, so a diagnostic from `Ingest` (which holds node indices) can name the node. The name is not in the recipe key:
+  renaming a node changes no key.
+- **The structure members are lower case, like the `foundation::content` document envelope (`schema`, `version`,
+  `data`).** The members inside `params` are the field names from the kind's `Describe`.
+- **`params` is optional.** A node without it gets the default value of its params type. The reader decodes `{}` for
+  it, so both cases take one path.
+- **The params decode is strict.** An unknown field is an error, because a misspelled field would otherwise keep its
+  default value without a word. A missing field keeps its default value. A warning from the decode is also an error.
+- **Every member is checked.** An unknown member anywhere in the structure is `MalformedGraphFile`.
+- **Every edge names its output**, as in `AuthoredEdge`, also for a kind with one output.
+- **The reader parses with nlohmann::json, privately.** No `cc` header includes it. Each node's `params` object is
+  written back to text and given to `DecodeParams`, because `DecodeJsonErased` takes text. That parses each params
+  object twice. A graph has hundreds of nodes, not millions, so v0 accepts it.
+
+Like `Ingest`, the reader collects every diagnostic and gives no graph when it found one. It stops early only when the
+envelope is wrong (not JSON, a wrong schema or version, no `data`, or no `nodes` and `edges` arrays).
+
+| Code | When | `Nodes` holds |
+|---|---|---|
+| `MalformedGraphFile` | not JSON, a missing member, a member of the wrong JSON type, or an unknown member | the node, for a node; else none |
+| `UnsupportedGraphFile` | the schema is not `cc.AuthoredGraph`, or the version is not 1 | none |
+| `DuplicateNodeName` | two nodes have one name | both nodes, the first one first |
+| `UnknownKind` | the kind is not registered | the node |
+| `UnknownNodeName` | an edge names a node that the file does not have | none; the message gives the edge index |
+| `InvalidParams` | the params do not decode as the kind's params type | the node; `FieldPath` is the decode path |
+
+## Field kinds
+
+`FieldKinds.hpp` holds three CPU kinds on a 2D grid of float samples. They prove the chain from a graph file to a
+result with no GPU (phase 2 of the roadmap), and they are the CPU reference for the GPU field kinds that come later.
+`RegisterFieldKinds(registry)` registers them, and returns the diagnostic of each kind that did not register.
+
+A field artifact is `CpuBytes`: `Width` and `Height` as `uint32_t`, then `Width * Height` float samples, row by row.
+`MakeFieldArtifact` writes it, and `ReadFieldArtifact` checks the header against the byte count and copies the samples
+out (a copy, so that no code reads a float through a byte pointer).
+
+| Kind | Params | Slots | Output `Field` |
+|---|---|---|---|
+| `field.Const` | `Width`, `Height` (both 0 by default), `Value` | none | every sample is `Value` |
+| `field.ScaleBias` | `Scale` (1), `Bias` (0) | `Source` | `Source * Scale + Bias` |
+| `field.Add` | none | `Left`, `Right` | `Left + Right` |
+
+A run fails (`KindFailed`, with an error diagnostic) when:
+
+- `field.Const` has a side of 0, or more than `k_MaxSampleCount` (4096 x 4096) samples. The default size is 0 on
+  purpose: a node that leaves out its size fails instead of making a 1 x 1 field without a word.
+- `field.Add` gets two fields of different sizes.
+- an input does not hold a field (a wrong byte count, or a header larger than `k_MaxSampleCount`).
+
+The grid is a v0 stand-in. A real field kind gets its domain (the lat-lon grid, a tile) from its input or its params
+in phase 4, and the GPU kinds make `GpuImage` artifacts.
+
+## GPU kinds (phase 3)
+
+A GPU kind records a compute dispatch into a Loom graph. The `cc` core stays foundation-only: the GPU half is its own
+target, `content_compiler_gpu` (`gpu/`), which links `content_compiler`, `loom_vulkan` and `rhi_resources`, the way
+Loom splits `loom` and `loom_vulkan`.
+
+### One Loom graph per authored graph shape
+
+The author chose this granularity on 2026-11-27. A `GpuProgram` is one Loom graph made from the GPU nodes of one
+authored graph:
+
+| Authored | Loom (runtime keys, `FromName`) |
+|---|---|
+| GPU node `n` | dispatch pass `Cc<p>.Node<n>`, `RunPolicy::OnTrigger` |
+| output `o` of node `n` | imported image `Cc<p>.Node<n>Out<o>`, `AnyExtent`; the pass writes it and dispatches over it |
+| edge into slot `s` of node `n` | the pass binds the producer's output image to the slot's binding |
+| the node's params | `ParamsKey` `Cc<p>.Node<n>Params`, when the kind has shader params |
+
+`p` is the program id. A params edit keeps the shape, so it needs no new graph: the run supplies a new output image,
+sets the params and triggers the pass. A structure edit (a node or an edge added or removed) needs a new program:
+Compile and Realize again, new shader objects included, so its passes skip `PipelinePending` for a Tick or two. That
+costs latency, not a hitch. Loom plans pipeline caches and better threading for Realize; they are not in scope now.
+
+`GpuBatch::AddProgram(graph, registry)` builds and realizes a program. `GpuBatch::Bind(program, graph, ingest)` maps
+each recipe of one ingest to its node in the program, and refuses a graph whose shape differs. Call it after each
+`Ingest` of that graph, before a root wants its recipes.
+
+### The seam in the core
+
+- `Artifact::Gpu` is a `GpuArtifactId`, an index into the batch's artifact table. The core never reads it.
+- `GpuArtifactOwner` is an interface with one call, `ReleaseGpuArtifact`. The artifact table calls it when the last
+  holder of a GPU artifact releases it, so the core frees GPU objects without knowing what they are.
+- `GpuSeam` holds the batch (a forward-declared `GpuBatch*`, never dereferenced by the core) and the owner. The
+  executor overload that takes it passes the owner to its artifact table and the batch to each `Context`.
+- `Context::Recipe()` gives a run its recipe id, so a GPU kind finds its node in the program.
+- A run that fails or leaves an output unset gives its GPU outputs back to the owner, so a failed run leaks nothing.
+
+### A run records; it does not wait for the GPU
+
+`GpuRun<K>` (the body of each GPU kind's `Run`) does this, with no wait:
+
+1. Find the program and node of the recipe.
+2. Check the claims (below). When a row it needs is claimed by work that has not run yet, yield one Tick and try
+   again.
+3. For each output: create an image through `ResourceContext` (`R32Float`, storage usage, the extent that the kind
+   computes from its params and its inputs' extents), and supply its create future to the output's import, in the
+   `Discard` usage (it has no contents).
+4. Set the params, trigger the pass, and set each output to a `GpuImage` artifact whose entry is `Recorded`.
+
+The run then succeeds, so its dependents start in the same scheduler Tick and record into the same Loom Tick. Loom
+orders them by their reads and writes and places every barrier. `GpuBatch::Tick` ticks each program's graph. After a
+`Submitted` Tick it reads `LastPlan()`: for each triggered pass that ran, each output entry becomes `Ready`, with the
+image from `ImageOf` and the wait `{timeline, value, Submitted}`. A pass that skipped for a reason that passes
+(`NotCreated`, `PipelinePending`, `Propagated`) keeps its trigger, and its entries stay `Recorded`. A pass that skipped
+for good (`Failed`, `PipelineFailed`) makes its entries `Failed`, with a diagnostic in the batch.
+
+That last case is the cost of recording without a wait: the `cc` run succeeded, and the GPU failed later. The row
+stays `Succeeded`; a viewer reads the entry's state through `GpuBatch::StateOf` and shows the failure. It is rare (an
+allocation that fails, a shader that does not compile) and it is a known gap of v0.
+
+### Claims: one artifact per import row per Tick
+
+An import row holds one image at a time, and a triggered pass reads its rows when Loom runs it, maybe Ticks later. So
+each row has a holding (the artifact it holds now) and a claim count. A run claims each output row and each input row
+it reads, and the claims stay until its pass ran or failed. A run may supply a row only when nobody claims it, and may
+read a row only when the row holds its input artifact or nobody claims it. A run that cannot claim yields and tries
+again next Tick. A pass that is still triggered is busy: a second recipe at the same node waits for it.
+
+### Supplying a cached artifact again
+
+When an input row holds another artifact than the one the run reads (an undo brings back an older result, or the input
+came from another program), the run must supply the cached image to the row again. `Supply` takes a future, and the
+create future went to the graph long ago. RhiResources plans `ReferenceResource(GraphicsResource)`, a new future for a
+live resource (request CC-RR1, waiting for the author's approval of its name and shape). Until it exists, that run
+fails with a diagnostic that names the request. The test of v0 needs no re-supply.
+
+### The v0 conventions
+
+- **Fields are `R32Float` images, and every GPU field kind binds its images as storage** (`RWTexture2D`, a `ReadOnly`
+  bind for inputs). So a field image is always in `General` between submits, and a supplier states
+  `ComputeShaderUAV`, the usage of `General`, without asking Loom where it left the image. A sampled read would leave
+  it in `ShaderReadOnly`; that needs Loom to report or fix an import's layout after its last use (a later request).
+- A GPU node's inputs come from GPU nodes of the same program. `AddProgram` refuses a CPU node that feeds a GPU node.
+- The kind's shader params are a plain C++ struct that the kind writes out, with the layout of the Slang uniforms.
+  Loom checks the size and the alignment at `Set` (LM704).
+- The app cooks the kinds' Slang module (`CC_GPU_FIELD_SHADER_MODULE`) into its own bundle, as with GpuPyramid.
+
+### Tick order and teardown
+
+Each frame: `scheduler.Tick()` (the runs record), `batch.Tick(dt)` (the Loom submits), then `ResourceContext::Tick`
+with each program's timeline. Teardown: `Shutdown` and tick until `Idle`, destroy the roots, then the executor (its
+artifact table releases every GPU artifact to the batch, which destroys each image behind the graphs' registered
+timelines), then the batch (each graph waits for its last submit).
+
 ## Tests
 
 `content_compiler_tests` covers the proofs of the T3 brief. The test kinds are in `test_kinds.hpp`. Their `Run`
 functions exist only so that the kinds register.
 
-## Executor (T4, skeleton, 2026-11-07)
+`test_graph_json.cpp` (11 tests) and `test_field_kinds.cpp` (14 tests) cover the graph file reader, the field kinds and
+the chain from a file to a result. Each test was seen to fail with a planted fault. Three tests carry the point of the
+chain:
+
+- **A file reads, ingests and runs to a field** (`RunsStarted` is 3).
+- **An edit runs only the nodes that changed.** A second read with a new `Scale` keeps the `RecipeId` of the node
+  upstream of the edit, and `RunsStarted` grows by 2, not 3. The planted fault starts a `Succeeded` row again in
+  `addWant`.
+- **A rename changes no recipe and runs nothing.** This one has no planted fault: the name never reaches
+  `AuthoredNode`.
+
+The test kinds `fieldtest.Ramp` (sample `i` is `i`) and `fieldtest.Bytes` (bytes that are not a field) live in
+`test_field_kinds.cpp`.
+
+## Executor (T4)
 
 The types, the artifact table, `Root`, the run coroutine, and the four parts that decide correctness (`want`,
 `unwant`, `cancel`, `complete`) are written. "How want walks" below traces `want`.

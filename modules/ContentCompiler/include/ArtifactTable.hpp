@@ -12,7 +12,10 @@ namespace cc
     class ArtifactTable
     {
     public:
+        // A table for CPU artifacts only: Add asserts on a GPU artifact.
         ArtifactTable() = default;
+        // The last Release of a GPU artifact gives it back to _owner, which must outlive the table.
+        explicit ArtifactTable(GpuArtifactOwner& _owner) noexcept;
         // Asserts that every artifact was released: a hold left over is a leak in a row or a root.
         ~ArtifactTable();
         ArtifactTable(const ArtifactTable&) = delete;
@@ -43,6 +46,7 @@ namespace cc
         std::vector<Entry> entries;
         std::vector<uint32_t> freeSlots;
         int32_t liveCount{ 0 };
+        GpuArtifactOwner* gpuOwner{ nullptr };
     };
 }
 

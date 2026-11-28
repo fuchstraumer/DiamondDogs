@@ -12,6 +12,45 @@
 namespace cc
 {
     class ArtifactTable;
+    // content_compiler_gpu defines it; the core only passes the pointer on
+    class GpuBatch;
+
+    // An index into the GPU artifact table of a GpuBatch. 0 is invalid.
+    struct GpuArtifactId
+    {
+        uint32_t Value{ 0 };
+
+        [[nodiscard]] constexpr bool IsValid() const noexcept
+        {
+            return Value != 0;
+        }
+
+        friend constexpr bool operator==(const GpuArtifactId&, const GpuArtifactId&) noexcept = default;
+    };
+
+    // The owner of the GPU objects behind GPU artifacts. The artifact table calls it when the last holder of a GPU
+    // artifact releases it, so the core frees GPU objects without knowing what they are.
+    class GpuArtifactOwner
+    {
+    public:
+        virtual void ReleaseGpuArtifact(GpuArtifactId _artifact) = 0;
+
+    protected:
+        GpuArtifactOwner() = default;
+        ~GpuArtifactOwner() = default;
+        GpuArtifactOwner(const GpuArtifactOwner&) = default;
+        GpuArtifactOwner& operator=(const GpuArtifactOwner&) = default;
+        GpuArtifactOwner(GpuArtifactOwner&&) = default;
+        GpuArtifactOwner& operator=(GpuArtifactOwner&&) = default;
+    };
+
+    // The GPU half of an executor: the batch that GPU kinds record into, and the owner of their artifacts. In
+    // content_compiler_gpu one GpuBatch is both.
+    struct GpuSeam
+    {
+        GpuBatch* Batch{ nullptr };
+        GpuArtifactOwner* Owner{ nullptr };
+    };
 
     // A handle into the executor's artifact table. Generation 0 is never used, so a default handle is invalid.
     struct ArtifactRef
@@ -27,11 +66,12 @@ namespace cc
         friend constexpr bool operator==(const ArtifactRef&, const ArtifactRef&) noexcept = default;
     };
 
-    // v0 holds CPU bytes only. A GPU artifact (an rhi::GpuWait and a resource handle) comes with the first GPU kind.
+    // CpuBytes holds Bytes. GpuImage and GpuBuffer hold Gpu: the batch's table has the object and its readiness.
     struct Artifact
     {
         ArtifactKind Kind{ ArtifactKind::Invalid };
         std::vector<std::byte> Bytes;
+        GpuArtifactId Gpu;
     };
 
     enum class ContentErrorCode : uint8_t
@@ -99,9 +139,14 @@ namespace cc
     class Context
     {
     public:
-        Context(Quality _level, int32_t output_count);
+        // _gpu is null when the executor has no GPU seam
+        Context(Quality _level, int32_t output_count, RecipeId _recipe, GpuBatch* _gpu);
 
         [[nodiscard]] Quality Level() const noexcept;
+        // the recipe that this run makes
+        [[nodiscard]] RecipeId Recipe() const noexcept;
+        // the batch that a GPU kind records into, or null when the executor has none
+        [[nodiscard]] GpuBatch* Gpu() const noexcept;
 
         // Each output of the kind needs exactly one artifact of the kind that the output declares.
         void SetOutput(int32_t _output, Artifact _artifact);
@@ -113,6 +158,8 @@ namespace cc
 
     private:
         Quality level{ Quality::Invalid };
+        RecipeId recipe;
+        GpuBatch* gpu{ nullptr };
         // an artifact with Kind Invalid is an output that Run did not set
         std::vector<Artifact> outputs;
         std::vector<Diagnostic> diagnostics;

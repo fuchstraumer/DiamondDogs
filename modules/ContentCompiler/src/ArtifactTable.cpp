@@ -4,8 +4,20 @@
 #include <cstdint>
 #include <utility>
 
+namespace
+{
+    [[nodiscard]] bool IsGpu(cc::ArtifactKind kind) noexcept
+    {
+        return kind == cc::ArtifactKind::GpuImage || kind == cc::ArtifactKind::GpuBuffer;
+    }
+}
+
 namespace cc
 {
+    ArtifactTable::ArtifactTable(GpuArtifactOwner& _owner) noexcept : gpuOwner{ &_owner }
+    {
+    }
+
     ArtifactTable::~ArtifactTable()
     {
         assert(liveCount == 0 && "an artifact still has a holder: a row or a root did not release it");
@@ -13,6 +25,9 @@ namespace cc
 
     ArtifactRef ArtifactTable::Add(Artifact _artifact)
     {
+        assert((!IsGpu(_artifact.Kind) || (gpuOwner != nullptr && _artifact.Gpu.IsValid())) &&
+               "a GPU artifact needs a valid GpuArtifactId and a table with a GPU owner");
+
         uint32_t slot = 0;
 
         if (freeSlots.empty())
@@ -62,11 +77,18 @@ namespace cc
             return;
         }
 
+        // the table's state is final before the owner runs, so an owner that reads the table sees it consistent
+        const Artifact freed = std::move(entry.Value);
         entry.Value = Artifact{};
         // a new generation now, so every handle to the freed artifact is stale at once
         ++entry.Generation;
         freeSlots.push_back(_ref.Slot);
         --liveCount;
+
+        if (IsGpu(freed.Kind))
+        {
+            gpuOwner->ReleaseGpuArtifact(freed.Gpu);
+        }
     }
 
     bool ArtifactTable::IsLive(ArtifactRef _ref) const noexcept
