@@ -6,7 +6,9 @@
 #include "ExecutorTypes.hpp"
 #include "ParamsBox.hpp"
 #include "async/Task.hpp"
+#include "content/JsonDecode.hpp"
 #include "reflect/Describe.hpp"
+#include "reflect/TypeInfo.hpp"
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -87,6 +89,8 @@ namespace cc
         { K::Version } -> std::convertible_to<uint32_t>;
         typename K::Params;
         requires foundation::reflect::DescribedStruct<typename K::Params>;
+        // a graph file decodes params over the default value
+        requires std::default_initializable<typename K::Params>;
         requires detail::SlotsAreWellFormed(std::span<const Slot>{ K::Slots });
         requires detail::OutputsAreWellFormed(std::span<const Output>{ K::Outputs });
         {
@@ -97,6 +101,16 @@ namespace cc
 
     // Run takes the params as a pointer to the kind's Params type, which the thunk of Register<K> casts back.
     using KindRunFunction = foundation::Task<KindResult>(*)(const void* params, Inputs inputs, Context& context);
+
+    // The params of one authored node, decoded from JSON. Params is empty when Issues has an error.
+    struct ParamsDecode
+    {
+        ParamsBox Params;
+        foundation::content::DecodeResult Issues;
+    };
+
+    using KindParamsDecodeFunction = ParamsDecode(*)(std::string_view json_text,
+                                                     const foundation::content::DecodeOptions& options);
 
     struct KindOps
     {
@@ -109,6 +123,7 @@ namespace cc
         const void* ParamsType{ nullptr };
         std::string_view ParamsTypeName;
         KindRunFunction Run{ nullptr };
+        KindParamsDecodeFunction DecodeParams{ nullptr };
     };
 
     namespace detail
@@ -119,6 +134,25 @@ namespace cc
             const typename K::Params& typedParams = *static_cast<const typename K::Params*>(params);
 
             return K::Run(typedParams, std::move(inputs), context);
+        }
+
+        // Starts from the default value of the params type, so a field that the JSON leaves out keeps its default.
+        template<typename K>
+        ParamsDecode DecodeKindParams(std::string_view json_text, const foundation::content::DecodeOptions& options)
+        {
+            using P = typename K::Params;
+
+            P value{};
+            ParamsDecode decoded;
+            decoded.Issues = foundation::content::DecodeJsonErased(foundation::reflect::GetTypeInfo<P>(), &value,
+                                                                   json_text, options);
+
+            if (decoded.Issues.Succeeded())
+            {
+                decoded.Params = ParamsBox::Make(std::move(value));
+            }
+
+            return decoded;
         }
 
         template<typename K>
@@ -133,6 +167,7 @@ namespace cc
                 .ParamsType = ParamsTypeIdentity<typename K::Params>(),
                 .ParamsTypeName = foundation::reflect::Describe<typename K::Params>::Name,
                 .Run = &RunKind<K>,
+                .DecodeParams = &DecodeKindParams<K>,
             };
         }
     }

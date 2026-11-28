@@ -54,6 +54,9 @@ namespace cc
         void Shutdown();
         // True when no node is Ready or Running.
         [[nodiscard]] bool Idle() const noexcept;
+        // The runs that started since the executor was made. A Ready row that is cancelled before its run starts
+        // does not count. A test or a tool reads how many nodes an edit ran again.
+        [[nodiscard]] uint64_t RunsStarted() const noexcept;
 
         [[nodiscard]] const ArtifactTable& Artifacts() const noexcept;
         [[nodiscard]] std::span<const Diagnostic> FailureDiagnostics(FailureId _failure) const;
@@ -100,6 +103,7 @@ namespace cc
         foundation::Scheduler* scheduler{ nullptr };
         const KindRegistry* registry{ nullptr };
         const RecipeTable* recipes{ nullptr };
+        GpuSeam gpu;
         ArtifactTable artifacts;
         // indexed by RecipeId; index 0 is unused, because id 0 is invalid
         std::vector<NodeRow> rows;
@@ -108,6 +112,7 @@ namespace cc
         std::vector<std::vector<Diagnostic>> failures;
         int32_t readyCount{ 0 };
         int32_t runningCount{ 0 };
+        uint64_t runsStarted{ 0 };
     };
 
     // What a root shows. Outputs are the last good outputs, which can be older than Error.

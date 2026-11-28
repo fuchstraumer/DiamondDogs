@@ -62,6 +62,11 @@ namespace cc
         return readyCount == 0 && runningCount == 0;
     }
 
+    uint64_t Executor::RunsStarted() const noexcept
+    {
+        return runsStarted;
+    }
+
     const ArtifactTable& Executor::Artifacts() const noexcept
     {
         return artifacts;
@@ -403,6 +408,7 @@ namespace cc
 
         readyRow.State = NodeState::Running;
         ++runningCount;
+        ++runsStarted;
 
         const Recipe& recipe = recipes->Get(_recipe);
         const KindOps& kind = registry->Ops(recipe.Kind);
