@@ -18,6 +18,7 @@
 #include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 #include "RhiSystem.hpp"
+#include "RhiTypes.hpp"
 #include "SpineNeeds.hpp"
 #include "VulkanCapabilityTable.hpp"
 #include "Swapchain.hpp"
@@ -72,6 +73,12 @@ namespace
     const bootstrap::ModuleKey<GpuObject> k_GpuObjectKey{ "gpu_object" };
     constexpr std::string_view k_GpuObjectDependencies[]{ "core_object" };
     constexpr std::string_view k_MissingExtension[]{ "VK_DD_not_an_extension" };
+    constexpr std::string_view k_VideoEncodeExtensions[]
+    {
+        "VK_KHR_video_queue",
+        "VK_KHR_video_encode_queue",
+        "VK_KHR_video_encode_h265",
+    };
 
     [[nodiscard]] BootResult StartCoreObject(const bootstrap::CoreStartContext& context, bootstrap::ModuleInstance& instance);
     [[nodiscard]] BootResult StartGpuObject(const bootstrap::GpuStartContext& context, bootstrap::ModuleInstance& instance);
@@ -127,6 +134,7 @@ namespace
     [[nodiscard]] DeviceConfig ValidatedConfig();
     [[nodiscard]] std::filesystem::path WriteConfig(std::string_view file_name, std::string_view text);
     [[nodiscard]] bool Contains(std::span<const std::string> names, std::string_view name);
+    [[nodiscard]] bool PhysicalDeviceHasExtension(VkPhysicalDevice physical_device, std::string_view name);
     // a device-local upload goes through the transfer queue and its timeline: the spine needs at work
     void ExpectUploadCompletes(ResourceContext& resources);
 }
@@ -289,6 +297,77 @@ TEST(BootstrapVulkan, NoNeutralNameIsASpirvCapabilityName)
         EXPECT_FALSE(lodestone::vulkan::FindCapability(name).has_value()) << name;
         EXPECT_EQ(lodestone::vulkan::PrimaryCapabilityName(name), name) << name;
     }
+}
+
+TEST(BootstrapVulkan, WithoutVideoNeedsTheDeviceHasNoVideoEncodeQueue)
+{
+    const BootedContent booted(std::span<const ModuleDescriptor>{}, {});
+    const std::vector<Need> spine = bootstrap::HeadlessSpineNeeds();
+    const DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(booted.content, spine);
+    DeviceStage device;
+    const BootResult started = device.StartHeadless(booted.content, requirements, ValidatedConfig());
+
+    ASSERT_TRUE(started.Succeeded()) << bootstrap::FormatFailure(started);
+
+    const rhi::Device* rhiDevice = device.Rhi().GetDevice();
+
+    EXPECT_EQ(rhiDevice->GetVideoEncodeQueueCount(), 0u);
+    EXPECT_EQ(rhiDevice->GetQueueFamilyIndices().VideoEncode, rhi::k_QueueFamilyIgnored);
+}
+
+TEST(BootstrapVulkan, WantedVideoEncodeNeedsGiveAnHevcEncodeQueue)
+{
+    const BootedContent booted(std::span<const ModuleDescriptor>{}, {});
+    std::vector<Need> spine = bootstrap::HeadlessSpineNeeds();
+
+    for (const std::string_view extension : k_VideoEncodeExtensions)
+    {
+        spine.push_back(Need{ .Name = extension, .Kind = bootstrap::NeedKind::DeviceExtension, .Level = NeedLevel::Wanted });
+    }
+
+    const DeviceRequirements requirements = bootstrap::GatherDeviceRequirements(booted.content, spine);
+    DeviceStage wanted;
+    const BootResult wantedStarted = wanted.StartHeadless(booted.content, requirements, ValidatedConfig());
+
+    ASSERT_TRUE(wantedStarted.Succeeded()) << bootstrap::FormatFailure(wantedStarted);
+
+    const rhi::Device* rhiDevice = wanted.Rhi().GetDevice();
+    const VkPhysicalDevice physicalDevice = rhiDevice->GetPhysicalDevice().As<VkPhysicalDevice>();
+
+    if (!PhysicalDeviceHasExtension(physicalDevice, "VK_KHR_video_encode_h265"))
+    {
+        GTEST_SKIP() << "this device has no VK_KHR_video_encode_h265, so there is no encode queue to find";
+    }
+
+    // read the family flags with the plain query, not the video properties query that Device uses
+    uint32_t familyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, nullptr);
+    std::vector<VkQueueFamilyProperties> families(familyCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, families.data());
+
+    const uint32_t encodeFamily = rhiDevice->GetQueueFamilyIndices().VideoEncode;
+
+    ASSERT_LT(encodeFamily, familyCount);
+    EXPECT_NE(families[encodeFamily].queueFlags & VK_QUEUE_VIDEO_ENCODE_BIT_KHR, 0u);
+    ASSERT_GT(rhiDevice->GetVideoEncodeQueueCount(), 0u);
+    EXPECT_NE(rhiDevice->GetVideoEncodeQueue(0).As<VkQueue>(), VK_NULL_HANDLE);
+
+    wanted.Stop();
+
+    // declined, the boot still succeeds, and the consumer sees no queue: its CPU fallback runs. Decline the codec
+    // extension: the planner adds an extension's dependencies after Declined, so declining VK_KHR_video_encode_queue
+    // alone leaves it on while VK_KHR_video_encode_h265 is wanted
+    DeviceConfig config = ValidatedConfig();
+
+    config.Declined.emplace_back("VK_KHR_video_encode_h265");
+
+    DeviceStage declined;
+    const BootResult declinedStarted = declined.StartHeadless(booted.content, requirements, config);
+
+    ASSERT_TRUE(declinedStarted.Succeeded()) << bootstrap::FormatFailure(declinedStarted);
+    EXPECT_FALSE(declined.Rhi().GetDevice()->HasExtension("VK_KHR_video_encode_h265"));
+    EXPECT_EQ(declined.Rhi().GetDevice()->GetVideoEncodeQueueCount(), 0u);
+    EXPECT_EQ(declined.Rhi().GetDevice()->GetQueueFamilyIndices().VideoEncode, rhi::k_QueueFamilyIgnored);
 }
 
 TEST(BootstrapVulkan, DecliningDebugUtilsLeavesItOff)
@@ -548,6 +627,21 @@ namespace
     bool Contains(std::span<const std::string> names, std::string_view name)
     {
         return std::ranges::contains(names, name);
+    }
+
+    bool PhysicalDeviceHasExtension(VkPhysicalDevice physical_device, std::string_view name)
+    {
+        uint32_t count = 0;
+        vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &count, nullptr);
+        std::vector<VkExtensionProperties> extensions(count);
+        vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &count, extensions.data());
+
+        const auto matchesName = [name](const VkExtensionProperties& extension) noexcept
+        {
+            return name == extension.extensionName;
+        };
+
+        return std::ranges::any_of(extensions, matchesName);
     }
 
     void ExpectUploadCompletes(ResourceContext& resources)

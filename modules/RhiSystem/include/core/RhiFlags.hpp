@@ -22,6 +22,9 @@ namespace rhi
         uint32_t Compute{ ~0u };
         uint32_t Transfer{ ~0u };
         uint32_t SparseBinding{ ~0u };
+        // set only when the device enables VK_KHR_video_encode_queue and VK_KHR_video_encode_h265, and a family
+        // reports the HEVC encode operation
+        uint32_t VideoEncode{ ~0u };
     };
 
     enum class ValidationLayers : uint8_t 

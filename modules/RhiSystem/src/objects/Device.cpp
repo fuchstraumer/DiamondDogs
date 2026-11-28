@@ -201,7 +201,8 @@ namespace rhi
             NumGraphicsQueues{ 0u },
             NumComputeQueues{ 0u },
             NumTransferQueues{ 0u },
-            NumSparseBindingQueues{ 0u }
+            NumSparseBindingQueues{ 0u },
+            NumVideoEncodeQueues{ 0u }
         {
             RetrievePhysicalDeviceProperties();
             QueryQueueProperties();
@@ -284,6 +285,48 @@ namespace rhi
             }
         }
 
+        // the encode family is chosen only when the needs enabled the extensions, so that a device creates no
+        // video queue that nothing asked for
+        void FindVideoEncodeFamily(const std::vector<std::string>& enabled_extensions)
+        {
+            const auto isEnabled = [&enabled_extensions](std::string_view name) noexcept
+            {
+                return std::ranges::find(enabled_extensions, name) != enabled_extensions.end();
+            };
+
+            if (!isEnabled(VK_KHR_VIDEO_QUEUE_EXTENSION_NAME) || !isEnabled(VK_KHR_VIDEO_ENCODE_QUEUE_EXTENSION_NAME) ||
+                !isEnabled(VK_KHR_VIDEO_ENCODE_H265_EXTENSION_NAME))
+            {
+                return;
+            }
+
+            const uint32_t familyCount = static_cast<uint32_t>(QueueFamilyProperties.size());
+            std::vector<VkQueueFamilyVideoPropertiesKHR> videoProperties(familyCount);
+            std::vector<VkQueueFamilyProperties2> properties(familyCount);
+
+            for (uint32_t i = 0; i < familyCount; ++i)
+            {
+                videoProperties[i] = { .sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_VIDEO_PROPERTIES_KHR };
+                properties[i] = { .sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2, .pNext = &videoProperties[i] };
+            }
+
+            uint32_t queriedCount = familyCount;
+            vkGetPhysicalDeviceQueueFamilyProperties2(PhysicalDevice, &queriedCount, properties.data());
+
+            for (uint32_t i = 0; i < queriedCount; ++i)
+            {
+                const bool encodes = (properties[i].queueFamilyProperties.queueFlags & VK_QUEUE_VIDEO_ENCODE_BIT_KHR) != 0;
+                const bool encodesHevc =
+                    (videoProperties[i].videoCodecOperations & VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR) != 0;
+
+                if (encodes && encodesHevc)
+                {
+                    QueueFamilyIndices.VideoEncode = i;
+                    return;
+                }
+            }
+        }
+
         void SetupQueues(VkDevice handle)
         {
             
@@ -343,11 +386,25 @@ namespace rhi
                 }
             }
 
-            std::string queueInfo = std::format("Device queues setup - Graphics: {}, Compute: {}, Transfer: {}, Sparse: {}",
+            if (QueueFamilyIndices.VideoEncode != VK_QUEUE_FAMILY_IGNORED)
+            {
+                NumVideoEncodeQueues = std::min(QueueFamilyProperties[QueueFamilyIndices.VideoEncode].queueCount, k_MaxQueuesPerFamily);
+                VideoEncodeQueues.resize(NumVideoEncodeQueues);
+
+                for (uint32_t i = 0; i < NumVideoEncodeQueues; ++i)
+                {
+                    VkQueue queue;
+                    vkGetDeviceQueue(handle, QueueFamilyIndices.VideoEncode, i, &queue);
+                    VideoEncodeQueues[i] = QueueHandle{ reinterpret_cast<uint64_t>(queue) };
+                }
+            }
+
+            std::string queueInfo = std::format("Device queues setup - Graphics: {}, Compute: {}, Transfer: {}, Sparse: {}, VideoEncode: {}",
                                                 NumGraphicsQueues, 
                                                 NumComputeQueues, 
                                                 NumTransferQueues, 
-                                                NumSparseBindingQueues);
+                                                NumSparseBindingQueues,
+                                                NumVideoEncodeQueues);
 
             std::cout << queueInfo << "\n";
         }
@@ -421,12 +478,14 @@ namespace rhi
         std::vector<QueueHandle> ComputeQueues;
         std::vector<QueueHandle> TransferQueues;
         std::vector<QueueHandle> SparseBindingQueues;
+        std::vector<QueueHandle> VideoEncodeQueues;
 
         QueueFamilyIndices QueueFamilyIndices;
         uint32_t NumGraphicsQueues;
         uint32_t NumComputeQueues;
         uint32_t NumTransferQueues;
         uint32_t NumSparseBindingQueues;
+        uint32_t NumVideoEncodeQueues;
         
         std::vector<std::string> EnabledExtensions;
         std::vector<std::string> CoreExtensions;
@@ -480,6 +539,11 @@ namespace rhi
     QueueHandle Device::GetSparseBindingQueue(uint32_t index) const noexcept
     {
         return impl->SparseBindingQueues[index];
+    }
+
+    QueueHandle Device::GetVideoEncodeQueue(uint32_t index) const noexcept
+    {
+        return impl->VideoEncodeQueues[index];
     }
 
     QueueHandle Device::GetGeneralQueue() const noexcept
@@ -607,6 +671,11 @@ namespace rhi
         return impl->NumSparseBindingQueues;
     }
 
+    uint32_t Device::GetVideoEncodeQueueCount() const noexcept
+    {
+        return impl->NumVideoEncodeQueues;
+    }
+
     const QueueFamilyIndices& Device::GetQueueFamilyIndices() const noexcept
     {
         return impl->QueueFamilyIndices;
@@ -619,6 +688,9 @@ namespace rhi
 
     VkResult Device::createLogicalDevice(std::span<const char* const> extension_names, const void* feature_chain)
     {
+        impl->EnabledExtensions.assign(extension_names.begin(), extension_names.end());
+        impl->FindVideoEncodeFamily(impl->EnabledExtensions);
+
         const QueueFamilyIndices& queueIndices = impl->QueueFamilyIndices;
 
         // Collect unique queue families
@@ -627,7 +699,8 @@ namespace rhi
             queueIndices.Graphics,
             queueIndices.Compute,
             queueIndices.Transfer,
-            queueIndices.SparseBinding
+            queueIndices.SparseBinding,
+            queueIndices.VideoEncode
         };
         
         // Create queue create info for each unique family
@@ -660,8 +733,6 @@ namespace rhi
             queueCreateInfos.push_back(queueCreateInfo);
         }
         
-        impl->EnabledExtensions.assign(extension_names.begin(), extension_names.end());
-
         const auto* deviceFeatures = static_cast<const VkPhysicalDeviceFeatures2*>(feature_chain);
 
         VkDeviceCreateInfo createInfo = 

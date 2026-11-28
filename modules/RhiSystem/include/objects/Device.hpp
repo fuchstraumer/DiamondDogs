@@ -46,6 +46,7 @@ namespace rhi
         QueueHandle GetComputeQueue(uint32_t index) const noexcept;
         QueueHandle GetTransferQueue(uint32_t index) const noexcept;
         QueueHandle GetSparseBindingQueue(uint32_t index) const noexcept;
+        QueueHandle GetVideoEncodeQueue(uint32_t index) const noexcept;
 
         // Get a queue that supports graphics, compute, and transfer (if available)
         QueueHandle GetGeneralQueue() const noexcept;
@@ -55,6 +56,9 @@ namespace rhi
         uint32_t GetComputeQueueCount() const noexcept;
         uint32_t GetTransferQueueCount() const noexcept;
         uint32_t GetSparseBindingQueueCount() const noexcept;
+        /** @brief Returns 0 when the device has no HEVC encode queue: the needs did not enable the video encode
+         *  extensions, or no queue family reports the HEVC encode operation. */
+        uint32_t GetVideoEncodeQueueCount() const noexcept;
         const QueueFamilyIndices& GetQueueFamilyIndices() const noexcept;
     
         

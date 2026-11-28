@@ -67,6 +67,26 @@ the **enabled** set, never from the physical device. A variant filter that asked
 variant that needs a capability the device was created without. On the RTX 4080, `Float64` is supported, and it
 answers false unless a need asked for it. `Limits()` gives the compute and push constant limits for the same filter.
 
+### The video encode queue
+
+`Device` creates a video encode queue only when the device enables `VK_KHR_video_queue`, `VK_KHR_video_encode_queue`
+and `VK_KHR_video_encode_h265`. A device creates no queue that no need asked for. The family is the first one with
+`VK_QUEUE_VIDEO_ENCODE_BIT_KHR` whose `VkQueueFamilyVideoPropertiesKHR` reports
+`VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR`. `GetQueueFamilyIndices().VideoEncode`, `GetVideoEncodeQueueCount()`
+and `GetVideoEncodeQueue(index)` expose it. On the RTX 4080 the family has 2 queues.
+
+- **The needs:** the video module names the three extensions as `Wanted` device extensions, in its own
+  `ModuleNeeds`. A device without them still boots.
+- **"Not available":** `GetVideoEncodeQueueCount()` returns 0, and the family index is `k_QueueFamilyIgnored`. The
+  consumer then takes its CPU path.
+- **To test the fallback:** decline `VK_KHR_video_encode_h265`. Do not decline `VK_KHR_video_encode_queue`: the
+  planner adds an extension's dependencies after `Declined`, so the wanted codec extension brings it back.
+- **Codec capabilities** (`vkGetPhysicalDeviceVideoCapabilitiesKHR` with `VkVideoEncodeCapabilitiesKHR` and
+  `VkVideoEncodeH265CapabilitiesKHR`) are the video module's query. They need the module's own profile chain, and they
+  are properties of the physical device (`GetPhysicalDevice()`), not features that the device enables, so the "ask the
+  enabled set" rule does not apply. Load the function with `vkGetInstanceProcAddr`.
+- `ResourceContext` does not put this family in its concurrent sharing list. That is RhiResources' part.
+
 ### The generated feature table
 
 `GenerateExtensionAndFeatureHeaders.py` also writes `GeneratedFeatureTable.hpp`: every `VkBool32` member of every
