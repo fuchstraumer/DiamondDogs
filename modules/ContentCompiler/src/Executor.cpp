@@ -8,6 +8,7 @@
 #include "RecipeTable.hpp"
 #include "async/Scheduler.hpp"
 #include "async/Task.hpp"
+#include "containers/SmallVector.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -20,6 +21,7 @@ namespace
 {
     int32_t SlotIndexOf(std::span<const cc::Slot> slots, std::string_view name);
     bool OutputsMatch(std::span<const cc::Output> declared, std::span<const cc::Artifact> made);
+    cc::Transience Stronger(cc::Transience current, cc::Transience offered);
 }
 
 namespace cc
@@ -85,35 +87,111 @@ namespace cc
         roots.erase(removed.begin(), removed.end());
     }
 
-    // QUESTION (want). Contract:
-    // - Iterative, with an explicit stack: a chain of 10,000 rows must not overflow the stack.
-    // - Every row it reaches keeps the strongest transience of its requesters (E6).
-    // - Wanted 0 to 1 on an Idle row: the row becomes Waiting. For each input: add this row to the input's Dependents
-    //   if the input has not succeeded, add 1 to the input's Wanted (which may start the input in turn), and count
-    //   the unfinished inputs into Unresolved. With Unresolved 0 the row is spawned (spawnRun).
-    // - Count per input edge, not per source row: a row that reads two outputs of one input adds itself to that
-    //   input's Dependents twice, and its Wanted and Unresolved by 2. complete and releaseInputs count the same way.
-    // - Finish all the inputs of one row before you pop the next row. Dependents may only hold rows that are set up.
-    // - An input that is already Failed (a memo from an earlier run) never finishes again. Check the inputs for one
-    //   before the row wants anything. If one is Failed, the row wants none of its inputs: set it Failed with
-    //   { InputFailed, that input's Origin, that input's Failure }, then call failDependents, because the row that
-    //   wanted it may already wait on it.
-    // - Collect the unwants and the finished rows in two local lists, and use them only after the walk: drainUnwants,
-    //   then notifyRoots for each finished row. An unwant during the walk could cancel a row that is still on the
-    //   walk's stack, before that row has wanted its own inputs.
-    // - A Waiting, Ready, Running, Succeeded or Failed row only gains the count.
-    void Executor::want(RecipeId /*_recipe*/, Transience /*_transience*/)
+    // The module README, "How want walks", traces this function on the diamond.
+    void Executor::want(RecipeId _recipe, Transience _transience)
     {
-        assert(false && "want is not written yet");
+        // the first rowOf grows the rows to cover every recipe, so no row moves during the walk
+        NodeRow& target = rowOf(_recipe);
+
+        RecipeList starting;
+        RecipeList unwants;
+        RecipeList finished;
+
+        addWant(_recipe, target, _transience, starting);
+
+        while (!starting.empty())
+        {
+            const RecipeId current = starting.back();
+            starting.pop_back();
+
+            startRow(current, _transience, starting, unwants, finished);
+        }
+
+        // only now: an earlier unwant could cancel a row that is still on the starting list
+        drainUnwants(unwants);
+
+        for (const RecipeId done : finished)
+        {
+            notifyRoots(done);
+        }
+    }
+
+    void Executor::addWant(RecipeId _recipe, NodeRow& _row, Transience _transience, RecipeList& _starting)
+    {
+        ++_row.Wanted;
+        _row.Strongest = Stronger(_row.Strongest, _transience);
+
+        // Waiting at once, not when it is popped: a row that fails during the walk must find it in releaseInputs
+        if (_row.Wanted == 1 && _row.State == NodeState::Idle)
+        {
+            _row.State = NodeState::Waiting;
+            _starting.push_back(_recipe);
+        }
+    }
+
+    void Executor::startRow(RecipeId _recipe, Transience _transience, RecipeList& _starting,
+                            RecipeList& _unwants, RecipeList& _finished)
+    {
+        NodeRow& row = rowOf(_recipe);
+        assert(row.State == NodeState::Waiting && row.Unresolved == 0 && "only a row that addWant started is set up");
+
+        const Recipe& recipe = recipes->Get(_recipe);
+        const NodeRow* failedInput = nullptr;
+
+        // a Failed input never finishes again, so the row fails now and wants none of its inputs
+        for (const RecipeInputRef& input : recipe.Inputs)
+        {
+            const NodeRow& source = rowOf(input.Source);
+
+            if (source.State == NodeState::Failed)
+            {
+                failedInput = &source;
+                break;
+            }
+        }
+
+        if (failedInput != nullptr)
+        {
+            row.State = NodeState::Failed;
+            row.Error = ContentError
+            {
+                .Code = ContentErrorCode::InputFailed,
+                .Origin = failedInput->Error.Origin,
+                .Failure = failedInput->Error.Failure,
+            };
+
+            // the row that wanted this one may already wait on it
+            failDependents(_recipe, _unwants, _finished);
+            return;
+        }
+
+        // one count for each edge, so a source that feeds two slots counts twice
+        for (const RecipeInputRef& input : recipe.Inputs)
+        {
+            NodeRow& source = rowOf(input.Source);
+
+            if (source.State != NodeState::Succeeded)
+            {
+                source.Dependents.push_back(_recipe);
+                ++row.Unresolved;
+            }
+
+            addWant(input.Source, source, _transience, _starting);
+        }
+
+        if (row.Unresolved == 0)
+        {
+            spawnRun(_recipe);
+        }
     }
 
     void Executor::unwant(RecipeId _recipe)
     {
-        std::vector<RecipeId> unwants{ _recipe };
+        RecipeList unwants{ _recipe };
         drainUnwants(unwants);
     }
 
-    void Executor::cancel(RecipeId _recipe, std::vector<RecipeId>& _unwants)
+    void Executor::cancel(RecipeId _recipe, RecipeList& _unwants)
     {
         NodeRow& row = rowOf(_recipe);
         const bool cancellable = row.State == NodeState::Waiting || row.State == NodeState::Ready;
@@ -143,8 +221,8 @@ namespace cc
             code = ContentErrorCode::MissingOutput;
         }
 
-        std::vector<RecipeId> unwants;
-        std::vector<RecipeId> finished;
+        RecipeList unwants;
+        RecipeList finished;
         NodeRow& row = rowOf(_recipe);
         assert(row.State == NodeState::Running && "only a Running row completes");
 
@@ -198,7 +276,7 @@ namespace cc
         }
     }
 
-    void Executor::drainUnwants(std::vector<RecipeId>& _unwants)
+    void Executor::drainUnwants(RecipeList& _unwants)
     {
         while (!_unwants.empty())
         {
@@ -218,7 +296,7 @@ namespace cc
         }
     }
 
-    void Executor::releaseInputs(RecipeId _recipe, std::vector<RecipeId>& _unwants)
+    void Executor::releaseInputs(RecipeId _recipe, RecipeList& _unwants)
     {
         const Recipe& recipe = recipes->Get(_recipe);
 
@@ -241,9 +319,9 @@ namespace cc
         }
     }
 
-    void Executor::failDependents(RecipeId _failed, std::vector<RecipeId>& _unwants, std::vector<RecipeId>& _finished)
+    void Executor::failDependents(RecipeId _failed, RecipeList& _unwants, RecipeList& _finished)
     {
-        std::vector<RecipeId> pending{ _failed };
+        RecipeList pending{ _failed };
 
         while (!pending.empty())
         {
@@ -316,7 +394,7 @@ namespace cc
         // cooperative cancellation: the last check before any work
         if (readyRow.Wanted == 0)
         {
-            std::vector<RecipeId> unwants;
+            RecipeList unwants;
             cancel(_recipe, unwants);
             drainUnwants(unwants);
 
@@ -481,5 +559,15 @@ namespace
         }
 
         return true;
+    }
+
+    // E6: Committed wins over Transient, and either wins over Invalid
+    cc::Transience Stronger(cc::Transience current, cc::Transience offered)
+    {
+        assert(offered != cc::Transience::Invalid && "a request needs a transience");
+
+        const bool stronger = static_cast<uint8_t>(offered) > static_cast<uint8_t>(current);
+
+        return stronger ? offered : current;
     }
 }

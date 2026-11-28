@@ -6,6 +6,11 @@
 
 namespace cc
 {
+    ArtifactTable::~ArtifactTable()
+    {
+        assert(liveCount == 0 && "an artifact still has a holder: a row or a root did not release it");
+    }
+
     ArtifactRef ArtifactTable::Add(Artifact _artifact)
     {
         uint32_t slot = 0;

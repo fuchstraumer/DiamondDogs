@@ -5,6 +5,7 @@
 #include "ContentTypes.hpp"
 #include "ExecutorTypes.hpp"
 #include "async/Task.hpp"
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -12,6 +13,8 @@
 namespace foundation
 {
     class Scheduler;
+    template<typename T, std::size_t N>
+    class SmallVector;
 }
 
 namespace cc
@@ -20,6 +23,10 @@ namespace cc
     class RecipeTable;
     class Root;
     struct NodeRow;
+
+    // The executor's walk lists. 16 ids are 64 bytes, SmallVector's limit for its fast inline copy; a longer list
+    // moves to the heap.
+    using RecipeList = foundation::SmallVector<RecipeId, 16>;
 
     // Committed is stronger than Transient: a row that both want keeps Committed (E6).
     enum class Transience : uint8_t
@@ -63,21 +70,27 @@ namespace cc
         // Takes one from the row's Wanted; at 0 it cancels a Waiting row and releases its inputs.
         void unwant(RecipeId _recipe);
         // Returns a Waiting or Ready row with Wanted 0 to Idle. Its inputs go on _unwants for the caller to drain.
-        void cancel(RecipeId _recipe, std::vector<RecipeId>& _unwants);
+        void cancel(RecipeId _recipe, RecipeList& _unwants);
         // Stores the result of a run, tells the dependents, releases the inputs, and tells the roots.
         void complete(RecipeId _recipe, KindResult _result, Context& _context);
+
+        // The steps of want. addWant adds one to the row's Wanted, and on 0 to 1 it makes an Idle row Waiting and
+        // puts it on _starting. startRow wants each input of a row from _starting, or fails it on a Failed input.
+        void addWant(RecipeId _recipe, NodeRow& _row, Transience _transience, RecipeList& _starting);
+        void startRow(RecipeId _recipe, Transience _transience, RecipeList& _starting,
+                      RecipeList& _unwants, RecipeList& _finished);
 
         // Shared by the four parts.
         // Takes one from the Wanted of each row on the list, and cancels each Waiting row that reaches 0. Iterative:
         // a cancel adds its inputs to the list. The list is empty when it returns.
-        void drainUnwants(std::vector<RecipeId>& _unwants);
+        void drainUnwants(RecipeList& _unwants);
         // The row no longer needs its inputs: it leaves the Dependents of each input that has not finished, and each
         // input goes on _unwants. Call it once for each row that leaves Waiting, Ready or Running.
-        void releaseInputs(RecipeId _recipe, std::vector<RecipeId>& _unwants);
+        void releaseInputs(RecipeId _recipe, RecipeList& _unwants);
         // The row is Failed already, with its Error set. Every row that waits on it, through Dependents, fails with
         // InputFailed and the same Origin and Failure, and releases its inputs. Each failed row, this one included,
         // goes on _finished.
-        void failDependents(RecipeId _failed, std::vector<RecipeId>& _unwants, std::vector<RecipeId>& _finished);
+        void failDependents(RecipeId _failed, RecipeList& _unwants, RecipeList& _finished);
 
         [[nodiscard]] NodeRow& rowOf(RecipeId _recipe);
         void spawnRun(RecipeId _recipe);

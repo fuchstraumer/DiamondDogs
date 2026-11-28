@@ -8,6 +8,10 @@ set(CONTENT_COMPILER_TEST_SOURCES
     test_kind_registry.cpp
     test_recipe_table.cpp
     test_ingest.cpp
+    test_executor_kinds.hpp
+    test_executor_kinds.cpp
+    test_artifact_table.cpp
+    test_executor.cpp
 )
 
 add_unit_test_target(content_compiler_tests

@@ -12,6 +12,14 @@ namespace cc
     class ArtifactTable
     {
     public:
+        ArtifactTable() = default;
+        // Asserts that every artifact was released: a hold left over is a leak in a row or a root.
+        ~ArtifactTable();
+        ArtifactTable(const ArtifactTable&) = delete;
+        ArtifactTable& operator=(const ArtifactTable&) = delete;
+        ArtifactTable(ArtifactTable&&) noexcept = default;
+        ArtifactTable& operator=(ArtifactTable&&) noexcept = default;
+
         // The new artifact has one holder: the caller.
         [[nodiscard]] ArtifactRef Add(Artifact _artifact);
 

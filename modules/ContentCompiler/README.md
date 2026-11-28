@@ -175,10 +175,8 @@ functions exist only so that the kinds register.
 
 ## Executor (T4, skeleton, 2026-11-07)
 
-The types, the artifact table, `Root`, and the run coroutine are written. Of the four parts that decide correctness,
-`unwant`, `cancel` and `complete` are written (2026-11-09). `want` is a stub that asserts; its contract is a comment in
-`src/Executor.cpp`. No test runs the executor yet. The artifact table has no test yet either; it gets one with the
-executor tests.
+The types, the artifact table, `Root`, the run coroutine, and the four parts that decide correctness (`want`,
+`unwant`, `cancel`, `complete`) are written. "How want walks" below traces `want`.
 
 Three helpers are shared by the four parts:
 
@@ -221,6 +219,58 @@ cache and the failure memo, so no second table can disagree with it.
 
 Two old rules come free from `Wanted`. A running node pins its inputs, because it still counts in their `Wanted`. A
 shared node is not cancelled by one requester, because the other requester still counts.
+
+### How want walks
+
+`want(recipe, transience)` adds one reason to keep a row. When that is the row's first reason, the row starts, and it
+wants its own inputs, which may start them in turn. So one call can start a whole subgraph. It has three steps.
+
+1. **`addWant`** on the target: `Wanted` plus 1, and the stronger transience kept. If `Wanted` went 0 to 1 on an `Idle`
+   row, the row becomes `Waiting` at once and goes on the `starting` list.
+2. **The loop.** Pop a row from `starting` and call **`startRow`** on it, until the list is empty:
+   - If any input is `Failed`, the row fails now with `InputFailed` and that input's `Origin`. It wants none of its
+     inputs. `failDependents` fails every row that already waits on it.
+   - Else, for each input edge: if the input has not succeeded, the row joins the input's `Dependents` and its own
+     `Unresolved` goes up by 1. Then `addWant` on the input, which may put the input on `starting`.
+   - If `Unresolved` is 0 (every input had succeeded already), the row is spawned: `Ready`.
+3. **After the loop:** drain the unwants that the failures collected, then tell the roots about each row that failed.
+
+The `starting` list is the explicit stack of an iterative depth-first walk. A recursive walk would use one machine
+stack frame per row, and a chain of 10,000 rows would overflow it in Debug.
+
+**The diamond.** `A` feeds `B` and `C`; `B` and `C` feed `D`. Nothing is cached. A root calls `want(D)`.
+
+| Step | What runs | `starting` after | A | B | C | D |
+|---|---|---|---|---|---|---|
+| 1 | `addWant(D)`: 0 to 1, `Idle`, so `Waiting` | D | | | | W1 Waiting |
+| 2 | pop D. B not done: D joins B's dependents, D.U 1, `addWant(B)` starts B. Same for C. D.U is 2, not 0 | B, C | | W1 Waiting | W1 Waiting | U2 |
+| 3 | pop C. A not done: C joins A's dependents, C.U 1, `addWant(A)` starts A | B, A | W1 Waiting | | U1 | |
+| 4 | pop A. No inputs, so A.U is 0: spawned | B | Ready | | | |
+| 5 | pop B. A is `Ready`, not done: B joins A's dependents, B.U 1, `addWant(A)`: W 2, A is not `Idle`, so nothing more | (empty) | W2 | U1 | | |
+
+`A` is on `starting` once, because only the 0-to-1 want of an `Idle` row pushes it. That is single-flight without an
+in-flight table. Then `A` runs, and `complete` takes the rest: `B` and `C` reach `U0` and spawn in the same `Tick`,
+then `D`.
+
+**Why a row is `Waiting` before it is popped.** Suppose `P` reads `S` and `R`, in that slot order. `startRow(P)` pushes
+`S`, then `R`, so `R` is popped first. `R` fails at once (its input failed long ago). `failDependents` fails `P`, and `releaseInputs(P)`
+must take `P` out of `S`'s dependents. It looks only in inputs that are `Waiting`, `Ready` or `Running`. `S` has not
+been popped yet, so if it were still `Idle`, `P` would stay in its dependents: a stale entry that `complete` would later
+trip on.
+
+**Why the unwants wait until the loop ends.** In the same case, `P`'s failure also unwants `S`. `S`'s count goes back to
+0. If that unwant ran now, `S` would be cancelled while it is still on `starting`, before it had wanted its own inputs,
+and its cancel would release inputs it never wanted: their counts would go below 0. After the loop, `S` has wanted its
+inputs, so the cancel undoes exactly what the start did. `S` started for nothing, which costs a little work and no
+correctness.
+
+**Counts are per edge.** A row that reads outputs `A` and `B` of one `Pair` row is in the pair's dependents twice, and
+counts 2 in the pair's `Wanted` and in its own `Unresolved`. `complete` takes 1 per dependents entry, and
+`releaseInputs` releases once per edge, so every count returns to where it was.
+
+**Transience.** Each row whose `Wanted` this call raises keeps the stronger of its old transience and the request's.
+Rows below a row that had already started are not reached, so they keep theirs. Nothing reads transience yet: it is
+for the transient tier's eviction, which is not designed in code.
 
 **What a kind writes.** `Run(const Params&, Inputs, Context&)` returns `foundation::Task<KindResult>`. It sets each
 output with `context.SetOutput(index, artifact)` and reports diagnostics with `context.Report`. `KindResult` holds
