@@ -18,6 +18,12 @@ static const float MantleVigor = 1.0f;
 static const float TrenchElevation = -10.0f;
 static const float PeakElevation = 10.0f;
 static const float ConvergentBoundarySpeedThreshold = 5.0f;
+static const float DivergentBoundarySpeedThreshold = 5.0f;
+static const int GapNewCrust = -1;
+static const int GapKeepExisting = -2;
+// a gap cell with this many live neighbours of its own plate (of 8) is a hole in the lattice, not a plate edge
+static const uint HoleLiveNeighbors = 6u;
+static const uint k_MaxBoundaryOtherPlates = 3u;
 
 static const uint FrontTypeNone = 0u;
 static const uint FrontTypeSubductionOverlap = 1u;
@@ -62,6 +68,252 @@ void FillGapsCS(uint3 threadId : SV_DispatchThreadID)
     }
 
     PreviousPlate.Store(point, plate);
+}
+
+uint GapTargetCell(uint point, uint plate);
+int ClassifyGap(uint plate, uint cell);
+void CopyCrust(uint sourceFlat, uint targetFlat);
+
+// The first half of the spreading rule: for each gap point, decide new crust or a copy, before any gap is filled.
+// The decision is a function of the target lattice cell and of the state before the fill, so two gap points that
+// fill the same cell agree, and no thread here reads a cell that FillSpreadingGapsCS writes.
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void ClassifyGapsCS(uint3 threadId : SV_DispatchThreadID)
+{
+    const uint point = threadId.x;
+    if (point >= StepParams.PointCount)
+    {
+        return;
+    }
+
+    if (LoadOwnersIn(point).GetBestPlate() != -1)
+    {
+        return;
+    }
+
+    const uint plate = uint(PreviousPlateIn.Load(point));
+    GapSource.Store(point, ClassifyGap(plate, GapTargetCell(point, plate)));
+}
+
+// FillGapsCS with the spreading rule: a gap gets new crust only where ClassifyGapsCS found spreading. Elsewhere (a
+// hole in the lattice, or a boundary that slides or closes) it copies the crust of a live neighbour cell.
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void FillSpreadingGapsCS(uint3 threadId : SV_DispatchThreadID)
+{
+    const uint point = threadId.x;
+    if (point >= StepParams.PointCount)
+    {
+        return;
+    }
+
+    const OwnersData owners = LoadOwners(point);
+    int plate = owners.GetBestPlate();
+
+    if (plate == -1)
+    {
+        plate = PreviousPlate.Load(point);
+        const uint cell = GapTargetCell(point, uint(plate));
+        const uint targetFlat = uint(plate) * StepParams.PointCount + cell;
+        const int source = GapSourceIn.Load(point);
+
+        if (source == GapNewCrust)
+        {
+            WriteNewOceanCrust(targetFlat);
+        }
+        else if (source >= 0)
+        {
+            CopyCrust(uint(source), targetFlat);
+        }
+
+        StoreOwners(point, int2(plate, int(cell)), owners.Data.zw);
+    }
+
+    PreviousPlate.Store(point, plate);
+}
+
+// The lattice cell of the plate that a gap point fills: the cell nearest to the point in the plate frame.
+uint GapTargetCell(uint point, uint plate)
+{
+    const float3 worldPoint = HealpixPixToVec(point, StepParams.HealpixOrder);
+    const float3 localPoint = WorldToPlate(worldPoint, LoadRotation(plate));
+    return HealpixVecToPix(localPoint, StepParams.HealpixOrder);
+}
+
+// GapNewCrust, GapKeepExisting, or the flat index of the cell to copy. If the target cell is already alive (e.g.
+// from a 1-ULP rounding difference between OwnersCS and GapTargetCell or a stale cap), keep it untouched so no live
+// cell is overwritten or concurrently read by CopyCrust. Next, the lattice: a cell with live cells of its own plate on
+// most sides is a hole that the plate never filled, and it copies a neighbour of the crust type that most of them
+// have. Then the world: the gap gets new crust if any distinct other plate in the 8 neighbours of the cell's world
+// point moves away faster than DivergentBoundarySpeedThreshold along its estimated boundary normal (sum of unit
+// directions to that plate's neighbours, so diagonals do not outweigh cardinals and a sliding side at a triple
+// junction does not mask a spreading side). A boundary gap copies only ocean crust, so that a gap at a margin never
+// makes continent. A gap with no other plate in its 8 neighbours (a wide ridge gap), or with no live ocean neighbour,
+// keeps the reference rule: new crust.
+int ClassifyGap(uint plate, uint cell)
+{
+    if (LoadCrustFlagsIn(plate * StepParams.PointCount + cell).IsAlive())
+    {
+        return GapKeepExisting;
+    }
+
+    uint baseFace;
+    int faceX;
+    int faceY;
+    HealpixDecode(cell, StepParams.HealpixOrder, baseFace, faceX, faceY);
+
+    uint liveNeighbors = 0u;
+    uint continentalNeighbors = 0u;
+    int oceanSource = GapNewCrust;
+    int continentalSource = GapNewCrust;
+    bool oceanSourceIsCardinal = false;
+    bool continentalSourceIsCardinal = false;
+
+    for (uint direction = 0u; direction < 8u; ++direction)
+    {
+        const int neighbor = HealpixNeighbor(baseFace, faceX, faceY, k_NeighborDeltaX[direction],
+                                             k_NeighborDeltaY[direction], StepParams.HealpixOrder);
+        if (neighbor < 0)
+        {
+            continue;
+        }
+
+        const uint neighborFlat = plate * StepParams.PointCount + uint(neighbor);
+        const CrustFlagBits neighborFlags = LoadCrustFlagsIn(neighborFlat);
+        if (!neighborFlags.IsAlive())
+        {
+            continue;
+        }
+
+        // of each crust type, the first live cardinal neighbour, else the first live diagonal one
+        const bool cardinal = (direction & 1u) == 0u;
+        liveNeighbors += 1u;
+
+        if (neighborFlags.IsContinental())
+        {
+            continentalNeighbors += 1u;
+
+            if (continentalSource == GapNewCrust || (cardinal && !continentalSourceIsCardinal))
+            {
+                continentalSource = int(neighborFlat);
+                continentalSourceIsCardinal = cardinal;
+            }
+        }
+        else if (oceanSource == GapNewCrust || (cardinal && !oceanSourceIsCardinal))
+        {
+            oceanSource = int(neighborFlat);
+            oceanSourceIsCardinal = cardinal;
+        }
+    }
+
+    if (liveNeighbors >= HoleLiveNeighbors)
+    {
+        return (2u * continentalNeighbors > liveNeighbors) ? continentalSource : oceanSource;
+    }
+
+    if (oceanSource == GapNewCrust)
+    {
+        return GapNewCrust;
+    }
+
+    const float3 cellWorld = PlateToWorld(HealpixPixToVec(cell, StepParams.HealpixOrder), LoadRotation(plate));
+    const uint worldPoint = HealpixVecToPix(cellWorld, StepParams.HealpixOrder);
+    const float3 position = HealpixPixToVec(worldPoint, StepParams.HealpixOrder);
+    HealpixDecode(worldPoint, StepParams.HealpixOrder, baseFace, faceX, faceY);
+
+    int otherPlates[k_MaxBoundaryOtherPlates] = { -1, -1, -1 };
+    float3 towardOthers[k_MaxBoundaryOtherPlates] =
+    {
+        float3(0.0f, 0.0f, 0.0f),
+        float3(0.0f, 0.0f, 0.0f),
+        float3(0.0f, 0.0f, 0.0f),
+    };
+    uint otherPlateCount = 0u;
+
+    for (uint direction = 0u; direction < 8u; ++direction)
+    {
+        const int neighbor = HealpixNeighbor(baseFace, faceX, faceY, k_NeighborDeltaX[direction],
+                                             k_NeighborDeltaY[direction], StepParams.HealpixOrder);
+        if (neighbor < 0)
+        {
+            continue;
+        }
+
+        const int neighborPlate = LoadOwnersIn(uint(neighbor)).GetBestPlate();
+        if (neighborPlate < 0 || neighborPlate == int(plate))
+        {
+            continue;
+        }
+
+        uint slot = otherPlateCount;
+
+        [unroll]
+        for (uint k = 0u; k < k_MaxBoundaryOtherPlates; ++k)
+        {
+            if (k < otherPlateCount && otherPlates[k] == neighborPlate)
+            {
+                slot = k;
+                break;
+            }
+        }
+
+        if (slot == otherPlateCount)
+        {
+            if (otherPlateCount >= k_MaxBoundaryOtherPlates)
+            {
+                continue;
+            }
+
+            otherPlates[otherPlateCount] = neighborPlate;
+            otherPlateCount += 1u;
+        }
+
+        const float3 offset = HealpixPixToVec(uint(neighbor), StepParams.HealpixOrder) - position;
+        const float offsetLength = length(offset);
+
+        if (offsetLength > 1.0e-6f)
+        {
+            towardOthers[slot] += offset / offsetLength;
+        }
+    }
+
+    if (otherPlateCount == 0u)
+    {
+        return GapNewCrust;
+    }
+
+    const float4 polePlate = LoadPoleRates(plate);
+    const float3 velocityPlate = cross(polePlate.xyz * polePlate.w, position) * PlanetRadiusKm;
+
+    for (uint k = 0u; k < otherPlateCount; ++k)
+    {
+        const float3 tangent = towardOthers[k] - dot(towardOthers[k], position) * position;
+        const float tangentLength = length(tangent);
+
+        if (tangentLength < 1.0e-6f)
+        {
+            return GapNewCrust;
+        }
+
+        const float4 poleOther = LoadPoleRates(uint(otherPlates[k]));
+        const float3 velocityOther = cross(poleOther.xyz * poleOther.w, position) * PlanetRadiusKm;
+        const float openingSpeed = dot(velocityOther - velocityPlate, tangent / tangentLength);
+
+        if (openingSpeed > DivergentBoundarySpeedThreshold)
+        {
+            return GapNewCrust;
+        }
+    }
+
+    return oceanSource;
+}
+
+void CopyCrust(uint sourceFlat, uint targetFlat)
+{
+    const CrustFlagBits sourceFlags = LoadCrustFlags(sourceFlat);
+    StoreCrustFlags(targetFlat, PackCrustFlags(true, sourceFlags.IsContinental()));
+    StoreCrustState(targetFlat, LoadCrustState(sourceFlat));
 }
 
 void RunSubductionFronts(uint point, bool killUnderCell);

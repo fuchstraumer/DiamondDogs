@@ -392,8 +392,8 @@ The Loom graph now runs two passes in its place:
   rounds in the plate frame, and the kill rounds in the world frame, so the two maps differ by up to one pixel).
   Continental cells do not subduct here.
 
-The `--verify` run sets `PlanetGraphConfig::ReferenceSubductionKill`, so it keeps the reference kill and stays
-bit-exact; `--self-verify` tests the active gather-kill path. `PlanetStep` (the bench and `PlanetGenCheck`) also keeps
+The `--verify` run sets `PlanetGraphConfig::FrozenReferenceCrust`, so it keeps the reference kill (and the reference
+gap fill, below) and stays bit-exact; `--self-verify` tests the active crust passes. `PlanetStep` (the bench and `PlanetGenCheck`) also keeps
 the reference kill.
 
 Measured at order 7 on the earth preset (two seeds, 0 to 400 My, `planet_regression.py`):
@@ -405,6 +405,50 @@ Measured at order 7 on the earth preset (two seeds, 0 to 400 My, `planet_regress
   next to old crust of the same plate (about 250 of 1,870 births per step), not from the kill.
 - Cost (GPU Trace runs 15 and 16, submit 400, RTX 4080): `KillSubductedCS` takes 25.3 µs at order 7 and 58.9 µs at
   order 8, next to 14.4 µs and 34.9 µs for `SubductionFrontsCS`.
+
+## New crust only where plates spread (2026-11-27)
+
+The reference gives every gap new crust (`FillGapsCS`: birth = now). A gap is a world point that no plate covers. Plates
+move less than one cell per step, and each plate lattice is rotated against the world grid, so gaps also open by
+rounding: at boundaries that slide or close, and at lattice cells inside a plate that no world point filled while the
+plate grew. On Earth, new ocean crust forms only at ridges, where plates move apart (Cortial et al. 2019 also makes it
+only along the ridge between diverging plates, and fills gaps only when it resamples, every 20 to 120 My). At 300 My
+the earth preset made about 1,870 ocean cells per step (about 9.7 km^2 per year at order 7; Earth's ridges make about
+3 to 3.5 km^2 per year, about 625 cells per step), and about 250 of them touched old crust of their own plate.
+
+The Loom graph now runs two passes in place of `FillGapsCS`:
+
+- `ClassifyGapsCS` decides, for each gap point, new crust or a copy, and writes it to `GapSource`. It looks at the
+  lattice cell that the gap fills, in the state before any gap is filled, so two gap points that fill one cell agree
+  and no thread reads a cell that the fill writes.
+  - A cell with 6 or more live neighbours of its own plate (of 8) is a hole: it copies a neighbour of the crust type
+    that most of the neighbours have.
+  - Else it is a boundary gap. It gets new crust when any distinct other plate (up to 3 at a triple junction) in the 8
+    neighbours of the cell's world point moves away faster than 5 km/My along its boundary normal (the sum of unit
+    directions to that plate's neighbours, so diagonals do not outweigh cardinals and a sliding side gives no opening).
+    Else it copies a live ocean neighbour.
+  - A gap with no other plate near it (a wide ridge gap), or with no live ocean neighbour, gets new crust, as before.
+  - If the target cell is already alive before the fill (e.g. from a 1-ULP rounding edge between `OwnersCS` and
+    `GapTargetCell`), `ClassifyGapsCS` emits `GapKeepExisting` and `FillSpreadingGapsCS` attaches `Owners` without
+    writing `CrustFlags` or `CrustState`.
+- `FillSpreadingGapsCS` fills each gap from `GapSource`. Copies keep the source's birth, relief and orogeny.
+
+A boundary gap copies only ocean crust. The first version copied continental crust too: every gap at a continental
+margin then grew the continent by a cell, and land went from 28 % to 55 % at 400 My.
+
+Measured at order 7 on the earth preset (seeds 42 and 7, 0 to 400 My, `planet_regression.py`):
+
+| | Before (42 / 7) | After (42 / 7) |
+|---|---|---|
+| Ocean cells born per step, mean over 0 to 400 My | 1,638 / 1,430 | 1,151 / 1,122 |
+| Land fraction at 400 My | 0.281 / 0.316 | 0.289 / 0.327 |
+| Continental fragments of 4 cells or fewer at 400 My | 55 / 34 | 31 / 32 |
+| `seafloor_age_jump_pair_frac` at 400 My | 0.030 / 0.029 | 0.021 / 0.030 |
+
+The age maps lose most of the thin interleaved stripes. The jump metric falls on one seed only: it also counts real
+offsets between ridge segments and the jagged edges of ridges, so it is a weak measure of the stripes. Births are
+still about 1.8 times Earth's rate. `ClassifyGapsCS` takes 12 µs at order 7 and 20 µs at order 8 (`--timestamps`,
+RTX 4080).
 
 ## Ocean relief (2026-11-27)
 

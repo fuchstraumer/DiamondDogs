@@ -67,6 +67,8 @@ namespace planet_loom
         inline constexpr loom::PassKey k_CountVotesPass{ "Planet.Pass.CountVotes" };
         inline constexpr loom::PassKey k_SwapToMajorityPass{ "Planet.Pass.SwapToMajority" };
         inline constexpr loom::PassKey k_FillGapsPass{ "Planet.Pass.FillGaps" };
+        inline constexpr loom::PassKey k_ClassifyGapsPass{ "Planet.Pass.ClassifyGaps" };
+        inline constexpr loom::PassKey k_FillSpreadingGapsPass{ "Planet.Pass.FillSpreadingGaps" };
         inline constexpr loom::PassKey k_RemoveSubductedPass{ "Planet.Pass.RemoveSubducted" };
         inline constexpr loom::PassKey k_SubductionFrontsPass{ "Planet.Pass.SubductionFronts" };
         inline constexpr loom::PassKey k_KillSubductedPass{ "Planet.Pass.KillSubducted" };
@@ -118,12 +120,14 @@ namespace planet_loom
             k_TelemetryPostRiftPass,
         };
 
-        inline constexpr std::array<loom::PassKey, 40> k_SimulationPassKeys
+        inline constexpr std::array<loom::PassKey, 42> k_SimulationPassKeys
         {
             k_OwnersPass,
             k_CountVotesPass,
             k_SwapToMajorityPass,
             k_FillGapsPass,
+            k_ClassifyGapsPass,
+            k_FillSpreadingGapsPass,
             k_RemoveSubductedPass,
             k_SubductionFrontsPass,
             k_KillSubductedPass,
@@ -162,13 +166,15 @@ namespace planet_loom
             k_MovePlatesAndClearCountersPass,
         };
 
-        inline constexpr std::array<loom::PassKey, 57> k_AllPassKeys
+        inline constexpr std::array<loom::PassKey, 59> k_AllPassKeys
         {
             k_InitZeroCountersPass,
             k_OwnersPass,
             k_CountVotesPass,
             k_SwapToMajorityPass,
             k_FillGapsPass,
+            k_ClassifyGapsPass,
+            k_FillSpreadingGapsPass,
             k_RemoveSubductedPass,
             k_SubductionFrontsPass,
             k_KillSubductedPass,
@@ -560,6 +566,11 @@ namespace planet_loom
         DeclareBuffer(graph, k_BkeSeedFlag, loom::ResourceLifetime::Frame, planet::BufferExtent::HalfPoints, size);
         DeclareBuffer(graph, k_SuturePoints, loom::ResourceLifetime::Frame, planet::BufferExtent::PointsTimes4, size);
         DeclareBuffer(graph, k_SutureDistance, loom::ResourceLifetime::Frame, planet::BufferExtent::Points, size);
+
+        if (!config.FrozenReferenceCrust)
+        {
+            DeclareBuffer(graph, k_GapSource, loom::ResourceLifetime::Frame, planet::BufferExtent::Points, size);
+        }
         DeclareBuffer(graph, k_LiveGroupCounts, loom::ResourceLifetime::Frame, planet::BufferExtent::LiveGroups, size);
         DeclareBuffer(graph, k_PlateLiveOffset, loom::ResourceLifetime::Frame, planet::BufferExtent::PlatesPlusOne, size);
         DeclareBuffer(graph, k_LiveDispatch, loom::ResourceLifetime::Frame, planet::BufferExtent::IndirectDispatch, size);
@@ -757,27 +768,64 @@ namespace planet_loom
 
             addStageDump(k_DumpAfterSwapToMajorityPass);
 
-            // 4. FillGapsCS
-            seq.AddDispatch(k_FillGapsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+            // 4. Gaps. The reference run gives every gap new crust. The other runs classify the gaps first, and give
+            // new crust only where the plates spread apart (ClassifyGapsCS, FillSpreadingGapsCS).
+            if (config.FrozenReferenceCrust)
             {
-                namespace ep = pl::FillGapsCS;
-                pass.Shader(k_Module, "FillGapsCS");
-                pass.Bind(ep::StepParams, k_StepParams);
-                pass.Bind(ep::Pass3Constants, k_Pass3Constants);
-                pass.Bind(ep::SomeVariants::CrustFlags, k_CrustFlags);
-                pass.Bind(ep::SomeVariants::CrustFlagsWords, k_CrustFlags);
-                pass.Bind(ep::CrustState, k_CrustState);
-                pass.Bind(ep::Owners, k_Owners);
-                pass.Bind(ep::PreviousPlate, k_PreviousPlate);
-                pass.Bind(ep::Rotations, k_Rotations);
-                pass.DispatchThreads(points, 1, 1);
-            });
+                seq.AddDispatch(k_FillGapsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+                {
+                    namespace ep = pl::FillGapsCS;
+                    pass.Shader(k_Module, "FillGapsCS");
+                    pass.Bind(ep::StepParams, k_StepParams);
+                    pass.Bind(ep::Pass3Constants, k_Pass3Constants);
+                    pass.Bind(ep::SomeVariants::CrustFlags, k_CrustFlags);
+                    pass.Bind(ep::SomeVariants::CrustFlagsWords, k_CrustFlags);
+                    pass.Bind(ep::CrustState, k_CrustState);
+                    pass.Bind(ep::Owners, k_Owners);
+                    pass.Bind(ep::PreviousPlate, k_PreviousPlate);
+                    pass.Bind(ep::Rotations, k_Rotations);
+                    pass.DispatchThreads(points, 1, 1);
+                });
+            }
+            else
+            {
+                seq.AddDispatch(k_ClassifyGapsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+                {
+                    namespace ep = pl::ClassifyGapsCS;
+                    pass.Shader(k_Module, "ClassifyGapsCS");
+                    pass.Bind(ep::StepParams, k_StepParams);
+                    pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
+                    pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
+                    pass.Bind(ep::OwnersIn, k_Owners);
+                    pass.Bind(ep::PreviousPlateIn, k_PreviousPlate);
+                    pass.Bind(ep::Rotations, k_Rotations);
+                    pass.Bind(ep::PoleRatesIn, k_PoleRates);
+                    pass.Bind(ep::GapSource, k_GapSource, loom::AccessModifier::WriteOnly);
+                    pass.DispatchThreads(points, 1, 1);
+                });
+
+                seq.AddDispatch(k_FillSpreadingGapsPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
+                {
+                    namespace ep = pl::FillSpreadingGapsCS;
+                    pass.Shader(k_Module, "FillSpreadingGapsCS");
+                    pass.Bind(ep::StepParams, k_StepParams);
+                    pass.Bind(ep::Pass3Constants, k_Pass3Constants);
+                    pass.Bind(ep::SomeVariants::CrustFlags, k_CrustFlags);
+                    pass.Bind(ep::SomeVariants::CrustFlagsWords, k_CrustFlags);
+                    pass.Bind(ep::CrustState, k_CrustState);
+                    pass.Bind(ep::Owners, k_Owners);
+                    pass.Bind(ep::PreviousPlate, k_PreviousPlate);
+                    pass.Bind(ep::Rotations, k_Rotations);
+                    pass.Bind(ep::GapSourceIn, k_GapSource);
+                    pass.DispatchThreads(points, 1, 1);
+                });
+            }
 
             addStageDump(k_DumpAfterFillGapsPass);
 
             // 5. Subduction. The reference runs kill per world point, as the frozen reference does. The other runs
             // write the fronts first, then kill per lattice cell (KillSubductedCS), which reaches every cell.
-            if (config.ReferenceSubductionKill)
+            if (config.FrozenReferenceCrust)
             {
                 seq.AddDispatch(k_RemoveSubductedPass, simPolicy, k_Queue, [&](loom::DispatchBuilder& pass)
                 {

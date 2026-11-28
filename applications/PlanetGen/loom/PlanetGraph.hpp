@@ -53,8 +53,9 @@ namespace planet_loom
         bool EnableCapturePass{ false };
         bool EnableTelemetry{ false };
         bool EnableStateDump{ false };
-        // The verify runs set it: subduction then kills per world point, as the frozen reference does.
-        bool ReferenceSubductionKill{ false };
+        // The verify run sets it: the crust passes then do what the frozen reference does (subduction kills
+        // per world point, and every gap gets new crust).
+        bool FrozenReferenceCrust{ false };
     };
 
     // Imported uniform buffers
@@ -104,6 +105,7 @@ namespace planet_loom
     inline constexpr loom::ResourceKey<loom::Buffer> k_BkeSeedFlag{ "Planet.BkeSeedFlag" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_SuturePoints{ "Planet.SuturePoints" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_SutureDistance{ "Planet.SutureDistance" };
+    inline constexpr loom::ResourceKey<loom::Buffer> k_GapSource{ "Planet.GapSource" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_LiveGroupCounts{ "Planet.LiveGroupCounts" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_PlateLiveOffset{ "Planet.PlateLiveOffset" };
     inline constexpr loom::ResourceKey<loom::Buffer> k_LiveDispatch{ "Planet.LiveDispatch" };

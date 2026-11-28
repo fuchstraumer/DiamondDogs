@@ -83,6 +83,12 @@ Ints PreviousPlate;
 [ls_resource_tags("Aliased:PreviousPlate")]
 IntsIn PreviousPlateIn;
 
+// ClassifyGapsCS writes it and FillSpreadingGapsCS reads it, for gap points only: GapNewCrust, GapKeepExisting, or
+// the flat index of the lattice cell whose crust the gap copies.
+Ints GapSource;
+[ls_resource_tags("Aliased:GapSource")]
+IntsIn GapSourceIn;
+
 // .x = BestPlate, .y = BestCell, .z = SecondPlate, .w = SecondCell
 IntPoints Owners;
 [ls_resource_tags("Aliased:Owners")]
