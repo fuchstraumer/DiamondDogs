@@ -109,6 +109,17 @@ namespace planet_loom
         // ocean relief relaxes in about 100 My, and arcs stay near their trench (README, "Ocean relief")
         state.OceanErosion = 0.1f;
         state.IslandArcReachKm = 250.0f;
+        // the ocean floor of Stein and Stein (1992, GDH1): square root to 20 My, then the plate model; plus a
+        // sediment cover that grows to 0.8 km (README, "Ocean depth")
+        state.OceanRidgeDepthKm = 2.6f;
+        state.OceanSubsidenceKm = 0.365f;
+        state.OceanMaxDepthKm = 11.0f;
+        state.OceanPlateModelAgeMy = 20.0f;
+        state.OceanPlateDepthKm = 5.651f;
+        state.OceanPlateRelaxKm = 2.473f;
+        state.OceanPlateRelaxPerMy = 0.0278f;
+        state.OceanSedimentMaxKm = 0.8f;
+        state.OceanSedimentTimeMy = 40.0f;
         state.ContinentalReachKm = 800.0f;
         state.CollisionReachKm = 500.0f;
         state.SlabDipAgeWeight = 0.85f;
@@ -194,6 +205,18 @@ namespace planet_loom
         packed.CollapseElevationKm = state.CollapseElevationKm;
         packed.CollapseTimeMy = state.CollapseTimeMy;
         packed.ErosionPad = 0.0f;
+        packed.OceanRidgeDepthKm = state.OceanRidgeDepthKm;
+        packed.OceanSubsidenceKm = state.OceanSubsidenceKm;
+        packed.OceanMaxDepthKm = state.OceanMaxDepthKm;
+        packed.OceanPlateModelAgeMy = state.OceanPlateModelAgeMy;
+        packed.OceanPlateDepthKm = state.OceanPlateDepthKm;
+        packed.OceanPlateRelaxKm = state.OceanPlateRelaxKm;
+        packed.OceanPlateRelaxPerMy = state.OceanPlateRelaxPerMy;
+        packed.OceanSedimentMaxKm = state.OceanSedimentMaxKm;
+        packed.OceanSedimentTimeMy = state.OceanSedimentTimeMy;
+        packed.OceanDepthPad0 = 0.0f;
+        packed.OceanDepthPad1 = 0.0f;
+        packed.OceanDepthPad2 = 0.0f;
 
         for (uint32_t i = 0u; i < 4u; ++i)
         {

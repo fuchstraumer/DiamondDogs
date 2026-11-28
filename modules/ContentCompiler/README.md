@@ -235,6 +235,11 @@ wants its own inputs, which may start them in turn. So one call can start a whol
    - If `Unresolved` is 0 (every input had succeeded already), the row is spawned: `Ready`.
 3. **After the loop:** drain the unwants that the failures collected, then tell the roots about each row that failed.
 
+Every walk list (`starting`, the unwants, the finished rows, `failDependents`' pending rows) is a `RecipeList`, a
+`foundation::SmallVector<RecipeId, 16>`: 16 ids fill the 64 bytes that SmallVector copies inline, so a short walk makes
+no heap allocation. `NodeRow::Dependents` stays a `std::vector`, because an inline buffer there grows every row (about
+80 bytes now, 136 with 16 inline ids), and the right size waits for a count of dependents on a real graph.
+
 The `starting` list is the explicit stack of an iterative depth-first walk. A recursive walk would use one machine
 stack frame per row, and a chain of 10,000 rows would overflow it in Debug.
 
@@ -277,4 +282,22 @@ output with `context.SetOutput(index, artifact)` and reports diagnostics with `c
 only a status, so it is trivially copyable. A failure's diagnostics stay in the executor under a `FailureId`.
 
 **Teardown.** Destroy every `Root` first. Then call `Shutdown()`, tick the scheduler until `Idle()`, and destroy the
-executor. The destructor asserts `Idle()`.
+executor. The destructor asserts `Idle()`, then releases each row's outputs. The artifact table's destructor runs
+after that and asserts that no artifact is left: a hold that remains is a leak in a row or a root. Both asserts are
+Debug only.
+
+## Executor tests
+
+`test_executor.cpp` (16 tests) and `test_artifact_table.cpp` (4) run the executor on the CPU, with the kinds in
+`test_executor_kinds.*` (`exec.Number`, `Sum`, `Offset`, `Pair`, `Fail`, `Forget`, `Slow`). Each kind counts its runs
+and logs its identifying number, so a test sees how often and in which order the executor ran it. `Slow` yields once,
+so it stays `Running` across a `Tick`. Every test was proven able to fail with a planted fault (brief T4b).
+
+Two proofs are weaker than the rest. "A retarget keeps the rows that the old and the new target share" sees a cancel
+and restart only through the order of the runs, so it depends on the scheduler starting spawned roots first in, first
+out. The generation bumps in `Add` and in `Release` cover each other: a test fails only when both are gone.
+
+"A failure that fans out past the inline list size" fails a `Fail` node with 24 consumers, each with a consumer of
+its own, so the lists of `failDependents` and `drainUnwants` grow past 16 and move to the heap.
+
+`test_main.cpp` sends a Debug `assert` to stderr and exits (code 3) with no dialog, so an unattended run cannot block.

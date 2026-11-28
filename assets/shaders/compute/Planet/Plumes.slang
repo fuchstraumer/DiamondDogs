@@ -317,7 +317,7 @@ void ApplyMantlePlumesCS(uint3 threadId : SV_DispatchThreadID)
         PlumeConstants.OceanicErosionRate > 0.0f)
     {
         const float oceanAge = max(timeMy - crustState.GetBirth(), 0.0f);
-        const float baseOceanElev = max(-(2.6f + 0.345f * sqrt(oceanAge)), -6.0f);
+        const float baseOceanElev = OceanFloorElevationKm(oceanAge);
         const float currentElev = baseOceanElev + relief;
 
         float erosionMultiplier = 1.0f;

@@ -45,6 +45,25 @@ struct ShapingParams
     float CollapseTimeMy;
     float ErosionPad;
 
+    // The age-depth curve of the ocean floor (OceanFloorElevationKm), depths below sea level in km. Below
+    // OceanPlateModelAgeMy: OceanRidgeDepthKm + OceanSubsidenceKm * sqrt(age), at most OceanMaxDepthKm. From that age:
+    // OceanPlateDepthKm - OceanPlateRelaxKm * exp(-age * OceanPlateRelaxPerMy). Sediment, up to OceanSedimentMaxKm
+    // with the time constant OceanSedimentTimeMy, then lifts the floor by its isostatic share.
+    float OceanRidgeDepthKm;
+    float OceanSubsidenceKm;
+    float OceanMaxDepthKm;
+    float OceanPlateModelAgeMy;
+
+    float OceanPlateDepthKm;
+    float OceanPlateRelaxKm;
+    float OceanPlateRelaxPerMy;
+    float OceanSedimentMaxKm;
+
+    float OceanSedimentTimeMy;
+    float OceanDepthPad0;
+    float OceanDepthPad1;
+    float OceanDepthPad2;
+
     float4 ProfileLut[4];
 };
 

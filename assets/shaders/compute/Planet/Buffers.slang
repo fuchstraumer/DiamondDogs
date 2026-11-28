@@ -405,6 +405,28 @@ internal void StoreCrustState(uint where, CrustStateData crustState)
     CrustState.Store(where, crustState.Data);
 }
 
+// The share of a sediment layer's thickness by which its load lifts the ocean floor, from isostasy:
+// (mantle - sediment) / (mantle - water), with densities 3.3, 2.0 and 1.03 g/cm^3.
+static const float SedimentIsostasy = 0.573f;
+
+// The elevation of bare ocean floor of an age, from the curve in ShapingConstants. The legacy preset gives
+// max(-(2.6 + 0.345 sqrt(age)), -6), the curve of the reference.
+internal float OceanFloorElevationKm(in float oceanAgeMy)
+{
+    float depthKm = min(ShapingConstants.OceanRidgeDepthKm + ShapingConstants.OceanSubsidenceKm * sqrt(oceanAgeMy),
+                        ShapingConstants.OceanMaxDepthKm);
+
+    if (oceanAgeMy >= ShapingConstants.OceanPlateModelAgeMy)
+    {
+        depthKm = ShapingConstants.OceanPlateDepthKm -
+                  ShapingConstants.OceanPlateRelaxKm * exp(-oceanAgeMy * ShapingConstants.OceanPlateRelaxPerMy);
+    }
+
+    const float sedimentTimeMy = max(ShapingConstants.OceanSedimentTimeMy, 1.0e-3f);
+    const float sedimentKm = ShapingConstants.OceanSedimentMaxKm * (1.0f - exp(-oceanAgeMy / sedimentTimeMy));
+    return SedimentIsostasy * sedimentKm - depthKm;
+}
+
 internal float BaseCrustElevationKm(in bool isContinental, in float birthTimeMy, in float timeMy)
 {
     if (isContinental)
@@ -412,8 +434,7 @@ internal float BaseCrustElevationKm(in bool isContinental, in float birthTimeMy,
         return 0.5f;
     }
 
-    const float oceanAgeMy = max(timeMy - birthTimeMy, 0.0f);
-    return max(-(2.6f + 0.345f * sqrt(oceanAgeMy)), -6.0f);
+    return OceanFloorElevationKm(max(timeMy - birthTimeMy, 0.0f));
 }
 
 internal float TectonicCellElevationKm(in CrustFlagBits flags, in CrustStateData state, in float timeMy)

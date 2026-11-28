@@ -216,6 +216,16 @@ namespace planet
         shaping.NoiseSeed = 1337u;
         shaping.AtollLandBias = 0.0f;
         shaping.OceanErosion = 0.0f;
+        // the reference ocean floor: max(-(2.6 + 0.345 sqrt(age)), -6) km
+        shaping.OceanRidgeDepthKm = 2.6f;
+        shaping.OceanSubsidenceKm = 0.345f;
+        shaping.OceanMaxDepthKm = 6.0f;
+        shaping.OceanPlateModelAgeMy = 3.0e38f;
+        shaping.OceanPlateDepthKm = 0.0f;
+        shaping.OceanPlateRelaxKm = 0.0f;
+        shaping.OceanPlateRelaxPerMy = 0.0f;
+        shaping.OceanSedimentMaxKm = 0.0f;
+        shaping.OceanSedimentTimeMy = 1.0f;
 
         for (uint32_t i = 0u; i < 4u; ++i)
         {

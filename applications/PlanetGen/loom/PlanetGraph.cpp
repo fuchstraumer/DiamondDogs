@@ -703,6 +703,7 @@ namespace planet_loom
                 pass.Shader(k_Module, "DumpHealpixStateCS");
                 pass.Bind(ep::StepParams, k_StepParams);
                 pass.Bind(ep::RenderMapConstants, k_RenderMapConstants);
+                pass.Bind(ep::ShapingConstants, k_ShapingConstants);
                 pass.Bind(ep::PlumeConstants, k_PlumeConstants);
                 pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
                 pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);
@@ -1297,6 +1298,7 @@ namespace planet_loom
                 pass.Shader(k_Module, "ApplyMantlePlumesCS");
                 pass.Bind(ep::StepParams, k_StepParams);
                 pass.Bind(ep::PlumeConstants, k_PlumeConstants);
+                pass.Bind(ep::ShapingConstants, k_ShapingConstants);
                 pass.Bind(ep::SomeVariants::CrustFlags, k_CrustFlags);
                 pass.Bind(ep::SomeVariants::CrustFlagsWords, k_CrustFlags);
                 pass.Bind(ep::CrustState, k_CrustState);
@@ -1434,6 +1436,7 @@ namespace planet_loom
                     pass.Shader(k_Module, "TelemetryPostRiftCS");
                     pass.Bind(ep::StepParams, k_StepParams);
                     pass.Bind(ep::UpliftConstants, k_UpliftConstants);
+                    pass.Bind(ep::ShapingConstants, k_ShapingConstants);
                     pass.Bind(ep::PlumeConstants, k_PlumeConstants);
                     pass.Bind(ep::SomeVariants::CrustFlagsIn, k_CrustFlags);
                     pass.Bind(ep::SomeVariants::CrustFlagsWordsIn, k_CrustFlags);

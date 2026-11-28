@@ -600,6 +600,8 @@ FrontState ComputeFrontValues(in CrustFlagBits crustFlagsUnder,
     float base = 0.5f;
     if (!crustFlagsUnder.IsContinental())
     {
+        // the reference curve, not OceanFloorElevationKm: this only scales the front strength, and the verify run
+        // compares it against the frozen reference
         base = max(-(2.6f + 0.345f * sqrt(age)), -6.0f);
     }
 

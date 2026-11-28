@@ -440,10 +440,10 @@ Measured at order 7 on the earth preset (seeds 42 and 7, 0 to 400 My, `planet_re
 
 | | Before (42 / 7) | After (42 / 7) |
 |---|---|---|
-| Ocean cells born per step, mean over 0 to 400 My | 1,638 / 1,430 | 1,151 / 1,122 |
-| Land fraction at 400 My | 0.281 / 0.316 | 0.289 / 0.327 |
-| Continental fragments of 4 cells or fewer at 400 My | 55 / 34 | 31 / 32 |
-| `seafloor_age_jump_pair_frac` at 400 My | 0.030 / 0.029 | 0.021 / 0.030 |
+| Ocean cells born per step, mean over 0 to 400 My | 1,638 / 1,430 | 1,201 / 1,071 |
+| Land fraction at 400 My | 0.281 / 0.316 | 0.289 / 0.326 |
+| Continental fragments of 4 cells or fewer at 400 My | 55 / 34 | 33 / 7 |
+| `seafloor_age_jump_pair_frac` at 400 My | 0.030 / 0.029 | 0.023 / 0.036 |
 
 The age maps lose most of the thin interleaved stripes. The jump metric falls on one seed only: it also counts real
 offsets between ridge segments and the jagged edges of ridges, so it is a weak measure of the stripes. Births are
@@ -477,6 +477,38 @@ W1 gets worse, and all of the change is in the ocean quantiles (0.16 to 0.61 km 
 at 0.13 km). Without the wide arc relief, the ocean floor is 0.5 to 0.9 km deeper than Earth's at the same area
 quantile. The earlier W1 was partly arc relief that hid this. The depth model (no sediment load, no shelves) is the
 next item to calibrate.
+
+## Ocean depth (2026-11-27)
+
+The reference ocean floor is `max(-(2.6 + 0.345 sqrt(age)), -6)` km. It has no plate-model flattening and no
+sediment, and the earth preset's ocean was 0.5 to 0.9 km deeper than Earth's (ETOPO1) at the same area quantile.
+
+`OceanFloorElevationKm` (`Buffers.slang`) now reads the curve from the shaping uniform, so a preset picks it:
+
+- Below `OceanPlateModelAgeMy`: `OceanRidgeDepthKm + OceanSubsidenceKm * sqrt(age)`, at most `OceanMaxDepthKm`.
+- From that age: `OceanPlateDepthKm - OceanPlateRelaxKm * exp(-age * OceanPlateRelaxPerMy)`.
+- Sediment: `OceanSedimentMaxKm * (1 - exp(-age / OceanSedimentTimeMy))` lifts the floor by 0.573 of its thickness
+  (isostasy: (mantle - sediment) / (mantle - water), densities 3.3, 2.0 and 1.03).
+
+The defaults give the reference curve (legacy and atoll presets, and `PlanetGenCheck`). The earth preset uses GDH1
+(Stein and Stein, 1992: 2.6 + 0.365 sqrt(age) to 20 My, then 5.651 - 2.473 exp(-0.0278 age)) with up to 0.8 km of
+sediment (time constant 40 My; Earth's ocean sediment averages about 0.5 km, thicker on old floor). Render, dumps,
+telemetry, erosion and the atoll logic of `ApplyMantlePlumesCS` all use it. `ComputeFrontValues` keeps the reference
+curve: it only scales the front strength, and `--verify` compares it against the frozen reference.
+
+The curve was chosen offline: the dumps hold age, relief and swell, so a new curve gives a new elevation map without a
+run. The runs then matched the offline numbers exactly, and every other metric stayed the same (the curve changes
+elevation, not the plates' history). Measured on the earth preset, 0 to 400 My (`planet_regression.py`):
+
+| Hypsometry W1 to Earth (km) | Before (42 / 7) | After (42 / 7) |
+|---|---|---|
+| 200 My | 0.76 / 0.60 | 0.63 / 0.50 |
+| 400 My | 0.67 / 0.62 | 0.56 / 0.49 |
+
+What remains, at 400 My (seed 42), split by area quantile: the abyssal part (below 0.55) went from 0.28 to 0.17 km. The
+margin band (0.55 to 0.71) stays at about 0.29 km: the sim has no submerged continental crust, so it jumps from about
+-2.6 km to sea level where Earth has shelves and slopes (Earth is at -0.6 km at the 0.65 quantile, the sim at -3.3 km).
+Continental crust thickness is the fix for that band. The land part is about 0.11 km.
 
 ## Rifting (2026-11-26)
 

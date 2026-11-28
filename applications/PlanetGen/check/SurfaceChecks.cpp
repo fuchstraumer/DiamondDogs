@@ -1069,6 +1069,7 @@ namespace planet
         if (buffers.AddUniformFrom(**shaders, "ApplyMantlePlumesCS", "StepParams", paramsValues) != PlanetGpuError::Success ||
             buffers.AddUniformFrom(**shaders, "MovePlatesAndClearCountersCS", "MovePlatesConstants", movePlatesValues) != PlanetGpuError::Success ||
             buffers.AddUniform("PlumeConstants", std::as_bytes(std::span{ &plumes, 1u })) != PlanetGpuError::Success ||
+            !AddDefaultShapingUniform(buffers) ||
             buffers.AddStorage(flagBuffer, std::as_bytes(std::span{ packedFlags }), false) != PlanetGpuError::Success ||
             buffers.AddZeroedStorage("CrustState", static_cast<size_t>(k_PointCount) * sizeof(math::Float4), true) != PlanetGpuError::Success ||
             buffers.AddStorage("LiveCell", std::as_bytes(std::span{ liveCells }), false) != PlanetGpuError::Success ||
