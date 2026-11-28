@@ -42,7 +42,11 @@ come from the shader bundles, through bootstrap's `GatherDeviceRequirements`.
 1. The device's API version must be at least the instance's.
 2. With a `PresentSurface`, the first queue family with graphics (the family that `Device` uses) must present to it.
    Each limit must be at least `RequiredLimits`. A failure names the limit by its Vulkan name, or `present`.
-3. A Wanted need in `Declined` is skipped. A Required need ignores `Declined`.
+3. A Wanted need in `Declined` is skipped. A Required need ignores `Declined`. A declined extension also declines
+   every extension that depends on it, directly or through another extension, and every feature member of their
+   structs. `StartDevice` adds the dependencies of the planned extensions after the plan, so without this rule a
+   wanted dependent would bring the declined extension back. A declined extension that is core in the active version
+   declines nothing, because it is never enabled by name.
 4. Each extension must be supported, or the device fails a Required need.
 5. Each feature: the struct must be available (a version the device has, or a supported extension), and the member
    must be supported. A member of an extension struct also enables its extension.
@@ -79,8 +83,8 @@ and `GetVideoEncodeQueue(index)` expose it. On the RTX 4080 the family has 2 que
   `ModuleNeeds`. A device without them still boots.
 - **"Not available":** `GetVideoEncodeQueueCount()` returns 0, and the family index is `k_QueueFamilyIgnored`. The
   consumer then takes its CPU path.
-- **To test the fallback:** decline `VK_KHR_video_encode_h265`. Do not decline `VK_KHR_video_encode_queue`: the
-  planner adds an extension's dependencies after `Declined`, so the wanted codec extension brings it back.
+- **To test the fallback:** decline `VK_KHR_video_encode_queue` or `VK_KHR_video_encode_h265`. Declining the queue
+  extension also leaves off the codec extension, which depends on it.
 - **Codec capabilities** (`vkGetPhysicalDeviceVideoCapabilitiesKHR` with `VkVideoEncodeCapabilitiesKHR` and
   `VkVideoEncodeH265CapabilitiesKHR`) are the video module's query. They need the module's own profile chain, and they
   are properties of the physical device (`GetPhysicalDevice()`), not features that the device enables, so the "ask the

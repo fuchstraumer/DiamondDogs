@@ -1,4 +1,5 @@
 #include "DevicePlanner.hpp"
+#include "ExtensionWrangler.hpp"
 #include "FeatureChain.hpp"
 #include "GeneratedFeatureTable.hpp"
 #include "RhiSystemStart.hpp"
@@ -94,6 +95,13 @@ namespace
                                         std::span<const rhi::DeviceNeed> needs,
                                         std::span<const std::string_view> declined);
     [[nodiscard]] bool PlanCapability(rhi::DevicePlan& plan, const DeviceFacts& facts, std::string_view primary_name);
+    // the declined names, plus every supported extension that depends on a declined extension, directly or through
+    // another extension. RhiSystem adds the dependencies of the planned extensions after planning, so without this a
+    // wanted dependent would bring a declined extension back
+    [[nodiscard]] std::vector<std::string_view> WithDeclinedDependents(VkPhysicalDevice physical_device,
+                                                                       uint32_t api_version,
+                                                                       const DeviceFacts& facts,
+                                                                       std::span<const std::string_view> declined);
     // a Wanted need that the start info declines is left off
     [[nodiscard]] bool IsDeclined(const rhi::DeviceNeed& need, std::span<const std::string_view> declined) noexcept;
     // the first queue family with graphics, the same family that Device chooses, must present to the surface
@@ -152,16 +160,18 @@ namespace rhi
         }
 
         const DeviceFacts facts = ReadFacts(physical_device, plan.ApiVersion, start_info);
+        const std::vector<std::string_view> declined =
+            WithDeclinedDependents(physical_device, plan.ApiVersion, facts, start_info.Declined);
 
-        if (!PlanExtensions(plan, facts, start_info.Extensions, start_info.Declined) ||
-            !PlanFeatures(plan, facts, start_info.Features, start_info.Declined) ||
-            !PlanCapabilities(plan, facts, start_info.Capabilities, start_info.Declined))
+        if (!PlanExtensions(plan, facts, start_info.Extensions, declined) ||
+            !PlanFeatures(plan, facts, start_info.Features, declined) ||
+            !PlanCapabilities(plan, facts, start_info.Capabilities, declined))
         {
             return plan;
         }
 
         SortUnique(plan.Extensions);
-        EnableSupportedFeatures(plan, facts, start_info.Declined);
+        EnableSupportedFeatures(plan, facts, declined);
         SortUnique(plan.EnabledCapabilities);
         return plan;
     }
@@ -612,6 +622,15 @@ namespace
                 continue;
             }
 
+            // a member of an extension struct enables its extension, so a declined extension declines its members
+            const std::optional<std::string_view> route = StructRoute(*info, facts);
+            const bool routeDeclined = route.has_value() && !route->empty() && std::ranges::contains(declined, *route);
+
+            if (need.Level == rhi::DeviceNeedLevel::Wanted && routeDeclined)
+            {
+                continue;
+            }
+
             if (EnableFeatureMember(plan, facts, *info, *member))
             {
                 continue;
@@ -689,6 +708,56 @@ namespace
         }
 
         return false;
+    }
+
+    std::vector<std::string_view> WithDeclinedDependents(VkPhysicalDevice physical_device,
+                                                         uint32_t api_version,
+                                                         const DeviceFacts& facts,
+                                                         std::span<const std::string_view> declined)
+    {
+        std::vector<std::string_view> result(declined.begin(), declined.end());
+
+        if (declined.empty())
+        {
+            return result;
+        }
+
+        const ExtensionWrangler wrangler(api_version, physical_device);
+
+        // an extension that is core in this version is never enabled by name, so declining it removes nothing
+        const auto declinesAnExtension = [&wrangler, &result](const char* dependency)
+        {
+            const std::string_view name{ dependency };
+
+            return std::ranges::contains(result, name) && !wrangler.ExtensionCoreInActiveVersion(name);
+        };
+
+        // the table lists direct dependencies only, so repeat until no extension joins
+        bool grew = true;
+
+        while (grew)
+        {
+            grew = false;
+
+            for (const std::string& extension : facts.Extensions)
+            {
+                if (std::ranges::contains(result, extension))
+                {
+                    continue;
+                }
+
+                const ExtensionWrangler::Result<ExtensionDependencies> dependencies =
+                    wrangler.GetExtensionDependencies(extension);
+
+                if (dependencies.has_value() && std::ranges::any_of(dependencies->DeviceExtensionDeps, declinesAnExtension))
+                {
+                    result.emplace_back(extension);
+                    grew = true;
+                }
+            }
+        }
+
+        return result;
     }
 
     bool IsDeclined(const rhi::DeviceNeed& need, std::span<const std::string_view> declined) noexcept
